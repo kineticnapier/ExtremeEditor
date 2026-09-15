@@ -14,12 +14,14 @@ public sealed class LevelCanvas : Control
     private const float MinIconZoom = 12f;
     private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
+    private const float TwoPi = MathF.PI * 2f;
 
     private readonly List<int> _candidates = new(4096);
     private readonly GdiFloorRenderer _floorRenderer = new();
     private readonly GdiIconRenderer _iconRenderer = new();
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
+    private bool[] _floorIsCcw = [];
     private Vector2 _camera;
     private float _zoom = 28f;
     private bool _panning;
@@ -87,6 +89,7 @@ public sealed class LevelCanvas : Control
         _level = level;
         _index = index;
         _selectedFloor = -1;
+        RebuildFloorDirectionState();
         FrameAll();
     }
 
@@ -94,6 +97,7 @@ public sealed class LevelCanvas : Control
     {
         if (_level is null) return;
         _index = new SpatialGridIndex(_level.Positions);
+        RebuildFloorDirectionState();
         if (!keepCamera) FrameAll();
         else Invalidate();
     }
@@ -224,10 +228,12 @@ public sealed class LevelCanvas : Control
         graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         Vector2[] positions = _level!.Positions;
 
-        // SpatialGridIndex returns cells in viewport order, not level order. Drawing
-        // that list directly makes overlapping tracks randomly jump in front of one
-        // another as the viewport moves. Sequence order gives us a stable Z order.
-        _candidates.Sort();
+        // Stock scrLevelMaker assigns a larger sorting order to smaller seqIDs:
+        // (100 + (floorCount - i)) * 5. Painter's algorithm therefore has to draw
+        // large tile numbers first and small tile numbers last.
+        _candidates.Sort(static (a, b) => b.CompareTo(a));
+        bool drawIcons = _zoom >= MinIconZoom &&
+                         (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0);
 
         foreach (int i in _candidates)
         {
@@ -238,35 +244,35 @@ public sealed class LevelCanvas : Control
             if (!nearViewport.Contains(p))
                 continue;
 
+            PointF center = WorldToScreen(p);
             GetFloorAngles(i, positions, out float entryAngle, out float exitAngle);
             bool midSpin = i < _level.Angles.Length && Math.Abs(_level.Angles[i] - 999.0) < 0.000001;
             _floorRenderer.DrawFloor(
                 graphics,
-                WorldToScreen(p),
+                center,
                 _zoom,
                 entryAngle,
                 exitAngle,
                 midSpin,
                 i == _selectedFloor);
-            LastDrawnCount++;
-        }
 
-        // Icons are a separate pass so they are never buried by a later floor.
-        if (_zoom >= MinIconZoom && (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0))
-        {
-            foreach (int i in _candidates)
-            {
-                if ((uint)i >= (uint)positions.Length)
-                    continue;
-                Vector2 p = positions[i];
-                if (!nearViewport.Contains(p))
-                    continue;
-                DrawFloorIcon(graphics, i, WorldToScreen(p));
-            }
+            // The icon belongs to this floor's own render layer. Drawing it here,
+            // instead of in a global front-most pass, lets a lower-numbered floor
+            // drawn later cover both this floor and its icon just like ADOFAI.
+            if (drawIcons)
+                DrawFloorIcon(graphics, i, center, entryAngle, exitAngle, midSpin);
+
+            LastDrawnCount++;
         }
     }
 
-    private void DrawFloorIcon(Graphics graphics, int floor, PointF center)
+    private void DrawFloorIcon(
+        Graphics graphics,
+        int floor,
+        PointF center,
+        float entryAngle,
+        float exitAngle,
+        bool midSpin)
     {
         if (_level is null || !_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
             return;
@@ -284,9 +290,19 @@ public sealed class LevelCanvas : Control
             _iconRenderer.DrawFloorIcon(graphics, "Checkpoint", center, _zoom))
             return;
 
-        if (active.Any(action => string.Equals(action.EventType, "Twirl", StringComparison.Ordinal)) &&
-            _iconRenderer.DrawFloorIcon(graphics, "SwirlBlue", center, _zoom))
-            return;
+        if (active.Any(action => string.Equals(action.EventType, "Twirl", StringComparison.Ordinal)))
+        {
+            bool isCcw = (uint)floor < (uint)_floorIsCcw.Length && _floorIsCcw[floor];
+            SwirlVisual swirl = CalculateSwirlVisual(entryAngle, exitAngle, isCcw, midSpin);
+            if (_iconRenderer.DrawFloorIcon(
+                    graphics,
+                    swirl.IsRed ? "SwirlRed" : "SwirlBlue",
+                    center,
+                    _zoom,
+                    swirl.IconAngle,
+                    swirl.Flipped))
+                return;
+        }
 
         LevelAction? speed = active.FirstOrDefault(action => string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal));
         if (speed?.SpeedRatio is double ratio)
@@ -321,6 +337,7 @@ public sealed class LevelCanvas : Control
         using var selectedBrush = new SolidBrush(Color.FromArgb(255, 255, 210, 80));
         Vector2[] positions = _level!.Positions;
 
+        _candidates.Sort(static (a, b) => b.CompareTo(a));
         for (int c = 0; c < _candidates.Count; c += stride)
         {
             int i = _candidates[c];
@@ -345,6 +362,59 @@ public sealed class LevelCanvas : Control
             LastDrawnCount++;
         }
     }
+
+    private void RebuildFloorDirectionState()
+    {
+        if (_level is null)
+        {
+            _floorIsCcw = [];
+            return;
+        }
+
+        _floorIsCcw = new bool[_level.FloorCount];
+        bool isCcw = false;
+        for (int floor = 0; floor < _floorIsCcw.Length; floor++)
+        {
+            if (_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            {
+                foreach (LevelAction action in actions)
+                {
+                    if (action.Active && string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
+                        isCcw = !isCcw;
+                }
+            }
+            _floorIsCcw[floor] = isCcw;
+        }
+    }
+
+    private static SwirlVisual CalculateSwirlVisual(
+        float entryScreenAngle,
+        float exitScreenAngle,
+        bool isCcw,
+        bool midSpin)
+    {
+        // scrFloor uses an angle convention where 0 points up and +PI/2 points
+        // right. Convert our atan2 geometry back to that convention, then mirror
+        // UpdateIconSprite's FloorIcon.Swirl calculation for FloorMeshRenderer.
+        float entry = Mod(TwoPi + MathF.PI / 2f - entryScreenAngle, TwoPi);
+        float exit = Mod(TwoPi + MathF.PI / 2f - exitScreenAngle, TwoPi);
+        float direction = isCcw ? -1f : 1f;
+        float moved = Mod((exit - entry) * direction, TwoPi);
+        if (MathF.Abs(moved) <= 0.000001f && !midSpin)
+            moved = TwoPi;
+
+        bool isRed = moved < 3.1415918f;
+        float iconAngle = entry + moved * .5f * direction;
+        return new SwirlVisual(isRed, isCcw, iconAngle);
+    }
+
+    private static float Mod(float value, float modulus)
+    {
+        float result = value % modulus;
+        return result < 0f ? result + modulus : result;
+    }
+
+    private readonly record struct SwirlVisual(bool IsRed, bool Flipped, float IconAngle);
 
     private static void GetFloorAngles(int floor, Vector2[] positions, out float entryAngle, out float exitAngle)
     {
