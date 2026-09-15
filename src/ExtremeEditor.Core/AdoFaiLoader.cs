@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -42,20 +43,23 @@ public static class AdoFaiLoader
         int ai = 0;
         foreach (JsonElement value in angleData.EnumerateArray())
         {
-            angles[ai++] = value.ValueKind switch
-            {
-                JsonValueKind.Number => value.GetDouble(),
-                JsonValueKind.String when double.TryParse(
-                    value.GetString(),
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double parsed) => parsed,
-                _ => throw new InvalidDataException(
-                    $"Unsupported angleData value at index {ai - 1}: {value.ValueKind}")
-            };
+            angles[ai++] = TryReadDouble(value, out double parsed)
+                ? parsed
+                : throw new InvalidDataException(
+                    $"Unsupported angleData value at index {ai - 1}: {value.ValueKind}");
+        }
+
+        double initialBpm = 100.0;
+        if (root.TryGetProperty("settings", out JsonElement settings) &&
+            settings.ValueKind == JsonValueKind.Object &&
+            settings.TryGetProperty("bpm", out JsonElement bpmValue) &&
+            TryReadDouble(bpmValue, out double parsedBpm) && parsedBpm > 0)
+        {
+            initialBpm = parsedBpm;
         }
 
         var actionTypes = new Dictionary<string, int>(StringComparer.Ordinal);
+        var parsedActions = new List<LevelAction>();
         int actionCount = 0;
         if (root.TryGetProperty("actions", out JsonElement actions) &&
             actions.ValueKind == JsonValueKind.Array)
@@ -66,15 +70,30 @@ public static class AdoFaiLoader
                 if (action.ValueKind != JsonValueKind.Object)
                     continue;
 
-                string type = action.TryGetProperty("eventType", out JsonElement eventType)
-                    ? eventType.ValueKind == JsonValueKind.String
-                        ? eventType.GetString() ?? "<null>"
-                        : eventType.ToString()
-                    : "<unknown>";
+                string type = ReadLooseString(action, "eventType") ?? "<unknown>";
                 actionTypes.TryGetValue(type, out int count);
                 actionTypes[type] = count + 1;
+
+                if (!TryReadIntProperty(action, "floor", out int floor))
+                    continue;
+
+                bool active = !action.TryGetProperty("active", out JsonElement activeValue) ||
+                              ReadLooseBool(activeValue, defaultValue: true);
+                parsedActions.Add(new LevelAction(
+                    floor,
+                    type,
+                    active,
+                    ReadLooseString(action, "speedType"),
+                    ReadLooseDoubleProperty(action, "beatsPerMinute"),
+                    ReadLooseDoubleProperty(action, "bpmMultiplier"),
+                    ReadLooseString(action, "icon")));
             }
         }
+
+        ComputeSpeedRatios(parsedActions, initialBpm);
+        IReadOnlyDictionary<int, LevelAction[]> actionsByFloor = parsedActions
+            .GroupBy(action => action.Floor)
+            .ToDictionary(group => group.Key, group => group.ToArray());
 
         TimeSpan parse = sw.Elapsed;
 
@@ -90,12 +109,76 @@ public static class AdoFaiLoader
             Positions = positions,
             ActionCount = actionCount,
             ActionTypeCounts = actionTypes,
+            ActionsByFloor = actionsByFloor,
+            InitialBpm = initialBpm,
             Bounds = bounds
         };
 
         return new LoadResult(
             document,
             new LoadMetrics(read, parse, build, bytes.LongLength));
+    }
+
+    private static void ComputeSpeedRatios(List<LevelAction> actions, double initialBpm)
+    {
+        double bpm = initialBpm > 0 ? initialBpm : 100.0;
+        foreach (LevelAction action in actions
+                     .Where(action => action.Active && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
+                     .OrderBy(action => action.Floor))
+        {
+            if (string.Equals(action.SpeedType, "Multiplier", StringComparison.OrdinalIgnoreCase) &&
+                action.BpmMultiplier is > 0 and double multiplier)
+            {
+                action.SpeedRatio = multiplier;
+                bpm *= multiplier;
+            }
+            else if (action.BeatsPerMinute is > 0 and double targetBpm)
+            {
+                action.SpeedRatio = bpm > 0 ? targetBpm / bpm : null;
+                bpm = targetBpm;
+            }
+        }
+    }
+
+    private static string? ReadLooseString(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out JsonElement value)) return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            _ => value.ToString()
+        };
+    }
+
+    private static double? ReadLooseDoubleProperty(JsonElement parent, string property) =>
+        parent.TryGetProperty(property, out JsonElement value) && TryReadDouble(value, out double parsed)
+            ? parsed
+            : null;
+
+    private static bool TryReadIntProperty(JsonElement parent, string property, out int result)
+    {
+        result = 0;
+        if (!parent.TryGetProperty(property, out JsonElement value)) return false;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out result)) return true;
+        return int.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
+    }
+
+    private static bool TryReadDouble(JsonElement value, out double result)
+    {
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out result)) return true;
+        return double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
+    private static bool ReadLooseBool(JsonElement value, bool defaultValue)
+    {
+        if (value.ValueKind == JsonValueKind.True) return true;
+        if (value.ValueKind == JsonValueKind.False) return false;
+        string text = value.ToString();
+        if (bool.TryParse(text, out bool parsed)) return parsed;
+        if (string.Equals(text, "Enabled", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(text, "Disabled", StringComparison.OrdinalIgnoreCase)) return false;
+        return defaultValue;
     }
 }
 
