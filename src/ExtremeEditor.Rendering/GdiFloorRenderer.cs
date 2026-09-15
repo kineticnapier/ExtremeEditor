@@ -5,16 +5,12 @@ using System.Numerics;
 namespace ExtremeEditor.Rendering;
 
 /// <summary>
-/// First standalone floor preview renderer. It consumes the probed straight-floor
-/// geometry and locally imported ADOFAI textures without creating per-floor objects.
-/// GDI+ is intentionally an interim backend; the API is kept separate so a batched
-/// GPU backend can replace it without touching the level model.
+/// Standalone floor preview renderer. The visible floor silhouette is generated from
+/// the incoming/outgoing path rays using ADOFAI-compatible corner geometry. GDI+ is
+/// still an interim backend; no per-floor UI objects are created.
 /// </summary>
 public sealed class GdiFloorRenderer : IDisposable
 {
-    private readonly PointF[] _main = new PointF[4];
-    private readonly PointF[] _topShadow = new PointF[4];
-    private readonly PointF[] _bottomShadow = new PointF[4];
     private readonly SolidBrush _fallbackBrush = new(Color.FromArgb(235, 225, 228, 235));
     private readonly SolidBrush _shadowBrush = new(Color.FromArgb(115, 0, 0, 0));
     private readonly Pen _selectedPen = new(Color.FromArgb(255, 255, 210, 80), 2f);
@@ -44,19 +40,34 @@ public sealed class GdiFloorRenderer : IDisposable
         _tileBrush.ScaleTransform(scale, scale, MatrixOrder.Append);
     }
 
-    public void DrawFloor(Graphics graphics, PointF center, float zoom, float rotationRadians, bool selected)
+    public void DrawFloor(
+        Graphics graphics,
+        PointF center,
+        float zoom,
+        float entryAngle,
+        float exitAngle,
+        bool midSpin,
+        bool selected)
     {
-        TransformOutline(AdoFaiFloorMesh.MainOutline, _main, center, zoom, rotationRadians);
-        TransformOutline(AdoFaiFloorMesh.BottomShadowOutline, _bottomShadow, center, zoom, rotationRadians);
-        TransformOutline(AdoFaiFloorMesh.TopShadowOutline, _topShadow, center, zoom, rotationRadians);
+        FloorGeometry geometry = AdoFaiFloorGeometryBuilder.Get(entryAngle, exitAngle, midSpin);
 
-        graphics.FillPolygon(_shadowBrush, _bottomShadow);
-        graphics.FillPolygon(_shadowBrush, _topShadow);
+        // Geometry is cached with entryAngle normalized to zero. Rotate the cached
+        // shape back onto this floor's incoming ray.
+        foreach (Vector2[] shadow in geometry.Shadows)
+        {
+            PointF[] transformedShadow = TransformPolygon(shadow, center, zoom, entryAngle);
+            if (transformedShadow.Length >= 3)
+                graphics.FillPolygon(_shadowBrush, transformedShadow);
+        }
+
+        PointF[] main = TransformPolygon(geometry.Main, center, zoom, entryAngle);
+        if (main.Length < 3) return;
+
         Brush mainBrush = _tileBrush is null ? _fallbackBrush : _tileBrush;
-        graphics.FillPolygon(mainBrush, _main);
+        graphics.FillPolygon(mainBrush, main);
 
         if (selected)
-            graphics.DrawPolygon(_selectedPen, _main);
+            graphics.DrawPolygon(_selectedPen, main);
     }
 
     public void Dispose()
@@ -75,18 +86,20 @@ public sealed class GdiFloorRenderer : IDisposable
             : new TextureBrush(_textures.Tile, WrapMode.Tile);
     }
 
-    private static void TransformOutline(int[] indices, PointF[] destination, PointF center, float zoom, float angle)
+    private static PointF[] TransformPolygon(Vector2[] source, PointF center, float zoom, float angle)
     {
+        var destination = new PointF[source.Length];
         float cos = MathF.Cos(angle);
         float sin = MathF.Sin(angle);
-        for (int i = 0; i < indices.Length; i++)
+        for (int i = 0; i < source.Length; i++)
         {
-            Vector2 local = AdoFaiFloorMesh.StraightVertices[indices[i]].Position;
+            Vector2 local = source[i];
             float worldX = local.X * cos - local.Y * sin;
             float worldY = local.X * sin + local.Y * cos;
             destination[i] = new PointF(
                 center.X + worldX * zoom,
                 center.Y - worldY * zoom);
         }
+        return destination;
     }
 }
