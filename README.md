@@ -62,7 +62,7 @@ The benchmark reports JSON parse, path construction, spatial-index construction 
 
 The prototype follows ADOFAI's `(-angle + 90°)` path-direction convention for ordinary `angleData` values. It is not yet a byte-for-byte behavioral replacement for ADOFAI's editor. In particular, full event semantics, legacy `pathData`, midspins, twirls, pauses, multi-planet behavior and decoration/VFX preview need dedicated compatibility work.
 
-## 0.0.5 prototype
+## 0.0.6 prototype
 
 Adds the first ADOFAI-like floor preview based on runtime data exported by the EditorQoL Asset Probe:
 
