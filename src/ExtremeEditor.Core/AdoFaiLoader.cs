@@ -50,12 +50,25 @@ public static class AdoFaiLoader
         }
 
         double initialBpm = 100.0;
+        string? songFilename = null;
+        double offsetMilliseconds = 0.0;
+        double pitchPercent = 100.0;
+        int countdownTicks = 4;
         if (root.TryGetProperty("settings", out JsonElement settings) &&
-            settings.ValueKind == JsonValueKind.Object &&
-            settings.TryGetProperty("bpm", out JsonElement bpmValue) &&
-            TryReadDouble(bpmValue, out double parsedBpm) && parsedBpm > 0)
+            settings.ValueKind == JsonValueKind.Object)
         {
-            initialBpm = parsedBpm;
+            double? bpm = ReadLooseDoubleProperty(settings, "bpm");
+            if (bpm is > 0) initialBpm = bpm.Value;
+
+            songFilename = ReadLooseString(settings, "songFilename");
+            // `offset` is the stock key. A few generators have emitted
+            // `songOffset`, so accept it as a compatibility fallback.
+            offsetMilliseconds = ReadLooseDoubleProperty(settings, "offset")
+                                 ?? ReadLooseDoubleProperty(settings, "songOffset")
+                                 ?? 0.0;
+            pitchPercent = ReadLooseDoubleProperty(settings, "pitch") ?? 100.0;
+            if (TryReadIntProperty(settings, "countdownTicks", out int ticks) && ticks >= 0)
+                countdownTicks = ticks;
         }
 
         var actionTypes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -111,6 +124,10 @@ public static class AdoFaiLoader
             ActionTypeCounts = actionTypes,
             ActionsByFloor = actionsByFloor,
             InitialBpm = initialBpm,
+            SongFilename = songFilename,
+            OffsetMilliseconds = offsetMilliseconds,
+            PitchPercent = pitchPercent,
+            CountdownTicks = countdownTicks,
             Bounds = bounds
         };
 
@@ -185,10 +202,7 @@ public static class AdoFaiLoader
 internal static class AdoFaiJson
 {
     // ADOFAI files in the wild are not guaranteed to be pristine UTF-8 JSON.
-    // In particular, UTF-8 BOM files are common enough that the loader must not
-    // feed the BOM directly to Utf8JsonReader. Keep this compatibility layer in
-    // one place so future loose-format cases can be added without infecting the
-    // level model/parser.
+    // Keep loose-format compatibility isolated here.
     public static ReadOnlyMemory<byte> NormalizeToUtf8(byte[] bytes)
     {
         if (bytes.Length >= 3 &&
@@ -222,9 +236,6 @@ public static class AdoFaiSaver
 
         byte[] bytes = File.ReadAllBytes(document.SourcePath);
         ReadOnlyMemory<byte> jsonBytes = AdoFaiJson.NormalizeToUtf8(bytes);
-        // JsonNode.Parse does not expose the same ReadOnlyMemory<byte> overload as
-        // JsonDocument.Parse on our net8 target. Saving is not the hot load path,
-        // so decode the already-normalized UTF-8 once and use the string overload.
         string jsonText = Encoding.UTF8.GetString(jsonBytes.Span);
         var node = System.Text.Json.Nodes.JsonNode.Parse(
             jsonText,

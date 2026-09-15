@@ -23,9 +23,22 @@ public sealed class LevelDocument
     public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; init; }
     public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; init; }
     public required double InitialBpm { get; init; }
+    public required string? SongFilename { get; init; }
+    public required double OffsetMilliseconds { get; init; }
+    public required double PitchPercent { get; init; }
+    public required int CountdownTicks { get; init; }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
+
+    public string? ResolveSongPath()
+    {
+        if (string.IsNullOrWhiteSpace(SongFilename) || SourcePath == "<synthetic>")
+            return null;
+
+        string? directory = Path.GetDirectoryName(SourcePath);
+        return directory is null ? null : Path.GetFullPath(Path.Combine(directory, SongFilename));
+    }
 
     public void RebuildGeometry()
     {
@@ -55,6 +68,10 @@ public sealed class LevelDocument
             ActionTypeCounts = new Dictionary<string, int>(),
             ActionsByFloor = new Dictionary<int, LevelAction[]>(),
             InitialBpm = 100.0,
+            SongFilename = null,
+            OffsetMilliseconds = 0,
+            PitchPercent = 100,
+            CountdownTicks = 4,
             Bounds = PathBuilder.CalculateBounds(positions)
         };
     }

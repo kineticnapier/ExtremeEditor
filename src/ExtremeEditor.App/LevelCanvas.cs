@@ -15,8 +15,6 @@ public sealed class LevelCanvas : Control
     private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
     private const float TwoPi = MathF.PI * 2f;
-    // Same broad-phase radius used by stock scnEditor.ObjectsAtMouse():
-    // scrFloor.LongDimensions.magnitude = sqrt(0.75^2 + 0.4125^2).
     private const float FloorSelectionRadiusWorld = 0.856f;
 
     private readonly List<int> _candidates = new(4096);
@@ -25,6 +23,7 @@ public sealed class LevelCanvas : Control
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
     private bool[] _floorIsCcw = [];
+    private PlaybackPose? _playbackPose;
     private Vector2 _camera;
     private float _zoom = 28f;
     private bool _panning;
@@ -75,6 +74,12 @@ public sealed class LevelCanvas : Control
                  ControlStyles.UserPaint, true);
     }
 
+    public void SetPlaybackPose(PlaybackPose? pose)
+    {
+        _playbackPose = pose;
+        Invalidate();
+    }
+
     public void ReloadFloorAssets()
     {
         _floorRenderer.ReloadAssets();
@@ -92,6 +97,7 @@ public sealed class LevelCanvas : Control
         _level = level;
         _index = index;
         _selectedFloor = -1;
+        _playbackPose = null;
         RebuildFloorDirectionState();
         FrameAll();
     }
@@ -154,6 +160,11 @@ public sealed class LevelCanvas : Control
             DrawMeshPreview(e.Graphics, nearViewport);
         else
             DrawOverview(e.Graphics, nearViewport);
+
+        // Planets share the same back buffer and camera transform as the floors.
+        // This intentionally avoids a transparent child Control: panning now
+        // invalidates one surface, so old planet/tile pixels cannot linger behind.
+        DrawPlaybackPlanets(e.Graphics);
 
         watch.Stop();
         LastPaintMilliseconds = watch.Elapsed.TotalMilliseconds;
@@ -259,9 +270,6 @@ public sealed class LevelCanvas : Control
                 midSpin,
                 i == _selectedFloor);
 
-            // The icon belongs to this floor's own render layer. Drawing it here,
-            // instead of in a global front-most pass, lets a lower-numbered floor
-            // drawn later cover both this floor and its icon just like ADOFAI.
             if (drawIcons)
                 DrawFloorIcon(graphics, i, center, entryAngle, exitAngle, midSpin);
 
@@ -322,8 +330,6 @@ public sealed class LevelCanvas : Control
                 return;
         }
 
-        // ADOFAI's Vfx floor icon resolves to the event dictionary. Keep the same
-        // useful fallback for all event types, including PACL2-injected ones.
         foreach (LevelAction action in active)
         {
             if (_iconRenderer.DrawEvent(graphics, action.EventType, center, _zoom))
@@ -366,6 +372,31 @@ public sealed class LevelCanvas : Control
         }
     }
 
+    private void DrawPlaybackPlanets(Graphics graphics)
+    {
+        if (_playbackPose is not PlaybackPose pose)
+            return;
+
+        PointF stationary = WorldToScreen(pose.StationaryPlanet);
+        PointF orbiting = WorldToScreen(pose.OrbitingPlanet);
+        float radius = Math.Clamp(_zoom * 0.22f, 5f, 24f);
+
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var red = new SolidBrush(Color.FromArgb(245, 235, 70, 75));
+        using var blue = new SolidBrush(Color.FromArgb(245, 65, 145, 245));
+        using var outline = new Pen(Color.FromArgb(230, 245, 245, 250), Math.Clamp(radius * .12f, 1f, 3f));
+
+        DrawPlanet(graphics, stationary, radius, pose.StationaryIsRed ? red : blue, outline);
+        DrawPlanet(graphics, orbiting, radius, pose.StationaryIsRed ? blue : red, outline);
+    }
+
+    private static void DrawPlanet(Graphics graphics, PointF center, float radius, Brush brush, Pen outline)
+    {
+        float diameter = radius * 2f;
+        graphics.FillEllipse(brush, center.X - radius, center.Y - radius, diameter, diameter);
+        graphics.DrawEllipse(outline, center.X - radius, center.Y - radius, diameter, diameter);
+    }
+
     private void RebuildFloorDirectionState()
     {
         if (_level is null)
@@ -396,9 +427,6 @@ public sealed class LevelCanvas : Control
         bool isCcw,
         bool midSpin)
     {
-        // scrFloor uses an angle convention where 0 points up and +PI/2 points
-        // right. Convert our atan2 geometry back to that convention, then mirror
-        // UpdateIconSprite's FloorIcon.Swirl calculation for FloorMeshRenderer.
         float entry = Mod(TwoPi + MathF.PI / 2f - entryScreenAngle, TwoPi);
         float exit = Mod(TwoPi + MathF.PI / 2f - exitScreenAngle, TwoPi);
         float direction = isCcw ? -1f : 1f;
@@ -444,12 +472,6 @@ public sealed class LevelCanvas : Control
             return;
 
         Vector2 world = ScreenToWorld(screenPoint);
-
-        // The old hit radius was always 12 screen pixels. At high zoom that
-        // shrank to a tiny fraction of a tile, so clicking most of a visibly huge
-        // floor could not select it. Keep the 12 px convenience radius when zoomed
-        // out, but never let the world-space hit radius become smaller than a long
-        // floor's stock broad-phase radius.
         float radiusWorld = Math.Max(12f / _zoom, FloorSelectionRadiusWorld);
         _index.Query(new WorldRect(
             world.X - radiusWorld, world.Y - radiusWorld,
