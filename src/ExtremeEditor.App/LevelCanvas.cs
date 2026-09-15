@@ -15,6 +15,9 @@ public sealed class LevelCanvas : Control
     private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
     private const float TwoPi = MathF.PI * 2f;
+    // Same broad-phase radius used by stock scnEditor.ObjectsAtMouse():
+    // scrFloor.LongDimensions.magnitude = sqrt(0.75^2 + 0.4125^2).
+    private const float FloorSelectionRadiusWorld = 0.856f;
 
     private readonly List<int> _candidates = new(4096);
     private readonly GdiFloorRenderer _floorRenderer = new();
@@ -441,7 +444,13 @@ public sealed class LevelCanvas : Control
             return;
 
         Vector2 world = ScreenToWorld(screenPoint);
-        float radiusWorld = 12f / _zoom;
+
+        // The old hit radius was always 12 screen pixels. At high zoom that
+        // shrank to a tiny fraction of a tile, so clicking most of a visibly huge
+        // floor could not select it. Keep the 12 px convenience radius when zoomed
+        // out, but never let the world-space hit radius become smaller than a long
+        // floor's stock broad-phase radius.
+        float radiusWorld = Math.Max(12f / _zoom, FloorSelectionRadiusWorld);
         _index.Query(new WorldRect(
             world.X - radiusWorld, world.Y - radiusWorld,
             world.X + radiusWorld, world.Y + radiusWorld), _candidates);
