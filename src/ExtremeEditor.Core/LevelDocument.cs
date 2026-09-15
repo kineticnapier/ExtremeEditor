@@ -2,6 +2,18 @@ using System.Numerics;
 
 namespace ExtremeEditor.Core;
 
+public sealed record LevelAction(
+    int Floor,
+    string EventType,
+    bool Active,
+    string? SpeedType,
+    double? BeatsPerMinute,
+    double? BpmMultiplier,
+    string? CustomIcon)
+{
+    public double? SpeedRatio { get; set; }
+}
+
 public sealed class LevelDocument
 {
     public required string SourcePath { get; init; }
@@ -9,6 +21,8 @@ public sealed class LevelDocument
     public required Vector2[] Positions { get; set; }
     public required int ActionCount { get; init; }
     public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; init; }
+    public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; init; }
+    public required double InitialBpm { get; init; }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
@@ -39,6 +53,8 @@ public sealed class LevelDocument
             Positions = positions,
             ActionCount = 0,
             ActionTypeCounts = new Dictionary<string, int>(),
+            ActionsByFloor = new Dictionary<int, LevelAction[]>(),
+            InitialBpm = 100.0,
             Bounds = PathBuilder.CalculateBounds(positions)
         };
     }
