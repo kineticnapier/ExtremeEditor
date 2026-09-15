@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using ExtremeEditor.Core;
+using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.App;
 
@@ -9,9 +10,12 @@ public sealed class LevelCanvas : Control
     private const float MinZoom = 0.05f;
     private const float MaxZoom = 400f;
     private const float FloorRadiusPixels = 5f;
+    private const float MinMeshPreviewZoom = 8f;
+    private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
 
     private readonly List<int> _candidates = new(4096);
+    private readonly GdiFloorRenderer _floorRenderer = new();
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
     private Vector2 _camera;
@@ -19,6 +23,7 @@ public sealed class LevelCanvas : Control
     private bool _panning;
     private Point _lastMouse;
     private int _selectedFloor = -1;
+    private bool _useFloorPreview = true;
 
     public event Action? DiagnosticsChanged;
 
@@ -26,6 +31,19 @@ public sealed class LevelCanvas : Control
     public int LastCandidateCount { get; private set; }
     public int LastDrawnCount { get; private set; }
     public double LastPaintMilliseconds { get; private set; }
+    public string LastRenderMode { get; private set; } = "dots";
+    public string FloorAssetSummary => _floorRenderer.AssetSummary;
+
+    public bool UseFloorPreview
+    {
+        get => _useFloorPreview;
+        set
+        {
+            if (_useFloorPreview == value) return;
+            _useFloorPreview = value;
+            Invalidate();
+        }
+    }
 
     public int SelectedFloor
     {
@@ -47,6 +65,12 @@ public sealed class LevelCanvas : Control
         SetStyle(ControlStyles.AllPaintingInWmPaint |
                  ControlStyles.OptimizedDoubleBuffer |
                  ControlStyles.UserPaint, true);
+    }
+
+    public void ReloadFloorAssets()
+    {
+        _floorRenderer.ReloadAssets();
+        Invalidate();
     }
 
     public void SetLevel(LevelDocument level, SpatialGridIndex index)
@@ -101,47 +125,19 @@ public sealed class LevelCanvas : Control
         }
 
         WorldRect viewport = GetViewportWorldRect();
-        _index.Query(viewport.Inflate(2f), _candidates);
+        WorldRect nearViewport = viewport.Inflate(2f);
+        _index.Query(nearViewport, _candidates);
         LastCandidateCount = _candidates.Count;
-
-        // When zoomed far out, drawing tens of thousands of tiny circles is
-        // pointless. Render a sampled overview instead. Normal editing zoom
-        // still draws every candidate in the viewport.
-        int stride = Math.Max(1, (_candidates.Count + MaxIndividualDraw - 1) / MaxIndividualDraw);
         LastDrawnCount = 0;
 
-        using var pathPen = new Pen(Color.FromArgb(100, 155, 165, 180), Math.Max(1f, _zoom * .055f));
-        using var floorBrush = new SolidBrush(Color.FromArgb(220, 220, 225, 235));
-        using var selectedBrush = new SolidBrush(Color.FromArgb(255, 255, 210, 80));
+        bool meshPreview = _useFloorPreview &&
+                           _zoom >= MinMeshPreviewZoom &&
+                           _candidates.Count <= MaxMeshPreviewDraw;
 
-        Vector2[] positions = _level.Positions;
-
-        // Connect visible-adjacent floors where both endpoints are in/near the viewport.
-        // This avoids constructing one retained UI object per floor.
-        for (int c = 0; c < _candidates.Count; c += stride)
-        {
-            int i = _candidates[c];
-            if ((uint)i >= (uint)positions.Length)
-                continue;
-
-            Vector2 p = positions[i];
-            if (!viewport.Inflate(1f).Contains(p))
-                continue;
-
-            PointF screen = WorldToScreen(p);
-
-            if (i + 1 < positions.Length)
-            {
-                Vector2 next = positions[i + 1];
-                if (viewport.Inflate(2f).Contains(next))
-                    e.Graphics.DrawLine(pathPen, screen, WorldToScreen(next));
-            }
-
-            float r = Math.Clamp(FloorRadiusPixels, 2f, 8f);
-            Brush brush = i == _selectedFloor ? selectedBrush : floorBrush;
-            e.Graphics.FillEllipse(brush, screen.X - r, screen.Y - r, r * 2, r * 2);
-            LastDrawnCount++;
-        }
+        if (meshPreview)
+            DrawMeshPreview(e.Graphics, nearViewport);
+        else
+            DrawOverview(e.Graphics, nearViewport);
 
         watch.Stop();
         LastPaintMilliseconds = watch.Elapsed.TotalMilliseconds;
@@ -199,6 +195,84 @@ public sealed class LevelCanvas : Control
             Capture = false;
         }
         base.OnMouseUp(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _floorRenderer.Dispose();
+        base.Dispose(disposing);
+    }
+
+    private void DrawMeshPreview(Graphics graphics, WorldRect nearViewport)
+    {
+        LastRenderMode = _floorRenderer.HasImportedAssets ? "floor-textured" : "floor-fallback";
+        _floorRenderer.BeginFrame(_zoom);
+        Vector2[] positions = _level!.Positions;
+
+        foreach (int i in _candidates)
+        {
+            if ((uint)i >= (uint)positions.Length)
+                continue;
+
+            Vector2 p = positions[i];
+            if (!nearViewport.Contains(p))
+                continue;
+
+            _floorRenderer.DrawFloor(
+                graphics,
+                WorldToScreen(p),
+                _zoom,
+                GetFloorRotation(i, positions),
+                i == _selectedFloor);
+            LastDrawnCount++;
+        }
+    }
+
+    private void DrawOverview(Graphics graphics, WorldRect nearViewport)
+    {
+        LastRenderMode = "dots";
+        int stride = Math.Max(1, (_candidates.Count + MaxIndividualDraw - 1) / MaxIndividualDraw);
+        using var pathPen = new Pen(Color.FromArgb(100, 155, 165, 180), Math.Max(1f, _zoom * .055f));
+        using var floorBrush = new SolidBrush(Color.FromArgb(220, 220, 225, 235));
+        using var selectedBrush = new SolidBrush(Color.FromArgb(255, 255, 210, 80));
+        Vector2[] positions = _level!.Positions;
+
+        for (int c = 0; c < _candidates.Count; c += stride)
+        {
+            int i = _candidates[c];
+            if ((uint)i >= (uint)positions.Length)
+                continue;
+
+            Vector2 p = positions[i];
+            if (!nearViewport.Contains(p))
+                continue;
+
+            PointF screen = WorldToScreen(p);
+            if (i + 1 < positions.Length)
+            {
+                Vector2 next = positions[i + 1];
+                if (nearViewport.Contains(next))
+                    graphics.DrawLine(pathPen, screen, WorldToScreen(next));
+            }
+
+            float r = Math.Clamp(FloorRadiusPixels, 2f, 8f);
+            Brush brush = i == _selectedFloor ? selectedBrush : floorBrush;
+            graphics.FillEllipse(brush, screen.X - r, screen.Y - r, r * 2, r * 2);
+            LastDrawnCount++;
+        }
+    }
+
+    private static float GetFloorRotation(int floor, Vector2[] positions)
+    {
+        Vector2 direction = Vector2.Zero;
+        if (floor + 1 < positions.Length)
+            direction = positions[floor + 1] - positions[floor];
+        if (direction.LengthSquared() < 0.000001f && floor > 0)
+            direction = positions[floor] - positions[floor - 1];
+        return direction.LengthSquared() < 0.000001f
+            ? 0f
+            : MathF.Atan2(direction.Y, direction.X);
     }
 
     private void SelectNearest(Point screenPoint)
