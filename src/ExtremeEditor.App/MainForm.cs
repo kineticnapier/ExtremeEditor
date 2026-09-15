@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using ExtremeEditor.Rendering;
 
@@ -7,11 +8,16 @@ namespace ExtremeEditor.App;
 public sealed class MainForm : Form
 {
     private readonly LevelCanvas _canvas = new() { Dock = DockStyle.Fill };
+    private readonly AudioPlayer _audio = new();
+    private readonly System.Windows.Forms.Timer _playbackTimer = new() { Interval = 16 };
     private readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _renderStatus = new();
     private readonly ToolStripButton _open = new("Open");
     private readonly ToolStripButton _synthetic = new("Synthetic 238k");
     private readonly ToolStripButton _frame = new("Frame");
+    private readonly ToolStripButton _play = new("Play");
+    private readonly ToolStripButton _stop = new("Stop");
+    private readonly ToolStripLabel _playTime = new("--:--.---");
     private readonly ToolStripButton _rotateLeft = new("-15°");
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
@@ -19,6 +25,7 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _importIcons = new("Import Icon Catalog");
     private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
+    private TimingMap? _timingMap;
 
     public MainForm(string? initialFile)
     {
@@ -29,6 +36,7 @@ public sealed class MainForm : Form
 
         var tools = new ToolStrip();
         tools.Items.AddRange([_open, _synthetic, new ToolStripSeparator(), _frame,
+            new ToolStripSeparator(), _play, _stop, _playTime,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
             new ToolStripSeparator(), _importAssets, _importIcons, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
@@ -43,6 +51,8 @@ public sealed class MainForm : Form
         _open.Click += (_, _) => OpenLevel();
         _synthetic.Click += (_, _) => LoadSynthetic();
         _frame.Click += (_, _) => _canvas.FrameAll();
+        _play.Click += (_, _) => TogglePlayback();
+        _stop.Click += (_, _) => StopPlayback();
         _rotateLeft.Click += (_, _) => RotateSelected(-15);
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
@@ -51,12 +61,29 @@ public sealed class MainForm : Form
         _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
         _canvas.DiagnosticsChanged += UpdateRenderStatus;
+        _playbackTimer.Tick += (_, _) => UpdatePlaybackFrame();
+        _playbackTimer.Start();
 
         KeyDown += (_, e) =>
         {
+            if (e.KeyCode == Keys.Space)
+            {
+                TogglePlayback();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.KeyCode == Keys.Escape)
+            {
+                StopPlayback();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
             if (e.KeyCode == Keys.F) _canvas.FrameAll();
             if (e.KeyCode == Keys.O) OpenLevel();
-            if (e.KeyCode == Keys.Escape) _canvas.SelectedFloor = -1;
             if (e.KeyCode == Keys.OemOpenBrackets) RotateSelected(-15);
             if (e.KeyCode == Keys.OemCloseBrackets) RotateSelected(15);
             if (e.Control && e.KeyCode == Keys.S) SaveAs();
@@ -69,6 +96,16 @@ public sealed class MainForm : Form
             else
                 LoadSynthetic();
         };
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _playbackTimer.Dispose();
+            _audio.Dispose();
+        }
+        base.Dispose(disposing);
     }
 
     private void OpenLevel()
@@ -86,6 +123,8 @@ public sealed class MainForm : Form
     {
         try
         {
+            StopPlayback();
+            _audio.Unload();
             UseWaitCursor = true;
             _status.Text = "Loading…";
             Application.DoEvents();
@@ -97,7 +136,12 @@ public sealed class MainForm : Form
             indexWatch.Stop();
 
             _canvas.SetLevel(loaded.Document, index);
+            _timingMap = TimingMapBuilder.Build(loaded.Document);
+            string audioState = LoadSongForLevel(loaded.Document);
             sw.Stop();
+
+            if (Math.Abs(loaded.Document.PitchPercent - 100.0) > 0.001)
+                audioState += $" | pitch {loaded.Document.PitchPercent:0.##}% not yet applied to audio";
 
             _status.Text =
                 $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
@@ -106,7 +150,7 @@ public sealed class MainForm : Form
                 $"parse {loaded.Metrics.Parse.TotalMilliseconds:N1} ms | " +
                 $"path {loaded.Metrics.BuildPath.TotalMilliseconds:N1} ms | " +
                 $"index {indexWatch.Elapsed.TotalMilliseconds:N1} ms | " +
-                $"total {sw.Elapsed.TotalMilliseconds:N1} ms";
+                $"total {sw.Elapsed.TotalMilliseconds:N1} ms | {audioState}";
         }
         catch (Exception ex)
         {
@@ -119,14 +163,90 @@ public sealed class MainForm : Form
         }
     }
 
+    private string LoadSongForLevel(LevelDocument level)
+    {
+        string? songPath = level.ResolveSongPath();
+        if (songPath is null)
+            return "audio unavailable";
+        if (!File.Exists(songPath))
+            return $"audio missing: {Path.GetFileName(songPath)}";
+
+        try
+        {
+            _audio.Load(songPath);
+            return $"audio {Path.GetFileName(songPath)}";
+        }
+        catch (Exception ex)
+        {
+            _audio.Unload();
+            return $"audio load failed: {ex.Message}";
+        }
+    }
+
+    private void TogglePlayback()
+    {
+        LevelDocument? level = _canvas.Level;
+        if (level is null || !_audio.IsLoaded || _timingMap is null)
+            return;
+
+        if (_audio.IsPlaying)
+        {
+            _audio.Pause();
+            _play.Text = "Play";
+            UpdatePlaybackFrame();
+            return;
+        }
+
+        // Paused means resume exactly where we stopped. A genuinely stopped
+        // player starts at the selected tile, if there is one.
+        if (_audio.IsStopped && _canvas.SelectedFloor >= 0)
+        {
+            double chartTime = _timingMap.GetEntryTime(_canvas.SelectedFloor);
+            double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
+            _audio.Seek(TimeSpan.FromSeconds(Math.Max(0, audioTime)));
+        }
+
+        _audio.Play();
+        _play.Text = _audio.IsPlaying ? "Pause" : "Play";
+        UpdatePlaybackFrame();
+    }
+
+    private void StopPlayback()
+    {
+        _audio.Stop();
+        _play.Text = "Play";
+        _playTime.Text = "--:--.---";
+        _canvas.SetPlaybackPose(null);
+    }
+
+    private void UpdatePlaybackFrame()
+    {
+        LevelDocument? level = _canvas.Level;
+        if (level is null || _timingMap is null || !_audio.IsLoaded)
+            return;
+
+        double audioSeconds = _audio.Position.TotalSeconds;
+        double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
+        PlaybackPose pose = _timingMap.GetPose(level, chartTime);
+        _canvas.SetPlaybackPose(pose);
+
+        string phase = pose.IsPreStart ? "offset" : $"floor {pose.Floor:N0}";
+        _playTime.Text = $"{_audio.Position:mm\\:ss\\.fff} | {phase}";
+        if (!_audio.IsPlaying)
+            _play.Text = "Play";
+    }
+
     private void LoadSynthetic()
     {
+        StopPlayback();
+        _audio.Unload();
         var sw = Stopwatch.StartNew();
         LevelDocument level = LevelDocument.CreateSynthetic(238_145);
         var index = new SpatialGridIndex(level.Positions);
         sw.Stop();
 
         _canvas.SetLevel(level, index);
+        _timingMap = TimingMapBuilder.Build(level);
         _status.Text =
             $"Synthetic | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
     }
@@ -187,12 +307,14 @@ public sealed class MainForm : Form
         if (level is null || floor <= 0 || floor > level.Angles.Length)
             return;
 
+        StopPlayback();
         int angleIndex = floor - 1;
         level.Angles[angleIndex] = NormalizeAngle(level.Angles[angleIndex] + delta);
 
         var sw = Stopwatch.StartNew();
         level.RebuildGeometry();
         _canvas.Reindex();
+        _timingMap = TimingMapBuilder.Build(level);
         sw.Stop();
 
         _status.Text =
