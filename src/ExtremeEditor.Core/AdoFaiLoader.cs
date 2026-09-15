@@ -139,8 +139,12 @@ public static class AdoFaiSaver
 
         byte[] bytes = File.ReadAllBytes(document.SourcePath);
         ReadOnlyMemory<byte> jsonBytes = AdoFaiJson.NormalizeToUtf8(bytes);
+        // JsonNode.Parse does not expose the same ReadOnlyMemory<byte> overload as
+        // JsonDocument.Parse on our net8 target. Saving is not the hot load path,
+        // so decode the already-normalized UTF-8 once and use the string overload.
+        string jsonText = Encoding.UTF8.GetString(jsonBytes.Span);
         var node = System.Text.Json.Nodes.JsonNode.Parse(
-            jsonBytes,
+            jsonText,
             new System.Text.Json.Nodes.JsonNodeOptions { PropertyNameCaseInsensitive = false },
             new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip })
             as System.Text.Json.Nodes.JsonObject
