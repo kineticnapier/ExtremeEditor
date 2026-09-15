@@ -61,9 +61,9 @@ public sealed class TimingMap
         if (_floors.Length == 0 || level.Positions.Length == 0)
             return new PlaybackPose(0, 0, Vector2.Zero, Vector2.Zero, true, chartTime < 0);
 
-        // The song offset is a wall-clock delay before chart time zero. It is not
-        // another BPM-sized first-floor interval. Keep the planets frozen at the
-        // exact chart-time-zero pose until the offset has elapsed.
+        // Offset controls when chart time zero is reached. Do not stretch the
+        // first rotation across the offset; before zero the planets simply hold
+        // the exact pose they will have when playback begins.
         if (chartTime < 0)
             return GetPoseCore(level, 0, isPreStart: true);
 
@@ -175,16 +175,29 @@ public static class TimingMapBuilder
             if (moved <= 1e-6 || moved >= 6.283184482025146)
                 moved = midSpin ? 0.0 : TwoPi;
 
-            // scrMisc.GetTimeBetweenAngles: angle / PI * crotchet. The level's
-            // song offset is deliberately not folded into this duration; it is a
-            // separate audio<->chart clock transform in PlaybackClock.
+            double visualEntryAngle = entryAngles[floor];
+            if (floor == 0)
+            {
+                // Stock does both of these together:
+                //   floor0.angleLength += (adjustedCountdownTicks - 1) * PI
+                //   snappedLastAngle = PI * (0.5 - adjustedCountdownTicks)
+                // The old prototype added the countdown to time but not to the
+                // angle, which made the first orbit comically slow.
+                double countdownExtra = Math.Max(0, level.CountdownTicks - 1) * PiStock;
+                moved += countdownExtra;
+                visualEntryAngle = PiStock * (0.5 - level.CountdownTicks);
+            }
+
+            // scrMisc.GetTimeBetweenAngles: angle / PI * crotchet. Offset remains
+            // a separate wall-clock transform in PlaybackClock and never changes
+            // this angular speed.
             double seconds = moved / PiStock * (60.0 / bpm);
             double exitTime = time + seconds;
             timings[floor] = new FloorTiming(
                 floor,
                 time,
                 exitTime,
-                entryAngles[floor],
+                visualEntryAngle,
                 exitAngles[floor],
                 moved,
                 bpm,
