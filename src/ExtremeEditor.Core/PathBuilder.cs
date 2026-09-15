@@ -4,6 +4,12 @@ namespace ExtremeEditor.Core;
 
 public static class PathBuilder
 {
+    // Stock scrController.tileSize is baseFloorDimensions.x * 2. The default
+    // long floor is 0.75 units from its center to either end, so consecutive
+    // floor centers are 1.5 units apart. Using a unit step made adjacent floor
+    // meshes overlap by half a tile and visually bite into one another.
+    public const float DefaultLongTileSize = 1.5f;
+
     public static Vector2[] BuildPositions(ReadOnlySpan<double> angles)
     {
         if (angles.Length == 0)
@@ -24,11 +30,11 @@ public static class PathBuilder
                 ? entryAngle
                 : (-angle + 90.0) * Math.PI / 180.0;
 
-            // Mirrors scrMisc.getVectorFromAngle(exitAngle, tileSize) with a unit
-            // tile size: (sin(a), cos(a)).
+            // Mirrors scrMisc.getVectorFromAngle(exitAngle, tileSize):
+            // (sin(a), cos(a)) * 1.5 for the stock long-tile shape.
             current += new Vector2(
-                (float)Math.Sin(exitAngle),
-                (float)Math.Cos(exitAngle));
+                (float)Math.Sin(exitAngle) * DefaultLongTileSize,
+                (float)Math.Cos(exitAngle) * DefaultLongTileSize);
             positions[i + 1] = current;
 
             entryAngle = PositiveMod(exitAngle + Math.PI, Math.PI * 2.0);
