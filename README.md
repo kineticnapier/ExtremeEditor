@@ -58,9 +58,23 @@ The benchmark reports JSON parse, path construction, spatial-index construction 
 
 ## Architecture
 
-`ExtremeEditor.Core` has no UI or game dependency. `ExtremeEditor.App` is currently a minimal WinForms host using one custom-drawn surface. A future renderer can replace WinForms without rewriting the level model, parser or spatial index.
+`ExtremeEditor.Core` has no UI or game dependency. `ExtremeEditor.Rendering` owns floor-preview geometry, the local asset cache and the current GDI+ preview backend. `ExtremeEditor.App` is the WinForms host. The rendering boundary is intentionally separate so a batched GPU backend can replace GDI+ without rewriting the level model, parser or spatial index.
 
 The prototype follows ADOFAI's `(-angle + 90°)` path-direction convention for ordinary `angleData` values. It is not yet a byte-for-byte behavioral replacement for ADOFAI's editor. In particular, full event semantics, legacy `pathData`, midspins, twirls, pauses, multi-planet behavior and decoration/VFX preview need dedicated compatibility work.
+
+## 0.0.5 prototype
+
+Adds the first ADOFAI-like floor preview based on runtime data exported by the EditorQoL Asset Probe:
+
+- stores the observed standard straight-floor mesh as 16 vertices / 36 indices, including UV and UV2 data;
+- adds a separate `ExtremeEditor.Rendering` project;
+- renders the observed main floor and top/bottom shadow geometry at editing zoom;
+- falls back to the old sampled-dot overview when zoomed out or when too many floors are visible;
+- adds **Import Probe Assets**, which recognizes `_TileTex`, `_PerlinTex`, `_MainTex` and `light_white` PNGs from an EditorQoL `*-assets` folder;
+- copies those user-extracted files into `%LocalAppData%\ExtremeEditor\AssetCache\floor-mesh` instead of committing game assets to this repository;
+- uses the imported tile texture in the current preview and loads the remaining textures for later shader-parity work.
+
+This is intentionally an interim renderer. It currently rotates the observed straight-floor mesh along the outgoing path direction; exact curved/corner floor geometry and an `ADOFAI/FloorMesh`-equivalent shader are not implemented yet. The current GDI+ backend also switches back to the lightweight overview above 18,000 visible floors; the intended production backend is batched/GPU rendering.
 
 ## 0.0.4 prototype
 
