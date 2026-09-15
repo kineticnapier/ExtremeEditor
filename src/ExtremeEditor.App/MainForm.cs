@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ExtremeEditor.Core;
+using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.App;
 
@@ -14,6 +15,8 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _rotateLeft = new("-15°");
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
+    private readonly ToolStripButton _importAssets = new("Import Probe Assets");
+    private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
 
     public MainForm(string? initialFile)
@@ -26,6 +29,7 @@ public sealed class MainForm : Form
         var tools = new ToolStrip();
         tools.Items.AddRange([_open, _synthetic, new ToolStripSeparator(), _frame,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
+            new ToolStripSeparator(), _importAssets, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
 
         var statusStrip = new StatusStrip();
@@ -41,6 +45,8 @@ public sealed class MainForm : Form
         _rotateLeft.Click += (_, _) => RotateSelected(-15);
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
+        _importAssets.Click += (_, _) => ImportProbeAssets();
+        _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
         _canvas.DiagnosticsChanged += UpdateRenderStatus;
 
@@ -123,6 +129,31 @@ public sealed class MainForm : Form
             $"Synthetic | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
     }
 
+    private void ImportProbeAssets()
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = "Select an EditorQoL Asset Probe *-assets folder",
+            UseDescriptionForTitle = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            AssetImportResult result = AssetCache.ImportProbeFolder(dialog.SelectedPath);
+            _canvas.ReloadFloorAssets();
+            string missing = result.MissingAssets.Count == 0
+                ? "complete"
+                : "missing " + string.Join(", ", result.MissingAssets);
+            _status.Text = $"Imported {result.ImportedCount} floor assets -> {result.CacheDirectory} | {missing}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.ToString(), "Asset import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void RotateSelected(double delta)
     {
         LevelDocument? level = _canvas.Level;
@@ -197,6 +228,7 @@ public sealed class MainForm : Form
 
     private void UpdateRenderStatus() =>
         _renderStatus.Text =
+            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} | " +
             $"candidate {_canvas.LastCandidateCount:N0} | drawn {_canvas.LastDrawnCount:N0} | " +
             $"paint {_canvas.LastPaintMilliseconds:F2} ms | selected {_canvas.SelectedFloor}";
 }
