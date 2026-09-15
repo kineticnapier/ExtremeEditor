@@ -52,7 +52,8 @@ public sealed class GdiFloorRenderer : IDisposable
 
         graphics.FillPolygon(_shadowBrush, _bottomShadow);
         graphics.FillPolygon(_shadowBrush, _topShadow);
-        graphics.FillPolygon(_tileBrush ?? _fallbackBrush, _main);
+        Brush mainBrush = _tileBrush is null ? _fallbackBrush : _tileBrush;
+        graphics.FillPolygon(mainBrush, _main);
 
         if (selected)
             graphics.DrawPolygon(_selectedPen, _main);
