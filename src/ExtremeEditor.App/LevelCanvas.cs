@@ -208,6 +208,8 @@ public sealed class LevelCanvas : Control
     {
         LastRenderMode = _floorRenderer.HasImportedAssets ? "floor-textured" : "floor-fallback";
         _floorRenderer.BeginFrame(_zoom);
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         Vector2[] positions = _level!.Positions;
 
         foreach (int i in _candidates)
@@ -219,11 +221,15 @@ public sealed class LevelCanvas : Control
             if (!nearViewport.Contains(p))
                 continue;
 
+            GetFloorAngles(i, positions, out float entryAngle, out float exitAngle);
+            bool midSpin = i < _level.Angles.Length && Math.Abs(_level.Angles[i] - 999.0) < 0.000001;
             _floorRenderer.DrawFloor(
                 graphics,
                 WorldToScreen(p),
                 _zoom,
-                GetFloorRotation(i, positions),
+                entryAngle,
+                exitAngle,
+                midSpin,
                 i == _selectedFloor);
             LastDrawnCount++;
         }
@@ -263,16 +269,23 @@ public sealed class LevelCanvas : Control
         }
     }
 
-    private static float GetFloorRotation(int floor, Vector2[] positions)
+    private static void GetFloorAngles(int floor, Vector2[] positions, out float entryAngle, out float exitAngle)
     {
-        Vector2 direction = Vector2.Zero;
+        Vector2 incoming = Vector2.Zero;
+        Vector2 outgoing = Vector2.Zero;
+
+        if (floor > 0)
+            incoming = positions[floor - 1] - positions[floor];
         if (floor + 1 < positions.Length)
-            direction = positions[floor + 1] - positions[floor];
-        if (direction.LengthSquared() < 0.000001f && floor > 0)
-            direction = positions[floor] - positions[floor - 1];
-        return direction.LengthSquared() < 0.000001f
-            ? 0f
-            : MathF.Atan2(direction.Y, direction.X);
+            outgoing = positions[floor + 1] - positions[floor];
+
+        if (incoming.LengthSquared() < 0.000001f && outgoing.LengthSquared() >= 0.000001f)
+            incoming = -outgoing;
+        if (outgoing.LengthSquared() < 0.000001f && incoming.LengthSquared() >= 0.000001f)
+            outgoing = -incoming;
+
+        entryAngle = incoming.LengthSquared() < 0.000001f ? MathF.PI : MathF.Atan2(incoming.Y, incoming.X);
+        exitAngle = outgoing.LengthSquared() < 0.000001f ? 0f : MathF.Atan2(outgoing.Y, outgoing.X);
     }
 
     private void SelectNearest(Point screenPoint)
