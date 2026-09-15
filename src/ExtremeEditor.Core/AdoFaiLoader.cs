@@ -127,12 +127,12 @@ public static class AdoFaiLoader
                      .OrderBy(action => action.Floor))
         {
             if (string.Equals(action.SpeedType, "Multiplier", StringComparison.OrdinalIgnoreCase) &&
-                action.BpmMultiplier is > 0 and double multiplier)
+                action.BpmMultiplier is double multiplier && multiplier > 0)
             {
                 action.SpeedRatio = multiplier;
                 bpm *= multiplier;
             }
-            else if (action.BeatsPerMinute is > 0 and double targetBpm)
+            else if (action.BeatsPerMinute is double targetBpm && targetBpm > 0)
             {
                 action.SpeedRatio = bpm > 0 ? targetBpm / bpm : null;
                 bpm = targetBpm;
