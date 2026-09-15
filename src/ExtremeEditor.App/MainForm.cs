@@ -16,6 +16,7 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
     private readonly ToolStripButton _importAssets = new("Import Probe Assets");
+    private readonly ToolStripButton _importIcons = new("Import Icon Catalog");
     private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
 
@@ -29,7 +30,7 @@ public sealed class MainForm : Form
         var tools = new ToolStrip();
         tools.Items.AddRange([_open, _synthetic, new ToolStripSeparator(), _frame,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
-            new ToolStripSeparator(), _importAssets, _floorPreview,
+            new ToolStripSeparator(), _importAssets, _importIcons, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
 
         var statusStrip = new StatusStrip();
@@ -46,6 +47,7 @@ public sealed class MainForm : Form
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
         _importAssets.Click += (_, _) => ImportProbeAssets();
+        _importIcons.Click += (_, _) => ImportIconCatalog();
         _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
         _canvas.DiagnosticsChanged += UpdateRenderStatus;
@@ -154,6 +156,30 @@ public sealed class MainForm : Form
         }
     }
 
+    private void ImportIconCatalog()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "EditorQoL icon catalog ZIP (*-icon-catalog-assets.zip)|*-icon-catalog-assets.zip|ZIP files (*.zip)|*.zip|All files (*.*)|*.*",
+            Title = "Import EditorQoL Icon Catalog"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            IconImportResult result = IconAssetCache.ImportCatalog(dialog.FileName);
+            _canvas.ReloadIconAssets();
+            _status.Text =
+                $"Imported icon catalog: {result.EventIcons} event / {result.FloorIcons} floor / " +
+                $"{result.OutlineIcons} outline -> {result.CacheDirectory}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.ToString(), "Icon import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void RotateSelected(double delta)
     {
         LevelDocument? level = _canvas.Level;
@@ -228,7 +254,7 @@ public sealed class MainForm : Form
 
     private void UpdateRenderStatus() =>
         _renderStatus.Text =
-            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} | " +
+            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} / {_canvas.IconAssetSummary} | " +
             $"candidate {_canvas.LastCandidateCount:N0} | drawn {_canvas.LastDrawnCount:N0} | " +
             $"paint {_canvas.LastPaintMilliseconds:F2} ms | selected {_canvas.SelectedFloor}";
 }
