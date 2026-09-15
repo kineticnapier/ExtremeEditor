@@ -30,6 +30,8 @@ public sealed class AudioPlayer : IDisposable
         LoadedPath = path;
     }
 
+    public void Unload() => DisposePlayback();
+
     public void Play()
     {
         if (_output is null || _reader is null) return;
