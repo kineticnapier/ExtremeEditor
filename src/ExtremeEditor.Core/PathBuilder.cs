@@ -9,36 +9,29 @@ public static class PathBuilder
         if (angles.Length == 0)
             return [Vector2.Zero];
 
-        // ADOFAI angleData describes the direction of path segments.
-        // This is sufficient for the geometry-focused prototype.
-        // Full compatibility (including special values/midspins) belongs in
-        // the format layer rather than the renderer.
         // ADOFAI creates floor 0 plus one floor for every angle entry.
         var positions = new Vector2[angles.Length + 1];
         Vector2 current = Vector2.Zero;
 
+        // scrLevelMaker initializes floor 0 with this entry angle. It matters for
+        // 999/midspin segments, whose exit angle reuses the current entry angle.
+        double entryAngle = 4.71238899230957;
+
         for (int i = 0; i < angles.Length; i++)
         {
             double angle = angles[i];
+            double exitAngle = Math.Abs(angle - 999.0) < 0.000001
+                ? entryAngle
+                : (-angle + 90.0) * Math.PI / 180.0;
 
-            // 999 is historically used as a special/midspin-like value by
-            // some ADOFAI tooling. Keep the point stationary for now instead
-            // of producing meaningless coordinates.
-            if (Math.Abs(angle - 999.0) < 0.000001)
-            {
-                positions[i + 1] = current;
-                continue;
-            }
-
-            // Mirrors scrLevelMaker exactly:
-            //   exitAngle = (-angle + 90) degrees
-            //   scrMisc.getVectorFromAngle(a, r) = (sin(a)*r, cos(a)*r)
-            // Therefore the resulting unit step is (cos(angle), sin(angle)).
-            double radians = (90.0 - angle) * Math.PI / 180.0;
+            // Mirrors scrMisc.getVectorFromAngle(exitAngle, tileSize) with a unit
+            // tile size: (sin(a), cos(a)).
             current += new Vector2(
-                (float)Math.Sin(radians),
-                (float)Math.Cos(radians));
+                (float)Math.Sin(exitAngle),
+                (float)Math.Cos(exitAngle));
             positions[i + 1] = current;
+
+            entryAngle = PositiveMod(exitAngle + Math.PI, Math.PI * 2.0);
         }
 
         return positions;
@@ -68,4 +61,7 @@ public static class PathBuilder
 
         return new WorldRect(minX, minY, maxX, maxY);
     }
+
+    private static double PositiveMod(double value, double modulus) =>
+        (value % modulus + modulus) % modulus;
 }
