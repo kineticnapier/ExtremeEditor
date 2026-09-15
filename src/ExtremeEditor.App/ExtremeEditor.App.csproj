@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
+    <ProjectReference Include="..\ExtremeEditor.Rendering\ExtremeEditor.Rendering.csproj" />
   </ItemGroup>
 </Project>
