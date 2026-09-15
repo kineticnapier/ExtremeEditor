@@ -1,5 +1,4 @@
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 
 namespace ExtremeEditor.Rendering;
 
@@ -31,18 +30,24 @@ public sealed class GdiIconRenderer : IDisposable
     {
         if (!_eventIcons.TryGetValue(eventType, out Bitmap? image))
             return false;
-        DrawImage(graphics, image, center, zoom * 0.62f);
+        DrawImage(graphics, image, center, zoom * 0.62f, 0f, flipped: false);
         return true;
     }
 
-    public bool DrawFloorIcon(Graphics graphics, string floorIcon, PointF center, float zoom)
+    public bool DrawFloorIcon(
+        Graphics graphics,
+        string floorIcon,
+        PointF center,
+        float zoom,
+        float angleRadians = 0f,
+        bool flipped = false)
     {
         float size = zoom * 0.78f;
         if (_outlineIcons.TryGetValue(floorIcon, out Bitmap? outline))
-            DrawImage(graphics, outline, center, size * 1.04f);
+            DrawImage(graphics, outline, center, size * 1.04f, angleRadians, flipped);
         if (!_floorIcons.TryGetValue(floorIcon, out Bitmap? image))
             return false;
-        DrawImage(graphics, image, center, size);
+        DrawImage(graphics, image, center, size, angleRadians, flipped);
         return true;
     }
 
@@ -53,7 +58,13 @@ public sealed class GdiIconRenderer : IDisposable
         DisposeImages(_outlineIcons);
     }
 
-    private static void DrawImage(Graphics graphics, Image image, PointF center, float requestedSize)
+    private static void DrawImage(
+        Graphics graphics,
+        Image image,
+        PointF center,
+        float requestedSize,
+        float angleRadians,
+        bool flipped)
     {
         float maxDimension = Math.Max(image.Width, image.Height);
         if (maxDimension <= 0) return;
@@ -62,15 +73,32 @@ public sealed class GdiIconRenderer : IDisposable
         float scale = size / maxDimension;
         float width = image.Width * scale;
         float height = image.Height * scale;
-        var destination = new RectangleF(center.X - width * .5f, center.Y - height * .5f, width, height);
 
-        InterpolationMode previous = graphics.InterpolationMode;
-        PixelOffsetMode previousOffset = graphics.PixelOffsetMode;
-        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.DrawImage(image, destination);
-        graphics.InterpolationMode = previous;
-        graphics.PixelOffsetMode = previousOffset;
+        GraphicsState state = graphics.Save();
+        try
+        {
+            InterpolationMode previous = graphics.InterpolationMode;
+            PixelOffsetMode previousOffset = graphics.PixelOffsetMode;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            // ADOFAI's mesh icon angle uses 0 = up and positive angles turning
+            // clockwise on screen. GDI+ has the same visible rotation direction
+            // after translating into screen coordinates.
+            graphics.TranslateTransform(center.X, center.Y);
+            if (Math.Abs(angleRadians) > 0.000001f)
+                graphics.RotateTransform(angleRadians * (180f / MathF.PI));
+            if (flipped)
+                graphics.ScaleTransform(-1f, 1f);
+
+            graphics.DrawImage(image, new RectangleF(-width * .5f, -height * .5f, width, height));
+            graphics.InterpolationMode = previous;
+            graphics.PixelOffsetMode = previousOffset;
+        }
+        finally
+        {
+            graphics.Restore(state);
+        }
     }
 
     private static void LoadDirectory(string directory, Dictionary<string, Bitmap> target)
