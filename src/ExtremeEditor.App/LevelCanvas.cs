@@ -11,11 +11,13 @@ public sealed class LevelCanvas : Control
     private const float MaxZoom = 400f;
     private const float FloorRadiusPixels = 5f;
     private const float MinMeshPreviewZoom = 8f;
+    private const float MinIconZoom = 12f;
     private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
 
     private readonly List<int> _candidates = new(4096);
     private readonly GdiFloorRenderer _floorRenderer = new();
+    private readonly GdiIconRenderer _iconRenderer = new();
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
     private Vector2 _camera;
@@ -33,6 +35,7 @@ public sealed class LevelCanvas : Control
     public double LastPaintMilliseconds { get; private set; }
     public string LastRenderMode { get; private set; } = "dots";
     public string FloorAssetSummary => _floorRenderer.AssetSummary;
+    public string IconAssetSummary => _iconRenderer.Summary;
 
     public bool UseFloorPreview
     {
@@ -70,6 +73,12 @@ public sealed class LevelCanvas : Control
     public void ReloadFloorAssets()
     {
         _floorRenderer.ReloadAssets();
+        Invalidate();
+    }
+
+    public void ReloadIconAssets()
+    {
+        _iconRenderer.Reload();
         Invalidate();
     }
 
@@ -200,7 +209,10 @@ public sealed class LevelCanvas : Control
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
             _floorRenderer.Dispose();
+            _iconRenderer.Dispose();
+        }
         base.Dispose(disposing);
     }
 
@@ -211,6 +223,11 @@ public sealed class LevelCanvas : Control
         graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         Vector2[] positions = _level!.Positions;
+
+        // SpatialGridIndex returns cells in viewport order, not level order. Drawing
+        // that list directly makes overlapping tracks randomly jump in front of one
+        // another as the viewport moves. Sequence order gives us a stable Z order.
+        _candidates.Sort();
 
         foreach (int i in _candidates)
         {
@@ -232,6 +249,66 @@ public sealed class LevelCanvas : Control
                 midSpin,
                 i == _selectedFloor);
             LastDrawnCount++;
+        }
+
+        // Icons are a separate pass so they are never buried by a later floor.
+        if (_zoom >= MinIconZoom && (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0))
+        {
+            foreach (int i in _candidates)
+            {
+                if ((uint)i >= (uint)positions.Length)
+                    continue;
+                Vector2 p = positions[i];
+                if (!nearViewport.Contains(p))
+                    continue;
+                DrawFloorIcon(graphics, i, WorldToScreen(p));
+            }
+        }
+    }
+
+    private void DrawFloorIcon(Graphics graphics, int floor, PointF center)
+    {
+        if (_level is null || !_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            return;
+
+        LevelAction[] active = actions.Where(action => action.Active).ToArray();
+        if (active.Length == 0)
+            return;
+
+        LevelAction? custom = active.FirstOrDefault(action => string.Equals(action.EventType, "SetFloorIcon", StringComparison.Ordinal));
+        if (custom?.CustomIcon is { Length: > 0 } customIcon &&
+            _iconRenderer.DrawFloorIcon(graphics, customIcon, center, _zoom))
+            return;
+
+        if (active.Any(action => string.Equals(action.EventType, "Checkpoint", StringComparison.Ordinal)) &&
+            _iconRenderer.DrawFloorIcon(graphics, "Checkpoint", center, _zoom))
+            return;
+
+        if (active.Any(action => string.Equals(action.EventType, "Twirl", StringComparison.Ordinal)) &&
+            _iconRenderer.DrawFloorIcon(graphics, "SwirlBlue", center, _zoom))
+            return;
+
+        LevelAction? speed = active.FirstOrDefault(action => string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal));
+        if (speed?.SpeedRatio is double ratio)
+        {
+            string speedIcon = ratio switch
+            {
+                <= 0.45 => "DoubleSnail",
+                < 0.95 => "Snail",
+                <= 1.05 => "SameSpeed",
+                <= 2.05 => "Rabbit",
+                _ => "DoubleRabbit"
+            };
+            if (_iconRenderer.DrawFloorIcon(graphics, speedIcon, center, _zoom))
+                return;
+        }
+
+        // ADOFAI's Vfx floor icon resolves to the event dictionary. Keep the same
+        // useful fallback for all event types, including PACL2-injected ones.
+        foreach (LevelAction action in active)
+        {
+            if (_iconRenderer.DrawEvent(graphics, action.EventType, center, _zoom))
+                return;
         }
     }
 
