@@ -52,16 +52,13 @@ public sealed class HitSoundPlayer : IDisposable
 
     private readonly WaveFormat _mixerFormat = WaveFormat.CreateIeeeFloatWaveFormat(MixerSampleRate, MixerChannels);
     private readonly MixingSampleProvider _mixer;
-    private readonly WaveOutEvent _output;
     private readonly Dictionary<string, CachedSound> _sounds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _offsets = new(StringComparer.OrdinalIgnoreCase);
+    private WaveOutEvent? _output;
 
     public HitSoundPlayer()
     {
         _mixer = new MixingSampleProvider(_mixerFormat) { ReadFully = true };
-        _output = new WaveOutEvent { DesiredLatency = 50 };
-        _output.Init(_mixer);
-        _output.Play();
         ReloadAssets();
     }
 
@@ -98,6 +95,7 @@ public sealed class HitSoundPlayer : IDisposable
         if (!_sounds.TryGetValue(NormalizeName(hitSound), out CachedSound? sound))
             return false;
 
+        EnsureOutput();
         var source = new CachedSoundSampleProvider(sound);
         var volumeProvider = new VolumeSampleProvider(source)
         {
@@ -112,9 +110,20 @@ public sealed class HitSoundPlayer : IDisposable
 
     public void Dispose()
     {
-        _output.Stop();
-        _output.Dispose();
+        _output?.Stop();
+        _output?.Dispose();
+        _output = null;
         GC.SuppressFinalize(this);
+    }
+
+    private void EnsureOutput()
+    {
+        if (_output is not null)
+            return;
+
+        _output = new WaveOutEvent { DesiredLatency = 50 };
+        _output.Init(_mixer);
+        _output.Play();
     }
 
     private CachedSound LoadCachedSound(string path)
