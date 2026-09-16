@@ -55,8 +55,6 @@ public static class AdoFaiLoader
         double pitchPercent = 100.0;
         int countdownTicks = 4;
         bool separateCountdownTime = false;
-        string defaultHitSound = "Kick";
-        double hitSoundVolumePercent = 100.0;
         if (root.TryGetProperty("settings", out JsonElement settings) &&
             settings.ValueKind == JsonValueKind.Object)
         {
@@ -74,9 +72,6 @@ public static class AdoFaiLoader
                 countdownTicks = ticks;
             if (settings.TryGetProperty("separateCountdownTime", out JsonElement separateCountdown))
                 separateCountdownTime = ReadLooseBool(separateCountdown, defaultValue: false);
-
-            defaultHitSound = ReadLooseString(settings, "hitsound") ?? "Kick";
-            hitSoundVolumePercent = ReadLooseDoubleProperty(settings, "hitsoundVolume") ?? 100.0;
         }
 
         var actionTypes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -107,12 +102,7 @@ public static class AdoFaiLoader
                     ReadLooseString(action, "speedType"),
                     ReadLooseDoubleProperty(action, "beatsPerMinute"),
                     ReadLooseDoubleProperty(action, "bpmMultiplier"),
-                    ReadLooseString(action, "icon"))
-                {
-                    HitSound = ReadLooseString(action, "hitsound"),
-                    HitSoundVolumePercent = ReadLooseDoubleProperty(action, "hitsoundVolume"),
-                    GameSound = ReadLooseString(action, "gameSound")
-                });
+                    ReadLooseString(action, "icon")));
             }
         }
 
@@ -142,8 +132,6 @@ public static class AdoFaiLoader
             PitchPercent = pitchPercent,
             CountdownTicks = countdownTicks,
             SeparateCountdownTime = separateCountdownTime,
-            DefaultHitSound = defaultHitSound,
-            HitSoundVolumePercent = hitSoundVolumePercent,
             Bounds = bounds
         };
 

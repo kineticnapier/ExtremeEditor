@@ -7,13 +7,8 @@ namespace ExtremeEditor.App;
 
 public sealed class MainForm : Form
 {
-    private const int MaxHitSoundsPerFrame = 128;
-    private const double HitSoundScheduleLeadSeconds = 0.020;
-    private const double HitSoundLateWindowSeconds = 0.050;
-
     private readonly LevelCanvas _canvas = new() { Dock = DockStyle.Fill };
     private readonly AudioPlayer _audio = new();
-    private readonly HitSoundPlayer _hitSounds = new();
     private readonly System.Windows.Forms.Timer _playbackTimer = new() { Interval = 16 };
     private readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _renderStatus = new();
@@ -22,21 +17,15 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _frame = new("Frame");
     private readonly ToolStripButton _play = new("Play");
     private readonly ToolStripButton _stop = new("Stop");
-    private readonly ToolStripButton _follow = new("Follow Player") { CheckOnClick = true, Checked = true };
     private readonly ToolStripLabel _playTime = new("--:--.---");
     private readonly ToolStripButton _rotateLeft = new("-15°");
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
     private readonly ToolStripButton _importAssets = new("Import Probe Assets");
     private readonly ToolStripButton _importIcons = new("Import Icon Catalog");
-    private readonly ToolStripButton _importHitsounds = new("Import Hitsounds");
     private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
-
     private TimingMap? _timingMap;
-    private HitSoundTimeline? _hitSoundTimeline;
-    private int _nextHitFloor = 1;
-    private double _lastHitAudioSeconds = double.NaN;
 
     public MainForm(string? initialFile)
     {
@@ -47,9 +36,9 @@ public sealed class MainForm : Form
 
         var tools = new ToolStrip();
         tools.Items.AddRange([_open, _synthetic, new ToolStripSeparator(), _frame,
-            new ToolStripSeparator(), _play, _stop, _follow, _playTime,
+            new ToolStripSeparator(), _play, _stop, _playTime,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
-            new ToolStripSeparator(), _importAssets, _importIcons, _importHitsounds, _floorPreview,
+            new ToolStripSeparator(), _importAssets, _importIcons, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
 
         var statusStrip = new StatusStrip();
@@ -64,23 +53,14 @@ public sealed class MainForm : Form
         _frame.Click += (_, _) => _canvas.FrameAll();
         _play.Click += (_, _) => TogglePlayback();
         _stop.Click += (_, _) => StopPlayback();
-        _follow.CheckedChanged += (_, _) => _canvas.FollowPlayback = _follow.Checked;
         _rotateLeft.Click += (_, _) => RotateSelected(-15);
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
         _importAssets.Click += (_, _) => ImportProbeAssets();
         _importIcons.Click += (_, _) => ImportIconCatalog();
-        _importHitsounds.Click += (_, _) => ImportHitSounds();
         _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
         _canvas.DiagnosticsChanged += UpdateRenderStatus;
-        _canvas.FollowPlaybackChanged += value =>
-        {
-            if (_follow.Checked != value)
-                _follow.Checked = value;
-        };
-        _canvas.PlaybackPoseProvider = GetLivePlaybackPose;
-        _canvas.FollowPlayback = _follow.Checked;
         _playbackTimer.Tick += (_, _) => UpdatePlaybackFrame();
         _playbackTimer.Start();
 
@@ -123,7 +103,6 @@ public sealed class MainForm : Form
         if (disposing)
         {
             _playbackTimer.Dispose();
-            _hitSounds.Dispose();
             _audio.Dispose();
         }
         base.Dispose(disposing);
@@ -158,8 +137,6 @@ public sealed class MainForm : Form
 
             _canvas.SetLevel(loaded.Document, index);
             _timingMap = TimingMapBuilder.Build(loaded.Document);
-            _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
-            ResetHitSoundCursor();
             string audioState = LoadSongForLevel(loaded.Document);
             sw.Stop();
 
@@ -173,7 +150,7 @@ public sealed class MainForm : Form
                 $"parse {loaded.Metrics.Parse.TotalMilliseconds:N1} ms | " +
                 $"path {loaded.Metrics.BuildPath.TotalMilliseconds:N1} ms | " +
                 $"index {indexWatch.Elapsed.TotalMilliseconds:N1} ms | " +
-                $"total {sw.Elapsed.TotalMilliseconds:N1} ms | {audioState} | {_hitSounds.AssetSummary}";
+                $"total {sw.Elapsed.TotalMilliseconds:N1} ms | {audioState}";
         }
         catch (Exception ex)
         {
@@ -220,6 +197,8 @@ public sealed class MainForm : Form
             return;
         }
 
+        // Paused means resume exactly where we stopped. A genuinely stopped
+        // player starts at the selected tile, if there is one.
         if (_audio.IsStopped && _canvas.SelectedFloor >= 0)
         {
             double chartTime = _timingMap.GetEntryTime(_canvas.SelectedFloor);
@@ -227,7 +206,6 @@ public sealed class MainForm : Form
             _audio.Seek(TimeSpan.FromSeconds(Math.Max(0, audioTime)));
         }
 
-        ResetHitSoundCursor();
         _audio.Play();
         _play.Text = _audio.IsPlaying ? "Pause" : "Play";
         UpdatePlaybackFrame();
@@ -239,119 +217,23 @@ public sealed class MainForm : Form
         _play.Text = "Play";
         _playTime.Text = "--:--.---";
         _canvas.SetPlaybackPose(null);
-        _nextHitFloor = 1;
-        _lastHitAudioSeconds = double.NaN;
-    }
-
-    private PlaybackPose? GetLivePlaybackPose()
-    {
-        LevelDocument? level = _canvas.Level;
-        if (level is null || _timingMap is null || !_audio.IsLoaded)
-            return null;
-        if (!_audio.IsPlaying && !_audio.IsPaused)
-            return null;
-
-        double audioSeconds = _audio.Position.TotalSeconds;
-        ProcessHitSounds(audioSeconds);
-        double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
-        return _timingMap.GetPose(level, chartTime);
     }
 
     private void UpdatePlaybackFrame()
     {
-        PlaybackPose? pose = GetLivePlaybackPose();
-        _canvas.SetPlaybackPose(pose);
-
-        if (pose is not PlaybackPose current)
-        {
-            if (!_audio.IsPlaying)
-                _play.Text = "Play";
-            return;
-        }
-
-        string phase = current.IsPreStart ? "offset" : $"floor {current.Floor:N0}";
-        _playTime.Text = $"{_audio.Position:mm\\:ss\\.fff} | {phase}";
-        if (!_audio.IsPlaying)
-            _play.Text = "Play";
-    }
-
-    private void ResetHitSoundCursor()
-    {
         LevelDocument? level = _canvas.Level;
         if (level is null || _timingMap is null || !_audio.IsLoaded)
-        {
-            _nextHitFloor = 1;
-            _lastHitAudioSeconds = double.NaN;
             return;
-        }
 
         double audioSeconds = _audio.Position.TotalSeconds;
         double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
         PlaybackPose pose = _timingMap.GetPose(level, chartTime);
-        int floor = Math.Max(1, pose.Floor);
+        _canvas.SetPlaybackPose(pose);
 
-        while (floor < level.FloorCount)
-        {
-            HitSoundState state = _hitSoundTimeline?.GetStateAtFloor(floor) ?? HitSoundState.FromLevel(level);
-            double targetAudio = GetHitSoundAudioTime(level, floor, state);
-            if (targetAudio >= audioSeconds - HitSoundLateWindowSeconds)
-                break;
-            floor++;
-        }
-
-        _nextHitFloor = floor;
-        _lastHitAudioSeconds = audioSeconds;
-    }
-
-    private void ProcessHitSounds(double audioSeconds)
-    {
-        LevelDocument? level = _canvas.Level;
-        if (!_audio.IsPlaying || level is null || _timingMap is null || _hitSoundTimeline is null ||
-            _hitSounds.LoadedCount == 0)
-        {
-            _lastHitAudioSeconds = audioSeconds;
-            return;
-        }
-
-        if (double.IsNaN(_lastHitAudioSeconds) || audioSeconds + HitSoundLateWindowSeconds < _lastHitAudioSeconds)
-            ResetHitSoundCursor();
-
-        int processed = 0;
-        while (_nextHitFloor < level.FloorCount && processed < MaxHitSoundsPerFrame)
-        {
-            int floor = _nextHitFloor;
-            HitSoundState state = _hitSoundTimeline.GetStateAtFloor(floor);
-            double targetAudio = GetHitSoundAudioTime(level, floor, state);
-            if (targetAudio > audioSeconds + HitSoundScheduleLeadSeconds)
-                break;
-
-            bool recentEnough = targetAudio >= _lastHitAudioSeconds - HitSoundLateWindowSeconds;
-            bool isMidSpin = (uint)floor < (uint)_timingMap.Floors.Count && _timingMap.Floors[floor].MidSpin;
-            if (targetAudio >= 0.0 && recentEnough && !isMidSpin &&
-                !string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
-            {
-                _hitSounds.Play(state.Name, state.Volume);
-            }
-
-            _nextHitFloor++;
-            processed++;
-        }
-
-        if (processed == MaxHitSoundsPerFrame)
-        {
-            double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
-            PlaybackPose pose = _timingMap.GetPose(level, chartTime);
-            _nextHitFloor = Math.Max(_nextHitFloor, pose.Floor + 1);
-        }
-
-        _lastHitAudioSeconds = audioSeconds;
-    }
-
-    private double GetHitSoundAudioTime(LevelDocument level, int floor, HitSoundState state)
-    {
-        double chartTime = _timingMap!.GetEntryTime(floor);
-        double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
-        return audioTime - _hitSounds.GetOffsetSeconds(state.Name);
+        string phase = pose.IsPreStart ? "offset" : $"floor {pose.Floor:N0}";
+        _playTime.Text = $"{_audio.Position:mm\\:ss\\.fff} | {phase}";
+        if (!_audio.IsPlaying)
+            _play.Text = "Play";
     }
 
     private void LoadSynthetic()
@@ -365,7 +247,6 @@ public sealed class MainForm : Form
 
         _canvas.SetLevel(level, index);
         _timingMap = TimingMapBuilder.Build(level);
-        _hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
         _status.Text =
             $"Synthetic | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
     }
@@ -416,30 +297,6 @@ public sealed class MainForm : Form
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.ToString(), "Icon import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void ImportHitSounds()
-    {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "Select an EditorQoL *-hitsounds-assets folder",
-            UseDescriptionForTitle = true
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        try
-        {
-            HitSoundImportResult result = HitSoundAssetCache.ImportProbeFolder(dialog.SelectedPath);
-            _hitSounds.ReloadAssets();
-            _status.Text =
-                $"Imported {result.ImportedClips} hit sounds -> {result.CacheDirectory} | " +
-                (result.HasManifest ? "timing offsets loaded" : "no timing manifest");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.ToString(), "Hit-sound import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -519,7 +376,7 @@ public sealed class MainForm : Form
 
     private void UpdateRenderStatus() =>
         _renderStatus.Text =
-            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} / {_canvas.IconAssetSummary} / {_hitSounds.AssetSummary} | " +
+            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} / {_canvas.IconAssetSummary} | " +
             $"candidate {_canvas.LastCandidateCount:N0} | drawn {_canvas.LastDrawnCount:N0} | " +
             $"paint {_canvas.LastPaintMilliseconds:F2} ms | selected {_canvas.SelectedFloor}";
 }
