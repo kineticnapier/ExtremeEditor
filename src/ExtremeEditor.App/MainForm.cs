@@ -13,7 +13,6 @@ public sealed class MainForm : Form
     private readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _renderStatus = new();
     private readonly ToolStripButton _open = new("Open");
-    private readonly ToolStripButton _synthetic = new("Synthetic 238k");
     private readonly ToolStripButton _frame = new("Frame");
     private readonly ToolStripButton _play = new("Play");
     private readonly ToolStripButton _stop = new("Stop");
@@ -39,7 +38,7 @@ public sealed class MainForm : Form
         KeyPreview = true;
 
         var tools = new ToolStrip();
-        tools.Items.AddRange([_open, _synthetic, new ToolStripSeparator(), _frame,
+        tools.Items.AddRange([_open, _frame,
             new ToolStripSeparator(), _play, _stop, _follow, _playTime,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
             new ToolStripSeparator(), _importAssets, _importIcons, _importHitsounds, _floorPreview,
@@ -53,7 +52,6 @@ public sealed class MainForm : Form
         Controls.Add(statusStrip);
 
         _open.Click += (_, _) => OpenLevel();
-        _synthetic.Click += (_, _) => LoadSynthetic();
         _frame.Click += (_, _) => _canvas.FrameAll();
         _play.Click += (_, _) => TogglePlayback();
         _stop.Click += (_, _) => StopPlayback();
@@ -107,7 +105,7 @@ public sealed class MainForm : Form
             if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
                 LoadLevel(initialFile);
             else
-                LoadSynthetic();
+                LoadStartupLevel();
         };
     }
 
@@ -144,7 +142,6 @@ public sealed class MainForm : Form
                 _audio.Unload();
             UseWaitCursor = true;
             _status.Text = "Loading…";
-            Application.DoEvents();
 
             var sw = Stopwatch.StartNew();
             LoadResult loaded;
@@ -286,12 +283,12 @@ public sealed class MainForm : Form
             _play.Text = "Play";
     }
 
-    private void LoadSynthetic()
+    private void LoadStartupLevel()
     {
         StopPlayback();
         _audio.Unload();
         var sw = Stopwatch.StartNew();
-        LevelDocument level = LevelDocument.CreateSynthetic(238_145);
+        LevelDocument level = LevelDocument.CreateSynthetic(10);
         var index = new SpatialGridIndex(level.Positions);
         sw.Stop();
 
@@ -300,7 +297,7 @@ public sealed class MainForm : Form
         _hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
         _audio.ConfigureHitSounds(level, _timingMap, _hitSoundTimeline);
         _status.Text =
-            $"Synthetic | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
+            $"Starter | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
     }
 
     private void ImportProbeAssets()
