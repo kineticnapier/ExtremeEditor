@@ -16,6 +16,7 @@ public sealed record LevelAction(
     public double? HitSoundVolumePercent { get; set; }
     public string? GameSound { get; set; }
     public string? Planets { get; set; }
+    public double? AngleOffset { get; set; }
 }
 
 public sealed class LevelDocument
