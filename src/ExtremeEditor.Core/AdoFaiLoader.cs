@@ -111,7 +111,8 @@ public static class AdoFaiLoader
                 {
                     HitSound = ReadLooseString(action, "hitsound"),
                     HitSoundVolumePercent = ReadLooseDoubleProperty(action, "hitsoundVolume"),
-                    GameSound = ReadLooseString(action, "gameSound")
+                    GameSound = ReadLooseString(action, "gameSound"),
+                    Planets = ReadLooseString(action, "planets")
                 });
             }
         }
