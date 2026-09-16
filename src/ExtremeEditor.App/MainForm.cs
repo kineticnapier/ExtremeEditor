@@ -267,18 +267,31 @@ public sealed class MainForm : Form
 
     private void UpdatePlaybackFrame()
     {
-        PlaybackPose? pose = GetLivePlaybackPose();
-        _canvas.SetPlaybackPose(pose);
-
-        if (pose is not PlaybackPose current)
+        LevelDocument? level = _canvas.Level;
+        if (level is null || _timingMap is null || !_audio.IsLoaded ||
+            (!_audio.IsPlaying && !_audio.IsPaused))
         {
+            _canvas.SetPlaybackPose(null);
             if (!_audio.IsPlaying)
                 _play.Text = "Play";
             return;
         }
 
+        // Sample the presentation clock once so all diagnostic values describe
+        // the same instant even on charts where thousands of floors pass per frame.
+        double audioSeconds = _audio.Position.TotalSeconds;
+        double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
+        PlaybackPose current = _timingMap.GetPose(level, chartTime);
+        _canvas.SetPlaybackPose(current);
+
+        double floorEntryTime = _timingMap.GetEntryTime(current.Floor);
+        double deltaMilliseconds = (chartTime - floorEntryTime) * 1000.0;
         string phase = current.IsPreStart ? "offset" : $"floor {current.Floor:N0}";
-        _playTime.Text = $"{_audio.Position:mm\\:ss\\.fff} | {phase}";
+        _playTime.Text =
+            $"A {TimeSpan.FromSeconds(audioSeconds):mm\\:ss\\.fff} | " +
+            $"C {chartTime:F6}s | {phase} | " +
+            $"E {floorEntryTime:F6}s | Δ {deltaMilliseconds:+0.000;-0.000;0.000} ms";
+
         if (!_audio.IsPlaying)
             _play.Text = "Play";
     }
