@@ -122,7 +122,7 @@ public sealed class HitSoundPlayer : IDisposable
             return;
 
         _output = new WaveOutEvent { DesiredLatency = 50 };
-        _output.Init(_mixer);
+        _output.Init(_mixer.ToWaveProvider());
         _output.Play();
     }
 
