@@ -90,7 +90,7 @@ static void RunTimingProbeMidFloorSetSpeedRegression()
             ?? throw new InvalidOperationException("TimingProbe is missing");
         MethodInfo analyze = probeType.GetMethod("Analyze", BindingFlags.Public | BindingFlags.Static)
             ?? throw new InvalidOperationException("TimingProbe.Analyze is missing");
-        object result = analyze.Invoke(null, [level, timing])
+        object result = analyze.Invoke(null, [level, timing, 1e-7, 3])
             ?? throw new InvalidOperationException("TimingProbe.Analyze returned null");
 
         int? firstMismatchFloor = ReadNullableInt(result, "FirstMismatchFloor");
