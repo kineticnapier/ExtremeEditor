@@ -27,6 +27,7 @@ public sealed class LevelDocument
     public required double OffsetMilliseconds { get; init; }
     public required double PitchPercent { get; init; }
     public required int CountdownTicks { get; init; }
+    public required bool SeparateCountdownTime { get; init; }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
@@ -72,6 +73,7 @@ public sealed class LevelDocument
             OffsetMilliseconds = 0,
             PitchPercent = 100,
             CountdownTicks = 4,
+            SeparateCountdownTime = true,
             Bounds = PathBuilder.CalculateBounds(positions)
         };
     }

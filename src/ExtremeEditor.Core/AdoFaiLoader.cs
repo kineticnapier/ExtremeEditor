@@ -54,6 +54,7 @@ public static class AdoFaiLoader
         double offsetMilliseconds = 0.0;
         double pitchPercent = 100.0;
         int countdownTicks = 4;
+        bool separateCountdownTime = false;
         if (root.TryGetProperty("settings", out JsonElement settings) &&
             settings.ValueKind == JsonValueKind.Object)
         {
@@ -69,6 +70,8 @@ public static class AdoFaiLoader
             pitchPercent = ReadLooseDoubleProperty(settings, "pitch") ?? 100.0;
             if (TryReadIntProperty(settings, "countdownTicks", out int ticks) && ticks >= 0)
                 countdownTicks = ticks;
+            if (settings.TryGetProperty("separateCountdownTime", out JsonElement separateCountdown))
+                separateCountdownTime = ReadLooseBool(separateCountdown, defaultValue: false);
         }
 
         var actionTypes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -128,6 +131,7 @@ public static class AdoFaiLoader
             OffsetMilliseconds = offsetMilliseconds,
             PitchPercent = pitchPercent,
             CountdownTicks = countdownTicks,
+            SeparateCountdownTime = separateCountdownTime,
             Bounds = bounds
         };
 

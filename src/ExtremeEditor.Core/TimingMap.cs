@@ -26,13 +26,24 @@ public static class PlaybackClock
     public static double AudioToChartTime(LevelDocument level, double audioSeconds)
     {
         double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
-        return audioSeconds * pitch - level.OffsetMilliseconds * 0.001;
+        return audioSeconds * pitch + GetSeparateCountdownChartSeconds(level)
+               - level.OffsetMilliseconds * 0.001;
     }
 
     public static double ChartToAudioTime(LevelDocument level, double chartSeconds)
     {
         double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
-        return (chartSeconds + level.OffsetMilliseconds * 0.001) / pitch;
+        return (chartSeconds + level.OffsetMilliseconds * 0.001
+                - GetSeparateCountdownChartSeconds(level)) / pitch;
+    }
+
+    private static double GetSeparateCountdownChartSeconds(LevelDocument level)
+    {
+        if (!level.SeparateCountdownTime || level.CountdownTicks <= 0)
+            return 0.0;
+
+        double bpm = level.InitialBpm > 0 ? level.InitialBpm : 100.0;
+        return level.CountdownTicks * (60.0 / bpm);
     }
 }
 
