@@ -7,6 +7,8 @@ using NAudio.Wave;
 RunSampleIndexChecks();
 RunClockChecks();
 RunProviderChecks();
+RunOffsetOrderingRegression();
+RunNegativeStartTailRegression();
 RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
@@ -94,6 +96,61 @@ static void RunSparseTimelineChecks()
     Equal("None", timeline.GetStateAtFloor(3).Name, "SetHitsound name");
 }
 
+static void RunOffsetOrderingRegression()
+{
+    const int sampleRate = 1_000;
+    LevelDocument level = CreateLevel(3, new Dictionary<int, LevelAction[]>
+    {
+        [2] = [new LevelAction(2, "SetHitsound", true, null, null, null, null)
+        {
+            HitSound = "B"
+        }]
+    }, defaultHitSound: "A");
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 1.0), Floor(2, 1.001)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["A"] = new RenderedHitSound(Enumerable.Repeat(1.0f, 8).ToArray(), 0.0),
+        ["B"] = new RenderedHitSound(Enumerable.Repeat(2.0f, 8).ToArray(), 0.002)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips);
+
+    // Floor 1 starts at frame 1000, but floor 2's larger offset moves it back
+    // to frame 999. A break based on floor 1's clip-specific start loses floor 2.
+    provider.Seek(998);
+    var firstRead = new float[4]; // frames [998, 1000)
+    provider.Read(firstRead, 0, firstRead.Length);
+    Near(0.0, firstRead[0], "offset inversion silence before later floor");
+    Near(2.0, firstRead[2], "offset inversion schedules later floor first");
+
+    var secondRead = new float[4]; // frames [1000, 1002)
+    provider.Read(secondRead, 0, secondRead.Length);
+    Near(3.0, secondRead[0], "pending earlier floor survives offset-bound scan");
+}
+
+static void RunNegativeStartTailRegression()
+{
+    const int sampleRate = 1_000;
+    LevelDocument level = CreateLevel(2, defaultHitSound: "Negative");
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    float[] pcm = [10, 10, 20, 20, 30, 30, 40, 40, 50, 50];
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Negative"] = new RenderedHitSound(pcm, 0.003)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips);
+
+    // The clip starts at frame -2. Frames 0..2 must use source frames 2..4.
+    var buffer = new float[6];
+    provider.Read(buffer, 0, buffer.Length);
+    Near(30.0, buffer[0], "negative start skips pre-zero prefix");
+    Near(40.0, buffer[2], "negative start keeps tail frame 1");
+    Near(50.0, buffer[4], "negative start keeps tail frame 2");
+}
+
 static void RunMillionFloorScanBenchmark()
 {
     const int floorCount = 1_000_000;
@@ -119,7 +176,10 @@ static void RunMillionFloorScanBenchmark()
 static FloorTiming Floor(int floor, double entry) =>
     new(floor, entry, entry + 1.0 / 48_000, 0, 0, Math.PI, 100, false, false);
 
-static LevelDocument CreateLevel(int floors, IReadOnlyDictionary<int, LevelAction[]>? actions = null) => new()
+static LevelDocument CreateLevel(
+    int floors,
+    IReadOnlyDictionary<int, LevelAction[]>? actions = null,
+    string defaultHitSound = "Kick") => new()
 {
     SourcePath = "<test>",
     Angles = new double[Math.Max(0, floors - 1)],
@@ -133,7 +193,7 @@ static LevelDocument CreateLevel(int floors, IReadOnlyDictionary<int, LevelActio
     PitchPercent = 100,
     CountdownTicks = 0,
     SeparateCountdownTime = false,
-    DefaultHitSound = "Kick",
+    DefaultHitSound = defaultHitSound,
     HitSoundVolumePercent = 100,
     Bounds = default
 };

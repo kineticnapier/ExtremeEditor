@@ -72,6 +72,10 @@ dotnet run -c Release --project src/ExtremeEditor.Audio.Tests
 
 The dependency-free check executable verifies chart/audio clock transforms, 48 kHz sample mapping, seek tail reconstruction, chunk-boundary tails, sparse `SetHitsound` state, and a streamed one-million-floor cue scan without opening an audio device.
 
+## 0.0.19 prototype
+
+Makes streamed hit scheduling robust when adjacent hit-sound types have different manifest offsets. The renderer now stops floor scanning only after applying the maximum positive offset bound, and preserves the audible tail of clips whose start frame is before audio time zero.
+
 ## 0.0.18 prototype
 
 Moves song and hit-sound playback onto a single `WaveOutEvent` graph. Hit-sound PCM is placed at absolute sample frames inside the audio provider, removing WinForms Timer/Paint scheduling, lead/late windows, and the per-frame hit cap from `MainForm`.

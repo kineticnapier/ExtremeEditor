@@ -15,6 +15,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly IReadOnlyDictionary<string, RenderedHitSound> _clips;
     private readonly List<ActiveVoice> _activeVoices = [];
     private readonly double _lookBackSeconds;
+    private readonly double _maxPositiveOffsetSeconds;
     private long _positionFrames;
     private int _nextFloor;
 
@@ -36,6 +37,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         _lookBackSeconds = clips.Count == 0
             ? 0.0
             : clips.Values.Max(clip => clip.FrameCount / (double)waveFormat.SampleRate + Math.Abs(clip.OffsetSeconds));
+        _maxPositiveOffsetSeconds = clips.Count == 0
+            ? 0.0
+            : Math.Max(0.0, clips.Values.Max(clip => clip.OffsetSeconds));
         Seek(0);
     }
 
@@ -75,18 +79,21 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         while (_nextFloor < _level.FloorCount && _nextFloor < _timingMap.Floors.Count)
         {
             int floor = _nextFloor;
+            double floorAudio = PlaybackClock.ChartToAudioTime(_level, _timingMap.GetEntryTime(floor));
+            long earliestPossibleStartFrame = AudioTimeToSampleFrame(
+                floorAudio - _maxPositiveOffsetSeconds, WaveFormat.SampleRate);
+            if (earliestPossibleStartFrame >= endFrame)
+                break;
+
             HitSoundState state = _timeline.GetStateAtFloor(floor);
             string name = HitSoundLibrary.NormalizeName(state.Name);
             _clips.TryGetValue(name, out RenderedHitSound? clip);
 
-            double floorAudio = PlaybackClock.ChartToAudioTime(_level, _timingMap.GetEntryTime(floor));
             double startAudio = floorAudio - (clip?.OffsetSeconds ?? 0.0);
             long startFrame = AudioTimeToSampleFrame(startAudio, WaveFormat.SampleRate);
-            if (startFrame >= endFrame)
-                break;
 
             _nextFloor++;
-            if (clip is null || startFrame < 0 || _timingMap.Floors[floor].MidSpin ||
+            if (clip is null || _timingMap.Floors[floor].MidSpin ||
                 string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
