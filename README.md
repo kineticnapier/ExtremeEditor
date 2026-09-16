@@ -35,7 +35,7 @@ or:
 .\run.ps1
 ```
 
-Open an `.adofai` from the toolbar. You can also click **Synthetic 238k** to generate a large in-memory path without a file.
+Open an `.adofai` from the toolbar. When no file is supplied at startup, the editor opens a lightweight 10-floor straight synthetic level.
 
 Controls:
 
@@ -87,6 +87,10 @@ dotnet run -c Release --project src/ExtremeEditor.App -- "C:\path\to\level.adofa
 Long `ReadAll` operations emit a heartbeat every 250 ms with iteration and
 cumulative-sample counts, making finite heavy processing distinguishable from a
 provider that is not reaching end-of-stream.
+
+## 0.0.21 prototype
+
+Replaces the automatic 238k-floor startup chart with a 10-floor straight starter level, removes the `Synthetic 238k` toolbar action, and avoids pumping pending WinForms paint events from `LoadLevel` before parsing a newly opened chart.
 
 ## 0.0.20 prototype
 
