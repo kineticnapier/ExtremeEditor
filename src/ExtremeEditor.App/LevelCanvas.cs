@@ -30,8 +30,10 @@ public sealed class LevelCanvas : Control
     private Point _lastMouse;
     private int _selectedFloor = -1;
     private bool _useFloorPreview = true;
+    private bool _followPlayback = true;
 
     public event Action? DiagnosticsChanged;
+    public event Action<bool>? FollowPlaybackChanged;
 
     public LevelDocument? Level => _level;
     public int LastCandidateCount { get; private set; }
@@ -40,6 +42,19 @@ public sealed class LevelCanvas : Control
     public string LastRenderMode { get; private set; } = "dots";
     public string FloorAssetSummary => _floorRenderer.AssetSummary;
     public string IconAssetSummary => _iconRenderer.Summary;
+    public Func<PlaybackPose?>? PlaybackPoseProvider { get; set; }
+
+    public bool FollowPlayback
+    {
+        get => _followPlayback;
+        set
+        {
+            if (_followPlayback == value) return;
+            _followPlayback = value;
+            FollowPlaybackChanged?.Invoke(value);
+            Invalidate();
+        }
+    }
 
     public bool UseFloorPreview
     {
@@ -146,6 +161,20 @@ public sealed class LevelCanvas : Control
             return;
         }
 
+        // WinForms Timer ticks share the UI thread with mouse messages. During a
+        // continuous pan they can be delayed, so refresh the pose from the audio
+        // clock on every actual paint as well. A pan therefore cannot freeze the
+        // planets while the song continues.
+        if (PlaybackPoseProvider is not null)
+            _playbackPose = PlaybackPoseProvider();
+
+        if (_followPlayback && _playbackPose is PlaybackPose followPose)
+        {
+            // Follow the centre of the two-planet system rather than the current
+            // floor. The midpoint is continuous when the planets swap at a hit.
+            _camera = (followPose.StationaryPlanet + followPose.OrbitingPlanet) * 0.5f;
+        }
+
         WorldRect viewport = GetViewportWorldRect();
         WorldRect nearViewport = viewport.Inflate(2f);
         _index.Query(nearViewport, _candidates);
@@ -161,9 +190,6 @@ public sealed class LevelCanvas : Control
         else
             DrawOverview(e.Graphics, nearViewport);
 
-        // Planets share the same back buffer and camera transform as the floors.
-        // This intentionally avoids a transparent child Control: panning now
-        // invalidates one surface, so old planet/tile pixels cannot linger behind.
         DrawPlaybackPlanets(e.Graphics);
 
         watch.Stop();
@@ -189,6 +215,8 @@ public sealed class LevelCanvas : Control
 
         if (e.Button is MouseButtons.Middle or MouseButtons.Right)
         {
+            // Explicit manual camera movement takes ownership from player follow.
+            FollowPlayback = false;
             _panning = true;
             Cursor = Cursors.Hand;
             Capture = true;
@@ -242,9 +270,6 @@ public sealed class LevelCanvas : Control
         graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         Vector2[] positions = _level!.Positions;
 
-        // Stock scrLevelMaker assigns a larger sorting order to smaller seqIDs:
-        // (100 + (floorCount - i)) * 5. Painter's algorithm therefore has to draw
-        // large tile numbers first and small tile numbers last.
         _candidates.Sort(static (a, b) => b.CompareTo(a));
         bool drawIcons = _zoom >= MinIconZoom &&
                          (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0);

@@ -12,6 +12,9 @@ public sealed record LevelAction(
     string? CustomIcon)
 {
     public double? SpeedRatio { get; set; }
+    public string? HitSound { get; set; }
+    public double? HitSoundVolumePercent { get; set; }
+    public string? GameSound { get; set; }
 }
 
 public sealed class LevelDocument
@@ -28,6 +31,8 @@ public sealed class LevelDocument
     public required double PitchPercent { get; init; }
     public required int CountdownTicks { get; init; }
     public required bool SeparateCountdownTime { get; init; }
+    public required string DefaultHitSound { get; init; }
+    public required double HitSoundVolumePercent { get; init; }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
@@ -74,6 +79,8 @@ public sealed class LevelDocument
             PitchPercent = 100,
             CountdownTicks = 4,
             SeparateCountdownTime = true,
+            DefaultHitSound = "Kick",
+            HitSoundVolumePercent = 100,
             Bounds = PathBuilder.CalculateBounds(positions)
         };
     }
