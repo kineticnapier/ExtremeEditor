@@ -45,110 +45,143 @@ public static class HitSoundAssetCache
     }
 }
 
-public sealed class HitSoundPlayer : IDisposable
+/// <summary>
+/// Owns the small, reusable hit-sound PCM cache. It deliberately owns no output
+/// device: song and hit sounds are rendered by AudioPlayer's single graph.
+/// </summary>
+internal sealed class HitSoundLibrary
 {
-    private const int MixerSampleRate = 44_100;
-    private const int MixerChannels = 2;
+    private const int CacheSampleRate = 44_100;
+    private const int Channels = 2;
 
-    private readonly WaveFormat _mixerFormat = WaveFormat.CreateIeeeFloatWaveFormat(MixerSampleRate, MixerChannels);
-    private readonly MixingSampleProvider _mixer;
-    private readonly Dictionary<string, CachedSound> _sounds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CachedHitSound> _sounds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _offsets = new(StringComparer.OrdinalIgnoreCase);
-    private WaveOutEvent? _output;
-
-    public HitSoundPlayer()
-    {
-        _mixer = new MixingSampleProvider(_mixerFormat) { ReadFully = true };
-        ReloadAssets();
-    }
 
     public int LoadedCount => _sounds.Count;
     public string AssetSummary => _sounds.Count == 0 ? "hitsounds none" : $"hitsounds {_sounds.Count}";
 
     public void ReloadAssets()
     {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? measurement = log?.Measure("hitsounds.reload");
         _sounds.Clear();
         _offsets.Clear();
 
         string directory = HitSoundAssetCache.CacheDirectory;
         if (!Directory.Exists(directory))
+        {
+            log?.Write("hitsounds.directory_missing", $"path={directory}");
             return;
+        }
 
-        foreach (string path in Directory.GetFiles(directory, "*.wav", SearchOption.TopDirectoryOnly))
+        string[] paths = Directory.GetFiles(directory, "*.wav", SearchOption.TopDirectoryOnly);
+        log?.Write("hitsounds.enumerated", $"path={directory} count={paths.Length}");
+        foreach (string path in paths)
         {
             try
             {
-                CachedSound sound = LoadCachedSound(path);
+                using IDisposable? fileMeasurement = log?.Measure(
+                    "hitsounds.load_file", $"file={Path.GetFileName(path)} bytes={new FileInfo(path).Length}");
+                CachedHitSound sound = LoadCachedSound(path, log);
                 _sounds[NormalizeName(Path.GetFileNameWithoutExtension(path))] = sound;
+                log?.Write("hitsounds.loaded_file",
+                    $"file={Path.GetFileName(path)} samples={sound.Samples.Length} " +
+                    $"rate={sound.WaveFormat.SampleRate} channels={sound.WaveFormat.Channels}");
             }
-            catch
+            catch (Exception ex)
             {
+                log?.Write("hitsounds.load_failed",
+                    $"file={Path.GetFileName(path)} exception={ex.GetType().FullName} message={ex.Message}");
                 // One malformed/missing game asset must not disable all other hit sounds.
             }
         }
 
         LoadManifest(Path.Combine(directory, "hitsounds.tsv"));
+        log?.Write("hitsounds.reload_complete", $"loaded={_sounds.Count} offsets={_offsets.Count}");
     }
 
-    public bool Play(string hitSound, double volume)
+    public IReadOnlyDictionary<string, RenderedHitSound> RenderFor(int sampleRate)
     {
-        if (!_sounds.TryGetValue(NormalizeName(hitSound), out CachedSound? sound))
-            return false;
-
-        EnsureOutput();
-        var source = new CachedSoundSampleProvider(sound);
-        var volumeProvider = new VolumeSampleProvider(source)
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? measurement = log?.Measure(
+            "hitsounds.render_all", $"target_rate={sampleRate} clip_count={_sounds.Count}");
+        var rendered = new Dictionary<string, RenderedHitSound>(_sounds.Count, StringComparer.OrdinalIgnoreCase);
+        foreach ((string name, CachedHitSound sound) in _sounds)
         {
-            Volume = (float)Math.Clamp(volume, 0.0, 1.0)
-        };
-        _mixer.AddMixerInput(volumeProvider);
-        return true;
+            using IDisposable? clipMeasurement = log?.Measure(
+                "hitsounds.render_clip",
+                $"name={name} input_samples={sound.Samples.Length} input_rate={sound.WaveFormat.SampleRate} " +
+                $"target_rate={sampleRate}");
+            ISampleProvider provider = new CachedSoundSampleProvider(sound.Samples, sound.WaveFormat);
+            if (sampleRate != CacheSampleRate)
+                provider = new WdlResamplingSampleProvider(provider, sampleRate);
+
+            int capacity = Math.Max(1024, sound.Samples.Length * sampleRate / CacheSampleRate);
+            float[] samples = ReadAll(provider, capacity, $"render:{name}", log);
+            double offset = _offsets.TryGetValue(name, out double value) ? value : 0.0;
+            rendered[name] = new RenderedHitSound(samples, offset);
+            log?.Write("hitsounds.rendered_clip", $"name={name} output_samples={samples.Length}");
+        }
+
+        return rendered;
     }
 
-    public double GetOffsetSeconds(string hitSound) =>
-        _offsets.TryGetValue(NormalizeName(hitSound), out double offset) ? offset : 0.0;
-
-    public void Dispose()
-    {
-        _output?.Stop();
-        _output?.Dispose();
-        _output = null;
-        GC.SuppressFinalize(this);
-    }
-
-    private void EnsureOutput()
-    {
-        if (_output is not null)
-            return;
-
-        _output = new WaveOutEvent { DesiredLatency = 50 };
-        _output.Init(_mixer.ToWaveProvider());
-        _output.Play();
-    }
-
-    private CachedSound LoadCachedSound(string path)
+    private static CachedHitSound LoadCachedSound(string path, AudioDiagnosticLog? log)
     {
         using var reader = new AudioFileReader(path);
         ISampleProvider provider = reader;
+        log?.Write("hitsounds.source_format",
+            $"file={Path.GetFileName(path)} provider={provider.GetType().FullName} " +
+            $"rate={provider.WaveFormat.SampleRate} channels={provider.WaveFormat.Channels} " +
+            $"duration_ms={reader.TotalTime.TotalMilliseconds:F3}");
 
         if (provider.WaveFormat.Channels == 1)
             provider = new MonoToStereoSampleProvider(provider);
-        else if (provider.WaveFormat.Channels != MixerChannels)
+        else if (provider.WaveFormat.Channels != Channels)
             throw new InvalidDataException($"Unsupported hit-sound channel count: {provider.WaveFormat.Channels}");
 
-        if (provider.WaveFormat.SampleRate != MixerSampleRate)
-            provider = new WdlResamplingSampleProvider(provider, MixerSampleRate);
+        if (provider.WaveFormat.SampleRate != CacheSampleRate)
+            provider = new WdlResamplingSampleProvider(provider, CacheSampleRate);
 
-        var samples = new List<float>(Math.Max(1024, reader.WaveFormat.SampleRate));
-        var buffer = new float[MixerSampleRate * MixerChannels / 4];
+        return new CachedHitSound(ReadAll(provider, Math.Max(1024, reader.WaveFormat.SampleRate),
+                $"cache:{Path.GetFileName(path)}", log),
+            WaveFormat.CreateIeeeFloatWaveFormat(CacheSampleRate, Channels));
+    }
+
+    private static float[] ReadAll(
+        ISampleProvider provider,
+        int initialCapacity,
+        string operation,
+        AudioDiagnosticLog? log)
+    {
+        using IDisposable? measurement = log?.Measure(
+            "hitsounds.read_all",
+            $"operation={operation} provider={provider.GetType().FullName} " +
+            $"rate={provider.WaveFormat.SampleRate} channels={provider.WaveFormat.Channels} " +
+            $"initial_capacity={initialCapacity}");
+        var samples = new List<float>(initialCapacity);
+        var buffer = new float[CacheSampleRate * Channels / 4];
+        int iterations = 0;
+        long cumulativeSamples = 0;
+        using IDisposable? heartbeat = log?.StartHeartbeat(
+            "hitsounds.read_heartbeat",
+            TimeSpan.FromMilliseconds(250),
+            () => $"operation={operation} iterations={Volatile.Read(ref iterations)} " +
+                  $"cumulative={Interlocked.Read(ref cumulativeSamples)}");
         int read;
         while ((read = provider.Read(buffer, 0, buffer.Length)) > 0)
         {
+            Interlocked.Increment(ref iterations);
+            Interlocked.Add(ref cumulativeSamples, read);
+            log?.Write("hitsounds.read",
+                $"operation={operation} iteration={iterations} read={read} cumulative={cumulativeSamples}");
             for (int i = 0; i < read; i++)
                 samples.Add(buffer[i]);
         }
 
-        return new CachedSound(samples.ToArray(), _mixerFormat);
+        log?.Write("hitsounds.read_complete",
+            $"operation={operation} iterations={iterations} final_read={read} cumulative={cumulativeSamples}");
+        return samples.ToArray();
     }
 
     private void LoadManifest(string path)
@@ -165,12 +198,13 @@ public sealed class HitSoundPlayer : IDisposable
             if (fields.Length < 3)
                 continue;
 
-            if (double.TryParse(fields[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double offset))
+            if (double.TryParse(fields[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double offset) &&
+                double.IsFinite(offset))
                 _offsets[NormalizeName(fields[0])] = offset;
         }
     }
 
-    private static string NormalizeName(string name)
+    internal static string NormalizeName(string name)
     {
         string normalized = name.Trim();
         if (normalized.StartsWith("snd", StringComparison.OrdinalIgnoreCase))
@@ -178,26 +212,27 @@ public sealed class HitSoundPlayer : IDisposable
         return normalized;
     }
 
-    private sealed record CachedSound(float[] Samples, WaveFormat WaveFormat);
+    private sealed record CachedHitSound(float[] Samples, WaveFormat WaveFormat);
 
-    private sealed class CachedSoundSampleProvider : ISampleProvider
+    private sealed class CachedSoundSampleProvider(float[] samples, WaveFormat waveFormat) : ISampleProvider
     {
-        private readonly CachedSound _sound;
         private int _position;
-
-        public CachedSoundSampleProvider(CachedSound sound) => _sound = sound;
-        public WaveFormat WaveFormat => _sound.WaveFormat;
+        public WaveFormat WaveFormat => waveFormat;
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int available = _sound.Samples.Length - _position;
-            int toCopy = Math.Min(available, count);
+            int toCopy = Math.Min(samples.Length - _position, count);
             if (toCopy <= 0)
                 return 0;
 
-            Array.Copy(_sound.Samples, _position, buffer, offset, toCopy);
+            Array.Copy(samples, _position, buffer, offset, toCopy);
             _position += toCopy;
             return toCopy;
         }
     }
+}
+
+internal sealed record RenderedHitSound(float[] Samples, double OffsetSeconds)
+{
+    public int FrameCount => Samples.Length / 2;
 }

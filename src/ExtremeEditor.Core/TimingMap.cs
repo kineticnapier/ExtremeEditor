@@ -67,6 +67,27 @@ public sealed class TimingMap
         return _floors[Math.Clamp(floor, 0, _floors.Length - 1)].EntryTime;
     }
 
+    /// <summary>
+    /// Returns the first floor whose entry time is greater than or equal to
+    /// <paramref name="chartTime"/>. Equal-time floors (for example midspins)
+    /// are resolved to the first matching floor.
+    /// </summary>
+    public int FindFirstFloorAtOrAfter(double chartTime)
+    {
+        int lo = 0;
+        int hi = _entryTimes.Length;
+        while (lo < hi)
+        {
+            int mid = lo + ((hi - lo) >> 1);
+            if (_entryTimes[mid] < chartTime)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return lo;
+    }
+
     public PlaybackPose GetPose(LevelDocument level, double chartTime)
     {
         if (_floors.Length == 0 || level.Positions.Length == 0)

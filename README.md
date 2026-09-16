@@ -60,7 +60,45 @@ The benchmark reports JSON parse, path construction, spatial-index construction 
 
 `ExtremeEditor.Core` has no UI or game dependency. `ExtremeEditor.Rendering` owns floor-preview geometry, the local asset cache and the current GDI+ preview backend. `ExtremeEditor.App` is the WinForms host. The rendering boundary is intentionally separate so a batched GPU backend can replace GDI+ without rewriting the level model, parser or spatial index.
 
+`ExtremeEditor.Audio` owns one streaming audio graph and one output device for the song and hit sounds. Hit sounds are converted from floor entry times to absolute sample frames and mixed during each provider read; the graph keeps only a sparse state timeline, a floor cursor, and currently audible PCM tails rather than materializing one audio object or a whole-song PCM buffer per floor.
+
 The prototype follows ADOFAI's `(-angle + 90°)` path-direction convention for ordinary `angleData` values. It is not yet a byte-for-byte behavioral replacement for ADOFAI's editor. In particular, full event semantics, legacy `pathData`, midspins, twirls, pauses, multi-planet behavior and decoration/VFX preview need dedicated compatibility work.
+
+## Audio foundation checks
+
+```powershell
+dotnet run -c Release --project src/ExtremeEditor.Audio.Tests
+```
+
+The dependency-free check executable verifies chart/audio clock transforms, 48 kHz sample mapping, seek tail reconstruction, chunk-boundary tails, sparse `SetHitsound` state, and a streamed one-million-floor cue scan without opening an audio device.
+
+## First-load audio diagnostics
+
+Set `EXTREMEEDITOR_DIAGNOSTICS` to a log path before launching the app to record
+phase timings, thread IDs, audio formats, per-WAV timings, and every hit-sound
+provider read. Use `1` to write `ExtremeEditor-first-load.log` in the temporary
+directory. Diagnostics are disabled by default.
+
+```powershell
+$env:EXTREMEEDITOR_DIAGNOSTICS = "$PWD\first-load.log"
+dotnet run -c Release --project src/ExtremeEditor.App -- "C:\path\to\level.adofai"
+```
+
+Long `ReadAll` operations emit a heartbeat every 250 ms with iteration and
+cumulative-sample counts, making finite heavy processing distinguishable from a
+provider that is not reaching end-of-stream.
+
+## 0.0.20 prototype
+
+Adds opt-in first-load audio diagnostics without changing the playback graph.
+
+## 0.0.19 prototype
+
+Makes streamed hit scheduling robust when adjacent hit-sound types have different manifest offsets. The renderer now stops floor scanning only after applying the maximum positive offset bound, and preserves the audible tail of clips whose start frame is before audio time zero.
+
+## 0.0.18 prototype
+
+Moves song and hit-sound playback onto a single `WaveOutEvent` graph. Hit-sound PCM is placed at absolute sample frames inside the audio provider, removing WinForms Timer/Paint scheduling, lead/late windows, and the per-frame hit cap from `MainForm`.
 
 ## 0.0.6 prototype
 

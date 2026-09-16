@@ -7,13 +7,8 @@ namespace ExtremeEditor.App;
 
 public sealed class MainForm : Form
 {
-    private const int MaxHitSoundsPerFrame = 128;
-    private const double HitSoundScheduleLeadSeconds = 0.020;
-    private const double HitSoundLateWindowSeconds = 0.050;
-
     private readonly LevelCanvas _canvas = new() { Dock = DockStyle.Fill };
     private readonly AudioPlayer _audio = new();
-    private readonly HitSoundPlayer _hitSounds = new();
     private readonly System.Windows.Forms.Timer _playbackTimer = new() { Interval = 16 };
     private readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _renderStatus = new();
@@ -35,8 +30,6 @@ public sealed class MainForm : Form
 
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
-    private int _nextHitFloor = 1;
-    private double _lastHitAudioSeconds = double.NaN;
 
     public MainForm(string? initialFile)
     {
@@ -123,7 +116,6 @@ public sealed class MainForm : Form
         if (disposing)
         {
             _playbackTimer.Dispose();
-            _hitSounds.Dispose();
             _audio.Dispose();
         }
         base.Dispose(disposing);
@@ -142,25 +134,44 @@ public sealed class MainForm : Form
 
     private void LoadLevel(string path)
     {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? loadMeasurement = log?.Measure("main_form.load_level", $"path={path}");
         try
         {
-            StopPlayback();
-            _audio.Unload();
+            using (log?.Measure("main_form.stop_playback"))
+                StopPlayback();
+            using (log?.Measure("main_form.audio_unload"))
+                _audio.Unload();
             UseWaitCursor = true;
             _status.Text = "Loading…";
             Application.DoEvents();
 
             var sw = Stopwatch.StartNew();
-            LoadResult loaded = AdoFaiLoader.Load(path);
+            LoadResult loaded;
+            using (log?.Measure("main_form.adofai_load"))
+                loaded = AdoFaiLoader.Load(path);
+            log?.Write("main_form.adofai_metrics",
+                $"bytes={loaded.Metrics.FileBytes} floors={loaded.Document.FloorCount} " +
+                $"actions={loaded.Document.ActionCount} read_ms={loaded.Metrics.Read.TotalMilliseconds:F3} " +
+                $"parse_ms={loaded.Metrics.Parse.TotalMilliseconds:F3} " +
+                $"path_ms={loaded.Metrics.BuildPath.TotalMilliseconds:F3}");
             var indexWatch = Stopwatch.StartNew();
-            var index = new SpatialGridIndex(loaded.Document.Positions);
+            SpatialGridIndex index;
+            using (log?.Measure("main_form.spatial_index"))
+                index = new SpatialGridIndex(loaded.Document.Positions);
             indexWatch.Stop();
 
-            _canvas.SetLevel(loaded.Document, index);
-            _timingMap = TimingMapBuilder.Build(loaded.Document);
-            _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
-            ResetHitSoundCursor();
-            string audioState = LoadSongForLevel(loaded.Document);
+            using (log?.Measure("main_form.canvas_set_level"))
+                _canvas.SetLevel(loaded.Document, index);
+            using (log?.Measure("main_form.timing_map"))
+                _timingMap = TimingMapBuilder.Build(loaded.Document);
+            using (log?.Measure("main_form.hitsound_timeline"))
+                _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
+            using (log?.Measure("main_form.configure_hitsounds"))
+                _audio.ConfigureHitSounds(loaded.Document, _timingMap, _hitSoundTimeline);
+            string audioState;
+            using (log?.Measure("main_form.load_song_for_level"))
+                audioState = LoadSongForLevel(loaded.Document);
             sw.Stop();
 
             if (Math.Abs(loaded.Document.PitchPercent - 100.0) > 0.001)
@@ -173,10 +184,12 @@ public sealed class MainForm : Form
                 $"parse {loaded.Metrics.Parse.TotalMilliseconds:N1} ms | " +
                 $"path {loaded.Metrics.BuildPath.TotalMilliseconds:N1} ms | " +
                 $"index {indexWatch.Elapsed.TotalMilliseconds:N1} ms | " +
-                $"total {sw.Elapsed.TotalMilliseconds:N1} ms | {audioState} | {_hitSounds.AssetSummary}";
+                $"total {sw.Elapsed.TotalMilliseconds:N1} ms | {audioState} | {_audio.HitSoundAssetSummary}";
         }
         catch (Exception ex)
         {
+            log?.Write("main_form.load_level_failed",
+                $"exception={ex.GetType().FullName} message={ex.Message}");
             MessageBox.Show(this, ex.ToString(), "Open failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             _status.Text = "Open failed";
         }
@@ -188,7 +201,9 @@ public sealed class MainForm : Form
 
     private string LoadSongForLevel(LevelDocument level)
     {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
         string? songPath = level.ResolveSongPath();
+        log?.Write("main_form.song_resolved", $"path={songPath ?? "<null>"}");
         if (songPath is null)
             return "audio unavailable";
         if (!File.Exists(songPath))
@@ -227,7 +242,6 @@ public sealed class MainForm : Form
             _audio.Seek(TimeSpan.FromSeconds(Math.Max(0, audioTime)));
         }
 
-        ResetHitSoundCursor();
         _audio.Play();
         _play.Text = _audio.IsPlaying ? "Pause" : "Play";
         UpdatePlaybackFrame();
@@ -239,8 +253,6 @@ public sealed class MainForm : Form
         _play.Text = "Play";
         _playTime.Text = "--:--.---";
         _canvas.SetPlaybackPose(null);
-        _nextHitFloor = 1;
-        _lastHitAudioSeconds = double.NaN;
     }
 
     private PlaybackPose? GetLivePlaybackPose()
@@ -252,7 +264,6 @@ public sealed class MainForm : Form
             return null;
 
         double audioSeconds = _audio.Position.TotalSeconds;
-        ProcessHitSounds(audioSeconds);
         double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
         return _timingMap.GetPose(level, chartTime);
     }
@@ -275,85 +286,6 @@ public sealed class MainForm : Form
             _play.Text = "Play";
     }
 
-    private void ResetHitSoundCursor()
-    {
-        LevelDocument? level = _canvas.Level;
-        if (level is null || _timingMap is null || !_audio.IsLoaded)
-        {
-            _nextHitFloor = 1;
-            _lastHitAudioSeconds = double.NaN;
-            return;
-        }
-
-        double audioSeconds = _audio.Position.TotalSeconds;
-        double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
-        PlaybackPose pose = _timingMap.GetPose(level, chartTime);
-        int floor = Math.Max(1, pose.Floor);
-
-        while (floor < level.FloorCount)
-        {
-            HitSoundState state = _hitSoundTimeline?.GetStateAtFloor(floor) ?? HitSoundState.FromLevel(level);
-            double targetAudio = GetHitSoundAudioTime(level, floor, state);
-            if (targetAudio >= audioSeconds - HitSoundLateWindowSeconds)
-                break;
-            floor++;
-        }
-
-        _nextHitFloor = floor;
-        _lastHitAudioSeconds = audioSeconds;
-    }
-
-    private void ProcessHitSounds(double audioSeconds)
-    {
-        LevelDocument? level = _canvas.Level;
-        if (!_audio.IsPlaying || level is null || _timingMap is null || _hitSoundTimeline is null ||
-            _hitSounds.LoadedCount == 0)
-        {
-            _lastHitAudioSeconds = audioSeconds;
-            return;
-        }
-
-        if (double.IsNaN(_lastHitAudioSeconds) || audioSeconds + HitSoundLateWindowSeconds < _lastHitAudioSeconds)
-            ResetHitSoundCursor();
-
-        int processed = 0;
-        while (_nextHitFloor < level.FloorCount && processed < MaxHitSoundsPerFrame)
-        {
-            int floor = _nextHitFloor;
-            HitSoundState state = _hitSoundTimeline.GetStateAtFloor(floor);
-            double targetAudio = GetHitSoundAudioTime(level, floor, state);
-            if (targetAudio > audioSeconds + HitSoundScheduleLeadSeconds)
-                break;
-
-            bool recentEnough = targetAudio >= _lastHitAudioSeconds - HitSoundLateWindowSeconds;
-            bool isMidSpin = (uint)floor < (uint)_timingMap.Floors.Count && _timingMap.Floors[floor].MidSpin;
-            if (targetAudio >= 0.0 && recentEnough && !isMidSpin &&
-                !string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
-            {
-                _hitSounds.Play(state.Name, state.Volume);
-            }
-
-            _nextHitFloor++;
-            processed++;
-        }
-
-        if (processed == MaxHitSoundsPerFrame)
-        {
-            double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
-            PlaybackPose pose = _timingMap.GetPose(level, chartTime);
-            _nextHitFloor = Math.Max(_nextHitFloor, pose.Floor + 1);
-        }
-
-        _lastHitAudioSeconds = audioSeconds;
-    }
-
-    private double GetHitSoundAudioTime(LevelDocument level, int floor, HitSoundState state)
-    {
-        double chartTime = _timingMap!.GetEntryTime(floor);
-        double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
-        return audioTime - _hitSounds.GetOffsetSeconds(state.Name);
-    }
-
     private void LoadSynthetic()
     {
         StopPlayback();
@@ -366,6 +298,7 @@ public sealed class MainForm : Form
         _canvas.SetLevel(level, index);
         _timingMap = TimingMapBuilder.Build(level);
         _hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        _audio.ConfigureHitSounds(level, _timingMap, _hitSoundTimeline);
         _status.Text =
             $"Synthetic | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
     }
@@ -432,7 +365,7 @@ public sealed class MainForm : Form
         try
         {
             HitSoundImportResult result = HitSoundAssetCache.ImportProbeFolder(dialog.SelectedPath);
-            _hitSounds.ReloadAssets();
+            _audio.ReloadHitSoundAssets();
             _status.Text =
                 $"Imported {result.ImportedClips} hit sounds -> {result.CacheDirectory} | " +
                 (result.HasManifest ? "timing offsets loaded" : "no timing manifest");
@@ -458,6 +391,8 @@ public sealed class MainForm : Form
         level.RebuildGeometry();
         _canvas.Reindex();
         _timingMap = TimingMapBuilder.Build(level);
+        _hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        _audio.ConfigureHitSounds(level, _timingMap, _hitSoundTimeline);
         sw.Stop();
 
         _status.Text =
@@ -519,7 +454,7 @@ public sealed class MainForm : Form
 
     private void UpdateRenderStatus() =>
         _renderStatus.Text =
-            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} / {_canvas.IconAssetSummary} / {_hitSounds.AssetSummary} | " +
+            $"{_canvas.LastRenderMode} / {_canvas.FloorAssetSummary} / {_canvas.IconAssetSummary} / {_audio.HitSoundAssetSummary} | " +
             $"candidate {_canvas.LastCandidateCount:N0} | drawn {_canvas.LastDrawnCount:N0} | " +
             $"paint {_canvas.LastPaintMilliseconds:F2} ms | selected {_canvas.SelectedFloor}";
 }
