@@ -36,6 +36,7 @@ public static class TimingProbe
     private const double TwoPi = 6.2831854820251465;
     private const double FirstEntryAngle = 4.71238899230957;
     private const double RadiansToDegrees = 57.29578;
+    private static readonly LevelAction[] EmptyActions = [];
 
     public static TimingProbeResult Analyze(
         LevelDocument level,
@@ -75,11 +76,15 @@ public static class TimingProbe
                 : entryAngle + Pi;
 
             LevelAction[] actions = level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? floorActions)
-                ? floorActions.Where(action => action.Active).ToArray()
-                : [];
+                ? floorActions
+                : EmptyActions;
 
+            bool hasSetSpeed = false;
             foreach (LevelAction action in actions)
             {
+                if (!action.Active)
+                    continue;
+
                 if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
                 {
                     isCcw = !isCcw;
@@ -90,6 +95,10 @@ public static class TimingProbe
                         numPlanets = 3;
                     else if (string.Equals(action.Planets, "TwoPlanets", StringComparison.OrdinalIgnoreCase))
                         numPlanets = 2;
+                }
+                else if (string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
+                {
+                    hasSetSpeed = true;
                 }
             }
 
@@ -106,15 +115,15 @@ public static class TimingProbe
                 previousMidSpin);
 
             double startBpm = baseBpm * speedMult;
-            LevelAction[] speeds = actions
-                .Where(action => string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
-                .ToArray();
-            double speedAverage = ApplySpeedEvents(
-                speeds,
-                rawMoved * RadiansToDegrees,
-                baseBpm,
-                ref speedMult,
-                out string speedOffsets);
+            double speedAverage = hasSetSpeed
+                ? ApplySpeedEvents(
+                    actions,
+                    rawMoved * RadiansToDegrees,
+                    baseBpm,
+                    ref speedMult,
+                    out string speedOffsetsWithEvents)
+                : speedMult;
+            string speedOffsets = hasSetSpeed ? speedOffsetsWithEvents : "-";
             double endBpm = baseBpm * speedMult;
 
             double referenceFloorSeconds = referenceMoved / Pi * (60.0 / baseBpm / speedAverage);
@@ -215,32 +224,42 @@ public static class TimingProbe
     }
 
     private static double ApplySpeedEvents(
-        LevelAction[] speeds,
+        LevelAction[] actions,
         double floorAngleDegrees,
         double baseBpm,
         ref double speedMult,
         out string offsetsText)
     {
-        if (speeds.Length == 0)
+        var speeds = new List<LevelAction>();
+        foreach (LevelAction action in actions)
+        {
+            if (action.Active && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
+                speeds.Add(action);
+        }
+
+        if (speeds.Count == 0)
         {
             offsetsText = "-";
             return speedMult;
         }
 
-        var groups = speeds
-            .GroupBy(speed => speed.AngleOffset ?? 0.0)
-            .OrderBy(group => group.Key)
+        LevelAction[] ordered = speeds
+            .OrderBy(speed => speed.AngleOffset ?? 0.0)
             .ToArray();
-        offsetsText = string.Join(",", groups.Select(group => group.Key.ToString("0.###")));
+        offsetsText = string.Join(",", ordered
+            .Select(speed => speed.AngleOffset ?? 0.0)
+            .Distinct()
+            .Select(offset => offset.ToString("0.###")));
 
         double activeBpm = baseBpm * speedMult;
         double cursorDegrees = 0.0;
         double totalSeconds = 0.0;
         bool hasMidFloorOffset = false;
+        int index = 0;
 
-        foreach (IGrouping<double, LevelAction> group in groups)
+        while (index < ordered.Length)
         {
-            double offset = group.Key;
+            double offset = ordered[index].AngleOffset ?? 0.0;
             double clampedOffset = Math.Clamp(offset, 0.0, Math.Max(0.0, floorAngleDegrees));
             if (clampedOffset > cursorDegrees)
             {
@@ -248,11 +267,17 @@ public static class TimingProbe
                 cursorDegrees = clampedOffset;
             }
 
-            foreach (LevelAction speed in group)
-                activeBpm = ApplySpeed(activeBpm, speed);
+            int next = index;
+            while (next < ordered.Length &&
+                   Math.Abs((ordered[next].AngleOffset ?? 0.0) - offset) <= 1e-12)
+            {
+                activeBpm = ApplySpeed(activeBpm, ordered[next]);
+                next++;
+            }
 
             if (offset > 0.0 && offset <= floorAngleDegrees)
                 hasMidFloorOffset = true;
+            index = next;
         }
 
         if (cursorDegrees < floorAngleDegrees)
