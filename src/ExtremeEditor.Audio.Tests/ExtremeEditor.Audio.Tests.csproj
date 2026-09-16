@@ -1,12 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="NAudio.Vorbis" Version="1.5.0" />
-  </ItemGroup>
-  <ItemGroup>
+    <ProjectReference Include="..\ExtremeEditor.Audio\ExtremeEditor.Audio.csproj" />
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
   </ItemGroup>
 </Project>
