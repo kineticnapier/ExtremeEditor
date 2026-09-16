@@ -146,6 +146,7 @@ public static class TimingMapBuilder
 {
     private const double TwoPi = Math.PI * 2.0;
     private const double PiStock = 3.1415927410125732;
+    private const double ThreePlanetAngleOffset = PiStock / 3.0;
     private const double InitialEntryAngle = 4.71238898038469;
 
     public static TimingMap Build(LevelDocument level)
@@ -172,6 +173,7 @@ public static class TimingMapBuilder
         var timings = new FloorTiming[floorCount];
         double bpm = level.InitialBpm > 0 ? level.InitialBpm : 100.0;
         bool isCcw = false;
+        bool threePlanets = false;
         double time = 0.0;
 
         for (int floor = 0; floor < floorCount; floor++)
@@ -185,6 +187,13 @@ public static class TimingMapBuilder
                     if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
                     {
                         isCcw = !isCcw;
+                    }
+                    else if (string.Equals(action.EventType, "MultiPlanet", StringComparison.Ordinal))
+                    {
+                        if (string.Equals(action.Planets, "ThreePlanets", StringComparison.OrdinalIgnoreCase))
+                            threePlanets = true;
+                        else if (string.Equals(action.Planets, "TwoPlanets", StringComparison.OrdinalIgnoreCase))
+                            threePlanets = false;
                     }
                     else if (string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
                     {
@@ -206,6 +215,8 @@ public static class TimingMapBuilder
             double moved = GetAngleMoved(entryAngles[floor], exitAngles[floor], !isCcw);
             if (moved <= 1e-6 || moved >= 6.283184482025146)
                 moved = midSpin ? 0.0 : TwoPi;
+            if (threePlanets && !midSpin)
+                moved = TimingMap.Mod(moved - ThreePlanetAngleOffset, TwoPi);
 
             double visualEntryAngle = entryAngles[floor];
             if (floor == 0)
