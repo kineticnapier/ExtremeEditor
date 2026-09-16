@@ -25,6 +25,23 @@ public sealed record TimingProbeResult(
     int MismatchCount,
     IReadOnlyList<TimingProbeRow> Rows);
 
+public sealed record ArcExcessInterval(
+    int StartFloor,
+    int EndFloor,
+    double Bpm,
+    int LongArcFloorCount,
+    double CurrentSeconds,
+    double ComplementarySeconds,
+    double ExcessSeconds,
+    double CumulativeExcessSeconds);
+
+public sealed record ArcExcessProbeResult(
+    int LongArcFloorCount,
+    double CurrentSeconds,
+    double ComplementarySeconds,
+    double TotalExcessSeconds,
+    IReadOnlyList<ArcExcessInterval> Intervals);
+
 /// <summary>
 /// Diagnostic-only timing calculator. It intentionally does not feed playback:
 /// it independently models the game's core Twirl/MultiPlanet/SetSpeed timing so
@@ -198,6 +215,129 @@ public static class TimingProbe
             maxCumulativeDelta,
             mismatchCount,
             rows);
+    }
+
+    /// <summary>
+    /// Groups the existing TimingMap into SetSpeed-delimited ranges and measures
+    /// how much time is contributed by paths longer than 180 degrees. For this
+    /// diagnostic only, a long arc is compared with its complementary arc while
+    /// true 360-degree hairpins and angles outside one revolution are preserved.
+    /// This does not alter playback or TimingMap.
+    /// </summary>
+    public static ArcExcessProbeResult AnalyzeArcExcess(LevelDocument level, TimingMap timing)
+    {
+        int floorCount = Math.Min(level.FloorCount, timing.Floors.Count);
+        if (floorCount == 0)
+            return new ArcExcessProbeResult(0, 0, 0, 0, []);
+
+        var intervals = new List<ArcExcessInterval>();
+        int intervalStart = 0;
+        double intervalBpm = timing.Floors[0].Bpm;
+        int intervalLongArcs = 0;
+        double intervalCurrent = 0.0;
+        double intervalComplementary = 0.0;
+        int totalLongArcs = 0;
+        double totalCurrent = 0.0;
+        double totalComplementary = 0.0;
+        double cumulativeExcess = 0.0;
+
+        for (int floor = 0; floor < floorCount; floor++)
+        {
+            if (floor > intervalStart && HasActiveSetSpeed(level, floor))
+            {
+                AddArcExcessInterval(
+                    intervals,
+                    intervalStart,
+                    floor - 1,
+                    intervalBpm,
+                    intervalLongArcs,
+                    intervalCurrent,
+                    intervalComplementary,
+                    ref cumulativeExcess);
+
+                intervalStart = floor;
+                intervalBpm = timing.Floors[floor].Bpm;
+                intervalLongArcs = 0;
+                intervalCurrent = 0.0;
+                intervalComplementary = 0.0;
+            }
+
+            FloorTiming current = timing.Floors[floor];
+            double currentSeconds = current.ExitTime - current.EntryTime;
+            double moved = current.AngleMoved;
+            double complementarySeconds = currentSeconds;
+
+            // Keep genuine 360-degree hairpins unchanged. The probe only asks
+            // what would happen if a single-revolution long arc used the other
+            // path between the same endpoints.
+            if (moved > Pi + 1e-9 && moved < TwoPi - 1e-9)
+            {
+                double complementaryMoved = TwoPi - moved;
+                if (moved > 1e-12)
+                    complementarySeconds = currentSeconds * (complementaryMoved / moved);
+                intervalLongArcs++;
+                totalLongArcs++;
+            }
+
+            intervalCurrent += currentSeconds;
+            intervalComplementary += complementarySeconds;
+            totalCurrent += currentSeconds;
+            totalComplementary += complementarySeconds;
+        }
+
+        AddArcExcessInterval(
+            intervals,
+            intervalStart,
+            floorCount - 1,
+            intervalBpm,
+            intervalLongArcs,
+            intervalCurrent,
+            intervalComplementary,
+            ref cumulativeExcess);
+
+        return new ArcExcessProbeResult(
+            totalLongArcs,
+            totalCurrent,
+            totalComplementary,
+            totalCurrent - totalComplementary,
+            intervals);
+    }
+
+    private static bool HasActiveSetSpeed(LevelDocument level, int floor)
+    {
+        if (!level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            return false;
+
+        foreach (LevelAction action in actions)
+        {
+            if (action.Active && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void AddArcExcessInterval(
+        List<ArcExcessInterval> intervals,
+        int startFloor,
+        int endFloor,
+        double bpm,
+        int longArcFloorCount,
+        double currentSeconds,
+        double complementarySeconds,
+        ref double cumulativeExcess)
+    {
+        double excess = currentSeconds - complementarySeconds;
+        cumulativeExcess += excess;
+        intervals.Add(new ArcExcessInterval(
+            startFloor,
+            endFloor,
+            bpm,
+            longArcFloorCount,
+            currentSeconds,
+            complementarySeconds,
+            excess,
+            cumulativeExcess));
     }
 
     private static double GetReferenceAngleMoved(
