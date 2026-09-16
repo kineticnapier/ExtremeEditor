@@ -115,15 +115,17 @@ public static class TimingProbe
                 previousMidSpin);
 
             double startBpm = baseBpm * speedMult;
-            double speedAverage = hasSetSpeed
-                ? ApplySpeedEvents(
+            double speedAverage = speedMult;
+            string speedOffsets = "-";
+            if (hasSetSpeed)
+            {
+                speedAverage = ApplySpeedEvents(
                     actions,
                     rawMoved * RadiansToDegrees,
                     baseBpm,
                     ref speedMult,
-                    out string speedOffsetsWithEvents)
-                : speedMult;
-            string speedOffsets = hasSetSpeed ? speedOffsetsWithEvents : "-";
+                    out speedOffsets);
+            }
             double endBpm = baseBpm * speedMult;
 
             double referenceFloorSeconds = referenceMoved / Pi * (60.0 / baseBpm / speedAverage);
