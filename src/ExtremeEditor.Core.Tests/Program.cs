@@ -3,6 +3,7 @@ using ExtremeEditor.Core;
 
 RunMultiPlanetRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
+RunArcExcessProbeRegression();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
 
@@ -107,6 +108,87 @@ static void RunTimingProbeMidFloorSetSpeedRegression()
     }
 }
 
+static void RunArcExcessProbeRegression()
+{
+    string path = Path.Combine(Path.GetTempPath(), $"extremeeditor-arc-excess-probe-{Guid.NewGuid():N}.adofai");
+    try
+    {
+        File.WriteAllText(path, """
+        {
+          "angleData": [120, 0, 120, 0],
+          "settings": {
+            "bpm": 100,
+            "offset": 0,
+            "pitch": 100,
+            "countdownTicks": 0,
+            "separateCountdownTime": false,
+            "hitsound": "Kick",
+            "hitsoundVolume": 100
+          },
+          "actions": [
+            {
+              "floor": 2,
+              "eventType": "SetSpeed",
+              "speedType": "Bpm",
+              "beatsPerMinute": 200
+            }
+          ]
+        }
+        """);
+
+        LevelDocument level = AdoFaiLoader.Load(path).Document;
+        TimingMap timing = TimingMapBuilder.Build(level);
+
+        Type probeType = typeof(LevelDocument).Assembly.GetType("ExtremeEditor.Core.TimingProbe")
+            ?? throw new InvalidOperationException("TimingProbe is missing");
+        MethodInfo analyze = probeType.GetMethod("AnalyzeArcExcess", BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("TimingProbe.AnalyzeArcExcess is missing");
+        object result = analyze.Invoke(null, [level, timing])
+            ?? throw new InvalidOperationException("TimingProbe.AnalyzeArcExcess returned null");
+
+        object[] intervals = ReadEnumerable(result, "Intervals");
+        if (intervals.Length != 2)
+            throw new InvalidOperationException($"Arc-excess interval count: expected 2, actual {intervals.Length}");
+
+        Equal(0, ReadInt(intervals[0], "StartFloor"), "Arc-excess first interval start");
+        Equal(1, ReadInt(intervals[0], "EndFloor"), "Arc-excess first interval end");
+        Equal(1, ReadInt(intervals[0], "LongArcFloorCount"), "Arc-excess first interval long arcs");
+        Near(0.8, ReadDouble(intervals[0], "ExcessSeconds"), "Arc-excess first interval excess");
+
+        Equal(2, ReadInt(intervals[1], "StartFloor"), "Arc-excess second interval start");
+        Equal(4, ReadInt(intervals[1], "EndFloor"), "Arc-excess second interval end");
+        Equal(1, ReadInt(intervals[1], "LongArcFloorCount"), "Arc-excess second interval long arcs");
+        Near(0.4, ReadDouble(intervals[1], "ExcessSeconds"), "Arc-excess second interval excess");
+
+        Near(1.2, ReadDouble(result, "TotalExcessSeconds"), "Arc-excess total excess");
+    }
+    finally
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+}
+
+static object[] ReadEnumerable(object instance, string propertyName)
+{
+    PropertyInfo property = instance.GetType().GetProperty(propertyName)
+        ?? throw new InvalidOperationException($"{instance.GetType().Name}.{propertyName} is missing");
+    object? value = property.GetValue(instance);
+    return value is System.Collections.IEnumerable enumerable
+        ? enumerable.Cast<object>().ToArray()
+        : throw new InvalidOperationException($"{instance.GetType().Name}.{propertyName} is not enumerable");
+}
+
+static int ReadInt(object instance, string propertyName)
+{
+    PropertyInfo property = instance.GetType().GetProperty(propertyName)
+        ?? throw new InvalidOperationException($"{instance.GetType().Name}.{propertyName} is missing");
+    object? value = property.GetValue(instance);
+    return value is int number
+        ? number
+        : throw new InvalidOperationException($"{instance.GetType().Name}.{propertyName} is not an int");
+}
+
 static double ReadDouble(object instance, string propertyName)
 {
     PropertyInfo property = instance.GetType().GetProperty(propertyName)
@@ -128,6 +210,12 @@ static int? ReadNullableInt(object instance, string propertyName)
         int number => number,
         _ => throw new InvalidOperationException($"TimingProbeResult.{propertyName} is not an int?")
     };
+}
+
+static void Equal(int expected, int actual, string name)
+{
+    if (expected != actual)
+        throw new InvalidOperationException($"{name}: expected {expected}, actual {actual}");
 }
 
 static void Near(double expected, double actual, string name)
