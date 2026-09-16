@@ -5,7 +5,7 @@ using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.App;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private readonly LevelCanvas _canvas = new() { Dock = DockStyle.Fill };
     private readonly AudioPlayer _audio = new();
@@ -44,6 +44,7 @@ public sealed class MainForm : Form
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
             new ToolStripSeparator(), _importAssets, _importIcons, _importHitsounds, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
+        InitializeTimingProbeUi(tools);
 
         var statusStrip = new StatusStrip();
         statusStrip.Items.AddRange([_status, _renderStatus]);
