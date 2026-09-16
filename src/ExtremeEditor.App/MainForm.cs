@@ -134,25 +134,44 @@ public sealed class MainForm : Form
 
     private void LoadLevel(string path)
     {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? loadMeasurement = log?.Measure("main_form.load_level", $"path={path}");
         try
         {
-            StopPlayback();
-            _audio.Unload();
+            using (log?.Measure("main_form.stop_playback"))
+                StopPlayback();
+            using (log?.Measure("main_form.audio_unload"))
+                _audio.Unload();
             UseWaitCursor = true;
             _status.Text = "Loading…";
             Application.DoEvents();
 
             var sw = Stopwatch.StartNew();
-            LoadResult loaded = AdoFaiLoader.Load(path);
+            LoadResult loaded;
+            using (log?.Measure("main_form.adofai_load"))
+                loaded = AdoFaiLoader.Load(path);
+            log?.Write("main_form.adofai_metrics",
+                $"bytes={loaded.Metrics.FileBytes} floors={loaded.Document.FloorCount} " +
+                $"actions={loaded.Document.ActionCount} read_ms={loaded.Metrics.Read.TotalMilliseconds:F3} " +
+                $"parse_ms={loaded.Metrics.Parse.TotalMilliseconds:F3} " +
+                $"path_ms={loaded.Metrics.BuildPath.TotalMilliseconds:F3}");
             var indexWatch = Stopwatch.StartNew();
-            var index = new SpatialGridIndex(loaded.Document.Positions);
+            SpatialGridIndex index;
+            using (log?.Measure("main_form.spatial_index"))
+                index = new SpatialGridIndex(loaded.Document.Positions);
             indexWatch.Stop();
 
-            _canvas.SetLevel(loaded.Document, index);
-            _timingMap = TimingMapBuilder.Build(loaded.Document);
-            _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
-            _audio.ConfigureHitSounds(loaded.Document, _timingMap, _hitSoundTimeline);
-            string audioState = LoadSongForLevel(loaded.Document);
+            using (log?.Measure("main_form.canvas_set_level"))
+                _canvas.SetLevel(loaded.Document, index);
+            using (log?.Measure("main_form.timing_map"))
+                _timingMap = TimingMapBuilder.Build(loaded.Document);
+            using (log?.Measure("main_form.hitsound_timeline"))
+                _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
+            using (log?.Measure("main_form.configure_hitsounds"))
+                _audio.ConfigureHitSounds(loaded.Document, _timingMap, _hitSoundTimeline);
+            string audioState;
+            using (log?.Measure("main_form.load_song_for_level"))
+                audioState = LoadSongForLevel(loaded.Document);
             sw.Stop();
 
             if (Math.Abs(loaded.Document.PitchPercent - 100.0) > 0.001)
@@ -169,6 +188,8 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            log?.Write("main_form.load_level_failed",
+                $"exception={ex.GetType().FullName} message={ex.Message}");
             MessageBox.Show(this, ex.ToString(), "Open failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             _status.Text = "Open failed";
         }
@@ -180,7 +201,9 @@ public sealed class MainForm : Form
 
     private string LoadSongForLevel(LevelDocument level)
     {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
         string? songPath = level.ResolveSongPath();
+        log?.Write("main_form.song_resolved", $"path={songPath ?? "<null>"}");
         if (songPath is null)
             return "audio unavailable";
         if (!File.Exists(songPath))

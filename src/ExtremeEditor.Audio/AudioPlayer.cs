@@ -23,7 +23,11 @@ public sealed class AudioPlayer : IDisposable
     private double _clockBaseAudioSeconds;
     private bool _clockReady;
 
-    public AudioPlayer() => _hitSoundLibrary.ReloadAssets();
+    public AudioPlayer()
+    {
+        using IDisposable? measurement = AudioDiagnosticLog.Shared?.Measure("audio_player.construct");
+        _hitSoundLibrary.ReloadAssets();
+    }
 
     public bool IsLoaded => _reader is not null;
     public bool IsPlaying => _output?.PlaybackState == PlaybackState.Playing;
@@ -68,6 +72,9 @@ public sealed class AudioPlayer : IDisposable
 
     public void ConfigureHitSounds(LevelDocument? level, TimingMap? timingMap, HitSoundTimeline? timeline)
     {
+        AudioDiagnosticLog.Shared?.Write("audio_player.configure_hitsounds",
+            $"level_floors={level?.FloorCount ?? 0} timing_floors={timingMap?.Floors.Count ?? 0} " +
+            $"timeline_changes={timeline?.StateChangeCount ?? 0} reader_loaded={_reader is not null}");
         _level = level;
         _timingMap = timingMap;
         _hitSoundTimeline = timeline;
@@ -84,19 +91,33 @@ public sealed class AudioPlayer : IDisposable
 
     public void Load(string path)
     {
-        DisposePlayback();
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? measurement = log?.Measure("audio_player.load", $"path={path}");
+        using (log?.Measure("audio_player.dispose_before_load"))
+            DisposePlayback();
         try
         {
             string extension = Path.GetExtension(path);
-            _reader = string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase)
-                ? new VorbisWaveReader(path)
-                : new AudioFileReader(path);
+            using (log?.Measure("audio_player.open_reader", $"extension={extension}"))
+            {
+                _reader = string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase)
+                    ? new VorbisWaveReader(path)
+                    : new AudioFileReader(path);
+            }
+            log?.Write("audio_player.reader_opened",
+                $"provider={_reader.GetType().FullName} rate={_reader.WaveFormat.SampleRate} " +
+                $"channels={_reader.WaveFormat.Channels} encoding={_reader.WaveFormat.Encoding} " +
+                $"duration_ms={_reader.TotalTime.TotalMilliseconds:F3}");
             LoadedPath = path;
-            BuildGraph();
-            ResetClock(0.0);
+            using (log?.Measure("audio_player.build_graph"))
+                BuildGraph();
+            using (log?.Measure("audio_player.reset_clock"))
+                ResetClock(0.0);
         }
-        catch
+        catch (Exception ex)
         {
+            log?.Write("audio_player.load_failed",
+                $"exception={ex.GetType().FullName} message={ex.Message}");
             DisposePlayback();
             throw;
         }
@@ -165,6 +186,7 @@ public sealed class AudioPlayer : IDisposable
         if (_reader is null)
             return;
 
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
         ISampleProvider song = _reader.ToSampleProvider();
         if (song.WaveFormat.Channels == 1)
             song = new MonoToStereoSampleProvider(song);
@@ -172,22 +194,34 @@ public sealed class AudioPlayer : IDisposable
             song = new FirstTwoChannelsSampleProvider(song);
 
         _outputFormat = song.WaveFormat;
+        log?.Write("audio_player.output_format",
+            $"provider={song.GetType().FullName} rate={_outputFormat.SampleRate} " +
+            $"channels={_outputFormat.Channels} encoding={_outputFormat.Encoding}");
         SampleAccurateHitSoundProvider? hitSounds = null;
         if (_level is not null && _timingMap is not null && _hitSoundTimeline is not null &&
             _hitSoundLibrary.LoadedCount > 0)
         {
-            hitSounds = new SampleAccurateHitSoundProvider(
-                _outputFormat,
-                _level,
-                _timingMap,
-                _hitSoundTimeline,
-                _hitSoundLibrary.RenderFor(_outputFormat.SampleRate));
+            using (log?.Measure("audio_player.render_hitsounds",
+                       $"rate={_outputFormat.SampleRate} count={_hitSoundLibrary.LoadedCount}"))
+            {
+                hitSounds = new SampleAccurateHitSoundProvider(
+                    _outputFormat,
+                    _level,
+                    _timingMap,
+                    _hitSoundTimeline,
+                    _hitSoundLibrary.RenderFor(_outputFormat.SampleRate));
+            }
         }
 
         long totalFrames = (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
         _graph = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames);
         _output = new WaveOutEvent { DesiredLatency = 80 };
-        _output.Init(_graph.ToWaveProvider());
+        log?.Write("audio_player.waveout_init_before",
+            $"provider={_graph.GetType().FullName} rate={_graph.WaveFormat.SampleRate} " +
+            $"channels={_graph.WaveFormat.Channels} total_frames={totalFrames}");
+        using (log?.Measure("audio_player.waveout_init"))
+            _output.Init(_graph.ToWaveProvider());
+        log?.Write("audio_player.waveout_init_after");
     }
 
     private void RebuildGraphPreservingTransport()
@@ -237,9 +271,13 @@ public sealed class AudioPlayer : IDisposable
 
     private void DisposePlayback()
     {
-        _output?.Stop();
-        _output?.Dispose();
-        _reader?.Dispose();
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using (log?.Measure("audio_player.output_stop", $"has_output={_output is not null}"))
+            _output?.Stop();
+        using (log?.Measure("audio_player.output_dispose", $"has_output={_output is not null}"))
+            _output?.Dispose();
+        using (log?.Measure("audio_player.reader_dispose", $"has_reader={_reader is not null}"))
+            _reader?.Dispose();
         _output = null;
         _reader = null;
         _graph = null;

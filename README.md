@@ -72,6 +72,26 @@ dotnet run -c Release --project src/ExtremeEditor.Audio.Tests
 
 The dependency-free check executable verifies chart/audio clock transforms, 48 kHz sample mapping, seek tail reconstruction, chunk-boundary tails, sparse `SetHitsound` state, and a streamed one-million-floor cue scan without opening an audio device.
 
+## First-load audio diagnostics
+
+Set `EXTREMEEDITOR_DIAGNOSTICS` to a log path before launching the app to record
+phase timings, thread IDs, audio formats, per-WAV timings, and every hit-sound
+provider read. Use `1` to write `ExtremeEditor-first-load.log` in the temporary
+directory. Diagnostics are disabled by default.
+
+```powershell
+$env:EXTREMEEDITOR_DIAGNOSTICS = "$PWD\first-load.log"
+dotnet run -c Release --project src/ExtremeEditor.App -- "C:\path\to\level.adofai"
+```
+
+Long `ReadAll` operations emit a heartbeat every 250 ms with iteration and
+cumulative-sample counts, making finite heavy processing distinguishable from a
+provider that is not reaching end-of-stream.
+
+## 0.0.20 prototype
+
+Adds opt-in first-load audio diagnostics without changing the playback graph.
+
 ## 0.0.19 prototype
 
 Makes streamed hit scheduling robust when adjacent hit-sound types have different manifest offsets. The renderer now stops floor scanning only after applying the maximum positive offset bound, and preserves the audible tail of clips whose start frame is before audio time zero.

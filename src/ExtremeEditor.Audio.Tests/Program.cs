@@ -5,6 +5,8 @@ using ExtremeEditor.Core;
 using NAudio.Wave;
 
 RunSampleIndexChecks();
+RunDiagnosticLogChecks();
+RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunProviderChecks();
 RunOffsetOrderingRegression();
@@ -13,6 +15,36 @@ RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
 return 0;
+
+static void RunDiagnosticLogChecks()
+{
+    using var writer = new StringWriter();
+    var log = new AudioDiagnosticLog(writer);
+    using (log.Measure("test.phase", "provider=finite"))
+        log.Write("test.read", "iteration=1 read=128 cumulative=128");
+
+    string output = writer.ToString();
+    Contains("BEGIN phase=test.phase", output, "diagnostic phase begin");
+    Contains("END phase=test.phase", output, "diagnostic phase end");
+    Contains("event=test.read", output, "diagnostic event");
+    Contains("thread=", output, "diagnostic thread id");
+}
+
+static void RunDiagnosticHeartbeatChecks()
+{
+    using var writer = new StringWriter();
+    var log = new AudioDiagnosticLog(writer);
+    using IDisposable heartbeat = log.StartHeartbeat(
+        "test.heartbeat",
+        TimeSpan.FromMilliseconds(10),
+        () => "iteration=1 cumulative=128");
+
+    bool emittedWhileCallerWaited = SpinWait.SpinUntil(
+        () => writer.ToString().Contains("event=test.heartbeat", StringComparison.Ordinal),
+        TimeSpan.FromSeconds(1));
+    if (!emittedWhileCallerWaited)
+        throw new InvalidOperationException("diagnostic heartbeat was not emitted from its timer");
+}
 
 static void RunSampleIndexChecks()
 {
@@ -228,4 +260,10 @@ static void Near(double expected, double actual, string name)
 {
     if (Math.Abs(expected - actual) > 0.00001)
         throw new InvalidOperationException($"{name}: expected {expected}, actual {actual}");
+}
+
+static void Contains(string expected, string actual, string name)
+{
+    if (!actual.Contains(expected, StringComparison.Ordinal))
+        throw new InvalidOperationException($"{name}: expected to find '{expected}' in '{actual}'");
 }
