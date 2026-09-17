@@ -30,7 +30,12 @@ public sealed partial class MainForm
         try
         {
             var watch = Stopwatch.StartNew();
-            TimingProbeResult result = await Task.Run(() => TimingProbe.Analyze(level, timing));
+            (TimingProbeResult result, ArcExcessProbeResult arc) = await Task.Run(() =>
+            {
+                TimingProbeResult timingResult = TimingProbe.Analyze(level, timing);
+                ArcExcessProbeResult arcResult = TimingProbe.AnalyzeArcExcess(level, timing);
+                return (timingResult, arcResult);
+            });
             watch.Stop();
 
             string first = result.FirstMismatchFloor?.ToString("N0") ?? "none";
@@ -54,6 +59,19 @@ public sealed partial class MainForm
                     $"planets={row.NumPlanets} set_speed_offsets={row.SetSpeedOffsets}");
             }
 
+            log?.Write("timing_probe.arc_summary",
+                $"long_arc_floors={arc.LongArcFloorCount} current_s={arc.CurrentSeconds:F9} " +
+                $"complementary_s={arc.ComplementarySeconds:F9} excess_s={arc.TotalExcessSeconds:F9} " +
+                $"intervals={arc.Intervals.Count}");
+            foreach (ArcExcessInterval interval in arc.Intervals)
+            {
+                log?.Write("timing_probe.arc_interval",
+                    $"start_floor={interval.StartFloor} end_floor={interval.EndFloor} bpm={interval.Bpm:F6} " +
+                    $"long_arc_floors={interval.LongArcFloorCount} current_s={interval.CurrentSeconds:F9} " +
+                    $"complementary_s={interval.ComplementarySeconds:F9} excess_s={interval.ExcessSeconds:F9} " +
+                    $"cumulative_excess_s={interval.CumulativeExcessSeconds:F9}");
+            }
+
             TimingProbeRow? firstRow = result.FirstMismatchFloor is int mismatchFloor
                 ? result.Rows.FirstOrDefault(row => row.Floor == mismatchFloor)
                 : null;
@@ -66,15 +84,18 @@ public sealed partial class MainForm
             _status.Text =
                 $"Timing probe | first {first} | mismatches {result.MismatchCount:N0} | " +
                 $"duration {result.CurrentDurationSeconds:F6}s/{result.ReferenceDurationSeconds:F6}s | " +
-                $"max Δ {result.MaxCumulativeDeltaSeconds:F6}s | {watch.Elapsed.TotalMilliseconds:N1} ms" +
+                $"arc excess {arc.TotalExcessSeconds:F6}s | long {arc.LongArcFloorCount:N0} | " +
+                $"{watch.Elapsed.TotalMilliseconds:N1} ms" +
                 firstDetails;
 
             MessageBox.Show(
                 this,
-                BuildTimingProbeReport(result, watch.Elapsed),
+                BuildTimingProbeReport(result, arc, watch.Elapsed),
                 "Timing Probe",
                 MessageBoxButtons.OK,
-                result.FirstMismatchFloor is null ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                result.FirstMismatchFloor is null && arc.TotalExcessSeconds <= 0.000001
+                    ? MessageBoxIcon.Information
+                    : MessageBoxIcon.Warning);
         }
         catch (Exception ex)
         {
@@ -90,7 +111,10 @@ public sealed partial class MainForm
         }
     }
 
-    private static string BuildTimingProbeReport(TimingProbeResult result, TimeSpan elapsed)
+    private static string BuildTimingProbeReport(
+        TimingProbeResult result,
+        ArcExcessProbeResult arc,
+        TimeSpan elapsed)
     {
         var text = new StringBuilder();
         text.AppendLine($"First mismatch: {result.FirstMismatchFloor?.ToString("N0") ?? "none"}");
@@ -100,20 +124,46 @@ public sealed partial class MainForm
         text.AppendLine($"Max cumulative delta: {result.MaxCumulativeDeltaSeconds:F9} s");
         text.AppendLine($"Probe time: {elapsed.TotalMilliseconds:N1} ms");
 
-        if (result.Rows.Count == 0)
-            return text.ToString();
-
         text.AppendLine();
-        text.AppendLine("Context rows:");
-        foreach (TimingProbeRow row in result.Rows)
+        text.AppendLine("Arc-excess hypothesis:");
+        text.AppendLine($"Long-arc floors (>180°): {arc.LongArcFloorCount:N0}");
+        text.AppendLine($"Current summed duration: {arc.CurrentSeconds:F9} s");
+        text.AppendLine($"Complementary-arc duration: {arc.ComplementarySeconds:F9} s");
+        text.AppendLine($"Total excess: {arc.TotalExcessSeconds:F9} s");
+
+        ArcExcessInterval[] topIntervals = arc.Intervals
+            .Where(interval => interval.ExcessSeconds > 0.000000001)
+            .OrderByDescending(interval => interval.ExcessSeconds)
+            .Take(12)
+            .ToArray();
+        if (topIntervals.Length > 0)
         {
-            text.AppendLine(
-                $"floor {row.Floor:N0}: " +
-                $"entry {row.CurrentEntrySeconds:F9}/{row.ReferenceEntrySeconds:F9}, " +
-                $"dt {row.CurrentFloorSeconds:F9}/{row.ReferenceFloorSeconds:F9}, " +
-                $"angle {row.CurrentAngleDegrees:F3}°/{row.ReferenceAngleDegrees:F3}°, " +
-                $"BPM {row.CurrentBpm:F3}/{row.ReferenceStartBpm:F3}->{row.ReferenceEndBpm:F3}, " +
-                $"ccw={row.IsCcw}, planets={row.NumPlanets}, offsets={row.SetSpeedOffsets}");
+            text.AppendLine();
+            text.AppendLine("Top SetSpeed ranges by excess:");
+            foreach (ArcExcessInterval interval in topIntervals)
+            {
+                text.AppendLine(
+                    $"{interval.StartFloor:N0}-{interval.EndFloor:N0}: " +
+                    $"BPM {interval.Bpm:F3}, long {interval.LongArcFloorCount:N0}, " +
+                    $"current {interval.CurrentSeconds:F6}s, comp {interval.ComplementarySeconds:F6}s, " +
+                    $"excess {interval.ExcessSeconds:F6}s, cumulative {interval.CumulativeExcessSeconds:F6}s");
+            }
+        }
+
+        if (result.Rows.Count > 0)
+        {
+            text.AppendLine();
+            text.AppendLine("First-mismatch context rows:");
+            foreach (TimingProbeRow row in result.Rows)
+            {
+                text.AppendLine(
+                    $"floor {row.Floor:N0}: " +
+                    $"entry {row.CurrentEntrySeconds:F9}/{row.ReferenceEntrySeconds:F9}, " +
+                    $"dt {row.CurrentFloorSeconds:F9}/{row.ReferenceFloorSeconds:F9}, " +
+                    $"angle {row.CurrentAngleDegrees:F3}°/{row.ReferenceAngleDegrees:F3}°, " +
+                    $"BPM {row.CurrentBpm:F3}/{row.ReferenceStartBpm:F3}->{row.ReferenceEndBpm:F3}, " +
+                    $"ccw={row.IsCcw}, planets={row.NumPlanets}, offsets={row.SetSpeedOffsets}");
+            }
         }
 
         return text.ToString();
