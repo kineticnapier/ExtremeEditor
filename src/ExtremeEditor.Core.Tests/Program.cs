@@ -4,6 +4,7 @@ using ExtremeEditor.Core;
 RunMultiPlanetRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
+RunStockTimingProbeRegression();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
 
@@ -161,6 +162,59 @@ static void RunArcExcessProbeRegression()
         Near(0.4, ReadDouble(intervals[1], "ExcessSeconds"), "Arc-excess second interval excess");
 
         Near(1.2, ReadDouble(result, "TotalExcessSeconds"), "Arc-excess total excess");
+    }
+    finally
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+}
+
+static void RunStockTimingProbeRegression()
+{
+    string path = Path.Combine(Path.GetTempPath(), $"extremeeditor-stock-timing-probe-{Guid.NewGuid():N}.adofai");
+    try
+    {
+        File.WriteAllText(path, """
+        {
+          "angleData": [0, 0, 0],
+          "settings": {
+            "bpm": 100,
+            "offset": 0,
+            "pitch": 100,
+            "countdownTicks": 0,
+            "separateCountdownTime": false,
+            "hitsound": "Kick",
+            "hitsoundVolume": 100
+          },
+          "actions": [
+            {
+              "floor": 1,
+              "eventType": "SetSpeed",
+              "speedType": "Bpm",
+              "beatsPerMinute": 200,
+              "angleOffset": 90
+            }
+          ]
+        }
+        """);
+
+        LevelDocument level = AdoFaiLoader.Load(path).Document;
+        TimingMap timing = TimingMapBuilder.Build(level);
+
+        Type probeType = typeof(LevelDocument).Assembly.GetType("ExtremeEditor.Core.StockTimingProbe")
+            ?? throw new InvalidOperationException("StockTimingProbe is missing");
+        MethodInfo analyze = probeType.GetMethod("Analyze", BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("StockTimingProbe.Analyze is missing");
+        object result = analyze.Invoke(null, [level, timing])
+            ?? throw new InvalidOperationException("StockTimingProbe.Analyze returned null");
+
+        int? firstMismatchFloor = ReadNullableInt(result, "FirstMismatchFloor");
+        if (firstMismatchFloor != 1)
+            throw new InvalidOperationException($"Stock timing probe first mismatch: expected 1, actual {firstMismatchFloor?.ToString() ?? "null"}");
+
+        Near(0.3, ReadDouble(result, "FirstMismatchCurrentSeconds"), "Stock timing probe current floor duration");
+        Near(0.45, ReadDouble(result, "FirstMismatchStockSeconds"), "Stock timing probe stock floor duration");
     }
     finally
     {
