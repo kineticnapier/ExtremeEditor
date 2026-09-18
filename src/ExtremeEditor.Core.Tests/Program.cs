@@ -2,6 +2,7 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 RunMultiPlanetRegression();
+RunMultiPlanetAfterMidSpinRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
 RunStockTimingProbeRegression();
@@ -42,6 +43,50 @@ static void RunMultiPlanetRegression()
         // ThreePlanets subtracts 60 degrees from the travel angle, so floor 1
         // should take 120/180 * 0.6 = 0.4 s. Floor 2 therefore starts at 1.0 s.
         Near(1.0, timing.GetEntryTime(2), "ThreePlanets timing at floor 2");
+    }
+    finally
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+}
+
+static void RunMultiPlanetAfterMidSpinRegression()
+{
+    string path = Path.Combine(Path.GetTempPath(), $"extremeeditor-multiplanet-midspin-{Guid.NewGuid():N}.adofai");
+    try
+    {
+        File.WriteAllText(path, """
+        {
+          "angleData": [0, 999, 270],
+          "settings": {
+            "bpm": 100,
+            "offset": 0,
+            "pitch": 100,
+            "countdownTicks": 0,
+            "separateCountdownTime": false,
+            "hitsound": "Kick",
+            "hitsoundVolume": 100
+          },
+          "actions": [
+            {
+              "floor": 2,
+              "eventType": "MultiPlanet",
+              "planets": "ThreePlanets"
+            }
+          ]
+        }
+        """);
+
+        LevelDocument level = AdoFaiLoader.Load(path).Document;
+        TimingMap timing = TimingMapBuilder.Build(level);
+        FloorTiming floor = timing.Floors[2];
+
+        // Stock has a special previous-midspin + three-planets correction.
+        // This floor remains a 90-degree move (0.3 s at 100 BPM), rather than
+        // receiving the ordinary 60-degree three-planet subtraction and becoming 30 degrees.
+        Near(Math.PI / 2.0, floor.AngleMoved, "ThreePlanets after midspin angle");
+        Near(0.3, floor.ExitTime - floor.EntryTime, "ThreePlanets after midspin duration");
     }
     finally
     {
