@@ -40,7 +40,8 @@ public sealed partial class MainForm
             (TimingProbeResult result,
                 ArcExcessProbeResult arc,
                 StockTimingProbeResult stock,
-                MissingTwirlProbeResult? missingTwirl) = await Task.Run(() =>
+                MissingTwirlProbeResult? missingTwirl,
+                MissingTwirlIntervalProbeResult missingTwirlInterval) = await Task.Run(() =>
             {
                 TimingProbeResult timingResult = TimingProbe.Analyze(level, timing);
                 ArcExcessProbeResult arcResult = TimingProbe.AnalyzeArcExcess(level, timing);
@@ -48,7 +49,9 @@ public sealed partial class MainForm
                 MissingTwirlProbeResult? missingTwirlResult = missingTwirlTargetSeconds is double target
                     ? MissingTwirlProbe.Analyze(level, timing, target, 12)
                     : null;
-                return (timingResult, arcResult, stockResult, missingTwirlResult);
+                MissingTwirlIntervalProbeResult missingTwirlIntervalResult =
+                    MissingTwirlIntervalProbe.Analyze(level, timing);
+                return (timingResult, arcResult, stockResult, missingTwirlResult, missingTwirlIntervalResult);
             });
             watch.Stop();
 
@@ -107,6 +110,14 @@ public sealed partial class MainForm
                 }
             }
 
+            log?.Write("timing_probe.missing_twirl_interval_summary",
+                $"start_floor={missingTwirlInterval.BestStartFloor} " +
+                $"end_floor_exclusive={missingTwirlInterval.BestEndFloorExclusive} " +
+                $"current_duration_s={missingTwirlInterval.CurrentDurationSeconds:F9} " +
+                $"best_duration_s={missingTwirlInterval.BestDurationSeconds:F9} " +
+                $"duration_change_s={missingTwirlInterval.DurationChangeSeconds:F9} " +
+                $"maximum_reduction_s={missingTwirlInterval.MaximumReductionSeconds:F9}");
+
             log?.Write("timing_probe.arc_summary",
                 $"long_arc_floors={arc.LongArcFloorCount} current_s={arc.CurrentSeconds:F9} " +
                 $"complementary_s={arc.ComplementarySeconds:F9} excess_s={arc.TotalExcessSeconds:F9} " +
@@ -134,15 +145,26 @@ public sealed partial class MainForm
                 ? string.Empty
                 : $" | missing-twirl {missingTwirl.BestFloor:N0} -> {missingTwirl.BestDurationSeconds:F6}s " +
                   $"(err {missingTwirl.BestAbsoluteErrorSeconds:F6}s)";
+            string missingTwirlIntervalStatus = missingTwirlInterval.BestStartFloor < 0
+                ? string.Empty
+                : $" | twirl-pair {missingTwirlInterval.BestStartFloor:N0}-{missingTwirlInterval.BestEndFloorExclusive:N0} " +
+                  $"(-{missingTwirlInterval.MaximumReductionSeconds:F6}s)";
             _status.Text =
                 $"Timing probe | stock {stock.StockDurationSeconds:F6}s | map-stock {stockDurationDelta:+0.000000;-0.000000;0.000000}s | " +
                 $"stock first {stock.FirstMismatchFloor?.ToString("N0") ?? "none"} | " +
-                $"arc excess {arc.TotalExcessSeconds:F6}s{missingTwirlStatus} | {watch.Elapsed.TotalMilliseconds:N1} ms" +
-                firstDetails;
+                $"arc excess {arc.TotalExcessSeconds:F6}s{missingTwirlStatus}{missingTwirlIntervalStatus} | " +
+                $"{watch.Elapsed.TotalMilliseconds:N1} ms" + firstDetails;
 
             MessageBox.Show(
                 this,
-                BuildTimingProbeReport(result, arc, stock, missingTwirl, audioDurationSeconds, watch.Elapsed),
+                BuildTimingProbeReport(
+                    result,
+                    arc,
+                    stock,
+                    missingTwirl,
+                    missingTwirlInterval,
+                    audioDurationSeconds,
+                    watch.Elapsed),
                 "Timing Probe",
                 MessageBoxButtons.OK,
                 result.FirstMismatchFloor is null && stock.FirstMismatchFloor is null && arc.TotalExcessSeconds <= 0.000001
@@ -168,6 +190,7 @@ public sealed partial class MainForm
         ArcExcessProbeResult arc,
         StockTimingProbeResult stock,
         MissingTwirlProbeResult? missingTwirl,
+        MissingTwirlIntervalProbeResult missingTwirlInterval,
         double? audioDurationSeconds,
         TimeSpan elapsed)
     {
@@ -231,6 +254,33 @@ public sealed partial class MainForm
                         $"floor {candidate.Floor:N0}: duration {candidate.DurationSeconds:F9} s, " +
                         $"error {candidate.AbsoluteErrorSeconds:F9} s");
                 }
+            }
+        }
+
+        text.AppendLine();
+        text.AppendLine("Two missing-Twirls / inverted interval hypothesis:");
+        if (missingTwirlInterval.BestStartFloor < 0)
+        {
+            text.AppendLine("No timing-reducing inverted interval found.");
+        }
+        else
+        {
+            text.AppendLine($"Best start floor: {missingTwirlInterval.BestStartFloor:N0}");
+            text.AppendLine($"Best end floor (exclusive): {missingTwirlInterval.BestEndFloorExclusive:N0}");
+            text.AppendLine($"Current duration: {missingTwirlInterval.CurrentDurationSeconds:F9} s");
+            text.AppendLine($"Duration after inverted interval: {missingTwirlInterval.BestDurationSeconds:F9} s");
+            text.AppendLine($"Duration change: {missingTwirlInterval.DurationChangeSeconds:+0.000000000;-0.000000000;0.000000000} s");
+            text.AppendLine($"Maximum reduction: {missingTwirlInterval.MaximumReductionSeconds:F9} s");
+
+            if (missingTwirl is not null)
+            {
+                double requiredReduction = Math.Max(
+                    0.0,
+                    missingTwirlInterval.CurrentDurationSeconds - missingTwirl.TargetDurationSeconds);
+                double remainingTargetError = Math.Abs(
+                    missingTwirlInterval.BestDurationSeconds - missingTwirl.TargetDurationSeconds);
+                text.AppendLine($"Reduction needed to audio target: {requiredReduction:F9} s");
+                text.AppendLine($"Error after maximum-reduction interval: {remainingTargetError:F9} s");
             }
         }
 
