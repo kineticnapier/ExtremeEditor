@@ -19,6 +19,7 @@ public static class MissingTwirlIntervalProbe
 {
     private const double PiStock = 3.1415927410125732;
     private const double TwoPi = 6.2831854820251465;
+    private const double ImprovementEpsilonSeconds = 1e-12;
 
     public static MissingTwirlIntervalProbeResult Analyze(
         LevelDocument level,
@@ -47,7 +48,7 @@ public static class MissingTwirlIntervalProbe
 
         for (int floor = 1; floor < floorCount; floor++)
         {
-            if (currentDelta > 0.0)
+            if (currentDelta > ImprovementEpsilonSeconds)
             {
                 currentDelta = 0.0;
                 currentStart = floor;
@@ -61,7 +62,7 @@ public static class MissingTwirlIntervalProbe
                 planets[floor]);
 
             currentDelta += flippedSeconds - normalSeconds;
-            if (currentDelta < bestDelta)
+            if (currentDelta < bestDelta - ImprovementEpsilonSeconds)
             {
                 bestDelta = currentDelta;
                 bestStart = currentStart;
