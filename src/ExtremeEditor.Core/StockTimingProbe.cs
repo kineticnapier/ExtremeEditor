@@ -401,16 +401,13 @@ public static class StockTimingProbe
             offset -= (TwoPi + inverse) * (floor.IsCcw ? -1.0 : 1.0);
         }
 
-        double seconds = GetTimeBetweenAngles(
+        double angleMoved = GetAngleMoved(
             floor.EntryAngle + offset,
             floor.ExitAngle + (floor.MidSpin ? offset : 0.0),
-            floor.Speed,
-            baseBpm,
             !floor.IsCcw);
+        double seconds = angleMoved / PiStock * (60.0 / baseBpm / floor.Speed);
 
-        double crotchetAtStart = (double)(60f / baseBpm);
-        bool turnaround = seconds <= 1e-6 ||
-                          seconds >= (double)(2f * (float)crotchetAtStart / floor.Speed) - 1e-6;
+        bool turnaround = angleMoved <= 1e-6 || angleMoved >= 6.283184482025146;
         if (turnaround)
         {
             seconds = floor.MidSpin
