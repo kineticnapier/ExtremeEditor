@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
+    <ProjectReference Include="..\ExtremeEditor.Audio\ExtremeEditor.Audio.csproj" />
+    <ProjectReference Include="..\ExtremeEditor.Rendering\ExtremeEditor.Rendering.csproj" />
+  </ItemGroup>
+</Project>
