@@ -381,9 +381,9 @@ public static class StockTimingProbe
         if (floor.Floor == 0)
         {
             // scrConductor.crotchetAtStart is initialized through float division.
-            double crotchetAtStart = (double)(60f / baseBpm);
+            double firstCrotchetAtStart = (double)(60f / baseBpm);
             float countdownExtra = countdownTicks - 1f;
-            return crotchetAtStart * countdownExtra +
+            return firstCrotchetAtStart * countdownExtra +
                    GetTimeBetweenAngles(
                        floor.EntryAngle,
                        floor.ExitAngle,
