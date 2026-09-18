@@ -9,5 +9,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = $"ExtremeEditor {EditorVersion.Current} — WPF";
+        StatusText.Text = $"WPF shell | {EditorVersion.Current} | editor actions disabled until migrated";
     }
 }

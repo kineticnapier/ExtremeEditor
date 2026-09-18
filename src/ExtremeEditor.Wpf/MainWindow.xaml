@@ -1,11 +1,71 @@
 <Window x:Class="ExtremeEditor.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ExtremeEditor.Wpf"
         Width="1400"
         Height="850"
+        MinWidth="900"
+        MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="#14161A">
-    <Grid>
+    <DockPanel LastChildFill="True">
+        <StatusBar DockPanel.Dock="Bottom"
+                   Background="#1A1D22"
+                   Foreground="#DCDCE6">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <ToolBarTray DockPanel.Dock="Top"
+                     Background="#1A1D22">
+            <ToolBar Background="#1A1D22"
+                     Foreground="#DCDCE6">
+                <Button Content="Open"
+                        Command="{x:Static local:EditorCommands.Open}"
+                        IsEnabled="False" />
+                <Button Content="Frame"
+                        Command="{x:Static local:EditorCommands.Frame}"
+                        IsEnabled="False" />
+                <Separator />
+                <Button Content="Play"
+                        Command="{x:Static local:EditorCommands.PlayPause}"
+                        IsEnabled="False" />
+                <Button Content="Stop"
+                        Command="{x:Static local:EditorCommands.Stop}"
+                        IsEnabled="False" />
+                <ToggleButton Content="Follow Player"
+                              IsChecked="True"
+                              IsEnabled="False" />
+                <TextBlock Text="--:--.---"
+                           Margin="8,0"
+                           VerticalAlignment="Center" />
+                <Separator />
+                <Button Content="-15°"
+                        Command="{x:Static local:EditorCommands.RotateLeft}"
+                        IsEnabled="False" />
+                <Button Content="+15°"
+                        Command="{x:Static local:EditorCommands.RotateRight}"
+                        IsEnabled="False" />
+                <Button Content="Save As"
+                        Command="{x:Static local:EditorCommands.SaveAs}"
+                        IsEnabled="False" />
+                <Separator />
+                <Button Content="Import Probe Assets"
+                        IsEnabled="False" />
+                <Button Content="Import Icon Catalog"
+                        IsEnabled="False" />
+                <Button Content="Import Hitsounds"
+                        IsEnabled="False" />
+                <ToggleButton Content="Floor Preview"
+                              IsChecked="True"
+                              IsEnabled="False" />
+                <Separator />
+                <Button Content="Benchmark viewport"
+                        IsEnabled="False" />
+            </ToolBar>
+        </ToolBarTray>
+
         <Border Background="#14161A">
             <TextBlock Text="WPF editor surface — migration in progress"
                        Foreground="#DCDCE6"
@@ -13,5 +73,5 @@
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center" />
         </Border>
-    </Grid>
+    </DockPanel>
 </Window>
