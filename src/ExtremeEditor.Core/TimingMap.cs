@@ -212,11 +212,29 @@ public static class TimingMapBuilder
 
             bool midSpin = floor < level.Angles.Length &&
                            Math.Abs(level.Angles[floor] - 999.0) < 0.000001;
-            double moved = GetAngleMoved(entryAngles[floor], exitAngles[floor], !isCcw);
+            bool previousMidSpin = floor > 0 &&
+                                   floor - 1 < level.Angles.Length &&
+                                   Math.Abs(level.Angles[floor - 1] - 999.0) < 0.000001;
+
+            double multiplayerOffset = 0.0;
+            if (floor > 0 && threePlanets)
+            {
+                multiplayerOffset = ThreePlanetAngleOffset * (isCcw ? -1.0 : 1.0);
+                if (midSpin)
+                    multiplayerOffset = 0.0;
+                if (previousMidSpin)
+                {
+                    multiplayerOffset -= (TwoPi + ThreePlanetAngleOffset) *
+                                         (isCcw ? -1.0 : 1.0);
+                }
+            }
+
+            double moved = GetAngleMoved(
+                entryAngles[floor] + multiplayerOffset,
+                exitAngles[floor] + (midSpin ? multiplayerOffset : 0.0),
+                !isCcw);
             if (moved <= 1e-6 || moved >= 6.283184482025146)
                 moved = midSpin ? 0.0 : TwoPi;
-            if (threePlanets && !midSpin)
-                moved = TimingMap.Mod(moved - ThreePlanetAngleOffset, TwoPi);
 
             double visualEntryAngle = entryAngles[floor];
             if (floor == 0)
