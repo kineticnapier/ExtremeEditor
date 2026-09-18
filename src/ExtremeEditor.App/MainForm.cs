@@ -5,7 +5,7 @@ using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.App;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private readonly LevelCanvas _canvas = new() { Dock = DockStyle.Fill };
     private readonly AudioPlayer _audio = new();
@@ -29,6 +29,7 @@ public sealed class MainForm : Form
 
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
+    private int[] _setSpeedFloors = [];
 
     public MainForm(string? initialFile)
     {
@@ -43,6 +44,7 @@ public sealed class MainForm : Form
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
             new ToolStripSeparator(), _importAssets, _importIcons, _importHitsounds, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
+        InitializeTimingProbeUi(tools);
 
         var statusStrip = new StatusStrip();
         statusStrip.Items.AddRange([_status, _renderStatus]);
@@ -162,6 +164,7 @@ public sealed class MainForm : Form
                 _canvas.SetLevel(loaded.Document, index);
             using (log?.Measure("main_form.timing_map"))
                 _timingMap = TimingMapBuilder.Build(loaded.Document);
+            _setSpeedFloors = BuildSetSpeedFloorIndex(loaded.Document);
             using (log?.Measure("main_form.hitsound_timeline"))
                 _hitSoundTimeline = HitSoundTimelineBuilder.Build(loaded.Document);
             using (log?.Measure("main_form.configure_hitsounds"))
@@ -173,6 +176,10 @@ public sealed class MainForm : Form
 
             if (Math.Abs(loaded.Document.PitchPercent - 100.0) > 0.001)
                 audioState += $" | pitch {loaded.Document.PitchPercent:0.##}% not yet applied to audio";
+
+            log?.Write("main_form.playback_durations",
+                $"chart_duration_s={_timingMap.Duration:F9} audio_duration_s={_audio.Duration.TotalSeconds:F9} " +
+                $"set_speed_count={_setSpeedFloors.Length}");
 
             _status.Text =
                 $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
@@ -267,18 +274,35 @@ public sealed class MainForm : Form
 
     private void UpdatePlaybackFrame()
     {
-        PlaybackPose? pose = GetLivePlaybackPose();
-        _canvas.SetPlaybackPose(pose);
-
-        if (pose is not PlaybackPose current)
+        LevelDocument? level = _canvas.Level;
+        if (level is null || _timingMap is null || !_audio.IsLoaded ||
+            (!_audio.IsPlaying && !_audio.IsPaused))
         {
+            _canvas.SetPlaybackPose(null);
             if (!_audio.IsPlaying)
                 _play.Text = "Play";
             return;
         }
 
+        // Sample the presentation clock once so all diagnostic values describe
+        // the same instant even on charts where thousands of floors pass per frame.
+        double audioSeconds = _audio.Position.TotalSeconds;
+        double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
+        PlaybackPose current = _timingMap.GetPose(level, chartTime);
+        _canvas.SetPlaybackPose(current);
+
+        FloorTiming floorTiming = _timingMap.Floors[current.Floor];
+        double floorEntryTime = floorTiming.EntryTime;
+        double deltaMilliseconds = (chartTime - floorEntryTime) * 1000.0;
+        int lastSetSpeedFloor = FindLastSetSpeedFloor(current.Floor);
         string phase = current.IsPreStart ? "offset" : $"floor {current.Floor:N0}";
-        _playTime.Text = $"{_audio.Position:mm\\:ss\\.fff} | {phase}";
+        string lastSpeed = lastSetSpeedFloor >= 0 ? lastSetSpeedFloor.ToString("N0") : "none";
+        _playTime.Text =
+            $"A {TimeSpan.FromSeconds(audioSeconds):mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
+            $"C {chartTime:F6}/{_timingMap.Duration:F6}s | {phase} | " +
+            $"E {floorEntryTime:F6}s | Δ {deltaMilliseconds:+0.000;-0.000;0.000} ms | " +
+            $"BPM {floorTiming.Bpm:F3} | SS {lastSpeed}";
+
         if (!_audio.IsPlaying)
             _play.Text = "Play";
     }
@@ -294,10 +318,29 @@ public sealed class MainForm : Form
 
         _canvas.SetLevel(level, index);
         _timingMap = TimingMapBuilder.Build(level);
+        _setSpeedFloors = BuildSetSpeedFloorIndex(level);
         _hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
         _audio.ConfigureHitSounds(level, _timingMap, _hitSoundTimeline);
         _status.Text =
             $"Starter | floors {level.FloorCount:N0} | model + spatial index {sw.Elapsed.TotalMilliseconds:N1} ms";
+    }
+
+    private static int[] BuildSetSpeedFloorIndex(LevelDocument level) =>
+        level.ActionsByFloor
+            .Where(pair => pair.Value.Any(action =>
+                action.Active && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal)))
+            .Select(pair => pair.Key)
+            .OrderBy(floor => floor)
+            .ToArray();
+
+    private int FindLastSetSpeedFloor(int floor)
+    {
+        int index = Array.BinarySearch(_setSpeedFloors, floor);
+        if (index >= 0)
+            return _setSpeedFloors[index];
+
+        index = ~index - 1;
+        return index >= 0 ? _setSpeedFloors[index] : -1;
     }
 
     private void ImportProbeAssets()

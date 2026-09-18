@@ -146,9 +146,23 @@ public static class TimingMapBuilder
 {
     private const double TwoPi = Math.PI * 2.0;
     private const double PiStock = 3.1415927410125732;
+    private const double ThreePlanetAngleOffset = PiStock / 3.0;
     private const double InitialEntryAngle = 4.71238898038469;
 
     public static TimingMap Build(LevelDocument level)
+    {
+        return BuildCore(level, null);
+    }
+
+    public static TimingMap BuildWithVirtualTwirls(
+        LevelDocument level,
+        IEnumerable<int> virtualTwirlFloors)
+    {
+        ArgumentNullException.ThrowIfNull(virtualTwirlFloors);
+        return BuildCore(level, virtualTwirlFloors.ToHashSet());
+    }
+
+    private static TimingMap BuildCore(LevelDocument level, HashSet<int>? virtualTwirlFloors)
     {
         int floorCount = level.FloorCount;
         if (floorCount == 0)
@@ -172,6 +186,7 @@ public static class TimingMapBuilder
         var timings = new FloorTiming[floorCount];
         double bpm = level.InitialBpm > 0 ? level.InitialBpm : 100.0;
         bool isCcw = false;
+        bool threePlanets = false;
         double time = 0.0;
 
         for (int floor = 0; floor < floorCount; floor++)
@@ -185,6 +200,13 @@ public static class TimingMapBuilder
                     if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
                     {
                         isCcw = !isCcw;
+                    }
+                    else if (string.Equals(action.EventType, "MultiPlanet", StringComparison.Ordinal))
+                    {
+                        if (string.Equals(action.Planets, "ThreePlanets", StringComparison.OrdinalIgnoreCase))
+                            threePlanets = true;
+                        else if (string.Equals(action.Planets, "TwoPlanets", StringComparison.OrdinalIgnoreCase))
+                            threePlanets = false;
                     }
                     else if (string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
                     {
@@ -201,9 +223,32 @@ public static class TimingMapBuilder
                 }
             }
 
+            if (virtualTwirlFloors?.Contains(floor) == true)
+                isCcw = !isCcw;
+
             bool midSpin = floor < level.Angles.Length &&
                            Math.Abs(level.Angles[floor] - 999.0) < 0.000001;
-            double moved = GetAngleMoved(entryAngles[floor], exitAngles[floor], !isCcw);
+            bool previousMidSpin = floor > 0 &&
+                                   floor - 1 < level.Angles.Length &&
+                                   Math.Abs(level.Angles[floor - 1] - 999.0) < 0.000001;
+
+            double multiplayerOffset = 0.0;
+            if (floor > 0 && threePlanets)
+            {
+                multiplayerOffset = ThreePlanetAngleOffset * (isCcw ? -1.0 : 1.0);
+                if (midSpin)
+                    multiplayerOffset = 0.0;
+                if (previousMidSpin)
+                {
+                    multiplayerOffset -= (TwoPi + ThreePlanetAngleOffset) *
+                                         (isCcw ? -1.0 : 1.0);
+                }
+            }
+
+            double moved = GetAngleMoved(
+                entryAngles[floor] + multiplayerOffset,
+                exitAngles[floor] + (midSpin ? multiplayerOffset : 0.0),
+                !isCcw);
             if (moved <= 1e-6 || moved >= 6.283184482025146)
                 moved = midSpin ? 0.0 : TwoPi;
 
