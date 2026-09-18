@@ -30,11 +30,12 @@ public sealed partial class MainForm
         try
         {
             var watch = Stopwatch.StartNew();
-            (TimingProbeResult result, ArcExcessProbeResult arc) = await Task.Run(() =>
+            (TimingProbeResult result, ArcExcessProbeResult arc, StockTimingProbeResult stock) = await Task.Run(() =>
             {
                 TimingProbeResult timingResult = TimingProbe.Analyze(level, timing);
                 ArcExcessProbeResult arcResult = TimingProbe.AnalyzeArcExcess(level, timing);
-                return (timingResult, arcResult);
+                StockTimingProbeResult stockResult = StockTimingProbe.Analyze(level, timing);
+                return (timingResult, arcResult, stockResult);
             });
             watch.Stop();
 
@@ -59,6 +60,23 @@ public sealed partial class MainForm
                     $"planets={row.NumPlanets} set_speed_offsets={row.SetSpeedOffsets}");
             }
 
+            log?.Write("timing_probe.stock_summary",
+                $"first_mismatch_floor={stock.FirstMismatchFloor?.ToString() ?? "none"} " +
+                $"mismatch_count={stock.MismatchCount} current_duration_s={stock.CurrentDurationSeconds:F9} " +
+                $"stock_duration_s={stock.StockDurationSeconds:F9} " +
+                $"duration_delta_s={stock.CurrentDurationSeconds - stock.StockDurationSeconds:F9} " +
+                $"max_delta_s={stock.MaxCumulativeDeltaSeconds:F9}");
+            foreach (StockTimingProbeRow row in stock.Rows)
+            {
+                log?.Write("timing_probe.stock_row",
+                    $"floor={row.Floor} current_entry_s={row.CurrentEntrySeconds:F9} " +
+                    $"stock_entry_s={row.StockEntrySeconds:F9} " +
+                    $"current_floor_s={row.CurrentFloorSeconds:F9} stock_floor_s={row.StockFloorSeconds:F9} " +
+                    $"current_angle_deg={row.CurrentAngleDegrees:F6} stock_angle_deg={row.StockAngleDegrees:F6} " +
+                    $"current_bpm={row.CurrentBpm:F6} stock_bpm={row.StockBpm:F6} " +
+                    $"ccw={row.IsCcw} planets={row.NumPlanets} set_speed_offsets={row.SetSpeedOffsets}");
+            }
+
             log?.Write("timing_probe.arc_summary",
                 $"long_arc_floors={arc.LongArcFloorCount} current_s={arc.CurrentSeconds:F9} " +
                 $"complementary_s={arc.ComplementarySeconds:F9} excess_s={arc.TotalExcessSeconds:F9} " +
@@ -81,19 +99,19 @@ public sealed partial class MainForm
                   $" | BPM {firstRow.CurrentBpm:F3}/{firstRow.ReferenceStartBpm:F3}->{firstRow.ReferenceEndBpm:F3}" +
                   $" | offsets {firstRow.SetSpeedOffsets}";
 
+            double stockDurationDelta = stock.CurrentDurationSeconds - stock.StockDurationSeconds;
             _status.Text =
-                $"Timing probe | first {first} | mismatches {result.MismatchCount:N0} | " +
-                $"duration {result.CurrentDurationSeconds:F6}s/{result.ReferenceDurationSeconds:F6}s | " +
-                $"arc excess {arc.TotalExcessSeconds:F6}s | long {arc.LongArcFloorCount:N0} | " +
-                $"{watch.Elapsed.TotalMilliseconds:N1} ms" +
+                $"Timing probe | stock {stock.StockDurationSeconds:F6}s | map-stock {stockDurationDelta:+0.000000;-0.000000;0.000000}s | " +
+                $"stock first {stock.FirstMismatchFloor?.ToString("N0") ?? "none"} | " +
+                $"arc excess {arc.TotalExcessSeconds:F6}s | {watch.Elapsed.TotalMilliseconds:N1} ms" +
                 firstDetails;
 
             MessageBox.Show(
                 this,
-                BuildTimingProbeReport(result, arc, watch.Elapsed),
+                BuildTimingProbeReport(result, arc, stock, watch.Elapsed),
                 "Timing Probe",
                 MessageBoxButtons.OK,
-                result.FirstMismatchFloor is null && arc.TotalExcessSeconds <= 0.000001
+                result.FirstMismatchFloor is null && stock.FirstMismatchFloor is null && arc.TotalExcessSeconds <= 0.000001
                     ? MessageBoxIcon.Information
                     : MessageBoxIcon.Warning);
         }
@@ -114,6 +132,7 @@ public sealed partial class MainForm
     private static string BuildTimingProbeReport(
         TimingProbeResult result,
         ArcExcessProbeResult arc,
+        StockTimingProbeResult stock,
         TimeSpan elapsed)
     {
         var text = new StringBuilder();
@@ -123,6 +142,31 @@ public sealed partial class MainForm
         text.AppendLine($"Reference duration: {result.ReferenceDurationSeconds:F9} s");
         text.AppendLine($"Max cumulative delta: {result.MaxCumulativeDeltaSeconds:F9} s");
         text.AppendLine($"Probe time: {elapsed.TotalMilliseconds:N1} ms");
+
+        text.AppendLine();
+        text.AppendLine("Stock DLL-path probe:");
+        text.AppendLine($"First mismatch: {stock.FirstMismatchFloor?.ToString("N0") ?? "none"}");
+        text.AppendLine($"Mismatching floors: {stock.MismatchCount:N0}");
+        text.AppendLine($"TimingMap duration: {stock.CurrentDurationSeconds:F9} s");
+        text.AppendLine($"Stock duration: {stock.StockDurationSeconds:F9} s");
+        text.AppendLine($"TimingMap - stock: {stock.CurrentDurationSeconds - stock.StockDurationSeconds:+0.000000000;-0.000000000;0.000000000} s");
+        text.AppendLine($"Max cumulative delta: {stock.MaxCumulativeDeltaSeconds:F9} s");
+
+        if (stock.Rows.Count > 0)
+        {
+            text.AppendLine();
+            text.AppendLine("Stock first-mismatch context rows:");
+            foreach (StockTimingProbeRow row in stock.Rows)
+            {
+                text.AppendLine(
+                    $"floor {row.Floor:N0}: " +
+                    $"entry {row.CurrentEntrySeconds:F9}/{row.StockEntrySeconds:F9}, " +
+                    $"dt {row.CurrentFloorSeconds:F9}/{row.StockFloorSeconds:F9}, " +
+                    $"angle {row.CurrentAngleDegrees:F3}°/{row.StockAngleDegrees:F3}°, " +
+                    $"BPM {row.CurrentBpm:F3}/{row.StockBpm:F3}, " +
+                    $"ccw={row.IsCcw}, planets={row.NumPlanets}, offsets={row.SetSpeedOffsets}");
+            }
+        }
 
         text.AppendLine();
         text.AppendLine("Arc-excess hypothesis:");
@@ -153,7 +197,7 @@ public sealed partial class MainForm
         if (result.Rows.Count > 0)
         {
             text.AppendLine();
-            text.AppendLine("First-mismatch context rows:");
+            text.AppendLine("Reference first-mismatch context rows:");
             foreach (TimingProbeRow row in result.Rows)
             {
                 text.AppendLine(
