@@ -6,6 +6,7 @@ RunMultiPlanetAfterMidSpinRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
 RunStockTimingProbeRegression();
+RunStockTimingProbeHighBpmRegression();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
 
@@ -260,6 +261,41 @@ static void RunStockTimingProbeRegression()
 
         Near(0.3, ReadDouble(result, "FirstMismatchCurrentSeconds"), "Stock timing probe current floor duration");
         Near(0.45, ReadDouble(result, "FirstMismatchStockSeconds"), "Stock timing probe stock floor duration");
+    }
+    finally
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+}
+
+static void RunStockTimingProbeHighBpmRegression()
+{
+    string path = Path.Combine(Path.GetTempPath(), $"extremeeditor-stock-timing-probe-high-bpm-{Guid.NewGuid():N}.adofai");
+    try
+    {
+        File.WriteAllText(path, """
+        {
+          "angleData": [157.5, -45],
+          "settings": {
+            "bpm": 8192000,
+            "offset": 0,
+            "pitch": 100,
+            "countdownTicks": 0,
+            "separateCountdownTime": false,
+            "hitsound": "Kick",
+            "hitsoundVolume": 100
+          },
+          "actions": []
+        }
+        """);
+
+        LevelDocument level = AdoFaiLoader.Load(path).Document;
+        TimingMap timing = TimingMapBuilder.Build(level);
+        StockTimingProbeResult result = StockTimingProbe.Analyze(level, timing, 1e-7, 3);
+
+        if (result.FirstMismatchFloor is int mismatchFloor)
+            throw new InvalidOperationException($"Stock timing probe high-BPM false turnaround at floor {mismatchFloor}");
     }
     finally
     {
