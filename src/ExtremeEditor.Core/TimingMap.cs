@@ -151,6 +151,19 @@ public static class TimingMapBuilder
 
     public static TimingMap Build(LevelDocument level)
     {
+        return BuildCore(level, null);
+    }
+
+    public static TimingMap BuildWithVirtualTwirls(
+        LevelDocument level,
+        IEnumerable<int> virtualTwirlFloors)
+    {
+        ArgumentNullException.ThrowIfNull(virtualTwirlFloors);
+        return BuildCore(level, virtualTwirlFloors.ToHashSet());
+    }
+
+    private static TimingMap BuildCore(LevelDocument level, HashSet<int>? virtualTwirlFloors)
+    {
         int floorCount = level.FloorCount;
         if (floorCount == 0)
             return new TimingMap([]);
@@ -209,6 +222,9 @@ public static class TimingMapBuilder
                     }
                 }
             }
+
+            if (virtualTwirlFloors?.Contains(floor) == true)
+                isCcw = !isCcw;
 
             bool midSpin = floor < level.Angles.Length &&
                            Math.Abs(level.Angles[floor] - 999.0) < 0.000001;
