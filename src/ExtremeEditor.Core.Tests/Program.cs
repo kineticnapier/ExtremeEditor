@@ -206,7 +206,7 @@ static void RunStockTimingProbeRegression()
             ?? throw new InvalidOperationException("StockTimingProbe is missing");
         MethodInfo analyze = probeType.GetMethod("Analyze", BindingFlags.Public | BindingFlags.Static)
             ?? throw new InvalidOperationException("StockTimingProbe.Analyze is missing");
-        object result = analyze.Invoke(null, [level, timing])
+        object result = analyze.Invoke(null, [level, timing, 1e-7, 3])
             ?? throw new InvalidOperationException("StockTimingProbe.Analyze returned null");
 
         int? firstMismatchFloor = ReadNullableInt(result, "FirstMismatchFloor");
