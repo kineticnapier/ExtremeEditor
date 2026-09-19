@@ -1,10 +1,14 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Core.Tests;
 
 internal static class PauseTimingMapRegression
 {
+    [ModuleInitializer]
+    internal static void Initialize() => Run();
+
     public static void Run()
     {
         string path = Path.Combine(Path.GetTempPath(), $"extremeeditor-pause-{Guid.NewGuid():N}.adofai");
