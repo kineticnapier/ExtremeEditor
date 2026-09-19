@@ -65,6 +65,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
                 buffer[offset + i] += _hitBuffer[i];
         }
 
+        BoundPcm(buffer, offset, sampleCount);
         _positionFrames += frameCount;
         return sampleCount;
     }
@@ -73,5 +74,15 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     {
         _positionFrames = Math.Clamp(positionFrames, 0, _totalFrames);
         _hitSounds?.Seek(_positionFrames);
+    }
+
+    private static void BoundPcm(float[] buffer, int offset, int count)
+    {
+        int end = offset + count;
+        for (int i = offset; i < end; i++)
+        {
+            float sample = buffer[i];
+            buffer[i] = float.IsNaN(sample) ? 0.0f : Math.Clamp(sample, -1.0f, 1.0f);
+        }
     }
 }
