@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using System.Windows.Media;
 using ExtremeEditor.Core;
 
@@ -19,6 +20,19 @@ public sealed partial class LevelViewport
             _camera = current.StationaryPlanet;
 
         InvalidateVisual();
+    }
+
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton is MouseButton.Middle or MouseButton.Right)
+            DisableFollowForManualPan();
+
+        base.OnPreviewMouseDown(e);
+    }
+
+    private void DisableFollowForManualPan()
+    {
+        FollowPlayer = false;
     }
 
     private void DrawPlaybackPlanets(DrawingContext drawingContext)
