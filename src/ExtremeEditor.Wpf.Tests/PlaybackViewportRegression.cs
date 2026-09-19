@@ -14,6 +14,7 @@ internal static class PlaybackViewportRegression
         VerifyPlaybackStateAndFollow();
         VerifyPlaybackPoseAddsPlanetDrawings();
         VerifyPlaybackPresenterUpdatesAndClearsPose();
+        VerifyManualPanDisablesFollow();
     }
 
     private static void VerifyPlaybackStateAndFollow()
@@ -117,6 +118,23 @@ internal static class PlaybackViewportRegression
         update.Invoke(null, [viewport, level, timingMap, audioSeconds, true]);
         if (viewport.PlaybackPose is not null)
             throw new InvalidOperationException("Playback presenter must clear the viewport pose when transport is stopped.");
+    }
+
+    private static void VerifyManualPanDisablesFollow()
+    {
+        var viewport = new LevelViewport
+        {
+            FollowPlayer = true
+        };
+
+        MethodInfo disableFollow = typeof(LevelViewport).GetMethod(
+            "DisableFollowForManualPan",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.DisableFollowForManualPan does not exist yet.");
+
+        disableFollow.Invoke(viewport, null);
+        if (viewport.FollowPlayer)
+            throw new InvalidOperationException("Manual panning must disable Follow Player.");
     }
 
     private static int RenderDrawingNodeCount(LevelViewport viewport)
