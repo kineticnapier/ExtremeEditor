@@ -6,7 +6,7 @@ using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
 
-public sealed class LevelViewport : FrameworkElement
+public sealed partial class LevelViewport : FrameworkElement
 {
     private const float MinZoom = 0.05f;
     private const float MaxZoom = 400f;
