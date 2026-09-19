@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: .NET info
+        run: dotnet --info
+
+      - name: Core tests
+        run: dotnet run -c Release --project src/ExtremeEditor.Core.Tests
+
+      - name: Audio tests
+        run: dotnet run -c Release --project src/ExtremeEditor.Audio.Tests
+
+      - name: WPF tests
+        run: dotnet run -c Release --project src/ExtremeEditor.Wpf.Tests
+
+      - name: Build WPF app
+        run: dotnet build src/ExtremeEditor.Wpf/ExtremeEditor.Wpf.csproj -c Release --nologo
+
+      - name: Build WinForms app
+        run: dotnet build src/ExtremeEditor.App/ExtremeEditor.App.csproj -c Release --nologo
