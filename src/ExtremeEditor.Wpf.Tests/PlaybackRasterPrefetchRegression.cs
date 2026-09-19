@@ -86,8 +86,11 @@ internal static class PlaybackRasterPrefetchRegression
             ActionTypeCounts = new Dictionary<string, int>(),
             ActionsByFloor = new Dictionary<int, LevelAction[]>(),
             InitialBpm = 120,
+            SongFilename = null,
+            OffsetMilliseconds = 0,
             PitchPercent = 100,
             CountdownTicks = 0,
+            SeparateCountdownTime = false,
             DefaultHitSound = "Kick",
             HitSoundVolumePercent = 100,
             Bounds = PathBuilder.CalculateBounds(positions)
