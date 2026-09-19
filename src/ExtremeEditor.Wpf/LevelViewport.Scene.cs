@@ -6,40 +6,33 @@ namespace ExtremeEditor.Wpf;
 
 public sealed partial class LevelViewport
 {
-    private const float MinSceneChunkWorldSize = 12f;
-    private const int MaxCachedSceneChunks = 512;
+    private const int SceneFloorBatchSize = 256;
 
     private readonly ContainerVisual _sceneRoot = new();
-    private readonly Dictionary<long, DrawingVisual> _sceneChunks = new();
-    private readonly Queue<long> _sceneChunkOrder = new();
+    private readonly Dictionary<int, DrawingVisual> _sceneBatches = new();
+    private readonly HashSet<int> _sceneBatchCandidates = [];
     private readonly TranslateTransform _sceneTranslate = new();
 
     private Vector2 _sceneAnchorCamera;
     private float _sceneCacheZoom;
-    private float _sceneChunkWorldSize = MinSceneChunkWorldSize;
     private double _sceneCacheWidth;
     private double _sceneCacheHeight;
     private bool _sceneCacheReady;
 
     public int StaticSceneBuildCount { get; private set; }
     public int StaticChunkBuildCount { get; private set; }
+    public int StaticSceneLayerCount => 1;
 
     private void ResetStaticScene()
     {
         _sceneRoot.Children.Clear();
-        _sceneChunks.Clear();
-        _sceneChunkOrder.Clear();
+        _sceneBatches.Clear();
+        _sceneBatchCandidates.Clear();
 
         _sceneAnchorCamera = _camera;
         _sceneCacheZoom = _zoom;
         _sceneCacheWidth = ActualWidth;
         _sceneCacheHeight = ActualHeight;
-
-        double worldWidth = ActualWidth > 0 ? ActualWidth / Math.Max(_zoom, 0.0001f) : 0.0;
-        double worldHeight = ActualHeight > 0 ? ActualHeight / Math.Max(_zoom, 0.0001f) : 0.0;
-        _sceneChunkWorldSize = Math.Max(
-            MinSceneChunkWorldSize,
-            (float)(Math.Max(worldWidth, worldHeight) / 8.0));
 
         _sceneTranslate.X = 0.0;
         _sceneTranslate.Y = 0.0;
@@ -72,71 +65,72 @@ public sealed partial class LevelViewport
             viewport.Right + marginX,
             viewport.Bottom + marginY);
 
-        int minX = FastFloor(coverage.Left / _sceneChunkWorldSize);
-        int maxX = FastFloor(coverage.Right / _sceneChunkWorldSize);
-        int minY = FastFloor(coverage.Top / _sceneChunkWorldSize);
-        int maxY = FastFloor(coverage.Bottom / _sceneChunkWorldSize);
-
-        for (int y = minY; y <= maxY; y++)
+        _index.Query(coverage, _candidates);
+        _sceneBatchCandidates.Clear();
+        foreach (int floor in _candidates)
         {
-            for (int x = minX; x <= maxX; x++)
-            {
-                long key = SceneChunkKey(x, y);
-                if (_sceneChunks.ContainsKey(key))
-                    continue;
+            if ((uint)floor >= (uint)_level.FloorCount)
+                continue;
 
-                BuildSceneChunk(key, x, y);
-            }
+            _sceneBatchCandidates.Add(floor / SceneFloorBatchSize);
+        }
+
+        foreach (int batch in _sceneBatchCandidates)
+        {
+            if (!_sceneBatches.ContainsKey(batch))
+                BuildSceneBatch(batch);
         }
     }
 
-    private void BuildSceneChunk(long key, int chunkX, int chunkY)
+    private void BuildSceneBatch(int batch)
     {
-        if (_level is null || _index is null)
+        if (_level is null)
             return;
 
-        float left = chunkX * _sceneChunkWorldSize;
-        float top = chunkY * _sceneChunkWorldSize;
-        var bounds = new WorldRect(
-            left,
-            top,
-            left + _sceneChunkWorldSize,
-            top + _sceneChunkWorldSize);
+        int start = checked(batch * SceneFloorBatchSize);
+        if (start >= _level.FloorCount)
+            return;
 
-        _index.Query(bounds, _candidates);
+        int end = Math.Min(start + SceneFloorBatchSize, _level.FloorCount);
+        _candidates.Clear();
+        for (int floor = start; floor < end; floor++)
+            _candidates.Add(floor);
 
         var visual = new DrawingVisual();
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
             using DrawingContext drawingContext = visual.RenderOpen();
+            WorldRect levelBounds = _level.Bounds.Inflate(2f);
 
             // At close editing zoom, always preserve the stock tile geometry/material.
-            // Density may suppress icons later, but never downgrades nearby floors to dots.
+            // The retained batches are ordered by floor index so overlap semantics are
+            // identical even when adjacent floors were discovered from different areas.
             bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
             if (meshPreview)
-                DrawMeshPreview(drawingContext, bounds);
+                DrawMeshPreview(drawingContext, levelBounds);
             else
-                DrawOverview(drawingContext, bounds);
+                DrawOverview(drawingContext, levelBounds);
         }
         finally
         {
             _renderCameraOverride = null;
         }
 
-        _sceneChunks.Add(key, visual);
-        _sceneChunkOrder.Enqueue(key);
-        _sceneRoot.Children.Add(visual);
-        StaticChunkBuildCount++;
+        _sceneBatches.Add(batch, visual);
 
-        while (_sceneChunks.Count > MaxCachedSceneChunks && _sceneChunkOrder.Count > 0)
+        // DrawMeshPreview renders each batch from high floor to low floor.
+        // Keep the batches themselves in the same global descending floor order:
+        // higher-numbered batches first, lower-numbered batches later/on top.
+        int insertionIndex = 0;
+        foreach (int existingBatch in _sceneBatches.Keys)
         {
-            long oldest = _sceneChunkOrder.Dequeue();
-            if (!_sceneChunks.Remove(oldest, out DrawingVisual? oldVisual))
-                continue;
-
-            _sceneRoot.Children.Remove(oldVisual);
+            if (existingBatch != batch && existingBatch > batch)
+                insertionIndex++;
         }
+
+        _sceneRoot.Children.Insert(insertionIndex, visual);
+        StaticChunkBuildCount++;
     }
 
     private void UpdateStaticSceneTransform()
@@ -147,12 +141,4 @@ public sealed partial class LevelViewport
         _sceneTranslate.X = (_sceneAnchorCamera.X - _camera.X) * _zoom;
         _sceneTranslate.Y = (_camera.Y - _sceneAnchorCamera.Y) * _zoom;
     }
-
-    private static int FastFloor(float value)
-    {
-        int i = (int)value;
-        return value < i ? i - 1 : i;
-    }
-
-    private static long SceneChunkKey(int x, int y) => ((long)x << 32) ^ (uint)y;
 }
