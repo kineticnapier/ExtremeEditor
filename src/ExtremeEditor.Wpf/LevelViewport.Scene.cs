@@ -1,5 +1,7 @@
 using System.Numerics;
+using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
@@ -7,6 +9,9 @@ namespace ExtremeEditor.Wpf;
 public sealed partial class LevelViewport
 {
     private const float SceneCoverageMarginScreens = 1.5f;
+    private const float DenseSceneCoverageMarginScreens = 0.5f;
+    private const int DenseRasterCandidateThreshold = 2_000;
+    private const double RasterPaddingPixels = 128.0;
 
     private readonly ContainerVisual _sceneRoot = new();
     private readonly DrawingVisual _sceneVisual = new();
@@ -18,10 +23,14 @@ public sealed partial class LevelViewport
     private double _sceneCacheWidth;
     private double _sceneCacheHeight;
     private bool _sceneCacheReady;
+    private int _sceneCandidateCount;
 
     public int StaticSceneBuildCount { get; private set; }
     public int StaticChunkBuildCount { get; private set; }
     public int StaticSceneLayerCount => _sceneRoot.Children.Count;
+    public bool StaticSceneRasterCacheActive { get; private set; }
+    public int StaticSceneRasterCacheBuildCount { get; private set; }
+    public bool StaticSceneIconsEnabled { get; private set; }
 
     private void ResetStaticScene()
     {
@@ -32,6 +41,9 @@ public sealed partial class LevelViewport
         }
 
         _sceneCacheReady = false;
+        _sceneCandidateCount = 0;
+        StaticSceneRasterCacheActive = false;
+        StaticSceneIconsEnabled = false;
         _sceneTranslate.X = 0.0;
         _sceneTranslate.Y = 0.0;
         _sceneRoot.Transform = _sceneTranslate;
@@ -49,9 +61,14 @@ public sealed partial class LevelViewport
                             Math.Abs(_sceneCacheHeight - ActualHeight) > 0.5;
 
         if (cacheInvalid || !Contains(_sceneCoverage, viewport))
+        {
             BuildStaticScene(viewport);
+        }
         else
+        {
+            LastCandidateCount = _sceneCandidateCount;
             UpdateStaticSceneTransform();
+        }
     }
 
     private void BuildStaticScene(WorldRect viewport)
@@ -61,8 +78,15 @@ public sealed partial class LevelViewport
 
         EnsureStaticSceneVisualAttached();
 
-        float marginX = Math.Max(2f, viewport.Width * SceneCoverageMarginScreens);
-        float marginY = Math.Max(2f, viewport.Height * SceneCoverageMarginScreens);
+        bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
+        _index.Query(viewport, _candidates);
+        bool denseMeshPreview = meshPreview && _candidates.Count > DenseRasterCandidateThreshold;
+        float marginScreens = denseMeshPreview
+            ? DenseSceneCoverageMarginScreens
+            : SceneCoverageMarginScreens;
+
+        float marginX = Math.Max(2f, viewport.Width * marginScreens);
+        float marginY = Math.Max(2f, viewport.Height * marginScreens);
         _sceneCoverage = new WorldRect(
             viewport.Left - marginX,
             viewport.Top - marginY,
@@ -75,20 +99,31 @@ public sealed partial class LevelViewport
         _sceneCacheHeight = ActualHeight;
 
         _index.Query(_sceneCoverage, _candidates);
+        _sceneCandidateCount = _candidates.Count;
+        LastCandidateCount = _sceneCandidateCount;
+        StaticSceneRasterCacheActive = meshPreview && _sceneCandidateCount > DenseRasterCandidateThreshold;
+        StaticSceneIconsEnabled = meshPreview && _zoom >= MinIconZoom;
 
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
             using DrawingContext drawingContext = _sceneVisual.RenderOpen();
 
-            // One DrawingVisual owns the complete buffered scene so floor overlap
-            // order is exactly the same as the original renderer: candidates are
-            // sorted globally by floor index inside DrawMeshPreview/DrawOverview.
-            bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
-            if (meshPreview)
+            if (StaticSceneRasterCacheActive)
+            {
+                DrawRasterCachedMeshPreview(drawingContext);
+                if (StaticSceneIconsEnabled)
+                    DrawMeshPreviewIcons(drawingContext, _sceneCoverage);
+            }
+            else if (meshPreview)
+            {
                 DrawMeshPreview(drawingContext, _sceneCoverage);
+            }
             else
+            {
+                StaticSceneIconsEnabled = false;
                 DrawOverview(drawingContext, _sceneCoverage);
+            }
         }
         finally
         {
@@ -101,6 +136,39 @@ public sealed partial class LevelViewport
         _sceneCacheReady = true;
         StaticSceneBuildCount++;
         StaticChunkBuildCount++;
+    }
+
+    private void DrawRasterCachedMeshPreview(DrawingContext drawingContext)
+    {
+        Point firstCorner = WorldToScreen(new Vector2(_sceneCoverage.Left, _sceneCoverage.Top));
+        Point secondCorner = WorldToScreen(new Vector2(_sceneCoverage.Right, _sceneCoverage.Bottom));
+
+        double left = Math.Min(firstCorner.X, secondCorner.X) - RasterPaddingPixels;
+        double top = Math.Min(firstCorner.Y, secondCorner.Y) - RasterPaddingPixels;
+        double width = Math.Abs(secondCorner.X - firstCorner.X) + RasterPaddingPixels * 2.0;
+        double height = Math.Abs(secondCorner.Y - firstCorner.Y) + RasterPaddingPixels * 2.0;
+        int pixelWidth = Math.Max(1, checked((int)Math.Ceiling(width)));
+        int pixelHeight = Math.Max(1, checked((int)Math.Ceiling(height)));
+
+        var floorVisual = new DrawingVisual();
+        using (DrawingContext floorContext = floorVisual.RenderOpen())
+        {
+            floorContext.PushTransform(new TranslateTransform(-left, -top));
+            DrawMeshPreviewFloors(floorContext, _sceneCoverage);
+            floorContext.Pop();
+        }
+
+        var bitmap = new RenderTargetBitmap(
+            pixelWidth,
+            pixelHeight,
+            96.0,
+            96.0,
+            PixelFormats.Pbgra32);
+        bitmap.Render(floorVisual);
+        bitmap.Freeze();
+
+        drawingContext.DrawImage(bitmap, new Rect(left, top, pixelWidth, pixelHeight));
+        StaticSceneRasterCacheBuildCount++;
     }
 
     private void UpdateStaticSceneTransform()

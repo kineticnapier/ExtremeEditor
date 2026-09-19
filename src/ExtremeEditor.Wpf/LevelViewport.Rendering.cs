@@ -9,14 +9,18 @@ public sealed partial class LevelViewport
 {
     private void DrawMeshPreview(DrawingContext drawingContext, WorldRect nearViewport)
     {
+        DrawMeshPreviewFloors(drawingContext, nearViewport);
+        if (StaticSceneIconsEnabled)
+            DrawMeshPreviewIcons(drawingContext, nearViewport);
+    }
+
+    private void DrawMeshPreviewFloors(DrawingContext drawingContext, WorldRect nearViewport)
+    {
         LastRenderMode = _floorRenderer.HasImportedAssets ? "floor-textured" : "floor-fallback";
         _floorRenderer.BeginFrame(_zoom);
 
         Vector2[] positions = _level!.Positions;
         _candidates.Sort(static (a, b) => b.CompareTo(a));
-        bool drawIcons = _zoom >= MinIconZoom &&
-                         _candidates.Count <= 2_000 &&
-                         (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0);
 
         foreach (int floor in _candidates)
         {
@@ -39,10 +43,29 @@ public sealed partial class LevelViewport
                 midSpin,
                 floor == _selectedFloor);
 
-            if (drawIcons)
-                DrawFloorIcon(drawingContext, floor, center, entryAngle, exitAngle, midSpin);
-
             LastDrawnCount++;
+        }
+    }
+
+    private void DrawMeshPreviewIcons(DrawingContext drawingContext, WorldRect nearViewport)
+    {
+        if (_level is null || !StaticSceneIconsEnabled)
+            return;
+
+        Vector2[] positions = _level.Positions;
+        foreach ((int floor, LevelAction[] _) in _level.ActionsByFloor)
+        {
+            if ((uint)floor >= (uint)positions.Length)
+                continue;
+
+            Vector2 position = positions[floor];
+            if (!nearViewport.Contains(position))
+                continue;
+
+            Point center = WorldToScreen(position);
+            GetFloorAngles(floor, positions, out float entryAngle, out float exitAngle);
+            bool midSpin = floor < _level.Angles.Length && Math.Abs(_level.Angles[floor] - 999.0) < 0.000001;
+            DrawFloorIcon(drawingContext, floor, center, entryAngle, exitAngle, midSpin);
         }
     }
 
