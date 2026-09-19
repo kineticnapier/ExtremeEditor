@@ -6,14 +6,14 @@ namespace ExtremeEditor.Wpf;
 
 public sealed partial class LevelViewport
 {
-    private const int SceneFloorBatchSize = 256;
+    private const float SceneCoverageMarginScreens = 1.5f;
 
     private readonly ContainerVisual _sceneRoot = new();
-    private readonly Dictionary<int, DrawingVisual> _sceneBatches = new();
-    private readonly HashSet<int> _sceneBatchCandidates = [];
+    private readonly DrawingVisual _sceneVisual = new();
     private readonly TranslateTransform _sceneTranslate = new();
 
     private Vector2 _sceneAnchorCamera;
+    private WorldRect _sceneCoverage;
     private float _sceneCacheZoom;
     private double _sceneCacheWidth;
     private double _sceneCacheHeight;
@@ -21,24 +21,20 @@ public sealed partial class LevelViewport
 
     public int StaticSceneBuildCount { get; private set; }
     public int StaticChunkBuildCount { get; private set; }
-    public int StaticSceneLayerCount => 1;
+    public int StaticSceneLayerCount => _sceneRoot.Children.Count;
 
     private void ResetStaticScene()
     {
-        _sceneRoot.Children.Clear();
-        _sceneBatches.Clear();
-        _sceneBatchCandidates.Clear();
+        EnsureStaticSceneVisualAttached();
 
-        _sceneAnchorCamera = _camera;
-        _sceneCacheZoom = _zoom;
-        _sceneCacheWidth = ActualWidth;
-        _sceneCacheHeight = ActualHeight;
+        using (DrawingContext drawingContext = _sceneVisual.RenderOpen())
+        {
+        }
 
+        _sceneCacheReady = false;
         _sceneTranslate.X = 0.0;
         _sceneTranslate.Y = 0.0;
         _sceneRoot.Transform = _sceneTranslate;
-        _sceneCacheReady = true;
-        StaticSceneBuildCount++;
     }
 
     private void EnsureSceneCoverage()
@@ -46,90 +42,64 @@ public sealed partial class LevelViewport
         if (_level is null || _index is null || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
-        if (!_sceneCacheReady ||
-            MathF.Abs(_sceneCacheZoom - _zoom) > 0.0001f ||
-            Math.Abs(_sceneCacheWidth - ActualWidth) > 0.5 ||
-            Math.Abs(_sceneCacheHeight - ActualHeight) > 0.5)
-        {
-            ResetStaticScene();
-        }
-
-        UpdateStaticSceneTransform();
-
         WorldRect viewport = GetViewportWorldRect();
-        float marginX = Math.Max(2f, viewport.Width * 1.5f);
-        float marginY = Math.Max(2f, viewport.Height * 1.5f);
-        var coverage = new WorldRect(
+        bool cacheInvalid = !_sceneCacheReady ||
+                            MathF.Abs(_sceneCacheZoom - _zoom) > 0.0001f ||
+                            Math.Abs(_sceneCacheWidth - ActualWidth) > 0.5 ||
+                            Math.Abs(_sceneCacheHeight - ActualHeight) > 0.5;
+
+        if (cacheInvalid || !Contains(_sceneCoverage, viewport))
+            BuildStaticScene(viewport);
+        else
+            UpdateStaticSceneTransform();
+    }
+
+    private void BuildStaticScene(WorldRect viewport)
+    {
+        if (_level is null || _index is null)
+            return;
+
+        EnsureStaticSceneVisualAttached();
+
+        float marginX = Math.Max(2f, viewport.Width * SceneCoverageMarginScreens);
+        float marginY = Math.Max(2f, viewport.Height * SceneCoverageMarginScreens);
+        _sceneCoverage = new WorldRect(
             viewport.Left - marginX,
             viewport.Top - marginY,
             viewport.Right + marginX,
             viewport.Bottom + marginY);
 
-        _index.Query(coverage, _candidates);
-        _sceneBatchCandidates.Clear();
-        foreach (int floor in _candidates)
-        {
-            if ((uint)floor >= (uint)_level.FloorCount)
-                continue;
+        _sceneAnchorCamera = _camera;
+        _sceneCacheZoom = _zoom;
+        _sceneCacheWidth = ActualWidth;
+        _sceneCacheHeight = ActualHeight;
 
-            _sceneBatchCandidates.Add(floor / SceneFloorBatchSize);
-        }
+        _index.Query(_sceneCoverage, _candidates);
 
-        foreach (int batch in _sceneBatchCandidates)
-        {
-            if (!_sceneBatches.ContainsKey(batch))
-                BuildSceneBatch(batch);
-        }
-    }
-
-    private void BuildSceneBatch(int batch)
-    {
-        if (_level is null)
-            return;
-
-        int start = checked(batch * SceneFloorBatchSize);
-        if (start >= _level.FloorCount)
-            return;
-
-        int end = Math.Min(start + SceneFloorBatchSize, _level.FloorCount);
-        _candidates.Clear();
-        for (int floor = start; floor < end; floor++)
-            _candidates.Add(floor);
-
-        var visual = new DrawingVisual();
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
-            using DrawingContext drawingContext = visual.RenderOpen();
-            WorldRect levelBounds = _level.Bounds.Inflate(2f);
+            using DrawingContext drawingContext = _sceneVisual.RenderOpen();
 
-            // At close editing zoom, always preserve the stock tile geometry/material.
-            // The retained batches are ordered by floor index so overlap semantics are
-            // identical even when adjacent floors were discovered from different areas.
+            // One DrawingVisual owns the complete buffered scene so floor overlap
+            // order is exactly the same as the original renderer: candidates are
+            // sorted globally by floor index inside DrawMeshPreview/DrawOverview.
             bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
             if (meshPreview)
-                DrawMeshPreview(drawingContext, levelBounds);
+                DrawMeshPreview(drawingContext, _sceneCoverage);
             else
-                DrawOverview(drawingContext, levelBounds);
+                DrawOverview(drawingContext, _sceneCoverage);
         }
         finally
         {
             _renderCameraOverride = null;
         }
 
-        _sceneBatches.Add(batch, visual);
-
-        // DrawMeshPreview renders each batch from high floor to low floor.
-        // Keep the batches themselves in the same global descending floor order:
-        // higher-numbered batches first, lower-numbered batches later/on top.
-        int insertionIndex = 0;
-        foreach (int existingBatch in _sceneBatches.Keys)
-        {
-            if (existingBatch != batch && existingBatch > batch)
-                insertionIndex++;
-        }
-
-        _sceneRoot.Children.Insert(insertionIndex, visual);
+        _sceneTranslate.X = 0.0;
+        _sceneTranslate.Y = 0.0;
+        _sceneRoot.Transform = _sceneTranslate;
+        _sceneCacheReady = true;
+        StaticSceneBuildCount++;
         StaticChunkBuildCount++;
     }
 
@@ -141,4 +111,19 @@ public sealed partial class LevelViewport
         _sceneTranslate.X = (_sceneAnchorCamera.X - _camera.X) * _zoom;
         _sceneTranslate.Y = (_camera.Y - _sceneAnchorCamera.Y) * _zoom;
     }
+
+    private void EnsureStaticSceneVisualAttached()
+    {
+        if (_sceneRoot.Children.Contains(_sceneVisual))
+            return;
+
+        _sceneRoot.Children.Clear();
+        _sceneRoot.Children.Add(_sceneVisual);
+    }
+
+    private static bool Contains(WorldRect outer, WorldRect inner) =>
+        inner.Left >= outer.Left &&
+        inner.Top >= outer.Top &&
+        inner.Right <= outer.Right &&
+        inner.Bottom <= outer.Bottom;
 }
