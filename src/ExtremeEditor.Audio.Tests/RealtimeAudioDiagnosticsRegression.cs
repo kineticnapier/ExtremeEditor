@@ -12,6 +12,7 @@ internal static class RealtimeAudioDiagnosticsRegression
     public static void Initialize()
     {
         VerifyRuntimeHitSoundBypass();
+        VerifyAudioPlayerExposesRuntimeHitSoundBypass();
     }
 
     private static void VerifyRuntimeHitSoundBypass()
@@ -51,6 +52,26 @@ internal static class RealtimeAudioDiagnosticsRegression
             throw new InvalidOperationException($"Expected {buffer.Length} samples, actual {read}.");
         if (buffer.Any(sample => Math.Abs(sample) > 0.000001f))
             throw new InvalidOperationException("Disabling hitsounds must bypass hit mixing completely.");
+    }
+
+    private static void VerifyAudioPlayerExposesRuntimeHitSoundBypass()
+    {
+        PropertyInfo enabledProperty = typeof(AudioPlayer).GetProperty(
+            "HitSoundsEnabled",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "AudioPlayer.HitSoundsEnabled does not exist yet.");
+
+        if (enabledProperty.PropertyType != typeof(bool) || !enabledProperty.CanRead || !enabledProperty.CanWrite)
+            throw new InvalidOperationException("AudioPlayer.HitSoundsEnabled must be a readable/writable bool.");
+
+        using var player = new AudioPlayer();
+        if (enabledProperty.GetValue(player) is not true)
+            throw new InvalidOperationException("AudioPlayer hitsounds must be enabled by default.");
+
+        enabledProperty.SetValue(player, false);
+        if (enabledProperty.GetValue(player) is not false)
+            throw new InvalidOperationException("AudioPlayer must retain the runtime hitsound bypass setting.");
     }
 
     private static FloorTiming Floor(int floor, double entryTime) =>
