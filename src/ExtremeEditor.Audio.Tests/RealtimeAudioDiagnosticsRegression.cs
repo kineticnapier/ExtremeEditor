@@ -13,6 +13,7 @@ internal static class RealtimeAudioDiagnosticsRegression
     {
         VerifyRuntimeHitSoundBypass();
         VerifyAudioPlayerExposesRuntimeHitSoundBypass();
+        VerifyProviderPrecomputesHitSchedule();
     }
 
     private static void VerifyRuntimeHitSoundBypass()
@@ -72,6 +73,50 @@ internal static class RealtimeAudioDiagnosticsRegression
         enabledProperty.SetValue(player, false);
         if (enabledProperty.GetValue(player) is not false)
             throw new InvalidOperationException("AudioPlayer must retain the runtime hitsound bypass setting.");
+    }
+
+    private static void VerifyProviderPrecomputesHitSchedule()
+    {
+        const int sampleRate = 1_000;
+        WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+        LevelDocument level = CreateLevel();
+        var timing = new TimingMap(
+        [
+            Floor(0, 0.0),
+            Floor(1, 0.25)
+        ]);
+        HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+        var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Kick"] = new RenderedHitSound([1f, 1f, 1f, 1f], 0.0)
+        };
+
+        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        Type providerType = typeof(SampleAccurateHitSoundProvider);
+        FieldInfo scheduleField = providerType.GetField(
+            "_scheduledHits",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "SampleAccurateHitSoundProvider._scheduledHits does not exist yet.");
+
+        object schedule = scheduleField.GetValue(provider)
+            ?? throw new InvalidOperationException("Precomputed hitsound schedule must be initialized in the constructor.");
+        PropertyInfo? countProperty = schedule.GetType().GetProperty("Count") ??
+                                      schedule.GetType().GetProperty("Length");
+        int count = countProperty?.GetValue(schedule) is int value
+            ? value
+            : throw new InvalidOperationException("Precomputed hitsound schedule must expose Count or Length.");
+        if (count != 1)
+            throw new InvalidOperationException($"Expected one scheduled audible hit, actual {count}.");
+
+        foreach (string sourceField in new[] { "_level", "_timingMap", "_timeline", "_clips" })
+        {
+            if (providerType.GetField(sourceField, BindingFlags.Instance | BindingFlags.NonPublic) is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Realtime hitsound provider must not retain {sourceField}; floor/timing/timeline/lookup work belongs in constructor precomputation.");
+            }
+        }
     }
 
     private static FloorTiming Floor(int floor, double entryTime) =>
