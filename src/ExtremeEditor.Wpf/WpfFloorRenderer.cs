@@ -12,6 +12,7 @@ internal sealed class WpfFloorRenderer
     private const float TwoPi = MathF.PI * 2f;
 
     private static readonly Dictionary<GeometryKey, StreamGeometry> GeometryCache = new();
+    private static readonly object GeometryCacheGate = new();
     private static readonly SolidColorBrush FallbackBrush = CreateBrush(225, 228, 235, 235);
     private static readonly SolidColorBrush EdgeBrush = CreateBrush(24, 22, 18, 105);
     private static readonly SolidColorBrush SelectedBrush = CreateBrush(255, 210, 80);
@@ -73,30 +74,34 @@ internal sealed class WpfFloorRenderer
     {
         float delta = Mod(exitAngle - entryAngle, TwoPi);
         var key = new GeometryKey((int)MathF.Round(delta * 100_000f), midSpin);
-        if (GeometryCache.TryGetValue(key, out StreamGeometry? cached))
-            return cached;
 
-        FloorGeometry source = AdoFaiFloorGeometryBuilder.Get(0f, delta, midSpin);
-        var geometry = new StreamGeometry
+        lock (GeometryCacheGate)
         {
-            FillRule = FillRule.EvenOdd
-        };
+            if (GeometryCache.TryGetValue(key, out StreamGeometry? cached))
+                return cached;
 
-        if (source.Main.Length > 0)
-        {
-            using StreamGeometryContext context = geometry.Open();
-            Vector2 first = source.Main[0];
-            context.BeginFigure(new Point(first.X, first.Y), isFilled: true, isClosed: true);
-            for (int i = 1; i < source.Main.Length; i++)
+            FloorGeometry source = AdoFaiFloorGeometryBuilder.Get(0f, delta, midSpin);
+            var geometry = new StreamGeometry
             {
-                Vector2 point = source.Main[i];
-                context.LineTo(new Point(point.X, point.Y), isStroked: true, isSmoothJoin: true);
-            }
-        }
+                FillRule = FillRule.EvenOdd
+            };
 
-        geometry.Freeze();
-        GeometryCache.Add(key, geometry);
-        return geometry;
+            if (source.Main.Length > 0)
+            {
+                using StreamGeometryContext context = geometry.Open();
+                Vector2 first = source.Main[0];
+                context.BeginFigure(new Point(first.X, first.Y), isFilled: true, isClosed: true);
+                for (int i = 1; i < source.Main.Length; i++)
+                {
+                    Vector2 point = source.Main[i];
+                    context.LineTo(new Point(point.X, point.Y), isStroked: true, isSmoothJoin: true);
+                }
+            }
+
+            geometry.Freeze();
+            GeometryCache.Add(key, geometry);
+            return geometry;
+        }
     }
 
     private static Brush? LoadTileBrush()
