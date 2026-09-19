@@ -8,7 +8,12 @@ namespace ExtremeEditor.Wpf;
 
 internal sealed class RasterChunkWorker : IDisposable
 {
-    private readonly ConcurrentQueue<RasterChunkRequest> _pending = new();
+    private readonly ConcurrentQueue<RasterChunkRequest>[] _pending =
+    [
+        new ConcurrentQueue<RasterChunkRequest>(),
+        new ConcurrentQueue<RasterChunkRequest>(),
+        new ConcurrentQueue<RasterChunkRequest>()
+    ];
     private readonly ConcurrentQueue<RasterChunkResult> _completed = new();
     private readonly AutoResetEvent _signal = new(false);
     private readonly Thread _thread;
@@ -37,7 +42,8 @@ internal sealed class RasterChunkWorker : IDisposable
         if (_stopping)
             return;
 
-        _pending.Enqueue(request);
+        int priority = Math.Clamp(request.Priority, 0, _pending.Length - 1);
+        _pending[priority].Enqueue(request);
         Interlocked.Increment(ref _requestedCount);
         _signal.Set();
     }
@@ -71,7 +77,7 @@ internal sealed class RasterChunkWorker : IDisposable
 
         while (true)
         {
-            while (_pending.TryDequeue(out RasterChunkRequest? request))
+            while (TryDequeueNext(out RasterChunkRequest? request))
             {
                 if (_stopping)
                     return;
@@ -93,6 +99,21 @@ internal sealed class RasterChunkWorker : IDisposable
 
             _signal.WaitOne();
         }
+    }
+
+    private bool TryDequeueNext(out RasterChunkRequest? request)
+    {
+        foreach (ConcurrentQueue<RasterChunkRequest> queue in _pending)
+        {
+            if (queue.TryDequeue(out RasterChunkRequest? next))
+            {
+                request = next;
+                return true;
+            }
+        }
+
+        request = null;
+        return false;
     }
 
     private RasterChunkResult Build(WpfFloorRenderer renderer, RasterChunkRequest request)
