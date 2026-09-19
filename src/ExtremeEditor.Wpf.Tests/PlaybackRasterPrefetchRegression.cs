@@ -12,9 +12,29 @@ internal static class PlaybackRasterPrefetchRegression
 {
     public static void Run()
     {
+        VerifyAsyncRasterChunkOrchestrationExists();
         VerifyPlaybackFollowDoesNotSynchronouslyBuildDenseRaster();
         VerifyMissingChunkRequestDoesNotBlockPlaybackUpdate();
         VerifyLevelResetAdvancesRasterGeneration();
+    }
+
+    private static void VerifyAsyncRasterChunkOrchestrationExists()
+    {
+        Type type = typeof(LevelViewport);
+        string[] requiredMethods =
+        [
+            "ResetRasterChunks",
+            "UpdateRasterChunksForViewport",
+            "DrainCompletedRasterChunks",
+            "QueueVisibleAndPrefetchChunks",
+            "RebuildRasterChunkVisuals"
+        ];
+
+        foreach (string name in requiredMethods)
+        {
+            if (type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic) is null)
+                throw new InvalidOperationException($"LevelViewport.{name} is missing.");
+        }
     }
 
     private static void VerifyPlaybackFollowDoesNotSynchronouslyBuildDenseRaster()
