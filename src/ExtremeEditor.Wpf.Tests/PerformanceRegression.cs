@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using System.Reflection;
 using System.Windows;
@@ -154,8 +155,17 @@ internal static class PerformanceRegression
 
         if (activeProperty.GetValue(viewport) is not true)
             throw new InvalidOperationException("A dense close-zoom stock-tile scene must use the raster cache.");
-        if (buildCountProperty.GetValue(viewport) is not int builds || builds <= 0)
-            throw new InvalidOperationException("Dense stock-tile rendering must build at least one raster cache image.");
+
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            Render(viewport);
+            if (buildCountProperty.GetValue(viewport) is int builds && builds > 0)
+                return;
+            Thread.Sleep(5);
+        }
+
+        throw new InvalidOperationException("Dense stock-tile rendering must asynchronously build at least one raster cache image.");
     }
 
     private static LevelViewport CreateViewportWithSyntheticLevel(out LevelDocument level)
