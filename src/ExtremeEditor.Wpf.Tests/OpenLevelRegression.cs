@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
