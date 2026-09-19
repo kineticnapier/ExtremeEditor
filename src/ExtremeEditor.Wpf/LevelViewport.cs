@@ -128,6 +128,8 @@ public sealed partial class LevelViewport : FrameworkElement
             DrawMeshPreview(drawingContext, nearViewport);
         else
             DrawOverview(drawingContext, nearViewport);
+
+        DrawPlaybackPlanets(drawingContext);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
