@@ -14,6 +14,7 @@ internal static class PerformanceRegression
         VerifySetLevelStartsNearFloorZero();
         VerifyPlaybackPoseReusesStaticScene();
         VerifyFollowCameraReusesStaticScene();
+        VerifyRetainedScenePreservesGlobalFloorOrder();
     }
 
     private static void VerifySetLevelStartsNearFloorZero()
@@ -102,6 +103,28 @@ internal static class PerformanceRegression
         {
             throw new InvalidOperationException(
                 $"Follow Player camera motion rebuilt static scene: before {before}, after {after}. Camera motion must use a retained transform.");
+        }
+    }
+
+    private static void VerifyRetainedScenePreservesGlobalFloorOrder()
+    {
+        var viewport = new LevelViewport();
+        viewport.Measure(new Size(800, 600));
+        viewport.Arrange(new Rect(0, 0, 800, 600));
+
+        LevelDocument level = CreateLongLevel();
+        viewport.SetLevel(level, new SpatialGridIndex(level.Positions));
+
+        PropertyInfo layerCount = typeof(LevelViewport).GetProperty(
+            "StaticSceneLayerCount",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "LevelViewport.StaticSceneLayerCount does not exist yet. The retained scene must expose one globally ordered static layer.");
+
+        if (layerCount.GetValue(viewport) is not int count || count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Stock floor overlap order requires one globally ordered retained scene. actual layers={layerCount.GetValue(viewport)}.");
         }
     }
 
