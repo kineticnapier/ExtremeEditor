@@ -18,6 +18,7 @@ internal static class PlaybackViewportRegression
         VerifyManualPanDisablesFollow();
         VerifyFollowPlayerChangeNotification();
         VerifyMainWindowFollowWiring();
+        VerifyMainWindowHitSoundsWiring();
     }
 
     private static void VerifyPlaybackStateAndFollow()
@@ -187,6 +188,45 @@ internal static class PlaybackViewportRegression
             viewport.FollowPlayer = false;
             if (toggle.IsChecked != false)
                 throw new InvalidOperationException("Viewport follow changes must update the Follow Player toggle.");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void VerifyMainWindowHitSoundsWiring()
+    {
+        var window = new MainWindow();
+        try
+        {
+            Type windowType = typeof(MainWindow);
+            FieldInfo toggleField = windowType.GetField(
+                "HitSoundsToggle",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow.HitSoundsToggle does not exist yet.");
+            FieldInfo audioField = windowType.GetField(
+                "_audio",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow._audio field is missing.");
+
+            if (toggleField.GetValue(window) is not ToggleButton toggle)
+                throw new InvalidOperationException("HitSoundsToggle must be a ToggleButton.");
+            if (toggle.IsChecked != true)
+                throw new InvalidOperationException("Hitsounds diagnostic toggle must default to ON.");
+
+            object audio = audioField.GetValue(window)
+                ?? throw new InvalidOperationException("MainWindow._audio must be initialized.");
+            PropertyInfo enabledProperty = audio.GetType().GetProperty("HitSoundsEnabled")
+                ?? throw new InvalidOperationException("AudioPlayer.HitSoundsEnabled is missing.");
+
+            toggle.IsChecked = false;
+            if (enabledProperty.GetValue(audio) is not bool enabled || enabled)
+                throw new InvalidOperationException("Turning Hitsounds OFF must disable AudioPlayer hitsounds.");
+
+            toggle.IsChecked = true;
+            if (enabledProperty.GetValue(audio) is not bool reenabled || !reenabled)
+                throw new InvalidOperationException("Turning Hitsounds ON must re-enable AudioPlayer hitsounds.");
         }
         finally
         {
