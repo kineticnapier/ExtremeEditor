@@ -26,16 +26,16 @@
                 <Button Content="Frame"
                         Command="{x:Static local:EditorCommands.Frame}" />
                 <Separator />
-                <Button Content="Play"
-                        Command="{x:Static local:EditorCommands.PlayPause}"
-                        IsEnabled="False" />
+                <Button x:Name="PlayButton"
+                        Content="Play"
+                        Command="{x:Static local:EditorCommands.PlayPause}" />
                 <Button Content="Stop"
-                        Command="{x:Static local:EditorCommands.Stop}"
-                        IsEnabled="False" />
+                        Command="{x:Static local:EditorCommands.Stop}" />
                 <ToggleButton Content="Follow Player"
                               IsChecked="True"
                               IsEnabled="False" />
-                <TextBlock Text="--:--.---"
+                <TextBlock x:Name="PlaybackText"
+                           Text="--:--.---"
                            Margin="8,0"
                            VerticalAlignment="Center" />
                 <Separator />
