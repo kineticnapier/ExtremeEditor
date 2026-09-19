@@ -76,7 +76,7 @@ static void RunProviderChecks()
     };
     var timing = new TimingMap(floors);
     HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
-    float[] pcm = Enumerable.Repeat(1.0f, 200).ToArray(); // 100 stereo frames
+    float[] pcm = Enumerable.Repeat(0.25f, 200).ToArray(); // 100 stereo frames
     var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
     {
         ["Kick"] = new RenderedHitSound(pcm, 0.0)
@@ -88,9 +88,9 @@ static void RunProviderChecks()
     var buffer = new float[200];
     provider.Read(buffer, 0, buffer.Length);
     Near(0.0, buffer[9 * 2], "silence before exact sample");
-    Near(1.0, buffer[10 * 2], "floor 1 exact sample");
-    Near(2.0, buffer[34 * 2], "floor 2 exact sample overlap");
-    Near(3.0, buffer[58 * 2], "floor 3 exact sample overlap");
+    Near(0.25, buffer[10 * 2], "floor 1 exact sample");
+    Near(0.5, buffer[34 * 2], "floor 2 exact sample overlap");
+    Near(0.75, buffer[58 * 2], "floor 3 exact sample overlap");
 
     provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
     provider.Seek(47_990);
@@ -98,13 +98,13 @@ static void RunProviderChecks()
     var secondChunk = new float[80];
     provider.Read(firstChunk, 0, firstChunk.Length);
     provider.Read(secondChunk, 0, secondChunk.Length);
-    Near(2.0, secondChunk[0], "tail crosses provider chunk boundary");
+    Near(0.5, secondChunk[0], "tail crosses provider chunk boundary");
 
     provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
     provider.Seek(48_010);
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
-    Near(1.0, seekBuffer[0], "seek reconstructs an audible tail");
+    Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
 }
 
 static void RunSparseTimelineChecks()
@@ -142,8 +142,8 @@ static void RunOffsetOrderingRegression()
     HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
     var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
     {
-        ["A"] = new RenderedHitSound(Enumerable.Repeat(1.0f, 8).ToArray(), 0.0),
-        ["B"] = new RenderedHitSound(Enumerable.Repeat(2.0f, 8).ToArray(), 0.002)
+        ["A"] = new RenderedHitSound(Enumerable.Repeat(0.25f, 8).ToArray(), 0.0),
+        ["B"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 8).ToArray(), 0.002)
     };
     var provider = new SampleAccurateHitSoundProvider(
         WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips);
@@ -154,11 +154,11 @@ static void RunOffsetOrderingRegression()
     var firstRead = new float[4]; // frames [998, 1000)
     provider.Read(firstRead, 0, firstRead.Length);
     Near(0.0, firstRead[0], "offset inversion silence before later floor");
-    Near(2.0, firstRead[2], "offset inversion schedules later floor first");
+    Near(0.5, firstRead[2], "offset inversion schedules later floor first");
 
     var secondRead = new float[4]; // frames [1000, 1002)
     provider.Read(secondRead, 0, secondRead.Length);
-    Near(3.0, secondRead[0], "pending earlier floor survives offset-bound scan");
+    Near(0.75, secondRead[0], "pending earlier floor survives offset-bound scan");
 }
 
 static void RunNegativeStartTailRegression()
@@ -167,7 +167,7 @@ static void RunNegativeStartTailRegression()
     LevelDocument level = CreateLevel(2, defaultHitSound: "Negative");
     var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
     HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
-    float[] pcm = [10, 10, 20, 20, 30, 30, 40, 40, 50, 50];
+    float[] pcm = [0.1f, 0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.4f, 0.4f, 0.5f, 0.5f];
     var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
     {
         ["Negative"] = new RenderedHitSound(pcm, 0.003)
@@ -178,9 +178,9 @@ static void RunNegativeStartTailRegression()
     // The clip starts at frame -2. Frames 0..2 must use source frames 2..4.
     var buffer = new float[6];
     provider.Read(buffer, 0, buffer.Length);
-    Near(30.0, buffer[0], "negative start skips pre-zero prefix");
-    Near(40.0, buffer[2], "negative start keeps tail frame 1");
-    Near(50.0, buffer[4], "negative start keeps tail frame 2");
+    Near(0.3, buffer[0], "negative start skips pre-zero prefix");
+    Near(0.4, buffer[2], "negative start keeps tail frame 1");
+    Near(0.5, buffer[4], "negative start keeps tail frame 2");
 }
 
 static void RunMillionFloorScanBenchmark()
