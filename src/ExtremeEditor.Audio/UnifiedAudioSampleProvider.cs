@@ -10,6 +10,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     private readonly long _totalFrames;
     private float[] _hitBuffer = [];
     private long _positionFrames;
+    private bool _hitSoundsEnabled = true;
 
     public UnifiedAudioSampleProvider(
         ISampleProvider song,
@@ -27,6 +28,20 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     public WaveFormat WaveFormat { get; }
 
+    public bool HitSoundsEnabled
+    {
+        get => _hitSoundsEnabled;
+        set
+        {
+            if (_hitSoundsEnabled == value)
+                return;
+
+            _hitSoundsEnabled = value;
+            if (value)
+                _hitSounds?.Seek(_positionFrames);
+        }
+    }
+
     public int Read(float[] buffer, int offset, int count)
     {
         int channels = WaveFormat.Channels;
@@ -41,7 +56,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         if (songRead < sampleCount)
             Array.Clear(buffer, offset + songRead, sampleCount - songRead);
 
-        if (_hitSounds is not null)
+        if (_hitSounds is not null && _hitSoundsEnabled)
         {
             if (_hitBuffer.Length < sampleCount)
                 _hitBuffer = new float[sampleCount];
