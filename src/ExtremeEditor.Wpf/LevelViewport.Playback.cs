@@ -46,6 +46,7 @@ public sealed partial class LevelViewport
 
         if (FollowPlayer && pose is PlaybackPose current && _camera != current.StationaryPlanet)
         {
+            _rasterPlaybackMotion = current.StationaryPlanet - _camera;
             _camera = current.StationaryPlanet;
             UpdateStaticSceneTransform();
 
