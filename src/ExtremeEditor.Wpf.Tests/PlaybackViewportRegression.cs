@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
@@ -16,6 +17,7 @@ internal static class PlaybackViewportRegression
         VerifyPlaybackPresenterUpdatesAndClearsPose();
         VerifyManualPanDisablesFollow();
         VerifyFollowPlayerChangeNotification();
+        VerifyMainWindowFollowWiring();
     }
 
     private static void VerifyPlaybackStateAndFollow()
@@ -153,6 +155,43 @@ internal static class PlaybackViewportRegression
 
         if (changes != 2)
             throw new InvalidOperationException($"FollowPlayerChanged must fire once per value change. actual={changes}.");
+    }
+
+    private static void VerifyMainWindowFollowWiring()
+    {
+        var window = new MainWindow();
+        try
+        {
+            Type windowType = typeof(MainWindow);
+            FieldInfo followField = windowType.GetField(
+                "FollowPlayerToggle",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow.FollowPlayerToggle does not exist yet.");
+            FieldInfo viewportField = windowType.GetField(
+                "Viewport",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow.Viewport field is missing.");
+
+            if (followField.GetValue(window) is not ToggleButton toggle)
+                throw new InvalidOperationException("FollowPlayerToggle must be a ToggleButton.");
+            if (viewportField.GetValue(window) is not LevelViewport viewport)
+                throw new InvalidOperationException("MainWindow.Viewport must be a LevelViewport.");
+            if (!toggle.IsEnabled)
+                throw new InvalidOperationException("Follow Player toggle must be enabled.");
+
+            toggle.IsChecked = false;
+            toggle.IsChecked = true;
+            if (!viewport.FollowPlayer)
+                throw new InvalidOperationException("Follow Player toggle must update the viewport follow state.");
+
+            viewport.FollowPlayer = false;
+            if (toggle.IsChecked != false)
+                throw new InvalidOperationException("Viewport follow changes must update the Follow Player toggle.");
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static int RenderDrawingNodeCount(LevelViewport viewport)
