@@ -25,8 +25,7 @@
                         Command="{x:Static local:EditorCommands.Open}"
                         IsEnabled="False" />
                 <Button Content="Frame"
-                        Command="{x:Static local:EditorCommands.Frame}"
-                        IsEnabled="False" />
+                        Command="{x:Static local:EditorCommands.Frame}" />
                 <Separator />
                 <Button Content="Play"
                         Command="{x:Static local:EditorCommands.PlayPause}"
@@ -66,12 +65,6 @@
             </ToolBar>
         </ToolBarTray>
 
-        <Border Background="#14161A">
-            <TextBlock Text="WPF editor surface — migration in progress"
-                       Foreground="#DCDCE6"
-                       FontSize="18"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center" />
-        </Border>
+        <local:LevelViewport x:Name="Viewport" />
     </DockPanel>
 </Window>
