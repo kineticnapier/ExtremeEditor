@@ -15,6 +15,7 @@ internal static class PerformanceRegression
         VerifyPlaybackPoseReusesStaticScene();
         VerifyFollowCameraReusesStaticScene();
         VerifyRetainedScenePreservesGlobalFloorOrder();
+        VerifyDenseStockTileSceneUsesRasterCache();
     }
 
     private static void VerifySetLevelStartsNearFloorZero()
@@ -130,6 +131,33 @@ internal static class PerformanceRegression
         }
     }
 
+    private static void VerifyDenseStockTileSceneUsesRasterCache()
+    {
+        PropertyInfo activeProperty = typeof(LevelViewport).GetProperty(
+            "StaticSceneRasterCacheActive",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "LevelViewport.StaticSceneRasterCacheActive does not exist yet. Dense stock-tile scenes must switch to a retained raster cache instead of retaining thousands of vector floor drawings.");
+        PropertyInfo buildCountProperty = typeof(LevelViewport).GetProperty(
+            "StaticSceneRasterCacheBuildCount",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "LevelViewport.StaticSceneRasterCacheBuildCount does not exist yet.");
+
+        var viewport = new LevelViewport();
+        viewport.Measure(new Size(800, 600));
+        viewport.Arrange(new Rect(0, 0, 800, 600));
+
+        LevelDocument level = CreateDenseLevel(5_000);
+        viewport.SetLevel(level, new SpatialGridIndex(level.Positions));
+        Render(viewport);
+
+        if (activeProperty.GetValue(viewport) is not true)
+            throw new InvalidOperationException("A dense close-zoom stock-tile scene must use the raster cache.");
+        if (buildCountProperty.GetValue(viewport) is not int builds || builds <= 0)
+            throw new InvalidOperationException("Dense stock-tile rendering must build at least one raster cache image.");
+    }
+
     private static LevelViewport CreateViewportWithSyntheticLevel(out LevelDocument level)
     {
         var viewport = new LevelViewport();
@@ -152,6 +180,38 @@ internal static class PerformanceRegression
         {
             SourcePath = "<performance-test>",
             Angles = [0.0],
+            Positions = positions,
+            ActionCount = 0,
+            ActionTypeCounts = new Dictionary<string, int>(),
+            ActionsByFloor = new Dictionary<int, LevelAction[]>(),
+            InitialBpm = 120.0,
+            SongFilename = null,
+            OffsetMilliseconds = 0,
+            PitchPercent = 100,
+            CountdownTicks = 0,
+            SeparateCountdownTime = false,
+            DefaultHitSound = "Kick",
+            HitSoundVolumePercent = 100,
+            Bounds = PathBuilder.CalculateBounds(positions)
+        };
+    }
+
+    private static LevelDocument CreateDenseLevel(int floorCount)
+    {
+        var positions = new Vector2[floorCount];
+        const int columns = 100;
+        const float spacing = 0.08f;
+        for (int floor = 0; floor < floorCount; floor++)
+        {
+            positions[floor] = new Vector2(
+                (floor % columns) * spacing,
+                (floor / columns) * spacing);
+        }
+
+        return new LevelDocument
+        {
+            SourcePath = "<dense-performance-test>",
+            Angles = new double[Math.Max(0, floorCount - 1)],
             Positions = positions,
             ActionCount = 0,
             ActionTypeCounts = new Dictionary<string, int>(),
