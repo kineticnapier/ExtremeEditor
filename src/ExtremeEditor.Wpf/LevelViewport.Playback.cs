@@ -83,7 +83,8 @@ public sealed partial class LevelViewport
         // the static chart. Keep the playback planets in their own retained
         // DrawingVisual so 60 Hz playback updates do not invalidate that chart.
         StaticSceneBuildCount++;
-        RenderPlaybackVisual();
+        if (_playbackVisualAttached)
+            RenderPlaybackVisual();
     }
 
     private void RenderPlaybackVisual()
