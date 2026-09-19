@@ -1,7 +1,6 @@
 using System.Numerics;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
@@ -11,7 +10,6 @@ public sealed partial class LevelViewport
     private const float SceneCoverageMarginScreens = 1.5f;
     private const float DenseSceneCoverageMarginScreens = 0.5f;
     private const int DenseRasterCandidateThreshold = 2_000;
-    private const double RasterPaddingPixels = 128.0;
 
     private readonly ContainerVisual _sceneRoot = new();
     private readonly DrawingVisual _sceneVisual = new();
@@ -47,6 +45,7 @@ public sealed partial class LevelViewport
         _sceneTranslate.X = 0.0;
         _sceneTranslate.Y = 0.0;
         _sceneRoot.Transform = _sceneTranslate;
+        ResetRasterChunks();
     }
 
     private void EnsureSceneCoverage()
@@ -60,7 +59,7 @@ public sealed partial class LevelViewport
                             Math.Abs(_sceneCacheWidth - ActualWidth) > 0.5 ||
                             Math.Abs(_sceneCacheHeight - ActualHeight) > 0.5;
 
-        if (cacheInvalid || !Contains(_sceneCoverage, viewport))
+        if (cacheInvalid || (!StaticSceneRasterCacheActive && !Contains(_sceneCoverage, viewport)))
         {
             BuildStaticScene(viewport);
         }
@@ -68,6 +67,8 @@ public sealed partial class LevelViewport
         {
             LastCandidateCount = _sceneCandidateCount;
             UpdateStaticSceneTransform();
+            if (StaticSceneRasterCacheActive)
+                UpdateRasterChunksForViewport(playbackActive: PlaybackPose is not null);
         }
     }
 
@@ -111,7 +112,8 @@ public sealed partial class LevelViewport
 
             if (StaticSceneRasterCacheActive)
             {
-                DrawRasterCachedMeshPreview(drawingContext);
+                // Dense floor rasterization is asynchronous. The UI thread only
+                // composes completed frozen bitmaps and lightweight overlays.
                 if (StaticSceneIconsEnabled)
                     DrawMeshPreviewIcons(drawingContext, _sceneCoverage);
             }
@@ -136,39 +138,9 @@ public sealed partial class LevelViewport
         _sceneCacheReady = true;
         StaticSceneBuildCount++;
         StaticChunkBuildCount++;
-    }
 
-    private void DrawRasterCachedMeshPreview(DrawingContext drawingContext)
-    {
-        Point firstCorner = WorldToScreen(new Vector2(_sceneCoverage.Left, _sceneCoverage.Top));
-        Point secondCorner = WorldToScreen(new Vector2(_sceneCoverage.Right, _sceneCoverage.Bottom));
-
-        double left = Math.Min(firstCorner.X, secondCorner.X) - RasterPaddingPixels;
-        double top = Math.Min(firstCorner.Y, secondCorner.Y) - RasterPaddingPixels;
-        double width = Math.Abs(secondCorner.X - firstCorner.X) + RasterPaddingPixels * 2.0;
-        double height = Math.Abs(secondCorner.Y - firstCorner.Y) + RasterPaddingPixels * 2.0;
-        int pixelWidth = Math.Max(1, checked((int)Math.Ceiling(width)));
-        int pixelHeight = Math.Max(1, checked((int)Math.Ceiling(height)));
-
-        var floorVisual = new DrawingVisual();
-        using (DrawingContext floorContext = floorVisual.RenderOpen())
-        {
-            floorContext.PushTransform(new TranslateTransform(-left, -top));
-            DrawMeshPreviewFloors(floorContext, _sceneCoverage);
-            floorContext.Pop();
-        }
-
-        var bitmap = new RenderTargetBitmap(
-            pixelWidth,
-            pixelHeight,
-            96.0,
-            96.0,
-            PixelFormats.Pbgra32);
-        bitmap.Render(floorVisual);
-        bitmap.Freeze();
-
-        drawingContext.DrawImage(bitmap, new Rect(left, top, pixelWidth, pixelHeight));
-        StaticSceneRasterCacheBuildCount++;
+        if (StaticSceneRasterCacheActive)
+            UpdateRasterChunksForViewport(playbackActive: PlaybackPose is not null);
     }
 
     private void UpdateStaticSceneTransform()
