@@ -8,6 +8,7 @@ namespace ExtremeEditor.Wpf;
 public sealed partial class LevelViewport
 {
     private const int RasterChunkPixelSize = 512;
+    private const float RasterPrefetchViewportCount = 3f;
 
     private readonly RasterChunkCache _rasterChunks = new();
     private readonly RasterChunkWorker _rasterWorker = new();
@@ -15,11 +16,14 @@ public sealed partial class LevelViewport
     private int _rasterChunkRequestsQueued;
     private int _rasterChunkBuildsCompleted;
     private int _rasterVisibleMissingChunkCount;
+    private int _rasterPrefetchReadyOrQueuedCount;
+    private Vector2 _rasterPlaybackMotion;
 
     public int PlaybackSynchronousRasterBuildCount { get; private set; }
     public int RasterChunkRequestsQueued => _rasterChunkRequestsQueued;
     public int RasterChunkBuildsCompleted => _rasterChunkBuildsCompleted;
     public int RasterVisibleMissingChunkCount => _rasterVisibleMissingChunkCount;
+    public int RasterPrefetchReadyOrQueuedCount => _rasterPrefetchReadyOrQueuedCount;
     public long RasterCacheGeneration => _rasterGeneration;
 
     private void ResetRasterChunks()
@@ -27,6 +31,8 @@ public sealed partial class LevelViewport
         _rasterGeneration++;
         _rasterChunks.Reset(_rasterGeneration);
         _rasterVisibleMissingChunkCount = 0;
+        _rasterPrefetchReadyOrQueuedCount = 0;
+        _rasterPlaybackMotion = Vector2.Zero;
     }
 
     private void UpdateRasterChunksForViewport(bool playbackActive)
@@ -63,28 +69,46 @@ public sealed partial class LevelViewport
         float chunkWorldSize = RasterChunkPixelSize / Math.Max(_zoom, 0.0001f);
         int zoomBucket = checked((int)MathF.Round(_zoom * 1000f));
 
-        float marginX = viewport.Width;
-        float marginY = viewport.Height;
-        WorldRect requested = new(
-            viewport.Left - marginX,
-            viewport.Top - marginY,
-            viewport.Right + marginX,
-            viewport.Bottom + marginY);
+        WorldRect safety = new(
+            viewport.Left - viewport.Width,
+            viewport.Top - viewport.Height,
+            viewport.Right + viewport.Width,
+            viewport.Bottom + viewport.Height);
 
+        bool hasForwardMotion = playbackActive && _rasterPlaybackMotion.LengthSquared() > 0.000001f;
+        WorldRect forward = viewport;
+        if (hasForwardMotion)
+        {
+            Vector2 direction = Vector2.Normalize(_rasterPlaybackMotion);
+            float dx = direction.X * viewport.Width * RasterPrefetchViewportCount;
+            float dy = direction.Y * viewport.Height * RasterPrefetchViewportCount;
+            forward = new WorldRect(
+                Math.Min(viewport.Left, viewport.Left + dx),
+                Math.Min(viewport.Top, viewport.Top + dy),
+                Math.Max(viewport.Right, viewport.Right + dx),
+                Math.Max(viewport.Bottom, viewport.Bottom + dy));
+        }
+
+        WorldRect requested = Union(safety, forward);
         int minX = (int)MathF.Floor(requested.Left / chunkWorldSize);
         int maxX = (int)MathF.Floor(requested.Right / chunkWorldSize);
         int minY = (int)MathF.Floor(requested.Top / chunkWorldSize);
         int maxY = (int)MathF.Floor(requested.Bottom / chunkWorldSize);
 
+        var queuedByPriority = new List<(RasterChunkKey Key, WorldRect World)>[]
+        {
+            new(),
+            new(),
+            new()
+        };
+
         int visibleMissing = 0;
+        int prefetchReadyOrQueued = 0;
+
         for (int y = minY; y <= maxY; y++)
         {
             for (int x = minX; x <= maxX; x++)
             {
-                var key = new RasterChunkKey(x, y, zoomBucket, _rasterGeneration);
-                if (_rasterChunks.TryGetReady(key, out _))
-                    continue;
-
                 WorldRect chunkWorld = new(
                     x * chunkWorldSize,
                     y * chunkWorldSize,
@@ -92,12 +116,37 @@ public sealed partial class LevelViewport
                     (y + 1) * chunkWorldSize);
 
                 bool visible = Intersects(chunkWorld, viewport);
+                bool ahead = !visible && hasForwardMotion && Intersects(chunkWorld, forward);
+                int priority = visible ? 0 : ahead ? 1 : 2;
+                var key = new RasterChunkKey(x, y, zoomBucket, _rasterGeneration);
+
+                if (_rasterChunks.TryGetReady(key, out _))
+                {
+                    if (ahead)
+                        prefetchReadyOrQueued++;
+                    continue;
+                }
+
                 if (visible)
                     visibleMissing++;
 
                 if (!_rasterChunks.TryMarkQueued(key))
+                {
+                    if (ahead)
+                        prefetchReadyOrQueued++;
                     continue;
+                }
 
+                if (ahead)
+                    prefetchReadyOrQueued++;
+                queuedByPriority[priority].Add((key, chunkWorld));
+            }
+        }
+
+        for (int priority = 0; priority < queuedByPriority.Length; priority++)
+        {
+            foreach ((RasterChunkKey key, WorldRect chunkWorld) in queuedByPriority[priority])
+            {
                 var candidates = new List<int>(1024);
                 _index.Query(chunkWorld, candidates);
                 candidates.Sort(static (a, b) => b.CompareTo(a));
@@ -112,7 +161,8 @@ public sealed partial class LevelViewport
                     _zoom,
                     candidates.ToArray(),
                     _level.Positions,
-                    _level.Angles);
+                    _level.Angles,
+                    priority);
 
                 _rasterWorker.Enqueue(request);
                 _rasterChunkRequestsQueued++;
@@ -120,6 +170,7 @@ public sealed partial class LevelViewport
         }
 
         _rasterVisibleMissingChunkCount = visibleMissing;
+        _rasterPrefetchReadyOrQueuedCount = prefetchReadyOrQueued;
     }
 
     private void RebuildRasterChunkVisuals()
@@ -148,7 +199,6 @@ public sealed partial class LevelViewport
 
     private Rect WorldRectToSceneRect(WorldRect world)
     {
-        Vector2 old = _camera;
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
@@ -165,6 +215,12 @@ public sealed partial class LevelViewport
             _renderCameraOverride = null;
         }
     }
+
+    private static WorldRect Union(WorldRect a, WorldRect b) => new(
+        Math.Min(a.Left, b.Left),
+        Math.Min(a.Top, b.Top),
+        Math.Max(a.Right, b.Right),
+        Math.Max(a.Bottom, b.Bottom));
 
     private static bool Intersects(WorldRect a, WorldRect b) =>
         a.Left <= b.Right && a.Right >= b.Left && a.Top <= b.Bottom && a.Bottom >= b.Top;
