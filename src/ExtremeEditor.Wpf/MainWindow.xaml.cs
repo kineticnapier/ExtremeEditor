@@ -17,11 +17,15 @@ public partial class MainWindow : Window
             ExecuteFrame,
             CanExecuteFrame));
 
+        FloorPreviewToggle.Checked += FloorPreviewChanged;
+        FloorPreviewToggle.Unchecked += FloorPreviewChanged;
+        Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
+
         LevelDocument level = LevelDocument.CreateSynthetic(4096);
         var index = new SpatialGridIndex(level.Positions);
         Viewport.SetLevel(level, index);
 
-        StatusText.Text = $"WPF minimal viewport | {EditorVersion.Current} | synthetic 4096-floor level";
+        StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | synthetic 4096-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
     }
 
     private void ExecuteFrame(object sender, ExecutedRoutedEventArgs e)
@@ -34,5 +38,10 @@ public partial class MainWindow : Window
     {
         e.CanExecute = true;
         e.Handled = true;
+    }
+
+    private void FloorPreviewChanged(object sender, RoutedEventArgs e)
+    {
+        Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
     }
 }

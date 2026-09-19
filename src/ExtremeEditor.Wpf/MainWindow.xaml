@@ -56,9 +56,9 @@
                         IsEnabled="False" />
                 <Button Content="Import Hitsounds"
                         IsEnabled="False" />
-                <ToggleButton Content="Floor Preview"
-                              IsChecked="True"
-                              IsEnabled="False" />
+                <ToggleButton x:Name="FloorPreviewToggle"
+                              Content="Floor Preview"
+                              IsChecked="True" />
                 <Separator />
                 <Button Content="Benchmark viewport"
                         IsEnabled="False" />

@@ -12,9 +12,11 @@ public sealed class LevelViewport : FrameworkElement
     private const float MaxZoom = 400f;
     private const double FloorRadiusPixels = 4.0;
     private const float MinMeshPreviewZoom = 8f;
+    private const float MinIconZoom = 12f;
     private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
     private const float FloorSelectionRadiusWorld = 0.856f;
+    private const float TwoPi = MathF.PI * 2f;
 
     private static readonly Brush BackgroundBrush = CreateBrush(20, 22, 26);
     private static readonly Brush FloorBrush = CreateBrush(220, 220, 225, 235);
@@ -24,13 +26,16 @@ public sealed class LevelViewport : FrameworkElement
 
     private readonly List<int> _candidates = new(4096);
     private readonly WpfFloorRenderer _floorRenderer = new();
+    private readonly WpfIconRenderer _iconRenderer = new();
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
+    private bool[] _floorIsCcw = [];
     private Vector2 _camera;
     private float _zoom = 28f;
     private bool _panning;
     private Point _lastMouse;
     private int _selectedFloor = -1;
+    private bool _useFloorPreview = true;
 
     public int SelectedFloor
     {
@@ -45,10 +50,24 @@ public sealed class LevelViewport : FrameworkElement
         }
     }
 
+    public bool UseFloorPreview
+    {
+        get => _useFloorPreview;
+        set
+        {
+            if (_useFloorPreview == value)
+                return;
+
+            _useFloorPreview = value;
+            InvalidateVisual();
+        }
+    }
+
     public int LastCandidateCount { get; private set; }
     public int LastDrawnCount { get; private set; }
     public string LastRenderMode { get; private set; } = "dots";
     public string FloorAssetSummary => _floorRenderer.AssetSummary;
+    public string IconAssetSummary => _iconRenderer.Summary;
 
     public LevelViewport()
     {
@@ -65,6 +84,7 @@ public sealed class LevelViewport : FrameworkElement
         _level = level;
         _index = index;
         _selectedFloor = -1;
+        RebuildFloorDirectionState();
         FrameAll();
         InvalidateVisual();
     }
@@ -100,7 +120,8 @@ public sealed class LevelViewport : FrameworkElement
         LastCandidateCount = _candidates.Count;
         LastDrawnCount = 0;
 
-        bool meshPreview = _zoom >= MinMeshPreviewZoom &&
+        bool meshPreview = _useFloorPreview &&
+                           _zoom >= MinMeshPreviewZoom &&
                            _candidates.Count <= MaxMeshPreviewDraw;
 
         if (meshPreview)
@@ -188,6 +209,9 @@ public sealed class LevelViewport : FrameworkElement
 
         Vector2[] positions = _level!.Positions;
         _candidates.Sort(static (a, b) => b.CompareTo(a));
+        bool drawIcons = _zoom >= MinIconZoom &&
+                         (_iconRenderer.EventIconCount > 0 || _iconRenderer.FloorIconCount > 0);
+
         foreach (int floor in _candidates)
         {
             if ((uint)floor >= (uint)positions.Length)
@@ -208,7 +232,89 @@ public sealed class LevelViewport : FrameworkElement
                 exitAngle,
                 midSpin,
                 floor == _selectedFloor);
+
+            if (drawIcons)
+                DrawFloorIcon(drawingContext, floor, center, entryAngle, exitAngle, midSpin);
+
             LastDrawnCount++;
+        }
+    }
+
+    private void DrawFloorIcon(
+        DrawingContext drawingContext,
+        int floor,
+        Point center,
+        float entryAngle,
+        float exitAngle,
+        bool midSpin)
+    {
+        if (_level is null || !_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            return;
+
+        LevelAction? customIconAction = null;
+        LevelAction? speedAction = null;
+        bool checkpoint = false;
+        bool twirl = false;
+        bool hasActiveAction = false;
+
+        foreach (LevelAction action in actions)
+        {
+            if (!action.Active)
+                continue;
+
+            hasActiveAction = true;
+            if (customIconAction is null && string.Equals(action.EventType, "SetFloorIcon", StringComparison.Ordinal))
+                customIconAction = action;
+            if (string.Equals(action.EventType, "Checkpoint", StringComparison.Ordinal))
+                checkpoint = true;
+            if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
+                twirl = true;
+            if (speedAction is null && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
+                speedAction = action;
+        }
+
+        if (!hasActiveAction)
+            return;
+
+        if (customIconAction?.CustomIcon is { Length: > 0 } customIcon &&
+            _iconRenderer.DrawFloorIcon(drawingContext, customIcon, center, _zoom))
+            return;
+
+        if (checkpoint && _iconRenderer.DrawFloorIcon(drawingContext, "Checkpoint", center, _zoom))
+            return;
+
+        if (twirl)
+        {
+            bool isCcw = (uint)floor < (uint)_floorIsCcw.Length && _floorIsCcw[floor];
+            SwirlVisual swirl = CalculateSwirlVisual(entryAngle, exitAngle, isCcw, midSpin);
+            if (_iconRenderer.DrawFloorIcon(
+                    drawingContext,
+                    swirl.IsRed ? "SwirlRed" : "SwirlBlue",
+                    center,
+                    _zoom,
+                    swirl.IconAngle,
+                    swirl.Flipped))
+                return;
+        }
+
+        if (speedAction?.SpeedRatio is double ratio)
+        {
+            string speedIcon = ratio switch
+            {
+                <= 0.45 => "DoubleSnail",
+                < 0.95 => "Snail",
+                <= 1.05 => "SameSpeed",
+                <= 2.05 => "Rabbit",
+                _ => "DoubleRabbit"
+            };
+            if (_iconRenderer.DrawFloorIcon(drawingContext, speedIcon, center, _zoom))
+                return;
+        }
+
+        foreach (LevelAction action in actions)
+        {
+            if (action.Active && _iconRenderer.DrawEvent(drawingContext, action.EventType, center, _zoom))
+                return;
         }
     }
 
@@ -262,6 +368,55 @@ public sealed class LevelViewport : FrameworkElement
 
             LastDrawnCount++;
         }
+    }
+
+    private void RebuildFloorDirectionState()
+    {
+        if (_level is null)
+        {
+            _floorIsCcw = [];
+            return;
+        }
+
+        _floorIsCcw = new bool[_level.FloorCount];
+        bool isCcw = false;
+        for (int floor = 0; floor < _floorIsCcw.Length; floor++)
+        {
+            if (_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            {
+                foreach (LevelAction action in actions)
+                {
+                    if (action.Active && string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
+                        isCcw = !isCcw;
+                }
+            }
+
+            _floorIsCcw[floor] = isCcw;
+        }
+    }
+
+    private static SwirlVisual CalculateSwirlVisual(
+        float entryScreenAngle,
+        float exitScreenAngle,
+        bool isCcw,
+        bool midSpin)
+    {
+        float entry = Mod(TwoPi + MathF.PI / 2f - entryScreenAngle, TwoPi);
+        float exit = Mod(TwoPi + MathF.PI / 2f - exitScreenAngle, TwoPi);
+        float direction = isCcw ? -1f : 1f;
+        float moved = Mod((exit - entry) * direction, TwoPi);
+        if (MathF.Abs(moved) <= 0.000001f && !midSpin)
+            moved = TwoPi;
+
+        bool isRed = moved < 3.1415918f;
+        float iconAngle = entry + moved * 0.5f * direction;
+        return new SwirlVisual(isRed, isCcw, iconAngle);
+    }
+
+    private static float Mod(float value, float modulus)
+    {
+        float result = value % modulus;
+        return result < 0f ? result + modulus : result;
     }
 
     private void SelectNearest(Point screenPoint)
@@ -347,4 +502,6 @@ public sealed class LevelViewport : FrameworkElement
         brush.Freeze();
         return brush;
     }
+
+    private readonly record struct SwirlVisual(bool IsRed, bool Flipped, float IconAngle);
 }
