@@ -14,6 +14,7 @@ internal static class RealtimeAudioDiagnosticsRegression
         VerifyRuntimeHitSoundBypass();
         VerifyAudioPlayerExposesRuntimeHitSoundBypass();
         VerifyProviderPrecomputesHitSchedule();
+        VerifyProviderPrerendersHitSoundPcm();
     }
 
     private static void VerifyRuntimeHitSoundBypass()
@@ -116,6 +117,41 @@ internal static class RealtimeAudioDiagnosticsRegression
                 throw new InvalidOperationException(
                     $"Realtime hitsound provider must not retain {sourceField}; floor/timing/timeline/lookup work belongs in constructor precomputation.");
             }
+        }
+    }
+
+    private static void VerifyProviderPrerendersHitSoundPcm()
+    {
+        const int sampleRate = 1_000;
+        WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+        LevelDocument level = CreateLevel();
+        var timing = new TimingMap(
+        [
+            Floor(0, 0.0),
+            Floor(1, 0.25)
+        ]);
+        HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+        var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Kick"] = new RenderedHitSound([1f, 1f, 0.5f, 0.5f], 0.0)
+        };
+
+        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        Type providerType = typeof(SampleAccurateHitSoundProvider);
+
+        FieldInfo renderedChunksField = providerType.GetField(
+            "_renderedChunks",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "SampleAccurateHitSoundProvider._renderedChunks does not exist yet.");
+
+        if (renderedChunksField.GetValue(provider) is null)
+            throw new InvalidOperationException("Prerendered hitsound PCM chunks must be built in the constructor.");
+
+        if (providerType.GetField("_activeVoices", BindingFlags.Instance | BindingFlags.NonPublic) is not null)
+        {
+            throw new InvalidOperationException(
+                "Realtime provider must not retain an active-voice mixer after hitsound PCM is prerendered.");
         }
     }
 
