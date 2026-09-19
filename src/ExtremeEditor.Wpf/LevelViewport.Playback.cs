@@ -48,7 +48,20 @@ public sealed partial class LevelViewport
         {
             _camera = current.StationaryPlanet;
             UpdateStaticSceneTransform();
-            EnsureSceneCoverage();
+
+            if (StaticSceneRasterCacheActive)
+            {
+                DrainCompletedRasterChunks();
+                UpdateRasterChunksForViewport(playbackActive: true);
+            }
+            else
+            {
+                EnsureSceneCoverage();
+            }
+        }
+        else if (StaticSceneRasterCacheActive)
+        {
+            DrainCompletedRasterChunks();
         }
 
         RenderPlaybackVisual();
