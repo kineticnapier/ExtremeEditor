@@ -13,6 +13,8 @@ internal static class PlaybackRasterPrefetchRegression
     public static void Run()
     {
         VerifyAsyncRasterChunkOrchestrationExists();
+        VerifyRepeatedPlaybackUpdatesCoalesceChunkRequests();
+        VerifyForwardPrefetchDiagnosticsExist();
         VerifyPlaybackFollowDoesNotSynchronouslyBuildDenseRaster();
         VerifyMissingChunkRequestDoesNotBlockPlaybackUpdate();
         VerifyLevelResetAdvancesRasterGeneration();
@@ -35,6 +37,42 @@ internal static class PlaybackRasterPrefetchRegression
             if (type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic) is null)
                 throw new InvalidOperationException($"LevelViewport.{name} is missing.");
         }
+    }
+
+    private static void VerifyRepeatedPlaybackUpdatesCoalesceChunkRequests()
+    {
+        LevelViewport viewport = CreateDenseViewport(out _);
+        viewport.FollowPlayer = true;
+        Render(viewport);
+
+        Vector2 stationary = new(0.5f, 0.5f);
+        var pose = new PlaybackPose(0, 0.5, stationary, stationary + Vector2.UnitX, true, false);
+        viewport.SetPlaybackPose(pose);
+        int afterFirst = ReadInt(viewport, "RasterChunkRequestsQueued");
+
+        for (int i = 0; i < 12; i++)
+            viewport.SetPlaybackPose(pose);
+
+        int afterRepeated = ReadInt(viewport, "RasterChunkRequestsQueued");
+        if (afterRepeated != afterFirst)
+        {
+            throw new InvalidOperationException(
+                $"Repeated playback updates queued duplicate raster chunks: first={afterFirst}, repeated={afterRepeated}.");
+        }
+    }
+
+    private static void VerifyForwardPrefetchDiagnosticsExist()
+    {
+        LevelViewport viewport = CreateDenseViewport(out _);
+        viewport.FollowPlayer = true;
+        Render(viewport);
+
+        viewport.SetPlaybackPose(new PlaybackPose(0, 0.5, new Vector2(0f, 0f), Vector2.UnitX, true, false));
+        viewport.SetPlaybackPose(new PlaybackPose(1, 0.5, new Vector2(1f, 0f), new Vector2(2f, 0f), true, false));
+
+        int prefetched = ReadInt(viewport, "RasterPrefetchReadyOrQueuedCount");
+        if (prefetched <= 0)
+            throw new InvalidOperationException("Forward playback motion must queue raster chunks ahead of the visible viewport.");
     }
 
     private static void VerifyPlaybackFollowDoesNotSynchronouslyBuildDenseRaster()
