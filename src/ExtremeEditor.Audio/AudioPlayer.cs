@@ -22,6 +22,7 @@ public sealed class AudioPlayer : IDisposable
     private long _clockBaseDeviceBytes;
     private double _clockBaseAudioSeconds;
     private bool _clockReady;
+    private bool _hitSoundsEnabled = true;
 
     public AudioPlayer()
     {
@@ -36,6 +37,19 @@ public sealed class AudioPlayer : IDisposable
     public string? LoadedPath { get; private set; }
     public int LoadedHitSoundCount => _hitSoundLibrary.LoadedCount;
     public string HitSoundAssetSummary => _hitSoundLibrary.AssetSummary;
+    public bool HitSoundsEnabled
+    {
+        get => _hitSoundsEnabled;
+        set
+        {
+            if (_hitSoundsEnabled == value)
+                return;
+
+            _hitSoundsEnabled = value;
+            if (_graph is not null)
+                _graph.HitSoundsEnabled = value;
+        }
+    }
 
     // WaveStream.CurrentTime is a decoder read-ahead position. The device byte
     // position is the presentation clock shared by the song and hit sounds.
@@ -214,7 +228,10 @@ public sealed class AudioPlayer : IDisposable
         }
 
         long totalFrames = (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
-        _graph = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames);
+        _graph = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames)
+        {
+            HitSoundsEnabled = _hitSoundsEnabled
+        };
         _output = new WaveOutEvent { DesiredLatency = 80 };
         log?.Write("audio_player.waveout_init_before",
             $"provider={_graph.GetType().FullName} rate={_graph.WaveFormat.SampleRate} " +
