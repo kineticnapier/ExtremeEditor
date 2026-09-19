@@ -20,6 +20,7 @@ internal static class Program
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
             PerformanceRegression.Run();
+            DenseIconRegression.Run();
             Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, and performance regressions are valid.");
             return 0;
         }
