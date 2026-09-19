@@ -10,7 +10,23 @@ public sealed partial class LevelViewport
     private static readonly Brush PlaybackBlueBrush = CreateBrush(72, 142, 235);
     private static readonly Pen PlaybackPlanetOutlinePen = CreatePlaybackPlanetOutlinePen();
 
-    public bool FollowPlayer { get; set; }
+    private bool _followPlayer;
+
+    public event EventHandler? FollowPlayerChanged;
+
+    public bool FollowPlayer
+    {
+        get => _followPlayer;
+        set
+        {
+            if (_followPlayer == value)
+                return;
+
+            _followPlayer = value;
+            FollowPlayerChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     public PlaybackPose? PlaybackPose { get; private set; }
 
     public void SetPlaybackPose(PlaybackPose? pose)
