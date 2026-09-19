@@ -48,6 +48,11 @@ public partial class MainWindow : Window
         FloorPreviewToggle.Unchecked += FloorPreviewChanged;
         Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
 
+        FollowPlayerToggle.Checked += FollowPlayerToggleChanged;
+        FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
+        Viewport.FollowPlayerChanged += ViewportFollowPlayerChanged;
+        Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
+
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
@@ -62,6 +67,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _playbackTimer.Stop();
+        Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
         _audio.Dispose();
         base.OnClosed(e);
     }
@@ -201,6 +207,7 @@ public partial class MainWindow : Window
     private void StopPlayback()
     {
         _audio.Stop();
+        Viewport.SetPlaybackPose(null);
         PlayButton.Content = "Play";
         PlaybackText.Text = "--:--.---";
         CommandManager.InvalidateRequerySuggested();
@@ -210,6 +217,7 @@ public partial class MainWindow : Window
     {
         if (_level is null || _timingMap is null || !_audio.IsLoaded)
         {
+            Viewport.SetPlaybackPose(null);
             PlaybackText.Text = "--:--.---";
             PlayButton.Content = "Play";
             return;
@@ -217,6 +225,13 @@ public partial class MainWindow : Window
 
         double audioSeconds = _audio.Position.TotalSeconds;
         double chartTime = PlaybackClock.AudioToChartTime(_level, audioSeconds);
+        WpfPlaybackPresenter.Update(
+            Viewport,
+            _level,
+            _timingMap,
+            audioSeconds,
+            _audio.IsStopped);
+
         PlaybackText.Text =
             $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
             $"C {chartTime:F3}/{_timingMap.Duration:F3}s";
@@ -240,5 +255,15 @@ public partial class MainWindow : Window
     private void FloorPreviewChanged(object sender, RoutedEventArgs e)
     {
         Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
+    }
+
+    private void FollowPlayerToggleChanged(object sender, RoutedEventArgs e)
+    {
+        Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
+    }
+
+    private void ViewportFollowPlayerChanged(object? sender, EventArgs e)
+    {
+        FollowPlayerToggle.IsChecked = Viewport.FollowPlayer;
     }
 }
