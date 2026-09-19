@@ -31,9 +31,9 @@
                         Command="{x:Static local:EditorCommands.PlayPause}" />
                 <Button Content="Stop"
                         Command="{x:Static local:EditorCommands.Stop}" />
-                <ToggleButton Content="Follow Player"
-                              IsChecked="True"
-                              IsEnabled="False" />
+                <ToggleButton x:Name="FollowPlayerToggle"
+                              Content="Follow Player"
+                              IsChecked="True" />
                 <TextBlock x:Name="PlaybackText"
                            Text="--:--.---"
                            Margin="8,0"
