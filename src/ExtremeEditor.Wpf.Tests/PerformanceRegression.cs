@@ -38,14 +38,16 @@ internal static class PerformanceRegression
             level.Positions[0] + new Vector2(1f, 0f),
             true,
             false));
-        Render(viewport);
 
         int after = ReadBuildCount(viewport, buildCountProperty);
         if (after != before)
         {
             throw new InvalidOperationException(
-                $"Playback-only redraw rebuilt static scene: before {before}, after {after}.");
+                $"Playback-only update rebuilt static scene: before {before}, after {after}.");
         }
+
+        if (viewport.VisualChildrenCountForTest() != 1)
+            throw new InvalidOperationException("Playback must render through one retained child visual.");
     }
 
     private static int ReadBuildCount(LevelViewport viewport, PropertyInfo property)
@@ -65,5 +67,17 @@ internal static class PerformanceRegression
         var visual = new DrawingVisual();
         using DrawingContext drawingContext = visual.RenderOpen();
         onRender.Invoke(viewport, [drawingContext]);
+    }
+
+    private static int VisualChildrenCountForTest(this LevelViewport viewport)
+    {
+        PropertyInfo property = typeof(LevelViewport).GetProperty(
+            "VisualChildrenCount",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.VisualChildrenCount is missing.");
+
+        return property.GetValue(viewport) is int count
+            ? count
+            : throw new InvalidOperationException("LevelViewport.VisualChildrenCount must be an int.");
     }
 }
