@@ -17,6 +17,7 @@ public sealed record LevelAction(
     public string? GameSound { get; set; }
     public string? Planets { get; set; }
     public double? AngleOffset { get; set; }
+    public double? Duration { get; set; }
 }
 
 public sealed class LevelDocument
