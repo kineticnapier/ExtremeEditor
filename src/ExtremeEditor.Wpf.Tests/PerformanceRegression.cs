@@ -87,7 +87,9 @@ internal static class PerformanceRegression
         Render(viewport);
         int before = ReadBuildCount(viewport, buildCountProperty);
 
-        int targetFloor = Math.Min(1000, level.FloorCount - 1);
+        // Follow normally advances to a nearby floor each frame. Buffered motion
+        // must reuse the retained static scene; only exhausting the buffer may rebuild it.
+        int targetFloor = Math.Min(1, level.FloorCount - 1);
         Vector2 stationary = level.Positions[targetFloor];
         viewport.SetPlaybackPose(new PlaybackPose(
             targetFloor,
@@ -102,7 +104,7 @@ internal static class PerformanceRegression
         if (after != before)
         {
             throw new InvalidOperationException(
-                $"Follow Player camera motion rebuilt static scene: before {before}, after {after}. Camera motion must use a retained transform.");
+                $"Buffered Follow Player camera motion rebuilt static scene: before {before}, after {after}. Camera motion must use a retained transform.");
         }
     }
 
