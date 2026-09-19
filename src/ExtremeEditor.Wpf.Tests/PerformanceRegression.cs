@@ -17,6 +17,7 @@ internal static class PerformanceRegression
         VerifyFollowCameraReusesStaticScene();
         VerifyRetainedScenePreservesGlobalFloorOrder();
         VerifyDenseStockTileSceneUsesRasterCache();
+        VerifyDenseSelectionDoesNotRequeueRasterChunks();
     }
 
     private static void VerifySetLevelStartsNearFloorZero()
@@ -166,6 +167,44 @@ internal static class PerformanceRegression
         }
 
         throw new InvalidOperationException("Dense stock-tile rendering must asynchronously build at least one raster cache image.");
+    }
+
+    private static void VerifyDenseSelectionDoesNotRequeueRasterChunks()
+    {
+        var viewport = new LevelViewport();
+        viewport.Measure(new Size(800, 600));
+        viewport.Arrange(new Rect(0, 0, 800, 600));
+
+        LevelDocument level = CreateDenseLevel(5_000);
+        viewport.SetLevel(level, new SpatialGridIndex(level.Positions));
+        Render(viewport);
+
+        PropertyInfo requestCountProperty = typeof(LevelViewport).GetProperty(
+            "RasterChunkRequestsQueued",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.RasterChunkRequestsQueued is missing.");
+        PropertyInfo selectedFloorProperty = typeof(LevelViewport).GetProperty(
+            "SelectedFloor",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.SelectedFloor is missing.");
+        MethodInfo setter = selectedFloorProperty.GetSetMethod(nonPublic: true)
+            ?? throw new InvalidOperationException("LevelViewport.SelectedFloor setter is missing.");
+
+        int before = requestCountProperty.GetValue(viewport) is int value
+            ? value
+            : throw new InvalidOperationException("RasterChunkRequestsQueued must be an int.");
+
+        setter.Invoke(viewport, [1]);
+
+        int after = requestCountProperty.GetValue(viewport) is int updated
+            ? updated
+            : throw new InvalidOperationException("RasterChunkRequestsQueued must be an int.");
+
+        if (after != before)
+        {
+            throw new InvalidOperationException(
+                $"Changing selection requeued dense raster chunks: before={before}, after={after}. Selection must stay in a UI overlay.");
+        }
     }
 
     private static LevelViewport CreateViewportWithSyntheticLevel(out LevelDocument level)
