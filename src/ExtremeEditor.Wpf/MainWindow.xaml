@@ -34,6 +34,11 @@
                 <ToggleButton x:Name="FollowPlayerToggle"
                               Content="Follow Player"
                               IsChecked="True" />
+                <ToggleButton x:Name="HitSoundsToggle"
+                              Content="Hitsounds"
+                              IsChecked="True"
+                              Checked="HitSoundsToggleChanged"
+                              Unchecked="HitSoundsToggleChanged" />
                 <TextBlock x:Name="PlaybackText"
                            Text="--:--.---"
                            Margin="8,0"
