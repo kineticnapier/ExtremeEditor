@@ -113,7 +113,8 @@ public static class AdoFaiLoader
                     HitSoundVolumePercent = ReadLooseDoubleProperty(action, "hitsoundVolume"),
                     GameSound = ReadLooseString(action, "gameSound"),
                     Planets = ReadLooseString(action, "planets"),
-                    AngleOffset = ReadLooseDoubleProperty(action, "angleOffset")
+                    AngleOffset = ReadLooseDoubleProperty(action, "angleOffset"),
+                    Duration = ReadLooseDoubleProperty(action, "duration")
                 });
             }
         }
