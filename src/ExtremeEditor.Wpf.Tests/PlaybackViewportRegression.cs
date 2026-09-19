@@ -1,5 +1,7 @@
 using System.Numerics;
 using System.Reflection;
+using System.Windows;
+using System.Windows.Media;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
 
@@ -8,6 +10,12 @@ namespace ExtremeEditor.Wpf.Tests;
 internal static class PlaybackViewportRegression
 {
     public static void Run()
+    {
+        VerifyPlaybackStateAndFollow();
+        VerifyPlaybackPoseAddsPlanetDrawings();
+    }
+
+    private static void VerifyPlaybackStateAndFollow()
     {
         var viewport = new LevelViewport();
         LevelDocument level = LevelDocument.CreateSynthetic(8);
@@ -45,5 +53,63 @@ internal static class PlaybackViewportRegression
         setPose.Invoke(viewport, [null]);
         if (poseProperty.GetValue(viewport) is not null)
             throw new InvalidOperationException("Clearing playback must remove the viewport playback pose.");
+    }
+
+    private static void VerifyPlaybackPoseAddsPlanetDrawings()
+    {
+        var viewport = new LevelViewport
+        {
+            UseFloorPreview = false,
+            FollowPlayer = false
+        };
+        LevelDocument level = LevelDocument.CreateSynthetic(8);
+        viewport.SetLevel(level, new SpatialGridIndex(level.Positions));
+        viewport.Measure(new Size(400, 300));
+        viewport.Arrange(new Rect(0, 0, 400, 300));
+        viewport.FrameAll();
+
+        int withoutPlayback = RenderDrawingNodeCount(viewport);
+
+        Vector2 stationary = level.Positions[2];
+        viewport.SetPlaybackPose(new PlaybackPose(
+            2,
+            0.5,
+            stationary,
+            stationary + new Vector2(1f, 0f),
+            true,
+            false));
+        int withPlayback = RenderDrawingNodeCount(viewport);
+
+        if (withPlayback < withoutPlayback + 2)
+        {
+            throw new InvalidOperationException(
+                $"Playback pose must add two planet drawings. before={withoutPlayback}, after={withPlayback}.");
+        }
+    }
+
+    private static int RenderDrawingNodeCount(LevelViewport viewport)
+    {
+        MethodInfo onRender = typeof(LevelViewport).GetMethod(
+            "OnRender",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.OnRender is missing.");
+
+        var visual = new DrawingVisual();
+        using (DrawingContext drawingContext = visual.RenderOpen())
+            onRender.Invoke(viewport, [drawingContext]);
+
+        return visual.Drawing is Drawing drawing ? CountDrawingNodes(drawing) : 0;
+    }
+
+    private static int CountDrawingNodes(Drawing drawing)
+    {
+        int count = 1;
+        if (drawing is DrawingGroup group)
+        {
+            foreach (Drawing child in group.Children)
+                count += CountDrawingNodes(child);
+        }
+
+        return count;
     }
 }
