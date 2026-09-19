@@ -11,7 +11,10 @@ public readonly record struct FloorTiming(
     double AngleMoved,
     double Bpm,
     bool IsCcw,
-    bool MidSpin);
+    bool MidSpin)
+{
+    public double PauseSeconds { get; init; }
+}
 
 public readonly record struct PlaybackPose(
     int Floor,
@@ -107,9 +110,11 @@ public sealed class TimingMap
         int floor = FindFloor(chartTime);
         FloorTiming timing = _floors[floor];
         double duration = timing.ExitTime - timing.EntryTime;
-        double progress = duration <= 1e-9
+        double rotationDuration = Math.Max(0.0, duration - timing.PauseSeconds);
+        double rotationElapsed = Math.Max(0.0, chartTime - timing.EntryTime - timing.PauseSeconds);
+        double progress = rotationDuration <= 1e-9
             ? 1.0
-            : Math.Clamp((chartTime - timing.EntryTime) / duration, 0.0, 1.0);
+            : Math.Clamp(rotationElapsed / rotationDuration, 0.0, 1.0);
 
         Vector2 stationary = level.Positions[Math.Min(floor, level.Positions.Length - 1)];
         double direction = timing.IsCcw ? -1.0 : 1.0;
@@ -191,6 +196,7 @@ public static class TimingMapBuilder
 
         for (int floor = 0; floor < floorCount; floor++)
         {
+            double pauseSeconds = 0.0;
             if (level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
             {
                 foreach (LevelAction action in actions)
@@ -219,6 +225,11 @@ public static class TimingMapBuilder
                         {
                             bpm = target;
                         }
+                    }
+                    else if (string.Equals(action.EventType, "Pause", StringComparison.Ordinal) &&
+                             action.Duration is double pauseBeats && pauseBeats > 0)
+                    {
+                        pauseSeconds += pauseBeats * (60.0 / bpm);
                     }
                 }
             }
@@ -269,7 +280,7 @@ public static class TimingMapBuilder
             // a separate wall-clock transform in PlaybackClock and never changes
             // this angular speed.
             double seconds = moved / PiStock * (60.0 / bpm);
-            double exitTime = time + seconds;
+            double exitTime = time + pauseSeconds + seconds;
             timings[floor] = new FloorTiming(
                 floor,
                 time,
@@ -279,7 +290,10 @@ public static class TimingMapBuilder
                 moved,
                 bpm,
                 isCcw,
-                midSpin);
+                midSpin)
+            {
+                PauseSeconds = pauseSeconds
+            };
             time = exitTime;
         }
 
