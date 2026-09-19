@@ -4,20 +4,17 @@ using NAudio.Wave;
 namespace ExtremeEditor.Audio;
 
 /// <summary>
-/// Renders only the hit sounds intersecting each requested sample range. The
-/// floor cursor and currently audible tails are the only per-event state kept.
+/// Renders precomputed hit sounds intersecting each requested sample range.
+/// Floor/timing/timeline/name lookup work is completed in the constructor so
+/// the realtime audio callback only advances a schedule and mixes PCM tails.
 /// </summary>
 internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 {
-    private readonly LevelDocument _level;
-    private readonly TimingMap _timingMap;
-    private readonly HitSoundTimeline _timeline;
-    private readonly IReadOnlyDictionary<string, RenderedHitSound> _clips;
+    private readonly ScheduledHit[] _scheduledHits;
     private readonly List<ActiveVoice> _activeVoices = [];
-    private readonly double _lookBackSeconds;
-    private readonly double _maxPositiveOffsetSeconds;
+    private readonly int _maxClipFrames;
     private long _positionFrames;
-    private int _nextFloor;
+    private int _nextScheduledHit;
 
     public SampleAccurateHitSoundProvider(
         WaveFormat waveFormat,
@@ -30,16 +27,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             throw new ArgumentException("The hit-sound renderer requires stereo IEEE float audio.", nameof(waveFormat));
 
         WaveFormat = waveFormat;
-        _level = level;
-        _timingMap = timingMap;
-        _timeline = timeline;
-        _clips = clips;
-        _lookBackSeconds = clips.Count == 0
-            ? 0.0
-            : clips.Values.Max(clip => clip.FrameCount / (double)waveFormat.SampleRate + Math.Abs(clip.OffsetSeconds));
-        _maxPositiveOffsetSeconds = clips.Count == 0
-            ? 0.0
-            : Math.Max(0.0, clips.Values.Max(clip => clip.OffsetSeconds));
+        _scheduledHits = BuildSchedule(waveFormat.SampleRate, level, timingMap, timeline, clips);
+        _maxClipFrames = _scheduledHits.Length == 0
+            ? 0
+            : _scheduledHits.Max(hit => hit.Clip.FrameCount);
         Seek(0);
     }
 
@@ -55,7 +46,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             return 0;
 
         long endFrame = _positionFrames + frameCount;
-        QueueVoicesBefore(endFrame);
+        QueueScheduledHitsBefore(endFrame);
         MixActiveVoices(buffer, offset, _positionFrames, endFrame);
         _positionFrames = endFrame;
         return sampleCount;
@@ -66,41 +57,83 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         _positionFrames = Math.Max(0, positionFrames);
         _activeVoices.Clear();
 
-        double lookBackAudio = _positionFrames / (double)WaveFormat.SampleRate - _lookBackSeconds;
-        double lookBackChart = PlaybackClock.AudioToChartTime(_level, lookBackAudio);
-        _nextFloor = Math.Max(1, _timingMap.FindFirstFloorAtOrAfter(lookBackChart));
+        long earliestTailStart = _positionFrames - _maxClipFrames;
+        _nextScheduledHit = LowerBoundStartFrame(earliestTailStart);
     }
 
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
         checked((long)Math.Round(audioSeconds * sampleRate, MidpointRounding.AwayFromZero));
 
-    private void QueueVoicesBefore(long endFrame)
+    private static ScheduledHit[] BuildSchedule(
+        int sampleRate,
+        LevelDocument level,
+        TimingMap timingMap,
+        HitSoundTimeline timeline,
+        IReadOnlyDictionary<string, RenderedHitSound> clips)
     {
-        while (_nextFloor < _level.FloorCount && _nextFloor < _timingMap.Floors.Count)
+        if (clips.Count == 0)
+            return [];
+
+        int floorCount = Math.Min(level.FloorCount, timingMap.Floors.Count);
+        if (floorCount <= 1)
+            return [];
+
+        var hits = new List<ScheduledHit>(floorCount - 1);
+        for (int floor = 1; floor < floorCount; floor++)
         {
-            int floor = _nextFloor;
-            double floorAudio = PlaybackClock.ChartToAudioTime(_level, _timingMap.GetEntryTime(floor));
-            long earliestPossibleStartFrame = AudioTimeToSampleFrame(
-                floorAudio - _maxPositiveOffsetSeconds, WaveFormat.SampleRate);
-            if (earliestPossibleStartFrame >= endFrame)
+            if (timingMap.Floors[floor].MidSpin)
+                continue;
+
+            HitSoundState state = timeline.GetStateAtFloor(floor);
+            if (string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string name = HitSoundLibrary.NormalizeName(state.Name);
+            if (!clips.TryGetValue(name, out RenderedHitSound? clip))
+                continue;
+
+            double floorAudio = PlaybackClock.ChartToAudioTime(level, timingMap.GetEntryTime(floor));
+            double startAudio = floorAudio - clip.OffsetSeconds;
+            long startFrame = AudioTimeToSampleFrame(startAudio, sampleRate);
+            float volume = (float)Math.Clamp(state.Volume, 0.0, 1.0);
+            hits.Add(new ScheduledHit(clip, startFrame, volume, floor));
+        }
+
+        hits.Sort(static (left, right) =>
+        {
+            int startOrder = left.StartFrame.CompareTo(right.StartFrame);
+            return startOrder != 0 ? startOrder : left.Floor.CompareTo(right.Floor);
+        });
+        return hits.ToArray();
+    }
+
+    private int LowerBoundStartFrame(long startFrame)
+    {
+        int lo = 0;
+        int hi = _scheduledHits.Length;
+        while (lo < hi)
+        {
+            int mid = lo + ((hi - lo) >> 1);
+            if (_scheduledHits[mid].StartFrame < startFrame)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return lo;
+    }
+
+    private void QueueScheduledHitsBefore(long endFrame)
+    {
+        while (_nextScheduledHit < _scheduledHits.Length)
+        {
+            ScheduledHit hit = _scheduledHits[_nextScheduledHit];
+            if (hit.StartFrame >= endFrame)
                 break;
 
-            HitSoundState state = _timeline.GetStateAtFloor(floor);
-            string name = HitSoundLibrary.NormalizeName(state.Name);
-            _clips.TryGetValue(name, out RenderedHitSound? clip);
-
-            double startAudio = floorAudio - (clip?.OffsetSeconds ?? 0.0);
-            long startFrame = AudioTimeToSampleFrame(startAudio, WaveFormat.SampleRate);
-
-            _nextFloor++;
-            if (clip is null || _timingMap.Floors[floor].MidSpin ||
-                string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (startFrame + clip.FrameCount > _positionFrames)
-                _activeVoices.Add(new ActiveVoice(clip, startFrame, (float)Math.Clamp(state.Volume, 0.0, 1.0)));
+            _nextScheduledHit++;
+            if (hit.StartFrame + hit.Clip.FrameCount > _positionFrames)
+                _activeVoices.Add(new ActiveVoice(hit.Clip, hit.StartFrame, hit.Volume));
         }
     }
 
@@ -125,6 +158,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 _activeVoices.RemoveAt(voiceIndex);
         }
     }
+
+    private readonly record struct ScheduledHit(
+        RenderedHitSound Clip,
+        long StartFrame,
+        float Volume,
+        int Floor);
 
     private readonly record struct ActiveVoice(RenderedHitSound Clip, long StartFrame, float Volume);
 }
