@@ -17,7 +17,8 @@ internal static class Program
             VerifyFloorGeometryIsCachedAndFrozen();
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, and level open are valid.");
+            PlaybackSetupRegression.Run();
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, and playback setup are valid.");
             return 0;
         }
         catch (Exception ex)
