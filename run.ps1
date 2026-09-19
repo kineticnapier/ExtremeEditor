@@ -1,2 +1,2 @@
 $ErrorActionPreference = "Stop"
-dotnet run --project "$PSScriptRoot\src\ExtremeEditor.App"
+dotnet run --project "$PSScriptRoot\src\ExtremeEditor.Wpf"
