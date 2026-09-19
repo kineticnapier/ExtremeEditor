@@ -11,6 +11,8 @@ public sealed class LevelViewport : FrameworkElement
     private const float MinZoom = 0.05f;
     private const float MaxZoom = 400f;
     private const double FloorRadiusPixels = 4.0;
+    private const float MinMeshPreviewZoom = 8f;
+    private const int MaxMeshPreviewDraw = 18_000;
     private const int MaxIndividualDraw = 80_000;
     private const float FloorSelectionRadiusWorld = 0.856f;
 
@@ -21,6 +23,7 @@ public sealed class LevelViewport : FrameworkElement
     private static readonly Brush PathBrush = CreateBrush(155, 165, 180, 100);
 
     private readonly List<int> _candidates = new(4096);
+    private readonly WpfFloorRenderer _floorRenderer = new();
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
     private Vector2 _camera;
@@ -44,6 +47,8 @@ public sealed class LevelViewport : FrameworkElement
 
     public int LastCandidateCount { get; private set; }
     public int LastDrawnCount { get; private set; }
+    public string LastRenderMode { get; private set; } = "dots";
+    public string FloorAssetSummary => _floorRenderer.AssetSummary;
 
     public LevelViewport()
     {
@@ -95,51 +100,13 @@ public sealed class LevelViewport : FrameworkElement
         LastCandidateCount = _candidates.Count;
         LastDrawnCount = 0;
 
-        int stride = Math.Max(1, (_candidates.Count + MaxIndividualDraw - 1) / MaxIndividualDraw);
-        double pathWidth = Math.Max(1.0, _zoom * 0.055);
-        var pathPen = new Pen(PathBrush, pathWidth);
-        var selectedOutlinePen = new Pen(SelectedFloorOutlineBrush, 2.0);
-        Vector2[] positions = _level.Positions;
+        bool meshPreview = _zoom >= MinMeshPreviewZoom &&
+                           _candidates.Count <= MaxMeshPreviewDraw;
 
-        for (int c = 0; c < _candidates.Count; c += stride)
-        {
-            int floor = _candidates[c];
-            if ((uint)floor >= (uint)positions.Length)
-                continue;
-
-            Vector2 position = positions[floor];
-            if (!nearViewport.Contains(position))
-                continue;
-
-            Point screen = WorldToScreen(position);
-            if (floor + 1 < positions.Length)
-            {
-                Vector2 next = positions[floor + 1];
-                if (nearViewport.Contains(next))
-                    drawingContext.DrawLine(pathPen, screen, WorldToScreen(next));
-            }
-
-            if (floor == _selectedFloor)
-            {
-                drawingContext.DrawEllipse(
-                    SelectedFloorBrush,
-                    selectedOutlinePen,
-                    screen,
-                    FloorRadiusPixels + 3.0,
-                    FloorRadiusPixels + 3.0);
-            }
-            else
-            {
-                drawingContext.DrawEllipse(
-                    FloorBrush,
-                    null,
-                    screen,
-                    FloorRadiusPixels,
-                    FloorRadiusPixels);
-            }
-
-            LastDrawnCount++;
-        }
+        if (meshPreview)
+            DrawMeshPreview(drawingContext, nearViewport);
+        else
+            DrawOverview(drawingContext, nearViewport);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
@@ -214,6 +181,89 @@ public sealed class LevelViewport : FrameworkElement
         base.OnLostMouseCapture(e);
     }
 
+    private void DrawMeshPreview(DrawingContext drawingContext, WorldRect nearViewport)
+    {
+        LastRenderMode = _floorRenderer.HasImportedAssets ? "floor-textured" : "floor-fallback";
+        _floorRenderer.BeginFrame(_zoom);
+
+        Vector2[] positions = _level!.Positions;
+        _candidates.Sort(static (a, b) => b.CompareTo(a));
+        foreach (int floor in _candidates)
+        {
+            if ((uint)floor >= (uint)positions.Length)
+                continue;
+
+            Vector2 position = positions[floor];
+            if (!nearViewport.Contains(position))
+                continue;
+
+            Point center = WorldToScreen(position);
+            GetFloorAngles(floor, positions, out float entryAngle, out float exitAngle);
+            bool midSpin = floor < _level.Angles.Length && Math.Abs(_level.Angles[floor] - 999.0) < 0.000001;
+            _floorRenderer.DrawFloor(
+                drawingContext,
+                center,
+                _zoom,
+                entryAngle,
+                exitAngle,
+                midSpin,
+                floor == _selectedFloor);
+            LastDrawnCount++;
+        }
+    }
+
+    private void DrawOverview(DrawingContext drawingContext, WorldRect nearViewport)
+    {
+        LastRenderMode = "dots";
+        int stride = Math.Max(1, (_candidates.Count + MaxIndividualDraw - 1) / MaxIndividualDraw);
+        double pathWidth = Math.Max(1.0, _zoom * 0.055);
+        var pathPen = new Pen(PathBrush, pathWidth);
+        pathPen.Freeze();
+        var selectedOutlinePen = new Pen(SelectedFloorOutlineBrush, 2.0);
+        selectedOutlinePen.Freeze();
+        Vector2[] positions = _level!.Positions;
+
+        for (int c = 0; c < _candidates.Count; c += stride)
+        {
+            int floor = _candidates[c];
+            if ((uint)floor >= (uint)positions.Length)
+                continue;
+
+            Vector2 position = positions[floor];
+            if (!nearViewport.Contains(position))
+                continue;
+
+            Point screen = WorldToScreen(position);
+            if (floor + 1 < positions.Length)
+            {
+                Vector2 next = positions[floor + 1];
+                if (nearViewport.Contains(next))
+                    drawingContext.DrawLine(pathPen, screen, WorldToScreen(next));
+            }
+
+            if (floor == _selectedFloor)
+            {
+                drawingContext.DrawEllipse(
+                    SelectedFloorBrush,
+                    selectedOutlinePen,
+                    screen,
+                    FloorRadiusPixels + 3.0,
+                    FloorRadiusPixels + 3.0);
+            }
+            else
+            {
+                drawingContext.DrawEllipse(
+                    FloorBrush,
+                    null,
+                    screen,
+                    FloorRadiusPixels,
+                    FloorRadiusPixels);
+            }
+
+            LastDrawnCount++;
+        }
+    }
+
     private void SelectNearest(Point screenPoint)
     {
         if (_level is null || _index is null)
@@ -245,6 +295,29 @@ public sealed class LevelViewport : FrameworkElement
         }
 
         SelectedFloor = bestFloor;
+    }
+
+    private static void GetFloorAngles(int floor, Vector2[] positions, out float entryAngle, out float exitAngle)
+    {
+        Vector2 incoming = Vector2.Zero;
+        Vector2 outgoing = Vector2.Zero;
+
+        if (floor > 0)
+            incoming = positions[floor - 1] - positions[floor];
+        if (floor + 1 < positions.Length)
+            outgoing = positions[floor + 1] - positions[floor];
+
+        if (incoming.LengthSquared() < 0.000001f && outgoing.LengthSquared() >= 0.000001f)
+            incoming = -outgoing;
+        if (outgoing.LengthSquared() < 0.000001f && incoming.LengthSquared() >= 0.000001f)
+            outgoing = -incoming;
+
+        entryAngle = incoming.LengthSquared() < 0.000001f
+            ? MathF.PI
+            : MathF.Atan2(incoming.Y, incoming.X);
+        exitAngle = outgoing.LengthSquared() < 0.000001f
+            ? 0f
+            : MathF.Atan2(outgoing.Y, outgoing.X);
     }
 
     private WorldRect GetViewportWorldRect()
