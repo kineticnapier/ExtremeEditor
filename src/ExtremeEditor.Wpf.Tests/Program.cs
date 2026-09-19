@@ -1,6 +1,8 @@
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -13,7 +15,8 @@ internal static class Program
         try
         {
             VerifyFloorGeometryIsCachedAndFrozen();
-            Console.WriteLine("PASS: WPF floor geometry is cached and frozen.");
+            VerifyIconBitmapIsCachedAndFrozen();
+            Console.WriteLine("PASS: WPF floor geometry and icon bitmaps are cached and frozen.");
             return 0;
         }
         catch (Exception ex)
@@ -49,5 +52,54 @@ internal static class Program
         Rect bounds = geometry.Bounds;
         if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
             throw new InvalidOperationException("Cached floor geometry must have non-empty bounds.");
+    }
+
+    private static void VerifyIconBitmapIsCachedAndFrozen()
+    {
+        Assembly assembly = typeof(LevelViewport).Assembly;
+        Type rendererType = assembly.GetType("ExtremeEditor.Wpf.WpfIconRenderer")
+            ?? throw new InvalidOperationException("WpfIconRenderer does not exist yet.");
+
+        MethodInfo method = rendererType.GetMethod(
+            "GetCachedBitmap",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("WpfIconRenderer.GetCachedBitmap is missing.");
+
+        string path = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-WpfIconRenderer-{Guid.NewGuid():N}.png");
+        try
+        {
+            WriteOnePixelPng(path);
+            object? first = method.Invoke(null, [path]);
+            object? second = method.Invoke(null, [path]);
+
+            if (first is not BitmapSource bitmap)
+                throw new InvalidOperationException("GetCachedBitmap must return BitmapSource for a valid PNG.");
+
+            if (!ReferenceEquals(first, second))
+                throw new InvalidOperationException("Repeated icon requests must reuse the cached BitmapSource instance.");
+
+            if (!bitmap.IsFrozen)
+                throw new InvalidOperationException("Cached icon BitmapSource must be frozen before reuse.");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    private static void WriteOnePixelPng(string path)
+    {
+        BitmapSource source = BitmapSource.Create(
+            1, 1, 96, 96,
+            PixelFormats.Bgra32,
+            null,
+            [255, 255, 255, 255],
+            4);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(source));
+        using FileStream stream = File.Create(path);
+        encoder.Save(stream);
     }
 }
