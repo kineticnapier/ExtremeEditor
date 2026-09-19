@@ -1,10 +1,12 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
 internal static class DenseMixSafetyRegression
 {
+    [ModuleInitializer]
     public static void Run()
     {
         RequireBoundedHitSoundBus();
