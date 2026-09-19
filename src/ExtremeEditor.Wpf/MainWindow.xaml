@@ -22,8 +22,7 @@
             <ToolBar Background="#1A1D22"
                      Foreground="#DCDCE6">
                 <Button Content="Open"
-                        Command="{x:Static local:EditorCommands.Open}"
-                        IsEnabled="False" />
+                        Command="{x:Static local:EditorCommands.Open}" />
                 <Button Content="Frame"
                         Command="{x:Static local:EditorCommands.Frame}" />
                 <Separator />
