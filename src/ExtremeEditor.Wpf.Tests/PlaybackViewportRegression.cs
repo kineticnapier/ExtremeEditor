@@ -73,7 +73,7 @@ internal static class PlaybackViewportRegression
         viewport.Arrange(new Rect(0, 0, 400, 300));
         viewport.FrameAll();
 
-        int withoutPlayback = RenderDrawingNodeCount(viewport);
+        int withoutPlayback = PlaybackDrawingNodeCount(viewport);
 
         Vector2 stationary = level.Positions[2];
         viewport.SetPlaybackPose(new PlaybackPose(
@@ -83,12 +83,12 @@ internal static class PlaybackViewportRegression
             stationary + new Vector2(1f, 0f),
             true,
             false));
-        int withPlayback = RenderDrawingNodeCount(viewport);
+        int withPlayback = PlaybackDrawingNodeCount(viewport);
 
         if (withPlayback < withoutPlayback + 2)
         {
             throw new InvalidOperationException(
-                $"Playback pose must add two planet drawings. before={withoutPlayback}, after={withPlayback}.");
+                $"Playback pose must add two planet drawings to the retained playback visual. before={withoutPlayback}, after={withPlayback}.");
         }
     }
 
@@ -194,16 +194,15 @@ internal static class PlaybackViewportRegression
         }
     }
 
-    private static int RenderDrawingNodeCount(LevelViewport viewport)
+    private static int PlaybackDrawingNodeCount(LevelViewport viewport)
     {
-        MethodInfo onRender = typeof(LevelViewport).GetMethod(
-            "OnRender",
+        FieldInfo playbackVisualField = typeof(LevelViewport).GetField(
+            "_playbackVisual",
             BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("LevelViewport.OnRender is missing.");
+            ?? throw new InvalidOperationException("LevelViewport._playbackVisual is missing.");
 
-        var visual = new DrawingVisual();
-        using (DrawingContext drawingContext = visual.RenderOpen())
-            onRender.Invoke(viewport, [drawingContext]);
+        if (playbackVisualField.GetValue(viewport) is not DrawingVisual visual)
+            throw new InvalidOperationException("LevelViewport._playbackVisual must be a DrawingVisual.");
 
         return visual.Drawing is Drawing drawing ? CountDrawingNodes(drawing) : 0;
     }
