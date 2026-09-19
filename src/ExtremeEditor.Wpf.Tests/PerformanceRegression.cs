@@ -1,5 +1,8 @@
+using System.Numerics;
 using System.Reflection;
-using System.Windows.Threading;
+using System.Windows;
+using System.Windows.Media;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -8,28 +11,59 @@ internal static class PerformanceRegression
 {
     public static void Run()
     {
-        VerifyPlaybackTimerIdleByDefault();
+        VerifyPlaybackPoseReusesStaticScene();
     }
 
-    private static void VerifyPlaybackTimerIdleByDefault()
+    private static void VerifyPlaybackPoseReusesStaticScene()
     {
-        var window = new MainWindow();
-        try
-        {
-            FieldInfo timerField = typeof(MainWindow).GetField(
-                "_playbackTimer",
-                BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("MainWindow._playbackTimer is missing.");
+        var viewport = new LevelViewport();
+        viewport.Measure(new Size(800, 600));
+        viewport.Arrange(new Rect(0, 0, 800, 600));
 
-            if (timerField.GetValue(window) is not DispatcherTimer timer)
-                throw new InvalidOperationException("MainWindow._playbackTimer must be a DispatcherTimer.");
+        LevelDocument level = LevelDocument.CreateSynthetic(4096);
+        viewport.SetLevel(level, new SpatialGridIndex(level.Positions));
 
-            if (timer.IsEnabled)
-                throw new InvalidOperationException("Playback timer must stay stopped while playback is idle.");
-        }
-        finally
+        PropertyInfo buildCountProperty = typeof(LevelViewport).GetProperty(
+            "StaticSceneBuildCount",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.StaticSceneBuildCount does not exist yet.");
+
+        Render(viewport);
+        int before = ReadBuildCount(viewport, buildCountProperty);
+
+        viewport.SetPlaybackPose(new PlaybackPose(
+            0,
+            0.25,
+            level.Positions[0],
+            level.Positions[0] + new Vector2(1f, 0f),
+            true,
+            false));
+        Render(viewport);
+
+        int after = ReadBuildCount(viewport, buildCountProperty);
+        if (after != before)
         {
-            window.Close();
+            throw new InvalidOperationException(
+                $"Playback-only redraw rebuilt static scene: before {before}, after {after}.");
         }
+    }
+
+    private static int ReadBuildCount(LevelViewport viewport, PropertyInfo property)
+    {
+        return property.GetValue(viewport) is int count
+            ? count
+            : throw new InvalidOperationException("LevelViewport.StaticSceneBuildCount must be an int.");
+    }
+
+    private static void Render(LevelViewport viewport)
+    {
+        MethodInfo onRender = typeof(LevelViewport).GetMethod(
+            "OnRender",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("LevelViewport.OnRender is missing.");
+
+        var visual = new DrawingVisual();
+        using DrawingContext drawingContext = visual.RenderOpen();
+        onRender.Invoke(viewport, [drawingContext]);
     }
 }
