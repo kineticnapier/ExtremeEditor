@@ -81,6 +81,8 @@ internal sealed class RasterChunkWorker : IDisposable
             {
                 if (_stopping)
                     return;
+                if (request is null)
+                    continue;
 
                 try
                 {
