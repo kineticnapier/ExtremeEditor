@@ -12,7 +12,6 @@ public sealed partial class LevelViewport
     private static readonly Pen PlaybackPlanetOutlinePen = CreatePlaybackPlanetOutlinePen();
 
     private readonly DrawingVisual _playbackVisual = new();
-    private bool _playbackVisualAttached;
     private bool _followPlayer;
 
     public event EventHandler? FollowPlayerChanged;
@@ -32,36 +31,27 @@ public sealed partial class LevelViewport
 
     public PlaybackPose? PlaybackPose { get; private set; }
 
-    // Diagnostic counter for performance regressions. Every full viewport
-    // OnRender reaches DrawPlaybackPlanets once; playback-only visual updates do not.
-    public int StaticSceneBuildCount { get; private set; }
+    protected override int VisualChildrenCount => 2;
 
-    protected override int VisualChildrenCount => _playbackVisualAttached ? 1 : 0;
-
-    protected override Visual GetVisualChild(int index)
+    protected override Visual GetVisualChild(int index) => index switch
     {
-        if (!_playbackVisualAttached || index != 0)
-            throw new ArgumentOutOfRangeException(nameof(index));
-        return _playbackVisual;
-    }
+        0 => _sceneRoot,
+        1 => _playbackVisual,
+        _ => throw new ArgumentOutOfRangeException(nameof(index))
+    };
 
     public void SetPlaybackPose(PlaybackPose? pose)
     {
         PlaybackPose = pose;
 
-        bool cameraChanged = false;
         if (FollowPlayer && pose is PlaybackPose current && _camera != current.StationaryPlanet)
         {
             _camera = current.StationaryPlanet;
-            cameraChanged = true;
+            UpdateStaticSceneTransform();
+            EnsureSceneCoverage();
         }
 
         RenderPlaybackVisual();
-
-        // Normal playback only moves the two planet visuals. Re-render the
-        // expensive floors/path/icons only when following actually moved camera.
-        if (cameraChanged)
-            InvalidateVisual();
     }
 
     protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
@@ -79,18 +69,13 @@ public sealed partial class LevelViewport
 
     private void DrawPlaybackPlanets(DrawingContext drawingContext)
     {
-        // This method is deliberately called from LevelViewport.OnRender after
-        // the static chart. Keep the playback planets in their own retained
-        // DrawingVisual so 60 Hz playback updates do not invalidate that chart.
-        StaticSceneBuildCount++;
-        if (_playbackVisualAttached)
-            RenderPlaybackVisual();
+        // Playback is kept in its own retained visual. A parent render only needs
+        // to make sure its child visual reflects the latest camera/zoom state.
+        RenderPlaybackVisual();
     }
 
     private void RenderPlaybackVisual()
     {
-        EnsurePlaybackVisualAttached();
-
         using DrawingContext drawingContext = _playbackVisual.RenderOpen();
         if (PlaybackPose is not PlaybackPose pose)
             return;
@@ -111,15 +96,6 @@ public sealed partial class LevelViewport
             WorldToScreen(pose.OrbitingPlanet),
             radius,
             radius);
-    }
-
-    private void EnsurePlaybackVisualAttached()
-    {
-        if (_playbackVisualAttached)
-            return;
-
-        AddVisualChild(_playbackVisual);
-        _playbackVisualAttached = true;
     }
 
     private static Pen CreatePlaybackPlanetOutlinePen()
