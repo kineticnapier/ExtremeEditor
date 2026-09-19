@@ -1,20 +1,21 @@
+using System.Numerics;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
 namespace ExtremeEditor.Audio;
 
 /// <summary>
-/// Renders precomputed hit sounds intersecting each requested sample range.
-/// Floor/timing/timeline/name lookup work is completed in the constructor so
-/// the realtime audio callback only advances a schedule and mixes PCM tails.
+/// Serves a prerendered hit-sound PCM layer on the same absolute sample clock as
+/// the song. Floor/timing/timeline/name lookup and overlapping-voice mixing are
+/// completed in the constructor so the realtime callback only copies PCM chunks.
 /// </summary>
 internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 {
+    private const int ChunkFrames = 4096;
+
     private readonly ScheduledHit[] _scheduledHits;
-    private readonly List<ActiveVoice> _activeVoices = [];
-    private readonly int _maxClipFrames;
+    private readonly Dictionary<long, float[]> _renderedChunks;
     private long _positionFrames;
-    private int _nextScheduledHit;
 
     public SampleAccurateHitSoundProvider(
         WaveFormat waveFormat,
@@ -28,9 +29,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         WaveFormat = waveFormat;
         _scheduledHits = BuildSchedule(waveFormat.SampleRate, level, timingMap, timeline, clips);
-        _maxClipFrames = _scheduledHits.Length == 0
-            ? 0
-            : _scheduledHits.Max(hit => hit.Clip.FrameCount);
+        _renderedChunks = RenderChunks(_scheduledHits);
         Seek(0);
     }
 
@@ -45,20 +44,14 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (frameCount == 0)
             return 0;
 
-        long endFrame = _positionFrames + frameCount;
-        QueueScheduledHitsBefore(endFrame);
-        MixActiveVoices(buffer, offset, _positionFrames, endFrame);
-        _positionFrames = endFrame;
+        CopyRenderedPcm(buffer, offset, _positionFrames, frameCount);
+        _positionFrames += frameCount;
         return sampleCount;
     }
 
     public void Seek(long positionFrames)
     {
         _positionFrames = Math.Max(0, positionFrames);
-        _activeVoices.Clear();
-
-        long earliestTailStart = _positionFrames - _maxClipFrames;
-        _nextScheduledHit = LowerBoundStartFrame(earliestTailStart);
     }
 
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
@@ -107,55 +100,102 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         return hits.ToArray();
     }
 
-    private int LowerBoundStartFrame(long startFrame)
+    private static Dictionary<long, float[]> RenderChunks(ScheduledHit[] hits)
     {
-        int lo = 0;
-        int hi = _scheduledHits.Length;
-        while (lo < hi)
-        {
-            int mid = lo + ((hi - lo) >> 1);
-            if (_scheduledHits[mid].StartFrame < startFrame)
-                lo = mid + 1;
-            else
-                hi = mid;
-        }
-
-        return lo;
+        var chunks = new Dictionary<long, float[]>();
+        foreach (ScheduledHit hit in hits)
+            RenderHitIntoChunks(chunks, hit);
+        return chunks;
     }
 
-    private void QueueScheduledHitsBefore(long endFrame)
+    private static void RenderHitIntoChunks(Dictionary<long, float[]> chunks, ScheduledHit hit)
     {
-        while (_nextScheduledHit < _scheduledHits.Length)
+        long sourceFrame = Math.Max(0, -hit.StartFrame);
+        while (sourceFrame < hit.Clip.FrameCount)
         {
-            ScheduledHit hit = _scheduledHits[_nextScheduledHit];
-            if (hit.StartFrame >= endFrame)
-                break;
-
-            _nextScheduledHit++;
-            if (hit.StartFrame + hit.Clip.FrameCount > _positionFrames)
-                _activeVoices.Add(new ActiveVoice(hit.Clip, hit.StartFrame, hit.Volume));
-        }
-    }
-
-    private void MixActiveVoices(float[] buffer, int offset, long startFrame, long endFrame)
-    {
-        for (int voiceIndex = _activeVoices.Count - 1; voiceIndex >= 0; voiceIndex--)
-        {
-            ActiveVoice voice = _activeVoices[voiceIndex];
-            long voiceEnd = voice.StartFrame + voice.Clip.FrameCount;
-            long mixStart = Math.Max(startFrame, voice.StartFrame);
-            long mixEnd = Math.Min(endFrame, voiceEnd);
-
-            for (long frame = mixStart; frame < mixEnd; frame++)
+            long destinationFrame = hit.StartFrame + sourceFrame;
+            if (destinationFrame < 0)
             {
-                int source = checked((int)(frame - voice.StartFrame)) * 2;
-                int destination = offset + checked((int)(frame - startFrame)) * 2;
-                buffer[destination] += voice.Clip.Samples[source] * voice.Volume;
-                buffer[destination + 1] += voice.Clip.Samples[source + 1] * voice.Volume;
+                sourceFrame++;
+                continue;
             }
 
-            if (voiceEnd <= endFrame)
-                _activeVoices.RemoveAt(voiceIndex);
+            long chunkIndex = destinationFrame / ChunkFrames;
+            int frameInChunk = (int)(destinationFrame % ChunkFrames);
+            int availableInChunk = ChunkFrames - frameInChunk;
+            int framesToMix = (int)Math.Min(availableInChunk, hit.Clip.FrameCount - sourceFrame);
+
+            if (!chunks.TryGetValue(chunkIndex, out float[]? chunk))
+            {
+                chunk = new float[ChunkFrames * 2];
+                chunks.Add(chunkIndex, chunk);
+            }
+
+            int sourceSample = checked((int)sourceFrame) * 2;
+            int destinationSample = frameInChunk * 2;
+            int sampleCount = framesToMix * 2;
+            AddScaled(
+                chunk,
+                destinationSample,
+                hit.Clip.Samples,
+                sourceSample,
+                sampleCount,
+                hit.Volume);
+
+            sourceFrame += framesToMix;
+        }
+    }
+
+    private static void AddScaled(
+        float[] destination,
+        int destinationOffset,
+        float[] source,
+        int sourceOffset,
+        int count,
+        float volume)
+    {
+        int i = 0;
+        int vectorWidth = Vector<float>.Count;
+        var scale = new Vector<float>(volume);
+        int vectorEnd = count - count % vectorWidth;
+
+        for (; i < vectorEnd; i += vectorWidth)
+        {
+            var destinationVector = new Vector<float>(destination, destinationOffset + i);
+            var sourceVector = new Vector<float>(source, sourceOffset + i);
+            (destinationVector + sourceVector * scale).CopyTo(destination, destinationOffset + i);
+        }
+
+        for (; i < count; i++)
+            destination[destinationOffset + i] += source[sourceOffset + i] * volume;
+    }
+
+    private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)
+    {
+        long frame = startFrame;
+        int destinationSample = offset;
+        int framesRemaining = frameCount;
+
+        while (framesRemaining > 0)
+        {
+            long chunkIndex = frame / ChunkFrames;
+            int frameInChunk = (int)(frame % ChunkFrames);
+            int framesToCopy = Math.Min(framesRemaining, ChunkFrames - frameInChunk);
+            int samplesToCopy = framesToCopy * 2;
+
+            if (_renderedChunks.TryGetValue(chunkIndex, out float[]? chunk))
+            {
+                Array.Copy(
+                    chunk,
+                    frameInChunk * 2,
+                    buffer,
+                    destinationSample,
+                    samplesToCopy);
+            }
+
+            frame += framesToCopy;
+            destinationSample += samplesToCopy;
+            framesRemaining -= framesToCopy;
         }
     }
 
@@ -164,6 +204,4 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long StartFrame,
         float Volume,
         int Floor);
-
-    private readonly record struct ActiveVoice(RenderedHitSound Clip, long StartFrame, float Volume);
 }
