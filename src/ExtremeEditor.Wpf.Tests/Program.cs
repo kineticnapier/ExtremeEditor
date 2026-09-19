@@ -94,7 +94,7 @@ internal static class Program
             1, 1, 96, 96,
             PixelFormats.Bgra32,
             null,
-            [255, 255, 255, 255],
+            new byte[] { 255, 255, 255, 255 },
             4);
 
         var encoder = new PngBitmapEncoder();
