@@ -12,4 +12,5 @@ internal sealed record RasterChunkRequest(
     float Zoom,
     int[] CandidateFloorsDescending,
     Vector2[] Positions,
-    double[] Angles);
+    double[] Angles,
+    int Priority = 2);
