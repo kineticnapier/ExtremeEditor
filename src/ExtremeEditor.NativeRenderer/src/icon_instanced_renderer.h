@@ -54,10 +54,21 @@ private:
         std::uint32_t height = 0;
     };
 
+    struct InstanceData
+    {
+        float x;
+        float y;
+        float width;
+        float height;
+        float cosine;
+        float sine;
+        float depth;
+    };
+
     struct Batch
     {
         SpriteTexture texture;
-        std::vector<struct InstanceData> instances;
+        std::vector<InstanceData> instances;
         std::uint32_t range_offset = 0;
     };
 
@@ -73,17 +84,6 @@ private:
         float y;
         float u;
         float v;
-    };
-
-    struct InstanceData
-    {
-        float x;
-        float y;
-        float width;
-        float height;
-        float cosine;
-        float sine;
-        float depth;
     };
 
     struct FrameConstants
