@@ -7,6 +7,7 @@ internal sealed class NativeRendererSession : IDisposable
     private const uint ExpectedApiVersion = 1;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
+    private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
     private nint _renderer;
 
     private NativeRendererSession(nint renderer, nint childHwnd)
@@ -14,12 +15,15 @@ internal sealed class NativeRendererSession : IDisposable
         _renderer = renderer;
         ChildHwnd = childHwnd;
         _selectionChangedCallback = OnNativeSelectionChanged;
+        _followPlayerChangedCallback = OnNativeFollowPlayerChanged;
         NativeRendererNative.SetSelectionChangedCallback(_renderer, _selectionChangedCallback, nint.Zero);
+        NativeRendererNative.SetFollowPlayerChangedCallback(_renderer, _followPlayerChangedCallback, nint.Zero);
     }
 
     internal nint ChildHwnd { get; private set; }
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
     internal event Action<int>? SelectionChanged;
+    internal event Action<bool>? FollowPlayerChanged;
 
     internal static NativeRendererSession Create(nint parentHwnd, uint width, uint height)
     {
@@ -43,6 +47,11 @@ internal sealed class NativeRendererSession : IDisposable
         if (abiInfo.FloorSize != managedFloorSize)
             throw new InvalidOperationException(
                 $"Native floor ABI mismatch. Managed {managedFloorSize}, native {abiInfo.FloorSize}.");
+
+        uint managedTimingSize = checked((uint)Marshal.SizeOf<NativePlaybackTiming>());
+        if (abiInfo.ClockSize != managedTimingSize)
+            throw new InvalidOperationException(
+                $"Native playback timing ABI mismatch. Managed {managedTimingSize}, native {abiInfo.ClockSize}.");
 
         var createInfo = new NativeRendererCreateInfo
         {
@@ -131,6 +140,56 @@ internal sealed class NativeRendererSession : IDisposable
         }
     }
 
+    internal void SetPlaybackTimeline(NativePlaybackTiming[] timings)
+    {
+        ArgumentNullException.ThrowIfNull(timings);
+        if (_renderer == nint.Zero)
+            throw new ObjectDisposedException(nameof(NativeRendererSession));
+
+        GCHandle handle = default;
+        try
+        {
+            nint pointer = nint.Zero;
+            if (timings.Length > 0)
+            {
+                handle = GCHandle.Alloc(timings, GCHandleType.Pinned);
+                pointer = handle.AddrOfPinnedObject();
+            }
+
+            int result = NativeRendererNative.SetPlaybackTimeline(
+                _renderer,
+                pointer,
+                checked((uint)timings.Length));
+            if (result != 0)
+                throw new InvalidOperationException($"Native playback timeline upload failed with result {result}.");
+        }
+        finally
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+    }
+
+    internal void SetPlaybackAnchor(double chartTime, double chartRate, bool active, bool playing)
+    {
+        if (_renderer == nint.Zero)
+            return;
+
+        uint flags = 0u;
+        if (active)
+            flags |= NativeRendererNative.PlaybackFlagActive;
+        if (active && playing)
+            flags |= NativeRendererNative.PlaybackFlagPlaying;
+
+        NativeRendererNative.SetPlaybackAnchor(_renderer, chartTime, chartRate, flags);
+    }
+
+    internal void SetFollowPlayer(bool enabled)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetFollowPlayer(_renderer, enabled ? 1 : 0);
+    }
+
     internal void FrameAll()
     {
         if (_renderer != nint.Zero)
@@ -142,6 +201,11 @@ internal sealed class NativeRendererSession : IDisposable
         SelectionChanged?.Invoke(floor);
     }
 
+    private void OnNativeFollowPlayerChanged(nint userData, int enabled)
+    {
+        FollowPlayerChanged?.Invoke(enabled != 0);
+    }
+
     public void Dispose()
     {
         nint renderer = _renderer;
@@ -149,6 +213,7 @@ internal sealed class NativeRendererSession : IDisposable
             return;
 
         NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
+        NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
         NativeRendererNative.Destroy(renderer);
