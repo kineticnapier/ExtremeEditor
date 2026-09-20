@@ -1,4 +1,5 @@
 #include "extreme_editor_renderer.h"
+#include "level_scene.h"
 #include "renderer.h"
 
 #include <new>
@@ -17,7 +18,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
         return EE_ERROR_ABI_MISMATCH;
 
     info->api_version = EE_RENDERER_API_VERSION;
-    info->floor_size = 0u;
+    info->floor_size = sizeof(EeFloor);
     info->clock_size = 0u;
     info->diagnostics_size = 0u;
     return EE_OK;
@@ -73,4 +74,54 @@ void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t heig
         return;
 
     static_cast<ee::Renderer*>(renderer)->Resize(width, height);
+}
+
+EeResult ee_renderer_set_level(
+    EeRendererHandle renderer,
+    const EeFloor* floors,
+    uint32_t floor_count,
+    const EeGeometry* geometries,
+    uint32_t geometry_count,
+    const EePoint* points,
+    uint32_t point_count,
+    float bounds_left,
+    float bounds_top,
+    float bounds_right,
+    float bounds_bottom)
+{
+    if (renderer == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    try
+    {
+        std::shared_ptr<ee::LevelScene> scene = ee::LevelScene::Create(
+            floors,
+            floor_count,
+            geometries,
+            geometry_count,
+            points,
+            point_count,
+            bounds_left,
+            bounds_top,
+            bounds_right,
+            bounds_bottom);
+        if (!scene)
+            return EE_ERROR_INVALID_ARGUMENT;
+
+        return static_cast<ee::Renderer*>(renderer)->SetLevel(std::move(scene))
+            ? EE_OK
+            : EE_ERROR_INITIALIZATION;
+    }
+    catch (...)
+    {
+        return EE_ERROR_INITIALIZATION;
+    }
+}
+
+void ee_renderer_frame_all(EeRendererHandle renderer)
+{
+    if (renderer == nullptr)
+        return;
+
+    static_cast<ee::Renderer*>(renderer)->FrameAll();
 }
