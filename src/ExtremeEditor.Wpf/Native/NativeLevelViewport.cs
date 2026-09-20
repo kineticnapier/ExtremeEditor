@@ -18,6 +18,8 @@ public sealed class NativeLevelViewport : HwndHost
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
+    public event Action<int>? SelectedFloorChanged;
+
     public void SetLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
@@ -43,6 +45,7 @@ public sealed class NativeLevelViewport : HwndHost
         uint width = ToPixelExtent(ActualWidth);
         uint height = ToPixelExtent(ActualHeight);
         _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+        _session.SelectionChanged += NativeSelectionChanged;
         UploadPendingLevel();
         if (_frameAllPending)
         {
@@ -54,8 +57,15 @@ public sealed class NativeLevelViewport : HwndHost
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        if (_session is not null)
+            _session.SelectionChanged -= NativeSelectionChanged;
         _session?.Dispose();
         _session = null;
+    }
+
+    private void NativeSelectionChanged(int floor)
+    {
+        SelectedFloorChanged?.Invoke(floor);
     }
 
     private void UploadPendingLevel()
