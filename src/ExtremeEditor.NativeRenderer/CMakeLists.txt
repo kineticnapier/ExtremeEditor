@@ -16,6 +16,7 @@ target_compile_definitions(ExtremeEditor.NativeRenderer PRIVATE
     EE_RENDERER_BUILD=1
     UNICODE
     _UNICODE
+    NOMINMAX
 )
 target_include_directories(ExtremeEditor.NativeRenderer
     PUBLIC
@@ -40,7 +41,7 @@ add_executable(native_renderer_tests
 )
 
 target_compile_features(native_renderer_tests PRIVATE cxx_std_20)
-target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE)
+target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINMAX)
 target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
