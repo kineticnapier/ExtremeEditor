@@ -11,6 +11,7 @@ public sealed partial class LevelViewport
     private static readonly Brush PlaybackBlueBrush = CreateBrush(72, 142, 235);
     private static readonly Pen PlaybackPlanetOutlinePen = CreatePlaybackPlanetOutlinePen();
 
+    private readonly DrawingVisual _playbackFloorVisual = new();
     private readonly DrawingVisual _playbackVisual = new();
     private bool _followPlayer;
 
@@ -31,12 +32,13 @@ public sealed partial class LevelViewport
 
     public PlaybackPose? PlaybackPose { get; private set; }
 
-    protected override int VisualChildrenCount => 2;
+    protected override int VisualChildrenCount => 3;
 
     protected override Visual GetVisualChild(int index) => index switch
     {
         0 => _sceneRoot,
-        1 => _playbackVisual,
+        1 => _playbackFloorVisual,
+        2 => _playbackVisual,
         _ => throw new ArgumentOutOfRangeException(nameof(index))
     };
 
