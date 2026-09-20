@@ -70,6 +70,31 @@ internal sealed class WpfFloorRenderer
         drawingContext.Pop();
     }
 
+    public void DrawSelectionOutline(
+        DrawingContext drawingContext,
+        Point center,
+        float zoom,
+        float entryAngle,
+        float exitAngle,
+        bool midSpin)
+    {
+        StreamGeometry geometry = GetCachedGeometry(entryAngle, exitAngle, midSpin);
+
+        float cos = MathF.Cos(entryAngle);
+        float sin = MathF.Sin(entryAngle);
+        var matrix = new Matrix(
+            zoom * cos,
+            -zoom * sin,
+            -zoom * sin,
+            -zoom * cos,
+            center.X,
+            center.Y);
+
+        drawingContext.PushTransform(new MatrixTransform(matrix));
+        drawingContext.DrawGeometry(null, _selectedPen, geometry);
+        drawingContext.Pop();
+    }
+
     private static StreamGeometry GetCachedGeometry(float entryAngle, float exitAngle, bool midSpin)
     {
         float delta = Mod(exitAngle - entryAngle, TwoPi);
