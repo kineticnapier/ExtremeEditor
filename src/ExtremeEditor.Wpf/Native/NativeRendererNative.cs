@@ -6,6 +6,9 @@ internal static class NativeRendererNative
 {
     private const string DllName = "ExtremeEditor.NativeRenderer.dll";
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void SelectionChangedCallback(nint userData, int floor);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_get_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint GetApiVersion();
 
@@ -60,4 +63,10 @@ internal static class NativeRendererNative
 
     [DllImport(DllName, EntryPoint = "ee_renderer_get_selected_floor", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int GetSelectedFloor(nint renderer);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_selection_changed_callback", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetSelectionChangedCallback(
+        nint renderer,
+        SelectionChangedCallback? callback,
+        nint userData);
 }
