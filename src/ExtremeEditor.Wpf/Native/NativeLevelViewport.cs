@@ -1,9 +1,18 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
+
+internal readonly record struct NativeLevelUploadMetrics(
+    TimeSpan SnapshotBuild,
+    TimeSpan NativeUpload);
+
+internal readonly record struct NativePlaybackTimelineUploadMetrics(
+    TimeSpan TimelineBuild,
+    TimeSpan NativeUpload);
 
 public sealed class NativeLevelViewport : HwndHost
 {
@@ -23,6 +32,9 @@ public sealed class NativeLevelViewport : HwndHost
     public event Action<int>? SelectedFloorChanged;
     public event Action<bool>? FollowPlayerChanged;
 
+    internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
+    internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
+
     public bool FollowPlayer
     {
         get => _followPlayer;
@@ -41,14 +53,24 @@ public sealed class NativeLevelViewport : HwndHost
         ArgumentNullException.ThrowIfNull(level);
         _level = level;
         _snapshot = null;
-        UploadPendingLevel();
+        LastLevelUploadMetrics = UploadPendingLevel();
     }
 
     public void SetPlaybackTimeline(TimingMap timingMap)
     {
         ArgumentNullException.ThrowIfNull(timingMap);
+
+        var watch = Stopwatch.StartNew();
         _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
+        watch.Stop();
+        TimeSpan buildTime = watch.Elapsed;
+
+        watch.Restart();
         UploadPendingPlaybackTimeline();
+        watch.Stop();
+        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
+            buildTime,
+            watch.Elapsed);
     }
 
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
@@ -90,8 +112,16 @@ public sealed class NativeLevelViewport : HwndHost
         _session.SelectionChanged += NativeSelectionChanged;
         _session.FollowPlayerChanged += NativeFollowPlayerChanged;
         _session.SetFollowPlayer(_followPlayer);
-        UploadPendingLevel();
+        LastLevelUploadMetrics = UploadPendingLevel();
+
+        var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
+        watch.Stop();
+        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
+        {
+            NativeUpload = watch.Elapsed
+        };
+
         if (_frameAllPending)
         {
             _session.FrameAll();
@@ -125,13 +155,25 @@ public sealed class NativeLevelViewport : HwndHost
         FollowPlayerChanged?.Invoke(enabled);
     }
 
-    private void UploadPendingLevel()
+    private NativeLevelUploadMetrics UploadPendingLevel()
     {
         if (_session is null || _level is null)
-            return;
+            return default;
 
-        _snapshot ??= NativeLevelSnapshotBuilder.Build(_level);
+        TimeSpan snapshotBuild = TimeSpan.Zero;
+        if (_snapshot is null)
+        {
+            var snapshotWatch = Stopwatch.StartNew();
+            _snapshot = NativeLevelSnapshotBuilder.Build(_level);
+            snapshotWatch.Stop();
+            snapshotBuild = snapshotWatch.Elapsed;
+        }
+
+        var uploadWatch = Stopwatch.StartNew();
         _session.SetLevel(_snapshot);
+        uploadWatch.Stop();
+
+        return new NativeLevelUploadMetrics(snapshotBuild, uploadWatch.Elapsed);
     }
 
     private void UploadPendingPlaybackTimeline()
