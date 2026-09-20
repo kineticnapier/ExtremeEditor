@@ -1,5 +1,6 @@
 #pragma once
 
+#include "floor_instanced_renderer.h"
 #include "icon_assets.h"
 #include "level_scene.h"
 
@@ -29,6 +30,15 @@ struct PlaybackVisualState
     bool stationary_is_red = true;
 };
 
+struct RenderFrameStats
+{
+    double cull_ms = 0.0;
+    std::uint32_t visible_candidates = 0;
+    std::uint32_t floor_draws = 0;
+    std::uint32_t icon_draws = 0;
+    std::uint32_t draw_calls = 0;
+};
+
 class D2DBackend
 {
 public:
@@ -50,7 +60,8 @@ public:
         float camera_y,
         float zoom,
         std::int32_t selected_floor,
-        const PlaybackVisualState& playback) noexcept;
+        const PlaybackVisualState& playback,
+        RenderFrameStats& stats) noexcept;
 
 private:
     struct IconBitmapSet
@@ -74,18 +85,26 @@ private:
         float requested_size,
         float angle_radians,
         bool flipped) noexcept;
-    void DrawScene(
+    void QueryVisibleFloors(
+        const LevelScene& scene,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        RenderFrameStats& stats) noexcept;
+    void DrawSceneOverlays(
         const LevelScene& scene,
         const IconAssetTable* icon_assets,
         float camera_x,
         float camera_y,
         float zoom,
-        std::int32_t selected_floor) noexcept;
+        std::int32_t selected_floor,
+        RenderFrameStats& stats) noexcept;
     void DrawPlaybackPlanets(
         const PlaybackVisualState& playback,
         float camera_x,
         float camera_y,
         float zoom) noexcept;
+    HRESULT EndD2DDraw() noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -93,6 +112,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> render_target_view_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> depth_texture_;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depth_stencil_view_;
 
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
@@ -109,6 +131,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
 
+    FloorInstancedRenderer floor_renderer_;
     std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> floor_geometries_;
     std::vector<std::uint32_t> visible_candidates_;
     std::unordered_map<std::uint32_t, IconBitmapSet> icon_bitmaps_;
