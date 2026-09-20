@@ -89,6 +89,8 @@ int LevelScene::FastFloor(float value) noexcept
 
 std::int64_t LevelScene::Key(int x, int y) noexcept
 {
-    return (static_cast<std::int64_t>(x) << 32) ^ static_cast<std::uint32_t>(y);
+    const std::uint64_t high = static_cast<std::uint64_t>(static_cast<std::uint32_t>(x)) << 32;
+    const std::uint64_t low = static_cast<std::uint32_t>(y);
+    return static_cast<std::int64_t>(high | low);
 }
 }
