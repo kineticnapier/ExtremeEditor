@@ -6,8 +6,14 @@ internal static class NativeRendererNative
 {
     private const string DllName = "ExtremeEditor.NativeRenderer.dll";
 
+    internal const uint PlaybackFlagActive = 1u;
+    internal const uint PlaybackFlagPlaying = 2u;
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void SelectionChangedCallback(nint userData, int floor);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void FollowPlayerChangedCallback(nint userData, int enabled);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_get_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint GetApiVersion();
@@ -68,5 +74,27 @@ internal static class NativeRendererNative
     internal static extern void SetSelectionChangedCallback(
         nint renderer,
         SelectionChangedCallback? callback,
+        nint userData);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_timeline", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetPlaybackTimeline(
+        nint renderer,
+        nint timings,
+        uint timingCount);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_anchor", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetPlaybackAnchor(
+        nint renderer,
+        double chartTime,
+        double chartRate,
+        uint flags);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_follow_player", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetFollowPlayer(nint renderer, int enabled);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_follow_player_changed_callback", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetFollowPlayerChangedCallback(
+        nint renderer,
+        FollowPlayerChangedCallback? callback,
         nint userData);
 }
