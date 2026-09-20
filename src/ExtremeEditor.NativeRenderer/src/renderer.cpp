@@ -10,6 +10,61 @@
 
 namespace ee
 {
+namespace
+{
+constexpr float PlanetDistance = 1.5f;
+
+PlaybackVisualState CalculatePlaybackVisual(
+    const LevelScene* scene,
+    const std::vector<EePlaybackTiming>* timings,
+    double chart_time) noexcept
+{
+    PlaybackVisualState result;
+    if (scene == nullptr || timings == nullptr || timings->empty() || scene->floors.empty())
+        return result;
+
+    const double pose_time = std::max(0.0, chart_time);
+    const auto upper = std::upper_bound(
+        timings->begin(),
+        timings->end(),
+        pose_time,
+        [](double value, const EePlaybackTiming& timing)
+        {
+            return value < timing.entry_time;
+        });
+
+    std::size_t floor = upper == timings->begin()
+        ? 0
+        : static_cast<std::size_t>(std::distance(timings->begin(), upper) - 1);
+    floor = std::min(floor, scene->floors.size() - 1);
+    floor = std::min(floor, timings->size() - 1);
+
+    const EePlaybackTiming& timing = (*timings)[floor];
+    const double duration = timing.exit_time - timing.entry_time;
+    const double rotation_duration = std::max(0.0, duration - timing.pause_seconds);
+    const double rotation_elapsed = std::max(
+        0.0,
+        pose_time - timing.entry_time - timing.pause_seconds);
+    const double progress = rotation_duration <= 1e-9
+        ? 1.0
+        : std::clamp(rotation_elapsed / rotation_duration, 0.0, 1.0);
+
+    const EeFloor& stationary = scene->floors[floor];
+    const double direction = (timing.flags & EE_PLAYBACK_TIMING_FLAG_CCW) != 0 ? -1.0 : 1.0;
+    const double angle = static_cast<double>(timing.entry_angle) +
+                         direction * static_cast<double>(timing.angle_moved) * progress;
+
+    result.active = true;
+    result.floor = static_cast<std::int32_t>(floor);
+    result.stationary_x = stationary.x;
+    result.stationary_y = stationary.y;
+    result.orbiting_x = stationary.x + static_cast<float>(std::sin(angle)) * PlanetDistance;
+    result.orbiting_y = stationary.y + static_cast<float>(std::cos(angle)) * PlanetDistance;
+    result.stationary_is_red = (floor & 1u) == 0u;
+    return result;
+}
+}
+
 Renderer::~Renderer()
 {
     StopRenderThread();
@@ -84,6 +139,7 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     camera_y_ = scene_->floors.front().y;
     zoom_ = 28.0f;
     selected_floor_ = -1;
+    playback_active_ = false;
     ++scene_version_;
     return true;
 }
@@ -151,6 +207,58 @@ void Renderer::SetSelectionChangedCallback(
     selection_user_data_ = user_data;
 }
 
+bool Renderer::SetPlaybackTimeline(
+    const EePlaybackTiming* timings,
+    std::uint32_t timing_count) noexcept
+{
+    if (timing_count > 0 && timings == nullptr)
+        return false;
+
+    try
+    {
+        auto next = std::make_shared<std::vector<EePlaybackTiming>>();
+        if (timing_count > 0)
+            next->assign(timings, timings + timing_count);
+
+        std::lock_guard lock(scene_mutex_);
+        playback_timings_ = std::move(next);
+        playback_active_ = false;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+void Renderer::SetPlaybackAnchor(
+    double chart_time,
+    double chart_rate,
+    std::uint32_t flags) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    playback_active_ = (flags & EE_PLAYBACK_FLAG_ACTIVE) != 0;
+    playback_playing_ = playback_active_ && (flags & EE_PLAYBACK_FLAG_PLAYING) != 0;
+    playback_anchor_chart_time_ = std::isfinite(chart_time) ? chart_time : 0.0;
+    playback_chart_rate_ = std::isfinite(chart_rate) && chart_rate > 0.0 ? chart_rate : 1.0;
+    playback_anchor_steady_ = std::chrono::steady_clock::now();
+}
+
+void Renderer::SetFollowPlayer(bool enabled) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    follow_player_ = enabled;
+}
+
+void Renderer::SetFollowPlayerChangedCallback(
+    EeFollowPlayerChangedCallback callback,
+    void* user_data) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    follow_callback_ = callback;
+    follow_user_data_ = user_data;
+}
+
 std::int32_t Renderer::SelectedFloor() const noexcept
 {
     std::lock_guard lock(scene_mutex_);
@@ -216,6 +324,36 @@ void Renderer::NotifySelectionChanged(std::int32_t floor) noexcept
         callback(user_data, floor);
 }
 
+void Renderer::DisableFollowForManualPan() noexcept
+{
+    bool changed = false;
+    {
+        std::lock_guard lock(scene_mutex_);
+        if (follow_player_)
+        {
+            follow_player_ = false;
+            changed = true;
+        }
+    }
+
+    if (changed)
+        NotifyFollowPlayerChanged(false);
+}
+
+void Renderer::NotifyFollowPlayerChanged(bool enabled) noexcept
+{
+    EeFollowPlayerChangedCallback callback = nullptr;
+    void* user_data = nullptr;
+    {
+        std::lock_guard lock(scene_mutex_);
+        callback = follow_callback_;
+        user_data = follow_user_data_;
+    }
+
+    if (callback != nullptr)
+        callback(user_data, enabled ? 1 : 0);
+}
+
 LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept
 {
     switch (message)
@@ -246,6 +384,7 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
 
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
+        DisableFollowForManualPan();
         SetFocus(hwnd);
         SetCapture(hwnd);
         panning_ = true;
@@ -336,38 +475,77 @@ void Renderer::RenderLoop() noexcept
 
         std::shared_ptr<LevelScene> scene;
         std::shared_ptr<const IconAssetTable> icon_assets;
+        std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
         std::int32_t selected_floor = -1;
         std::uint64_t scene_version = 0;
         std::uint64_t icon_assets_version = 0;
+        bool playback_active = false;
+        bool playback_playing = false;
+        bool follow_player = false;
+        double anchor_chart_time = 0.0;
+        double chart_rate = 1.0;
+        std::chrono::steady_clock::time_point anchor_steady;
         {
             std::lock_guard lock(scene_mutex_);
             scene = scene_;
             icon_assets = icon_assets_;
+            playback_timings = playback_timings_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
             selected_floor = selected_floor_;
             scene_version = scene_version_;
             icon_assets_version = icon_assets_version_;
+            playback_active = playback_active_;
+            playback_playing = playback_playing_;
+            follow_player = follow_player_;
+            anchor_chart_time = playback_anchor_chart_time_;
+            chart_rate = playback_chart_rate_;
+            anchor_steady = playback_anchor_steady_;
         }
 
         if (ready)
         {
             const auto now = std::chrono::steady_clock::now();
             const double seconds = std::chrono::duration<double>(now - start).count();
+            double chart_time = anchor_chart_time;
+            if (playback_active && playback_playing)
+            {
+                chart_time += std::chrono::duration<double>(now - anchor_steady).count() * chart_rate;
+            }
+
+            PlaybackVisualState playback;
+            if (playback_active)
+                playback = CalculatePlaybackVisual(scene.get(), playback_timings.get(), chart_time);
+
+            float render_camera_x = camera_x;
+            float render_camera_y = camera_y;
+            if (follow_player && playback.active)
+            {
+                render_camera_x = playback.stationary_x;
+                render_camera_y = playback.stationary_y;
+                std::lock_guard lock(scene_mutex_);
+                if (follow_player_)
+                {
+                    camera_x_ = render_camera_x;
+                    camera_y_ = render_camera_y;
+                }
+            }
+
             const HRESULT hr = backend.RenderFrame(
                 seconds,
                 scene.get(),
                 scene_version,
                 icon_assets.get(),
                 icon_assets_version,
-                camera_x,
-                camera_y,
+                render_camera_x,
+                render_camera_y,
                 zoom,
-                selected_floor);
+                selected_floor,
+                playback);
             ready = SUCCEEDED(hr);
         }
 
