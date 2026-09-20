@@ -24,10 +24,17 @@ internal struct NativeRendererCreateInfo
 [StructLayout(LayoutKind.Sequential)]
 internal struct NativeFloor
 {
+    public const uint NoIcon = uint.MaxValue;
+    public const uint IconFlagFloor = 1u;
+    public const uint IconFlagFlipped = 2u;
+
     public float X;
     public float Y;
     public float EntryAngle;
     public uint GeometryId;
+    public uint IconId;
+    public uint IconFlags;
+    public float IconAngle;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -43,3 +50,8 @@ internal struct NativePoint
     public float X;
     public float Y;
 }
+
+internal sealed record NativeIconAsset(
+    uint Id,
+    string ImagePath,
+    string? OutlinePath);
