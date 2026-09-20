@@ -15,6 +15,7 @@ internal sealed class NativeRendererSession : IDisposable
     }
 
     internal nint ChildHwnd { get; private set; }
+    internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
 
     internal static NativeRendererSession Create(nint parentHwnd, uint width, uint height)
     {
@@ -110,6 +111,19 @@ internal sealed class NativeRendererSession : IDisposable
                 geometriesHandle.Free();
             if (floorsHandle.IsAllocated)
                 floorsHandle.Free();
+        }
+
+        NativeRendererNative.ClearIconAssets(_renderer);
+        foreach (NativeIconAsset asset in snapshot.IconAssets)
+        {
+            int result = NativeRendererNative.SetIconAsset(
+                _renderer,
+                asset.Id,
+                asset.ImagePath,
+                asset.OutlinePath);
+            if (result != 0)
+                throw new InvalidOperationException(
+                    $"Native icon asset upload failed for {asset.ImagePath} with result {result}.");
         }
     }
 
