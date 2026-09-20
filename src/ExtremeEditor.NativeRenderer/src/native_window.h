@@ -5,6 +5,8 @@
 
 namespace ee
 {
+class Renderer;
+
 class NativeWindow
 {
 public:
@@ -13,7 +15,7 @@ public:
     NativeWindow& operator=(const NativeWindow&) = delete;
     ~NativeWindow();
 
-    bool Create(HWND parent, std::uint32_t width, std::uint32_t height) noexcept;
+    bool Create(HWND parent, std::uint32_t width, std::uint32_t height, Renderer* owner) noexcept;
     void Destroy() noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
 
