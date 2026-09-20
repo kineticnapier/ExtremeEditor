@@ -68,6 +68,7 @@ public partial class MainWindow : Window
     {
         _playbackTimer.Stop();
         Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
+        Viewport.ShutdownRasterWorker();
         _audio.Dispose();
         base.OnClosed(e);
     }
