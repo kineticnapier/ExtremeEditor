@@ -7,6 +7,8 @@ namespace ExtremeEditor.Wpf;
 
 public sealed partial class LevelViewport
 {
+    private static readonly Pen SelectedOverviewPen = CreateSelectedOverviewPen();
+
     private void DrawMeshPreview(DrawingContext drawingContext, WorldRect nearViewport)
     {
         DrawMeshPreviewFloors(drawingContext, nearViewport);
@@ -41,7 +43,7 @@ public sealed partial class LevelViewport
                 entryAngle,
                 exitAngle,
                 midSpin,
-                floor == _selectedFloor);
+                selected: false);
 
             LastDrawnCount++;
         }
@@ -154,8 +156,6 @@ public sealed partial class LevelViewport
         double pathWidth = Math.Max(1.0, _zoom * 0.055);
         var pathPen = new Pen(PathBrush, pathWidth);
         pathPen.Freeze();
-        var selectedOutlinePen = new Pen(SelectedFloorOutlineBrush, 2.0);
-        selectedOutlinePen.Freeze();
         Vector2[] positions = _level!.Positions;
 
         for (int c = 0; c < _candidates.Count; c += stride)
@@ -172,27 +172,48 @@ public sealed partial class LevelViewport
             if (floor + 1 < positions.Length)
                 drawingContext.DrawLine(pathPen, screen, WorldToScreen(positions[floor + 1]));
 
-            if (floor == _selectedFloor)
-            {
-                drawingContext.DrawEllipse(
-                    SelectedFloorBrush,
-                    selectedOutlinePen,
-                    screen,
-                    FloorRadiusPixels + 3.0,
-                    FloorRadiusPixels + 3.0);
-            }
-            else
-            {
-                drawingContext.DrawEllipse(
-                    FloorBrush,
-                    null,
-                    screen,
-                    FloorRadiusPixels,
-                    FloorRadiusPixels);
-            }
+            drawingContext.DrawEllipse(
+                FloorBrush,
+                null,
+                screen,
+                FloorRadiusPixels,
+                FloorRadiusPixels);
 
             LastDrawnCount++;
         }
+    }
+
+    private void DrawSelectedFloorOverlay(DrawingContext drawingContext)
+    {
+        if (_level is null || (uint)_selectedFloor >= (uint)_level.Positions.Length)
+            return;
+
+        Vector2[] positions = _level.Positions;
+        Point center = WorldToScreen(positions[_selectedFloor]);
+        bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
+
+        if (meshPreview)
+        {
+            _floorRenderer.BeginFrame(_zoom);
+            GetFloorAngles(_selectedFloor, positions, out float entryAngle, out float exitAngle);
+            bool midSpin = _selectedFloor < _level.Angles.Length &&
+                           Math.Abs(_level.Angles[_selectedFloor] - 999.0) < 0.000001;
+            _floorRenderer.DrawSelectionOutline(
+                drawingContext,
+                center,
+                _zoom,
+                entryAngle,
+                exitAngle,
+                midSpin);
+            return;
+        }
+
+        drawingContext.DrawEllipse(
+            SelectedFloorBrush,
+            SelectedOverviewPen,
+            center,
+            FloorRadiusPixels + 3.0,
+            FloorRadiusPixels + 3.0);
     }
 
     private void RebuildFloorDirectionState()
@@ -323,6 +344,13 @@ public sealed partial class LevelViewport
         new(
             (float)((point.X - ActualWidth * 0.5) / _zoom + _camera.X),
             (float)(_camera.Y - (point.Y - ActualHeight * 0.5) / _zoom));
+
+    private static Pen CreateSelectedOverviewPen()
+    {
+        var pen = new Pen(SelectedFloorOutlineBrush, 2.0);
+        pen.Freeze();
+        return pen;
+    }
 
     private static SolidColorBrush CreateBrush(byte red, byte green, byte blue, byte alpha = 255)
     {
