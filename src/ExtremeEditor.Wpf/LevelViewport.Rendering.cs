@@ -71,7 +71,7 @@ public sealed partial class LevelViewport
         }
     }
 
-    private void DrawFloorIcon(
+    private bool DrawFloorIcon(
         DrawingContext drawingContext,
         int floor,
         Point center,
@@ -80,7 +80,7 @@ public sealed partial class LevelViewport
         bool midSpin)
     {
         if (_level is null || !_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
-            return;
+            return false;
 
         LevelAction? customIconAction = null;
         LevelAction? speedAction = null;
@@ -105,14 +105,14 @@ public sealed partial class LevelViewport
         }
 
         if (!hasActiveAction)
-            return;
+            return false;
 
         if (customIconAction?.CustomIcon is { Length: > 0 } customIcon &&
             _iconRenderer.DrawFloorIcon(drawingContext, customIcon, center, _zoom))
-            return;
+            return true;
 
         if (checkpoint && _iconRenderer.DrawFloorIcon(drawingContext, "Checkpoint", center, _zoom))
-            return;
+            return true;
 
         if (twirl)
         {
@@ -125,7 +125,7 @@ public sealed partial class LevelViewport
                     _zoom,
                     swirl.IconAngle,
                     swirl.Flipped))
-                return;
+                return true;
         }
 
         if (speedAction?.SpeedRatio is double ratio)
@@ -139,14 +139,16 @@ public sealed partial class LevelViewport
                 _ => "DoubleRabbit"
             };
             if (_iconRenderer.DrawFloorIcon(drawingContext, speedIcon, center, _zoom))
-                return;
+                return true;
         }
 
         foreach (LevelAction action in actions)
         {
             if (action.Active && _iconRenderer.DrawEvent(drawingContext, action.EventType, center, _zoom))
-                return;
+                return true;
         }
+
+        return false;
     }
 
     private void DrawOverview(DrawingContext drawingContext, WorldRect nearViewport)
