@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Reflection;
 using System.Windows;
 using ExtremeEditor.Wpf;
 
@@ -9,8 +10,23 @@ internal static class RasterChunkWorkerRegression
 {
     public static void Run()
     {
+        VerifyViewportExposesRasterWorkerShutdown();
         VerifyWorkerBuildsFrozenBitmapOffCallerThread();
         VerifyImmediateDisposeWithQueuedWorkTerminates();
+        VerifyDisposeIsIdempotentWithQueuedWork();
+    }
+
+    private static void VerifyViewportExposesRasterWorkerShutdown()
+    {
+        MethodInfo? shutdown = typeof(LevelViewport).GetMethod(
+            "ShutdownRasterWorker",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+        if (shutdown is null)
+        {
+            throw new InvalidOperationException(
+                "LevelViewport.ShutdownRasterWorker is missing. Window shutdown must explicitly stop the raster worker.");
+        }
     }
 
     private static void VerifyWorkerBuildsFrozenBitmapOffCallerThread()
@@ -56,6 +72,21 @@ internal static class RasterChunkWorkerRegression
 
         if (watch.Elapsed >= TimeSpan.FromSeconds(3))
             throw new InvalidOperationException($"Raster worker disposal hung for {watch.Elapsed.TotalMilliseconds:F0} ms with queued work.");
+    }
+
+    private static void VerifyDisposeIsIdempotentWithQueuedWork()
+    {
+        var watch = Stopwatch.StartNew();
+        var worker = new RasterChunkWorker();
+        for (int i = 0; i < 8; i++)
+            worker.Enqueue(CreateRequest(new RasterChunkKey(i, 1, 28, 1)));
+
+        worker.Dispose();
+        worker.Dispose();
+        watch.Stop();
+
+        if (watch.Elapsed >= TimeSpan.FromSeconds(3))
+            throw new InvalidOperationException($"Repeated raster worker disposal hung for {watch.Elapsed.TotalMilliseconds:F0} ms.");
     }
 
     private static RasterChunkRequest CreateRequest(RasterChunkKey key)
