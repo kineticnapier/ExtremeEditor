@@ -11,7 +11,11 @@ add_library(ExtremeEditor.NativeRenderer SHARED
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
-target_compile_definitions(ExtremeEditor.NativeRenderer PRIVATE EE_RENDERER_BUILD=1)
+target_compile_definitions(ExtremeEditor.NativeRenderer PRIVATE
+    EE_RENDERER_BUILD=1
+    UNICODE
+    _UNICODE
+)
 target_include_directories(ExtremeEditor.NativeRenderer
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -30,6 +34,7 @@ add_executable(native_renderer_tests
 )
 
 target_compile_features(native_renderer_tests PRIVATE cxx_std_20)
+target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE)
 target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
