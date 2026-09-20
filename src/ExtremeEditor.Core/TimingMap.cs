@@ -91,6 +91,26 @@ public sealed class TimingMap
         return lo;
     }
 
+    /// <summary>
+    /// Returns the first floor whose entry time is strictly greater than
+    /// <paramref name="chartTime"/>. Equal-time floors are skipped as one run.
+    /// </summary>
+    public int FindFirstFloorAfter(double chartTime)
+    {
+        int lo = 0;
+        int hi = _entryTimes.Length;
+        while (lo < hi)
+        {
+            int mid = lo + ((hi - lo) >> 1);
+            if (_entryTimes[mid] <= chartTime)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return lo;
+    }
+
     public PlaybackPose GetPose(LevelDocument level, double chartTime)
     {
         if (_floors.Length == 0 || level.Positions.Length == 0)
