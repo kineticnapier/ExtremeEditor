@@ -115,27 +115,71 @@ public partial class MainWindow : Window
         {
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Loading…";
+            Console.WriteLine($"[load] begin file={Path.GetFileName(path)}");
 
             var totalWatch = Stopwatch.StartNew();
             WpfLevelLoadResult loaded = WpfLevelLoader.Load(path);
             WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(loaded.Document);
 
             StopPlayback();
+
+            var stageWatch = Stopwatch.StartNew();
             _audio.Unload();
+            stageWatch.Stop();
+            TimeSpan audioUnloadTime = stageWatch.Elapsed;
+
+            stageWatch.Restart();
             _audio.ConfigureHitSounds(
                 loaded.Document,
                 playback.TimingMap,
                 playback.HitSoundTimeline);
+            stageWatch.Stop();
+            TimeSpan audioConfigureTime = stageWatch.Elapsed;
 
+            stageWatch.Restart();
             string audioState = LoadSong(playback.SongPath);
+            stageWatch.Stop();
+            TimeSpan audioLoadTime = stageWatch.Elapsed;
 
             _level = loaded.Document;
             _timingMap = playback.TimingMap;
             _hitSoundTimeline = playback.HitSoundTimeline;
+
+            stageWatch.Restart();
             Viewport.SetLevel(loaded.Document, loaded.Index);
+            stageWatch.Stop();
+            TimeSpan wpfSetLevelTime = stageWatch.Elapsed;
+
             NativeViewport.SetLevel(loaded.Document);
+            var nativeLevelMetrics = NativeViewport.LastLevelUploadMetrics;
+
             NativeViewport.SetPlaybackTimeline(playback.TimingMap);
+            var nativeTimelineMetrics = NativeViewport.LastPlaybackTimelineUploadMetrics;
+
             totalWatch.Stop();
+
+            Console.WriteLine(
+                $"[load] source read={loaded.Metrics.Read.TotalMilliseconds:N1}ms " +
+                $"parse={loaded.Metrics.Parse.TotalMilliseconds:N1}ms " +
+                $"path={loaded.Metrics.BuildPath.TotalMilliseconds:N1}ms " +
+                $"managedIndex={loaded.IndexTime.TotalMilliseconds:N1}ms");
+            Console.WriteLine(
+                $"[load] playback timing={playback.TimingMapTime.TotalMilliseconds:N1}ms " +
+                $"hitsounds={playback.HitSoundTimelineTime.TotalMilliseconds:N1}ms " +
+                $"resolveSong={playback.ResolveSongPathTime.TotalMilliseconds:N1}ms");
+            Console.WriteLine(
+                $"[load] audio unload={audioUnloadTime.TotalMilliseconds:N1}ms " +
+                $"configure={audioConfigureTime.TotalMilliseconds:N1}ms " +
+                $"load={audioLoadTime.TotalMilliseconds:N1}ms");
+            Console.WriteLine(
+                $"[load] viewport wpfSetLevel={wpfSetLevelTime.TotalMilliseconds:N1}ms " +
+                $"nativeSnapshot={nativeLevelMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
+                $"nativeUpload={nativeLevelMetrics.NativeUpload.TotalMilliseconds:N1}ms " +
+                $"nativeTimelineBuild={nativeTimelineMetrics.TimelineBuild.TotalMilliseconds:N1}ms " +
+                $"nativeTimelineUpload={nativeTimelineMetrics.NativeUpload.TotalMilliseconds:N1}ms");
+            Console.WriteLine(
+                $"[load] done floors={loaded.Document.FloorCount:N0} actions={loaded.Document.ActionCount:N0} " +
+                $"total={totalWatch.Elapsed.TotalMilliseconds:N1}ms");
 
             StatusText.Text =
                 $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
@@ -151,6 +195,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"[load] failed: {ex}");
             MessageBox.Show(this, ex.ToString(), "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
             StatusText.Text = "Open failed";
         }
