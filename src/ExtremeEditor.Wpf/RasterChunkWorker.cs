@@ -20,8 +20,10 @@ internal sealed class RasterChunkWorker : IDisposable
     private readonly Thread _thread;
     private volatile bool _stopping;
     private bool _signalDisposed;
+    private IReadOnlySet<RasterChunkKey>? _desiredKeys;
     private int _requestedCount;
     private int _completedCount;
+    private int _canceledCount;
     private int _lastBuildThreadId;
 
     public RasterChunkWorker()
@@ -37,7 +39,16 @@ internal sealed class RasterChunkWorker : IDisposable
 
     public int RequestedCount => Volatile.Read(ref _requestedCount);
     public int CompletedCount => Volatile.Read(ref _completedCount);
+    public int CanceledCount => Volatile.Read(ref _canceledCount);
     public int LastBuildThreadId => Volatile.Read(ref _lastBuildThreadId);
+
+    public void SetDesiredKeys(IReadOnlySet<RasterChunkKey> desiredKeys)
+    {
+        ArgumentNullException.ThrowIfNull(desiredKeys);
+        IReadOnlySet<RasterChunkKey> snapshot = new HashSet<RasterChunkKey>(desiredKeys);
+        Volatile.Write(ref _desiredKeys, snapshot);
+        _signal.Set();
+    }
 
     public void Enqueue(RasterChunkRequest request)
     {
@@ -100,6 +111,13 @@ internal sealed class RasterChunkWorker : IDisposable
                     return;
                 if (request is null)
                     continue;
+
+                IReadOnlySet<RasterChunkKey>? desired = Volatile.Read(ref _desiredKeys);
+                if (desired is not null && !desired.Contains(request.Key))
+                {
+                    Interlocked.Increment(ref _canceledCount);
+                    continue;
+                }
 
                 try
                 {
