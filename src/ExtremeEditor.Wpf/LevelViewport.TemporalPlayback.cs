@@ -11,9 +11,14 @@ public sealed partial class LevelViewport
     private const double PlaybackPastVisibilitySeconds = 0.15;
     private const double PlaybackFutureVisibilitySeconds = 0.50;
     private const float PlaybackCullMarginWorld = 1.5f;
+    private const float PlaybackRetentionViewportCount = 2f;
+
+    private readonly HashSet<int> _temporalRetainedFloors = new();
+    private readonly List<int> _temporalFloorScratch = new();
 
     public bool TemporalPlaybackActive { get; private set; }
     public int TemporalPlaybackCandidateCount { get; private set; }
+    public int TemporalPlaybackRetainedFloorCount => _temporalRetainedFloors.Count;
     public int TemporalPlaybackVisibleFloorCount { get; private set; }
     public int TemporalPlaybackVisibleIconCount { get; private set; }
     public int TemporalPlaybackVisibleActionFloorCount { get; private set; }
@@ -42,19 +47,46 @@ public sealed partial class LevelViewport
         }
 
         WorldRect viewport = GetViewportWorldRect();
-        _floorRenderer.BeginFrame(_zoom);
-
-        using DrawingContext drawingContext = _playbackFloorVisual.RenderOpen();
+        WorldRect retentionViewport = ExpandPlaybackViewport(viewport, PlaybackRetentionViewportCount);
         Vector2[] positions = _level.Positions;
-        for (int floor = range.EndExclusive - 1; floor >= range.StartFloor; floor--)
+
+        // Temporal selection only admits nearby floors into the retained set.
+        // Once admitted, a floor survives the time window until it has moved
+        // completely outside the off-screen retention region.
+        for (int floor = range.StartFloor; floor < range.EndExclusive; floor++)
         {
             if ((uint)floor >= (uint)positions.Length)
                 continue;
 
-            Vector2 position = positions[floor];
-            if (!IntersectsPlaybackViewport(position, viewport, PlaybackCullMarginWorld))
-                continue;
+            if (IntersectsPlaybackViewport(positions[floor], retentionViewport, PlaybackCullMarginWorld))
+                _temporalRetainedFloors.Add(floor);
+        }
 
+        _temporalFloorScratch.Clear();
+        foreach (int floor in _temporalRetainedFloors)
+        {
+            if ((uint)floor >= (uint)positions.Length ||
+                !IntersectsPlaybackViewport(positions[floor], retentionViewport, PlaybackCullMarginWorld))
+            {
+                _temporalFloorScratch.Add(floor);
+            }
+        }
+        foreach (int floor in _temporalFloorScratch)
+            _temporalRetainedFloors.Remove(floor);
+
+        _temporalFloorScratch.Clear();
+        foreach (int floor in _temporalRetainedFloors)
+        {
+            if (IntersectsPlaybackViewport(positions[floor], viewport, PlaybackCullMarginWorld))
+                _temporalFloorScratch.Add(floor);
+        }
+        _temporalFloorScratch.Sort(static (a, b) => b.CompareTo(a));
+
+        _floorRenderer.BeginFrame(_zoom);
+        using DrawingContext drawingContext = _playbackFloorVisual.RenderOpen();
+        foreach (int floor in _temporalFloorScratch)
+        {
+            Vector2 position = positions[floor];
             Point center = WorldToScreen(position);
             GetFloorAngles(floor, positions, out float entryAngle, out float exitAngle);
             bool midSpin = floor < _level.Angles.Length &&
@@ -85,6 +117,17 @@ public sealed partial class LevelViewport
             (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
     }
 
+    private static WorldRect ExpandPlaybackViewport(WorldRect viewport, float viewportCount)
+    {
+        float marginX = viewport.Width * viewportCount;
+        float marginY = viewport.Height * viewportCount;
+        return new WorldRect(
+            viewport.Left - marginX,
+            viewport.Top - marginY,
+            viewport.Right + marginX,
+            viewport.Bottom + marginY);
+    }
+
     private static bool IntersectsPlaybackViewport(
         Vector2 center,
         WorldRect viewport,
@@ -95,6 +138,8 @@ public sealed partial class LevelViewport
     private void ClearTemporalPlaybackVisual()
     {
         using DrawingContext _ = _playbackFloorVisual.RenderOpen();
+        _temporalRetainedFloors.Clear();
+        _temporalFloorScratch.Clear();
         TemporalPlaybackCandidateCount = 0;
         TemporalPlaybackVisibleFloorCount = 0;
         TemporalPlaybackVisibleIconCount = 0;
