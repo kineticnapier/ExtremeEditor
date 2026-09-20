@@ -18,19 +18,30 @@ internal sealed class RasterChunkCache
 {
     private readonly HashSet<RasterChunkKey> _pending = [];
     private readonly Dictionary<RasterChunkKey, RasterChunkResult> _ready = [];
+    private int? _currentZoomBucket;
 
     public long CurrentGeneration { get; private set; }
+    public int? CurrentZoomBucket => _currentZoomBucket;
 
     public void Reset(long generation)
     {
         CurrentGeneration = generation;
+        _currentZoomBucket = null;
+        _pending.Clear();
+        _ready.Clear();
+    }
+
+    public void Reset(long generation, int zoomBucket)
+    {
+        CurrentGeneration = generation;
+        _currentZoomBucket = zoomBucket;
         _pending.Clear();
         _ready.Clear();
     }
 
     public bool TryMarkQueued(RasterChunkKey key)
     {
-        if (key.Generation != CurrentGeneration)
+        if (!IsCurrent(key))
             return false;
         if (_ready.ContainsKey(key))
             return false;
@@ -40,7 +51,7 @@ internal sealed class RasterChunkCache
 
     public bool TryPublish(RasterChunkResult result)
     {
-        if (result.Key.Generation != CurrentGeneration)
+        if (!IsCurrent(result.Key))
             return false;
         if (!result.Bitmap.IsFrozen)
             return false;
@@ -52,7 +63,7 @@ internal sealed class RasterChunkCache
 
     public bool TryGetReady(RasterChunkKey key, out RasterChunkResult? result)
     {
-        if (key.Generation != CurrentGeneration)
+        if (!IsCurrent(key))
         {
             result = null;
             return false;
@@ -62,4 +73,8 @@ internal sealed class RasterChunkCache
     }
 
     public IReadOnlyList<RasterChunkKey> GetReadyKeys() => _ready.Keys.ToArray();
+
+    private bool IsCurrent(RasterChunkKey key) =>
+        key.Generation == CurrentGeneration &&
+        (_currentZoomBucket is null || key.ZoomBucket == _currentZoomBucket.Value);
 }
