@@ -49,6 +49,17 @@ internal static class TemporalPlaybackRoutingRegression
                     $"Temporal dense playback must not queue raster chunks while Follow Player advances. " +
                     $"before={requestsAfterEntry}, after={viewport.RasterChunkRequestsQueued}.");
             }
+
+            int beforeResize = viewport.RasterChunkRequestsQueued;
+            viewport.Measure(new Size(900, 650));
+            viewport.Arrange(new Rect(0, 0, 900, 650));
+            Render(viewport);
+            if (viewport.RasterChunkRequestsQueued != beforeResize)
+            {
+                throw new InvalidOperationException(
+                    $"Resizing during temporal playback must not wake raster maintenance. " +
+                    $"before={beforeResize}, after={viewport.RasterChunkRequestsQueued}.");
+            }
         }
         finally
         {
