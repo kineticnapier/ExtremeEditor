@@ -8,6 +8,7 @@ public partial class MainWindow
 {
     private const double PlaybackTimingSmoothing = 0.125;
     private const double PlaybackGapLogThresholdMilliseconds = 50.0;
+    private const double PlaybackDiagnosticsUiRefreshSeconds = 0.25;
 
     private readonly PlaybackDiagnosticLogger _playbackDiagnosticLogger;
     private double _playbackUiRollingMilliseconds;
@@ -21,6 +22,7 @@ public partial class MainWindow
     private double _pendingRenderStallMilliseconds;
     private long _lastPlaybackUiTimestamp;
     private long _lastPlaybackRenderTimestamp;
+    private long _lastPlaybackDiagnosticsUiTimestamp;
     private int _lastLoggedLateAdmissionCount;
     private bool _playbackUiHasSample;
 
@@ -66,6 +68,25 @@ public partial class MainWindow
 
         _lastPlaybackUiTimestamp = now;
         return now;
+    }
+
+    private bool ShouldRefreshPlaybackDiagnostics(long nowTimestamp)
+    {
+        if (_lastPlaybackDiagnosticsUiTimestamp == 0 ||
+            nowTimestamp < _lastPlaybackDiagnosticsUiTimestamp)
+        {
+            _lastPlaybackDiagnosticsUiTimestamp = nowTimestamp;
+            return true;
+        }
+
+        long refreshTicks = Math.Max(
+            1L,
+            (long)(Stopwatch.Frequency * PlaybackDiagnosticsUiRefreshSeconds));
+        if (nowTimestamp - _lastPlaybackDiagnosticsUiTimestamp < refreshTicks)
+            return false;
+
+        _lastPlaybackDiagnosticsUiTimestamp = nowTimestamp;
+        return true;
     }
 
     private void PlaybackCompositionRendering(object? sender, EventArgs e)
@@ -142,6 +163,7 @@ public partial class MainWindow
         _pendingRenderStallMilliseconds = 0.0;
         _lastPlaybackUiTimestamp = 0;
         _lastPlaybackRenderTimestamp = 0;
+        _lastPlaybackDiagnosticsUiTimestamp = 0;
         _lastLoggedLateAdmissionCount = Viewport.TemporalPlaybackLateAdmissionCount;
         _playbackUiHasSample = false;
     }
