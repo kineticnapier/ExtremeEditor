@@ -89,6 +89,21 @@ typedef struct EePlaybackTiming
     uint32_t reserved;
 } EePlaybackTiming;
 
+typedef struct EeRendererDiagnostics
+{
+    uint32_t struct_size;
+    uint32_t reserved;
+    double fps;
+    double frame_ms;
+    double max_frame_ms;
+    double render_ms;
+    double cull_ms;
+    uint32_t visible_candidates;
+    uint32_t floor_draws;
+    uint32_t icon_draws;
+    uint32_t draw_calls;
+} EeRendererDiagnostics;
+
 EE_RENDERER_API uint32_t ee_renderer_get_api_version(void);
 EE_RENDERER_API EeResult ee_renderer_get_abi_info(EeAbiInfo* info);
 EE_RENDERER_API EeResult ee_renderer_create(
@@ -136,6 +151,9 @@ EE_RENDERER_API void ee_renderer_set_follow_player_changed_callback(
     EeRendererHandle renderer,
     EeFollowPlayerChangedCallback callback,
     void* user_data);
+EE_RENDERER_API EeResult ee_renderer_get_diagnostics(
+    EeRendererHandle renderer,
+    EeRendererDiagnostics* diagnostics);
 
 #ifdef __cplusplus
 }
