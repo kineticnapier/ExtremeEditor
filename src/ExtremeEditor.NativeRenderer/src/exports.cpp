@@ -1,5 +1,4 @@
 #include "extreme_editor_renderer.h"
-#include "level_scene.h"
 #include "renderer.h"
 
 #include <new>
@@ -120,8 +119,37 @@ EeResult ee_renderer_set_level(
 
 void ee_renderer_frame_all(EeRendererHandle renderer)
 {
-    if (renderer == nullptr)
-        return;
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->FrameAll();
+}
 
-    static_cast<ee::Renderer*>(renderer)->FrameAll();
+void ee_renderer_clear_icon_assets(EeRendererHandle renderer)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->ClearIconAssets();
+}
+
+EeResult ee_renderer_set_icon_asset(
+    EeRendererHandle renderer,
+    uint32_t icon_id,
+    const wchar_t* image_path,
+    const wchar_t* outline_path)
+{
+    if (renderer == nullptr || image_path == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetIconAsset(
+        icon_id,
+        image_path,
+        outline_path)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
+}
+
+int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer)
+{
+    if (renderer == nullptr)
+        return -1;
+
+    return static_cast<ee::Renderer*>(renderer)->SelectedFloor();
 }
