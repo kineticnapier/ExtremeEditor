@@ -8,6 +8,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/exports.cpp
     src/native_window.cpp
     src/renderer.cpp
+    src/renderer_diagnostics.cpp
     src/d2d_backend.cpp
     src/level_scene.cpp
 )
