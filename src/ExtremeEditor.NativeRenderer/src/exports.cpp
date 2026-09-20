@@ -153,3 +153,12 @@ int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer)
 
     return static_cast<ee::Renderer*>(renderer)->SelectedFloor();
 }
+
+void ee_renderer_set_selection_changed_callback(
+    EeRendererHandle renderer,
+    EeSelectionChangedCallback callback,
+    void* user_data)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetSelectionChangedCallback(callback, user_data);
+}
