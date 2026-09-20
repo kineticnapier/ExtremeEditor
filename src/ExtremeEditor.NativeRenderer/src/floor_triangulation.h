@@ -3,6 +3,7 @@
 #include "level_scene.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
