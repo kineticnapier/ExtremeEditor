@@ -5,12 +5,16 @@ namespace ExtremeEditor.Audio;
 /// <summary>Combines song PCM and scheduled hit sounds on one absolute sample clock.</summary>
 internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 {
+    private const float MasterCeiling = 0.999f;
+    private const float LimiterReleaseSeconds = 0.100f;
+
     private readonly ISampleProvider _song;
     private readonly SampleAccurateHitSoundProvider? _hitSounds;
     private readonly long _totalFrames;
     private float[] _hitBuffer = [];
     private long _positionFrames;
     private bool _hitSoundsEnabled = true;
+    private float _limiterGain = 1.0f;
 
     public UnifiedAudioSampleProvider(
         ISampleProvider song,
@@ -65,7 +69,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
                 buffer[offset + i] += _hitBuffer[i];
         }
 
-        BoundPcm(buffer, offset, sampleCount);
+        ApplyMasterLimiter(buffer, offset, frameCount, channels);
         _positionFrames += frameCount;
         return sampleCount;
     }
@@ -74,15 +78,51 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     {
         _positionFrames = Math.Clamp(positionFrames, 0, _totalFrames);
         _hitSounds?.Seek(_positionFrames);
+        _limiterGain = 1.0f;
     }
 
-    private static void BoundPcm(float[] buffer, int offset, int count)
+    private void ApplyMasterLimiter(float[] buffer, int offset, int frameCount, int channels)
     {
-        int end = offset + count;
+        int sampleCount = frameCount * channels;
+        int end = offset + sampleCount;
+        float peak = 0.0f;
+
         for (int i = offset; i < end; i++)
         {
             float sample = buffer[i];
-            buffer[i] = float.IsNaN(sample) ? 0.0f : Math.Clamp(sample, -1.0f, 1.0f);
+            if (!float.IsFinite(sample))
+            {
+                buffer[i] = 0.0f;
+                continue;
+            }
+
+            peak = Math.Max(peak, Math.Abs(sample));
+        }
+
+        float targetGain = peak > MasterCeiling
+            ? MasterCeiling / peak
+            : 1.0f;
+
+        // Attack is immediate so a newly arriving transient cannot clip. Release
+        // is smoothed per frame so dense hit-sound passages do not turn into the
+        // flat-topped waveform produced by the old Math.Clamp path.
+        if (targetGain < _limiterGain)
+            _limiterGain = targetGain;
+
+        float releaseCoefficient = MathF.Exp(
+            -1.0f / Math.Max(1.0f, WaveFormat.SampleRate * LimiterReleaseSeconds));
+
+        int sample = offset;
+        for (int frame = 0; frame < frameCount; frame++)
+        {
+            if (_limiterGain < targetGain)
+            {
+                float released = 1.0f - (1.0f - _limiterGain) * releaseCoefficient;
+                _limiterGain = Math.Min(targetGain, released);
+            }
+
+            for (int channel = 0; channel < channels; channel++)
+                buffer[sample++] *= _limiterGain;
         }
     }
 }
