@@ -25,11 +25,11 @@
 
 ## Review Focus
 
-- **Equal-time floor runs at both temporal boundaries:** all floors whose entry time equals either inclusive boundary remain in the returned range; Task 1 pins lower-bound and upper-bound behavior.
-- **Before-start / after-end playback:** selector clamps to a valid empty or partial range without indexing outside `TimingMap.Floors`; Task 1 tests both sides of the chart.
-- **Viewport-edge floor geometry:** a floor center slightly outside the viewport but within the stock mesh margin remains eligible while a clearly distant floor is culled; Task 2 tests both cases.
+- **Temporal boundary behavior:** equal-time floor runs at either inclusive boundary stay together, and far before-start / after-end windows return valid empty/partial ranges without indexing outside `TimingMap.Floors`; Task 1 pins these cases.
+- **Viewport-edge floor geometry:** a floor center slightly outside the viewport but within a deliberately conservative stock-mesh margin remains eligible while a clearly distant floor is culled; Task 2 tests both cases.
 - **Playback lifecycle transitions:** entering dense temporal mode hides/suspends the raster scene exactly once, stopping clears temporal drawing and restores a normal editor scene, and non-dense playback does not enter temporal mode; Task 3 tests all three paths.
 - **Large Follow Player jumps:** temporal dense playback tracks the current camera directly and does not resume chunk requests or depend on scene rebasing; Task 3 advances through multiple far-apart poses and checks raster request count stays unchanged.
+- **Resize/zoom/manual-pan during temporal playback:** these interactions must not wake hidden static-scene maintenance or queue raster work; Task 3 guards `OnRender`, resize, zoom, and pan paths and pins resize request-count stability.
 
 ---
 
@@ -231,7 +231,7 @@ Stop for user GREEN verification before Task 2.
 - Produces: dedicated `DrawingVisual _playbackFloorVisual` inserted between `_sceneRoot` and `_playbackVisual`.
 - Produces diagnostic properties `TemporalPlaybackCandidateCount`, `TemporalPlaybackVisibleFloorCount`, `TemporalPlaybackVisibleIconCount`, `TemporalPlaybackDrawMilliseconds`, `TemporalPlaybackActive`.
 - Produces private `RenderTemporalPlaybackFloors(TimingMap timingMap, double chartTime)`; Task 3 invokes it through playback-frame routing.
-- Uses centralized constants `PlaybackPastVisibilitySeconds = 0.15`, `PlaybackFutureVisibilitySeconds = 0.50`, `PlaybackCullMarginWorld = 1.5f`. These are starting values for correctness/performance measurement, not a floor-count cap.
+- Uses centralized constants `PlaybackPastVisibilitySeconds = 0.15`, `PlaybackFutureVisibilitySeconds = 0.50`, `PlaybackCullMarginWorld = 8f`. The conservative world margin favors visual correctness for unusually long stock floor meshes; it is still only a spatial candidate filter, not a floor-count cap.
 
 - [ ] **Step 1: Add RED WPF regression for visual ordering, viewport culling, and current-camera drawing contract**
 
@@ -258,8 +258,8 @@ MethodInfo cull = typeof(LevelViewport).GetMethod(
     ?? throw new InvalidOperationException("LevelViewport.IntersectsPlaybackViewport is missing.");
 
 var viewport = new WorldRect(-10, -10, 10, 10);
-bool edge = (bool)cull.Invoke(null, [new Vector2(11.0f, 0), viewport, 1.5f])!;
-bool far = (bool)cull.Invoke(null, [new Vector2(20.0f, 0), viewport, 1.5f])!;
+bool edge = (bool)cull.Invoke(null, [new Vector2(11.0f, 0), viewport, 8f])!;
+bool far = (bool)cull.Invoke(null, [new Vector2(20.0f, 0), viewport, 8f])!;
 if (!edge || far)
     throw new InvalidOperationException($"Playback viewport culling margin is wrong. edge={edge}, far={far}.");
 ```
@@ -330,6 +330,7 @@ Create `LevelViewport.TemporalPlayback.cs` with these members and behavior:
 ```csharp
 using System.Diagnostics;
 using System.Numerics;
+using System.Windows;
 using System.Windows.Media;
 using ExtremeEditor.Core;
 
@@ -339,7 +340,7 @@ public sealed partial class LevelViewport
 {
     private const double PlaybackPastVisibilitySeconds = 0.15;
     private const double PlaybackFutureVisibilitySeconds = 0.50;
-    private const float PlaybackCullMarginWorld = 1.5f;
+    private const float PlaybackCullMarginWorld = 8f;
 
     public bool TemporalPlaybackActive { get; private set; }
     public int TemporalPlaybackCandidateCount { get; private set; }
@@ -427,6 +428,7 @@ Stop for user GREEN verification before Task 3.
 - Modify: `src/ExtremeEditor.Wpf/WpfPlaybackPresenter.cs`
 - Modify: `src/ExtremeEditor.Wpf/LevelViewport.Playback.cs`
 - Modify: `src/ExtremeEditor.Wpf/LevelViewport.TemporalPlayback.cs`
+- Modify: `src/ExtremeEditor.Wpf/LevelViewport.cs`
 - Create: `src/ExtremeEditor.Wpf.Tests/TemporalPlaybackRoutingRegression.cs`
 - Modify: `src/ExtremeEditor.Wpf.Tests/PlaybackViewportRegression.cs`
 - Modify: `src/ExtremeEditor.Wpf.Tests/Program.cs`
@@ -438,13 +440,13 @@ Stop for user GREEN verification before Task 3.
 - `WpfPlaybackPresenter.Update(...)` computes `chartTime` once, then passes that same value and `timingMap.GetPose(level, chartTime)` to `SetPlaybackFrame`.
 - Existing public `SetPlaybackPose(PlaybackPose?)` remains for compatibility/tests, but it is pose-only and does not activate temporal rendering because it lacks timing context.
 - Dense temporal mode is entered when active playback has mesh preview enabled and the current static scene is already classified `StaticSceneRasterCacheActive`.
+- While `TemporalPlaybackActive`, all ordinary static-scene maintenance entry points in `LevelViewport.cs` must skip `EnsureSceneCoverage()` / `ResetStaticScene()` so hidden raster work cannot restart because of WPF invalidation, resize, wheel zoom, or manual pan.
 
 - [ ] **Step 1: Add RED routing regression**
 
 Create a dense 5,000-floor viewport fixture (same tightly packed spacing pattern used by current dense regressions), arrange it at 800x600, render once so `StaticSceneRasterCacheActive` is true, then:
 
 ```csharp
-int beforeRequests = viewport.RasterChunkRequestsQueued;
 TimingMap map = TimingMapBuilder.Build(level);
 double chartTime = map.GetEntryTime(Math.Min(100, level.FloorCount - 1));
 PlaybackPose pose = map.GetPose(level, chartTime);
@@ -467,6 +469,17 @@ if (viewport.RasterChunkRequestsQueued != enteredRequests)
 
 The fixture must set `FollowPlayer = true` and include a large spatial jump between some positions so the regression covers the previous rebase failure mode.
 
+Pin resize invalidation while temporal mode is active:
+
+```csharp
+int beforeResize = viewport.RasterChunkRequestsQueued;
+viewport.Measure(new Size(900, 650));
+viewport.Arrange(new Rect(0, 0, 900, 650));
+Render(viewport);
+if (viewport.RasterChunkRequestsQueued != beforeResize)
+    throw new InvalidOperationException("Resizing during temporal playback must not wake raster maintenance.");
+```
+
 Also test stop lifecycle:
 
 ```csharp
@@ -487,7 +500,7 @@ Register in WPF `Program.cs`.
 
 - [ ] **Step 2: Bump RED version to `0.0.109-prototype`, commit, and stop for user RED verification**
 
-Expected failure: `SetPlaybackFrame` / `ClearPlaybackFrame` missing or raster request count grows under the old `SetPlaybackPose` path.
+Expected failure: `SetPlaybackFrame` / `ClearPlaybackFrame` missing or raster request count grows under the old `SetPlaybackPose` / resize-render path.
 
 Run:
 
@@ -591,13 +604,40 @@ internal void ClearPlaybackFrame()
 
 Do not call `UpdateRasterChunksForViewport(playbackActive: true)` anywhere on the temporal path.
 
-- [ ] **Step 5: Keep `SetPlaybackPose` behavior explicit and safe**
+- [ ] **Step 5: Guard WPF invalidation/interactions from rebuilding the hidden static scene**
+
+In `LevelViewport.OnRender`, do not maintain the static scene while temporal mode is active:
+
+```csharp
+if (!TemporalPlaybackActive)
+{
+    EnsureSceneCoverage();
+    UpdateStaticSceneTransform();
+}
+DrawPlaybackPlanets(drawingContext);
+```
+
+In `OnRenderSizeChanged`, return after lightweight playback overlay work when temporal mode is active instead of calling `ResetStaticScene()` / `EnsureSceneCoverage()`:
+
+```csharp
+if (TemporalPlaybackActive)
+{
+    RenderPlaybackVisual();
+    return;
+}
+```
+
+Apply the same rule after camera/zoom changes in `OnMouseWheel` and the panning branch of `OnMouseMove`: update `_zoom` / `_camera` normally, but while temporal mode is active do not reset, transform, or ensure the hidden static scene. The next playback frame redraws `_playbackFloorVisual` with the new current camera/zoom.
+
+If `FrameAll()` is callable during playback, guard its static rebuild the same way after it updates camera/zoom.
+
+- [ ] **Step 6: Keep `SetPlaybackPose` behavior explicit and safe**
 
 Refactor the existing method so pose-only callers can still test planets/follow behavior without accidentally entering temporal mode. It may continue the existing static/raster path because no timing map/chart time is available. Add a comment that production playback uses `SetPlaybackFrame`.
 
 Update `PlaybackViewportRegression.VerifyPlaybackPresenterUpdatesAndClearsPose()` to expect the presenter to call the new frame API while preserving the externally visible `PlaybackPose` result.
 
-- [ ] **Step 6: Bump GREEN version to `0.0.110-prototype`, run WPF regressions, and commit**
+- [ ] **Step 7: Bump GREEN version to `0.0.110-prototype`, run WPF regressions, and commit**
 
 Run:
 
@@ -605,12 +645,12 @@ Run:
 dotnet run -c Release --project src\ExtremeEditor.Wpf.Tests
 ```
 
-Expected: routing/lifecycle regression PASS; raster request count remains constant after temporal mode entry; non-dense tests remain green.
+Expected: routing/lifecycle regression PASS; raster request count remains constant after temporal mode entry and through resize; non-dense tests remain green.
 
 Commit:
 
 ```bash
-git add src/ExtremeEditor.Wpf/WpfPlaybackPresenter.cs src/ExtremeEditor.Wpf/LevelViewport.Playback.cs src/ExtremeEditor.Wpf/LevelViewport.TemporalPlayback.cs src/ExtremeEditor.Core/EditorVersion.cs
+git add src/ExtremeEditor.Wpf/WpfPlaybackPresenter.cs src/ExtremeEditor.Wpf/LevelViewport.Playback.cs src/ExtremeEditor.Wpf/LevelViewport.TemporalPlayback.cs src/ExtremeEditor.Wpf/LevelViewport.cs src/ExtremeEditor.Core/EditorVersion.cs
 git commit -m "feat: route dense playback through temporal renderer"
 ```
 
@@ -790,14 +830,17 @@ no resize needed to repair the scene
 sustained fps >= 30
 ```
 
+After the no-resize run, deliberately resize once and wheel-zoom once while playback remains active. `mode` must remain `temporal`, the scene must stay correct, and raster request count must still not increase.
+
 Record the diagnostic line at the worst observed high-speed section. If correctness passes but FPS is still below target, do not add a floor-count cap in this plan; use `temporal`, `visibleFloors`, `temporalDraw`, `rolling`, and actual frame cadence to identify the next bottleneck and design the next optimization separately.
 
 ---
 
 ## Plan self-review notes
 
-- **Spec coverage:** selector, inclusive equal-time handling, current-camera viewport culling, dedicated playback visual, stock floor reuse, same-visual icons, dense routing, stopped-scene restoration, raster suspension, diagnostics, and manual >=30 FPS acceptance all have owning tasks.
+- **Spec coverage:** selector, inclusive equal-time handling, current-camera viewport culling, dedicated playback visual, stock floor reuse, same-visual icons, dense routing, stopped-scene restoration, raster suspension including WPF invalidation/interactions, diagnostics, and manual >=30 FPS acceptance all have owning tasks.
 - **No fixed `max_tile_show`:** intentionally absent per spec; the only reduction is temporal range plus viewport culling.
 - **No raster deletion:** existing chunk code stays for editing/rollback; Task 3 only stops active dense playback from feeding it.
 - **Type consistency:** Task 1 produces `PlaybackFloorRange`/`PlaybackVisibleFloorSelector`; Task 2 consumes them. Task 3 produces `SetPlaybackFrame`/`ClearPlaybackFrame`; presenter and tests consume those exact names. Task 4 consumes the temporal counters from Task 2 and adds one action-floor counter.
+- **Interaction hardening:** Task 3 explicitly guards `OnRender`, resize, zoom, pan, and `FrameAll` while temporal playback owns visible floors, closing the resize-triggered raster-maintenance hole found during self-review.
 - **User TDD gate:** every task explicitly separates RED and GREEN commits/version bumps and requires stopping for local verification between them.
