@@ -234,7 +234,8 @@ public partial class MainWindow : Window
             if (_level is null || _timingMap is null || !_audio.IsLoaded)
             {
                 Viewport.SetPlaybackPose(null);
-                PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+                if (ShouldRefreshPlaybackDiagnostics(started))
+                    PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
                 PlayButton.Content = "Play";
                 return;
             }
@@ -249,9 +250,12 @@ public partial class MainWindow : Window
                 _audio.IsStopped);
 
             LogPlaybackAnomalies(chartTime);
-            PlaybackDiagnosticsText.Text =
-                $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
-                $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
+            if (ShouldRefreshPlaybackDiagnostics(started))
+            {
+                PlaybackDiagnosticsText.Text =
+                    $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
+                    $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
+            }
 
             if (!_audio.IsPlaying)
                 PlayButton.Content = "Play";
