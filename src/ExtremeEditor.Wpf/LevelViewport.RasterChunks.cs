@@ -29,10 +29,15 @@ public sealed partial class LevelViewport
     private void ResetRasterChunks()
     {
         _rasterGeneration++;
-        _rasterChunks.Reset(_rasterGeneration);
+        _rasterChunks.Reset(_rasterGeneration, GetRasterZoomBucket());
         _rasterVisibleMissingChunkCount = 0;
         _rasterPrefetchReadyOrQueuedCount = 0;
         _rasterPlaybackMotion = Vector2.Zero;
+    }
+
+    internal void ShutdownRasterWorker()
+    {
+        _rasterWorker.Dispose();
     }
 
     private void UpdateRasterChunksForViewport(bool playbackActive)
@@ -67,7 +72,7 @@ public sealed partial class LevelViewport
             return;
 
         float chunkWorldSize = RasterChunkPixelSize / Math.Max(_zoom, 0.0001f);
-        int zoomBucket = checked((int)MathF.Round(_zoom * 1000f));
+        int zoomBucket = GetRasterZoomBucket();
 
         WorldRect safety = new(
             viewport.Left - viewport.Width,
@@ -215,6 +220,8 @@ public sealed partial class LevelViewport
             _renderCameraOverride = null;
         }
     }
+
+    private int GetRasterZoomBucket() => checked((int)MathF.Round(_zoom * 1000f));
 
     private static WorldRect Union(WorldRect a, WorldRect b) => new(
         Math.Min(a.Left, b.Left),
