@@ -27,9 +27,10 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
         playback_active = playback_active_;
     }
 
+    const double last_frame_ms = last_frame_ms_.load(std::memory_order_relaxed);
     const auto now = std::chrono::steady_clock::now();
     const std::uint64_t frame_counter = frame_counter_.load(std::memory_order_relaxed);
-    double fps = 0.0;
+    double fps = last_frame_ms > 1e-6 ? 1000.0 / last_frame_ms : 0.0;
     {
         std::lock_guard lock(diagnostics_mutex_);
         if (diagnostics_last_sample_.time_since_epoch().count() != 0)
@@ -42,9 +43,12 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
         diagnostics_last_frame_counter_ = frame_counter;
     }
 
+    diagnostics.reserved = 0u;
     diagnostics.fps = fps;
-    diagnostics.frame_ms = last_frame_ms_.load(std::memory_order_relaxed);
-    diagnostics.max_frame_ms = max_frame_ms_.exchange(0.0, std::memory_order_acq_rel);
+    diagnostics.frame_ms = last_frame_ms;
+    diagnostics.max_frame_ms = std::max(
+        last_frame_ms,
+        max_frame_ms_.exchange(last_frame_ms, std::memory_order_acq_rel));
     diagnostics.render_ms = last_render_ms_.load(std::memory_order_relaxed);
     diagnostics.cull_ms = 0.0;
     diagnostics.visible_candidates = 0;
@@ -83,6 +87,9 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     diagnostics.visible_candidates = static_cast<std::uint32_t>(
         std::min<std::size_t>(candidates.size(), UINT32_MAX));
 
+    // Match the current Direct2D renderer exactly so these counters describe
+    // what is actually submitted today. The upcoming instanced path can replace
+    // this accounting without changing the public diagnostics ABI.
     constexpr std::size_t MaxIndividualDraw = 80000;
     const std::size_t stride = std::max<std::size_t>(
         1,
