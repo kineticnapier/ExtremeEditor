@@ -47,6 +47,26 @@ typedef struct EeRendererCreateInfo
     uint32_t flags;
 } EeRendererCreateInfo;
 
+typedef struct EeFloor
+{
+    float x;
+    float y;
+    float entry_angle;
+    uint32_t geometry_id;
+} EeFloor;
+
+typedef struct EeGeometry
+{
+    uint32_t point_offset;
+    uint32_t point_count;
+} EeGeometry;
+
+typedef struct EePoint
+{
+    float x;
+    float y;
+} EePoint;
+
 EE_RENDERER_API uint32_t ee_renderer_get_api_version(void);
 EE_RENDERER_API EeResult ee_renderer_get_abi_info(EeAbiInfo* info);
 EE_RENDERER_API EeResult ee_renderer_create(
@@ -56,6 +76,19 @@ EE_RENDERER_API EeResult ee_renderer_create(
 EE_RENDERER_API void ee_renderer_destroy(EeRendererHandle renderer);
 EE_RENDERER_API HWND ee_renderer_get_child_hwnd(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t height);
+EE_RENDERER_API EeResult ee_renderer_set_level(
+    EeRendererHandle renderer,
+    const EeFloor* floors,
+    uint32_t floor_count,
+    const EeGeometry* geometries,
+    uint32_t geometry_count,
+    const EePoint* points,
+    uint32_t point_count,
+    float bounds_left,
+    float bounds_top,
+    float bounds_right,
+    float bounds_bottom);
+EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
 
 #ifdef __cplusplus
 }
