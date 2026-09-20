@@ -21,6 +21,12 @@ public partial class MainWindow
 
     public string PlaybackDiagnosticsSnapshot =>
         $"playback-ui fps={PlaybackUiFps:F1} rolling={PlaybackUiRollingMilliseconds:F2}ms max={PlaybackUiMaxMilliseconds:F2}ms " +
+        $"temporal={Viewport.TemporalPlaybackCandidateCount} " +
+        $"visibleFloors={Viewport.TemporalPlaybackVisibleFloorCount} " +
+        $"visibleIcons={Viewport.TemporalPlaybackVisibleIconCount} " +
+        $"visibleActions={Viewport.TemporalPlaybackVisibleActionFloorCount} " +
+        $"temporalDraw={Viewport.TemporalPlaybackDrawMilliseconds:F2}ms " +
+        $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")} " +
         $"chunks req={Viewport.RasterChunkRequestsQueued} done={Viewport.RasterChunkBuildsCompleted} " +
         $"ready={Viewport.RasterReadyChunkCount} pending={Viewport.RasterPendingChunkCount} canceled={Viewport.RasterChunksCanceled} " +
         $"missing={Viewport.RasterVisibleMissingChunkCount} syncDense={Viewport.PlaybackSynchronousRasterBuildCount}";
