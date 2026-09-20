@@ -6,16 +6,20 @@ internal sealed class NativeRendererSession : IDisposable
 {
     private const uint ExpectedApiVersion = 1;
 
+    private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private nint _renderer;
 
     private NativeRendererSession(nint renderer, nint childHwnd)
     {
         _renderer = renderer;
         ChildHwnd = childHwnd;
+        _selectionChangedCallback = OnNativeSelectionChanged;
+        NativeRendererNative.SetSelectionChangedCallback(_renderer, _selectionChangedCallback, nint.Zero);
     }
 
     internal nint ChildHwnd { get; private set; }
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
+    internal event Action<int>? SelectionChanged;
 
     internal static NativeRendererSession Create(nint parentHwnd, uint width, uint height)
     {
@@ -133,12 +137,18 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.FrameAll(_renderer);
     }
 
+    private void OnNativeSelectionChanged(nint userData, int floor)
+    {
+        SelectionChanged?.Invoke(floor);
+    }
+
     public void Dispose()
     {
         nint renderer = _renderer;
         if (renderer == nint.Zero)
             return;
 
+        NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
         NativeRendererNative.Destroy(renderer);
