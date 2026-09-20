@@ -97,4 +97,9 @@ internal static class NativeRendererNative
         nint renderer,
         FollowPlayerChangedCallback? callback,
         nint userData);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_get_diagnostics", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int GetDiagnostics(
+        nint renderer,
+        ref NativeRendererDiagnostics diagnostics);
 }
