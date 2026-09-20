@@ -17,6 +17,9 @@
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
+#define EE_PLAYBACK_TIMING_FLAG_CCW 0x1u
+#define EE_PLAYBACK_FLAG_ACTIVE 0x1u
+#define EE_PLAYBACK_FLAG_PLAYING 0x2u
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +27,7 @@ extern "C" {
 
 typedef void* EeRendererHandle;
 typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor);
+typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
 
 typedef enum EeResult
 {
@@ -74,6 +78,17 @@ typedef struct EePoint
     float y;
 } EePoint;
 
+typedef struct EePlaybackTiming
+{
+    double entry_time;
+    double exit_time;
+    double pause_seconds;
+    float entry_angle;
+    float angle_moved;
+    uint32_t flags;
+    uint32_t reserved;
+} EePlaybackTiming;
+
 EE_RENDERER_API uint32_t ee_renderer_get_api_version(void);
 EE_RENDERER_API EeResult ee_renderer_get_abi_info(EeAbiInfo* info);
 EE_RENDERER_API EeResult ee_renderer_create(
@@ -106,6 +121,20 @@ EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer
 EE_RENDERER_API void ee_renderer_set_selection_changed_callback(
     EeRendererHandle renderer,
     EeSelectionChangedCallback callback,
+    void* user_data);
+EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(
+    EeRendererHandle renderer,
+    const EePlaybackTiming* timings,
+    uint32_t timing_count);
+EE_RENDERER_API void ee_renderer_set_playback_anchor(
+    EeRendererHandle renderer,
+    double chart_time,
+    double chart_rate,
+    uint32_t flags);
+EE_RENDERER_API void ee_renderer_set_follow_player(EeRendererHandle renderer, int32_t enabled);
+EE_RENDERER_API void ee_renderer_set_follow_player_changed_callback(
+    EeRendererHandle renderer,
+    EeFollowPlayerChangedCallback callback,
     void* user_data);
 
 #ifdef __cplusplus
