@@ -119,8 +119,12 @@ public sealed partial class LevelViewport : FrameworkElement
         float zoomY = (float)(availableHeight / Math.Max(1f, bounds.Height));
         _zoom = Math.Clamp(Math.Min(zoomX, zoomY), MinZoom, MaxZoom);
 
-        ResetStaticScene();
-        EnsureSceneCoverage();
+        if (!TemporalPlaybackActive)
+        {
+            ResetStaticScene();
+            EnsureSceneCoverage();
+        }
+
         RenderPlaybackVisual();
         InvalidateVisual();
     }
@@ -135,8 +139,12 @@ public sealed partial class LevelViewport : FrameworkElement
 
         LastCandidateCount = 0;
         LastDrawnCount = 0;
-        EnsureSceneCoverage();
-        UpdateStaticSceneTransform();
+        if (!TemporalPlaybackActive)
+        {
+            EnsureSceneCoverage();
+            UpdateStaticSceneTransform();
+        }
+
         DrawPlaybackPlanets(drawingContext);
     }
 
@@ -145,6 +153,12 @@ public sealed partial class LevelViewport : FrameworkElement
         base.OnRenderSizeChanged(sizeInfo);
         if (_level is null)
             return;
+
+        if (TemporalPlaybackActive)
+        {
+            RenderPlaybackVisual();
+            return;
+        }
 
         ResetStaticScene();
         EnsureSceneCoverage();
@@ -161,8 +175,12 @@ public sealed partial class LevelViewport : FrameworkElement
         Vector2 after = ScreenToWorld(mouse);
         _camera += before - after;
 
-        ResetStaticScene();
-        EnsureSceneCoverage();
+        if (!TemporalPlaybackActive)
+        {
+            ResetStaticScene();
+            EnsureSceneCoverage();
+        }
+
         RenderPlaybackVisual();
         InvalidateVisual();
         e.Handled = true;
@@ -200,8 +218,12 @@ public sealed partial class LevelViewport : FrameworkElement
             _camera -= new Vector2((float)(dx / _zoom), (float)(-dy / _zoom));
             _lastMouse = current;
 
-            UpdateStaticSceneTransform();
-            EnsureSceneCoverage();
+            if (!TemporalPlaybackActive)
+            {
+                UpdateStaticSceneTransform();
+                EnsureSceneCoverage();
+            }
+
             RenderPlaybackVisual();
             e.Handled = true;
         }
