@@ -22,6 +22,7 @@ public sealed partial class LevelViewport
     public int TemporalPlaybackVisibleFloorCount { get; private set; }
     public int TemporalPlaybackVisibleIconCount { get; private set; }
     public int TemporalPlaybackVisibleActionFloorCount { get; private set; }
+    public int TemporalPlaybackLateAdmissionCount { get; private set; }
     public double TemporalPlaybackDrawMilliseconds { get; private set; }
 
     private void RenderTemporalPlaybackFloors(TimingMap timingMap, double chartTime)
@@ -58,8 +59,13 @@ public sealed partial class LevelViewport
             if ((uint)floor >= (uint)positions.Length)
                 continue;
 
-            if (IntersectsPlaybackViewport(positions[floor], retentionViewport, PlaybackCullMarginWorld))
-                _temporalRetainedFloors.Add(floor);
+            Vector2 position = positions[floor];
+            if (!IntersectsPlaybackViewport(position, retentionViewport, PlaybackCullMarginWorld))
+                continue;
+
+            bool newlyAdmitted = _temporalRetainedFloors.Add(floor);
+            if (newlyAdmitted && IntersectsPlaybackViewport(position, viewport, PlaybackCullMarginWorld))
+                TemporalPlaybackLateAdmissionCount++;
         }
 
         _temporalFloorScratch.Clear();
@@ -144,6 +150,7 @@ public sealed partial class LevelViewport
         TemporalPlaybackVisibleFloorCount = 0;
         TemporalPlaybackVisibleIconCount = 0;
         TemporalPlaybackVisibleActionFloorCount = 0;
+        TemporalPlaybackLateAdmissionCount = 0;
         TemporalPlaybackDrawMilliseconds = 0.0;
     }
 }
