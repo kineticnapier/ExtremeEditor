@@ -46,8 +46,6 @@ public sealed partial class LevelViewport : FrameworkElement
                 return;
 
             _selectedFloor = value;
-            ResetStaticScene();
-            EnsureSceneCoverage();
             RenderPlaybackVisual();
             InvalidateVisual();
         }
