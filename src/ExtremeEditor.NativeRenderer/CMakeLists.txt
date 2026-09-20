@@ -31,6 +31,8 @@ target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE
     d3d11
     dxgi
     d2d1
+    windowscodecs
+    ole32
 )
 
 if(MSVC)
