@@ -19,7 +19,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->api_version = EE_RENDERER_API_VERSION;
     info->floor_size = sizeof(EeFloor);
     info->clock_size = sizeof(EePlaybackTiming);
-    info->diagnostics_size = 0u;
+    info->diagnostics_size = sizeof(EeRendererDiagnostics);
     return EE_OK;
 }
 
@@ -199,4 +199,18 @@ void ee_renderer_set_follow_player_changed_callback(
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->SetFollowPlayerChangedCallback(callback, user_data);
+}
+
+EeResult ee_renderer_get_diagnostics(
+    EeRendererHandle renderer,
+    EeRendererDiagnostics* diagnostics)
+{
+    if (renderer == nullptr || diagnostics == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    if (diagnostics->struct_size != sizeof(EeRendererDiagnostics))
+        return EE_ERROR_ABI_MISMATCH;
+
+    return static_cast<ee::Renderer*>(renderer)->GetDiagnostics(*diagnostics)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
 }
