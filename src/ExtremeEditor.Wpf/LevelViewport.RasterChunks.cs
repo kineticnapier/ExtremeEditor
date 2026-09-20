@@ -224,6 +224,7 @@ public sealed partial class LevelViewport
         if (_level is null)
             return;
 
+        Vector2? previousCameraOverride = _renderCameraOverride;
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
@@ -242,7 +243,7 @@ public sealed partial class LevelViewport
         }
         finally
         {
-            _renderCameraOverride = null;
+            _renderCameraOverride = previousCameraOverride;
         }
     }
 
@@ -270,6 +271,7 @@ public sealed partial class LevelViewport
 
     private Rect WorldRectToSceneRect(WorldRect world)
     {
+        Vector2? previousCameraOverride = _renderCameraOverride;
         _renderCameraOverride = _sceneAnchorCamera;
         try
         {
@@ -283,7 +285,7 @@ public sealed partial class LevelViewport
         }
         finally
         {
-            _renderCameraOverride = null;
+            _renderCameraOverride = previousCameraOverride;
         }
     }
 
