@@ -67,6 +67,18 @@ ExtremeEditor already has the main primitives needed for the same strategy:
 
 The existing static/raster renderer remains available for stopped editing and manual navigation. This design changes the active playback path only.
 
+## Playback visibility semantics
+
+This design intentionally changes **which floors belong to the active playback scene**.
+
+Stopped editing remains spatial/static: floors that belong to the editor scene can remain visible regardless of playback time.
+
+Active dense playback becomes time-local: only floors inside the configured playback-time window are eligible for drawing, followed by viewport culling. Floors outside the time window are intentionally absent until they enter it, and floors leave the playback visual after they exit the past window. This is the core ADOPAC-inspired optimization, not a stale-frame or quality fallback.
+
+For floors that are eligible, rendering quality is unchanged: stock mesh shape, tile texture, and applicable icons are drawn at the normal quality. The first implementation does not additionally truncate the eligible set by a fixed floor-count cap.
+
+Stopping playback restores the ordinary editor scene.
+
 ## Architecture
 
 ### 1. Playback temporal selector
@@ -91,7 +103,7 @@ The selector must never scan from floor 0 on every frame.
 It should use the sorted timing data to locate both temporal boundaries with binary search:
 
 ```text
-chartTime - pastWindow  -> first candidate floor
+chartTime - pastWindow   -> first candidate floor
 chartTime + futureWindow -> end candidate floor
 ```
 
@@ -107,7 +119,7 @@ Reason: at 2.64e6 BPM, a fixed `currentFloor +/- K` policy has no stable relatio
 
 The initial constants should be conservative enough that floors do not visibly pop in/out near the viewport during normal Follow Player playback. They must be centralized and testable, not scattered magic numbers.
 
-The first version deliberately does **not** impose a hard `max_tile_show` floor-count truncation. ADOPAC uses such a bound, but ExtremeEditor should first measure whether temporal selection plus screen-space culling is sufficient while preserving the full intended playback floor set.
+The first version deliberately does **not** impose a hard `max_tile_show` floor-count truncation. ADOPAC uses such a bound, but ExtremeEditor should first measure whether temporal selection plus screen-space culling is sufficient while preserving the full time-local playback set.
 
 If the pathological chart still exceeds the frame budget after this architecture is working correctly, a later change may introduce a measured budget/visibility policy with separate user approval.
 
@@ -130,7 +142,21 @@ TimingMap binary search
 
 The margin must account for a floor whose center is just outside the viewport but whose mesh extends onto the screen. The test should cover this boundary condition so the cull itself cannot create clipped floors.
 
-### 4. Playback-only retained visual
+### 4. Playback state handoff
+
+`WpfPlaybackPresenter` already computes chart time and playback pose from audio time. It becomes the bridge into the temporal renderer.
+
+On each playback update it must provide the viewport with:
+
+- the current `PlaybackPose`,
+- current chart time,
+- the current `TimingMap` reference (or an equivalent reference stored once before playback).
+
+The exact method name is an implementation detail, but the contract must avoid recomputing chart time independently in multiple places. One authoritative chart-time calculation should feed both planet pose and temporal floor selection for the same frame.
+
+When transport is stopped, the same handoff clears temporal playback state so the viewport can restore its normal static scene.
+
+### 5. Playback-only retained visual
 
 Add a dedicated retained visual, tentatively `_playbackFloorVisual`, between the normal static scene and the existing planet/selection overlay.
 
@@ -156,7 +182,7 @@ When playback stops:
 
 This keeps playback-state invalidation local. There is no playback floor bitmap cache, no scene-anchor transform, and no raster generation token involved in the new playback visual.
 
-### 5. Floor rendering
+### 6. Floor rendering
 
 The direct playback renderer reuses `WpfFloorRenderer` rather than creating a new appearance implementation.
 
@@ -172,7 +198,7 @@ For each surviving floor:
 
 Selection remains on the existing lightweight overlay and must not force playback floor redraw semantics beyond the normal frame update.
 
-### 6. Icon rendering
+### 7. Icon rendering
 
 Icons are drawn in the same playback floor visual and the same current-camera coordinate system as floors.
 
@@ -182,7 +208,7 @@ The implementation should refactor/share the icon drawing helper if necessary ra
 
 This removes the current dense-raster failure mode where icon coverage can become detached from the camera/scene anchor.
 
-### 7. Playback routing
+### 8. Playback routing
 
 The new renderer is intended to replace raster chunks for **active dense playback**, not for every editor state.
 
@@ -196,17 +222,17 @@ The exact dense threshold can initially reuse `DenseRasterCandidateThreshold` so
 
 During temporal-rendered playback, `PlaybackSynchronousRasterBuildCount` must remain zero and raster request counters should stop increasing because playback is no longer asking the chunk worker to maintain camera-follow coverage.
 
-### 8. No intentional visual degradation
+### 9. No intentional quality degradation inside the eligible set
 
 The first implementation must not introduce:
 
-- dots/overview LOD for nearby playback floors,
+- dots/overview LOD for eligible nearby playback floors,
 - lower-resolution floor textures,
 - stale-frame presentation,
 - blank fallback frames,
-- a fixed floor-count truncation.
+- a fixed floor-count truncation after temporal selection.
 
-The optimization is candidate elimination before draw, not quality reduction of floors that are selected for display.
+The optimization is temporal scene membership plus viewport candidate elimination before draw, not quality reduction of floors that survive those two filters.
 
 ## Diagnostics
 
@@ -216,6 +242,7 @@ Extend playback diagnostics with at least:
 - visible floor draw count,
 - visible icon draw count,
 - temporal selector lower/upper floor indices or selected range size,
+- temporal playback floor-render duration,
 - existing FPS / rolling UI milliseconds / max UI milliseconds.
 
 Keep the current raster counters temporarily so manual testing can verify that active dense playback is no longer producing raster requests.
@@ -224,7 +251,7 @@ Example diagnostic intent:
 
 ```text
 fps=... rolling=...ms max=...ms
-temporal=420 visibleFloors=73 visibleIcons=9
+temporal=420 visibleFloors=73 visibleIcons=9 draw=2.1ms
 rasterReqDelta=0 syncDense=0
 ```
 
@@ -250,6 +277,7 @@ Diagnostics should use counters/properties and must not add per-floor logging.
 
 - Active dense playback uses the temporal playback visual rather than raster chunk composition.
 - Floors and icons use the same current camera transform.
+- Pose and temporal selection use the same chart time for a frame.
 - Stopping playback restores the normal editor scene.
 - No `RenderTargetBitmap.Render()` is introduced into the playback UI path.
 - No background worker synchronization/wait is introduced into the playback UI path.
@@ -268,7 +296,8 @@ The first RED should establish the new architecture without depending on fragile
 2. **Equal-time and boundary correctness**
    - verify lower/upper selection around equal entry times and chart boundaries.
 
-3. **Playback renderer routing**
+3. **Playback state handoff and renderer routing**
+   - presenter supplies one chart time to pose + temporal selection,
    - dense active playback must expose/use a temporal playback-render mode,
    - raster request count must not increase as Follow Player advances through multiple playback poses once temporal mode is active.
 
@@ -298,8 +327,8 @@ Acceptance checks:
 
 1. no window resize is needed to repair the scene,
 2. no WPF render-thread crash,
-3. no persistent missing/corrupted floor regions,
-4. icons remain aligned and visible,
+3. no persistent missing/corrupted floor regions inside the intended time-local playback set,
+4. icons remain aligned and visible for eligible floors,
 5. raster request counters remain effectively unchanged during temporal-rendered dense playback,
 6. `syncDense=0`,
 7. sustained >=30 FPS on the known problematic section,
