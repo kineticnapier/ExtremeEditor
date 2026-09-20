@@ -1,4 +1,5 @@
 #include "native_window.h"
+#include "renderer.h"
 
 #include <mutex>
 
@@ -26,7 +27,7 @@ bool NativeWindow::EnsureWindowClass() noexcept
         window_class.lpfnWndProc = &NativeWindow::WindowProc;
         window_class.hInstance = GetModuleHandleW(nullptr);
         window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        window_class.hbrBackground = nullptr;
         window_class.lpszClassName = WindowClassName;
 
         ATOM atom = RegisterClassExW(&window_class);
@@ -39,12 +40,23 @@ bool NativeWindow::EnsureWindowClass() noexcept
 
 LRESULT CALLBACK NativeWindow::WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept
 {
+    Renderer* owner = reinterpret_cast<Renderer*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (message == WM_NCCREATE)
+    {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        owner = static_cast<Renderer*>(create->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(owner));
+    }
+
+    if (owner != nullptr)
+        return owner->HandleWindowMessage(hwnd, message, wparam, lparam);
+
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
-bool NativeWindow::Create(HWND parent, std::uint32_t width, std::uint32_t height) noexcept
+bool NativeWindow::Create(HWND parent, std::uint32_t width, std::uint32_t height, Renderer* owner) noexcept
 {
-    if (parent == nullptr || !EnsureWindowClass())
+    if (parent == nullptr || owner == nullptr || !EnsureWindowClass())
         return false;
 
     Destroy();
@@ -61,7 +73,7 @@ bool NativeWindow::Create(HWND parent, std::uint32_t width, std::uint32_t height
         parent,
         nullptr,
         GetModuleHandleW(nullptr),
-        nullptr);
+        owner);
 
     return hwnd_ != nullptr;
 }
@@ -71,6 +83,7 @@ void NativeWindow::Destroy() noexcept
     if (hwnd_ == nullptr)
         return;
 
+    SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
     DestroyWindow(hwnd_);
     hwnd_ = nullptr;
 }
