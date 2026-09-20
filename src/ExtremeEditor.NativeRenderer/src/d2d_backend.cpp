@@ -24,6 +24,7 @@ bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height
 
 void D2DBackend::Shutdown() noexcept
 {
+    icon_renderer_.Shutdown();
     floor_renderer_.Shutdown();
     icon_bitmaps_.clear();
     floor_geometries_.clear();
@@ -207,7 +208,9 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     if (FAILED(hr))
         return false;
 
-    return floor_renderer_.Initialize(d3d_device_.Get());
+    if (!floor_renderer_.Initialize(d3d_device_.Get()))
+        return false;
+    return icon_renderer_.Initialize(d3d_device_.Get(), wic_factory_.Get());
 }
 
 bool D2DBackend::CreateTargetBitmap() noexcept
@@ -655,6 +658,8 @@ HRESULT D2DBackend::RenderFrame(
     if (scene != nullptr && !floor_renderer_.SyncGeometry(*scene, scene_version))
         return E_FAIL;
     SyncIconAssets(icon_assets_version);
+    if (!icon_renderer_.SyncAssets(icon_assets, icon_assets_version))
+        return E_FAIL;
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -707,6 +712,24 @@ HRESULT D2DBackend::RenderFrame(
 
         stats.floor_draws = floor_stats.floor_instances;
         stats.draw_calls += floor_stats.draw_calls;
+
+        InstancedIconDrawStats icon_stats;
+        if (!icon_renderer_.Draw(
+                d3d_context_.Get(),
+                render_target_view_.Get(),
+                depth_stencil_view_.Get(),
+                *scene,
+                visible_candidates_,
+                camera_x,
+                camera_y,
+                std::clamp(zoom, 0.05f, 400.0f),
+                width_,
+                height_,
+                icon_stats))
+            return E_FAIL;
+
+        stats.icon_draws = icon_stats.icon_instances;
+        stats.draw_calls += icon_stats.draw_calls;
     }
 
     d2d_context_->BeginDraw();
@@ -714,9 +737,12 @@ HRESULT D2DBackend::RenderFrame(
 
     if (scene != nullptr)
     {
+        // Icons are already drawn by D3D11 with per-floor depth. Passing null here
+        // keeps the legacy Direct2D path available as fallback code without drawing
+        // a second, always-on-top copy.
         DrawSceneOverlays(
             *scene,
-            icon_assets,
+            nullptr,
             camera_x,
             camera_y,
             zoom,
