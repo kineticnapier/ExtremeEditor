@@ -8,6 +8,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/exports.cpp
     src/native_window.cpp
     src/renderer.cpp
+    src/d2d_backend.cpp
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
@@ -23,7 +24,12 @@ target_include_directories(ExtremeEditor.NativeRenderer
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE user32)
+target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE
+    user32
+    d3d11
+    dxgi
+    d2d1
+)
 
 if(MSVC)
     target_compile_options(ExtremeEditor.NativeRenderer PRIVATE /W4 /permissive-)
