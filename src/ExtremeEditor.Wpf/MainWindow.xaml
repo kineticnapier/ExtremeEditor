@@ -17,9 +17,12 @@
             </StatusBarItem>
         </StatusBar>
 
-        <ToolBarTray DockPanel.Dock="Top"
-                     Background="#1A1D22">
-            <ToolBar Background="#1A1D22"
+        <ToolBarTray x:Name="TopToolBarTray"
+                     DockPanel.Dock="Top"
+                     Background="#1A1D22"
+                     IsLocked="True">
+            <ToolBar Band="0"
+                     Background="#1A1D22"
                      Foreground="#DCDCE6">
                 <Button Content="Open"
                         Command="{x:Static local:EditorCommands.Open}" />
@@ -39,10 +42,6 @@
                               IsChecked="True"
                               Checked="HitSoundsToggleChanged"
                               Unchecked="HitSoundsToggleChanged" />
-                <TextBlock x:Name="PlaybackText"
-                           Text="--:--.---"
-                           Margin="8,0"
-                           VerticalAlignment="Center" />
                 <Separator />
                 <Button Content="-15°"
                         Command="{x:Static local:EditorCommands.RotateLeft}"
@@ -66,6 +65,21 @@
                 <Separator />
                 <Button Content="Benchmark viewport"
                         IsEnabled="False" />
+            </ToolBar>
+
+            <ToolBar x:Name="PlaybackDiagnosticsBar"
+                     Band="1"
+                     Background="#1A1D22"
+                     Foreground="#DCDCE6">
+                <TextBlock x:Name="PlaybackDiagnosticsText"
+                           Text="A --:--.--- | C -- | playback diagnostics"
+                           Width="{Binding ActualWidth, ElementName=TopToolBarTray}"
+                           Margin="8,2"
+                           FontFamily="Consolas"
+                           FontSize="11"
+                           Foreground="#DCDCE6"
+                           TextWrapping="Wrap"
+                           ToolBar.OverflowMode="Never" />
             </ToolBar>
         </ToolBarTray>
 
