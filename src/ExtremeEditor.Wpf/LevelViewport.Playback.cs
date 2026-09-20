@@ -52,7 +52,8 @@ public sealed partial class LevelViewport
 
             if (StaticSceneRasterCacheActive)
             {
-                DrainCompletedRasterChunks();
+                // Update the desired streaming window before accepting worker completions,
+                // so obsolete chunks cannot re-enter the retained scene.
                 UpdateRasterChunksForViewport(playbackActive: true);
             }
             else
