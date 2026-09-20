@@ -1,11 +1,13 @@
 #pragma once
 
+#include "level_scene.h"
 #include "native_window.h"
 
 #include <windows.h>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -21,6 +23,8 @@ public:
 
     bool Initialize(HWND parent, std::uint32_t width, std::uint32_t height) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
+    bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
+    void FrameAll() noexcept;
 
     [[nodiscard]] HWND ChildHwnd() const noexcept { return window_.Handle(); }
 
@@ -39,5 +43,12 @@ private:
     std::condition_variable initialize_cv_;
     bool initialize_complete_ = false;
     bool initialize_success_ = false;
+
+    std::mutex scene_mutex_;
+    std::shared_ptr<LevelScene> scene_;
+    float camera_x_ = 0.0f;
+    float camera_y_ = 0.0f;
+    float zoom_ = 28.0f;
+    std::uint64_t scene_version_ = 0;
 };
 }
