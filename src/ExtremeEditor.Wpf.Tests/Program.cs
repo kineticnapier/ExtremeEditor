@@ -28,7 +28,8 @@ internal static class Program
             RasterSceneRebaseRegression.Run();
             PlaybackRasterPrefetchRegression.Run();
             PlaybackDiagnosticsRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics, and performance regressions are valid.");
+            TemporalPlaybackRenderingRegression.Run();
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics, temporal playback rendering, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
