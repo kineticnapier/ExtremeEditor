@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace ee
 {
@@ -22,15 +23,19 @@ bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height
 
 void D2DBackend::Shutdown() noexcept
 {
+    icon_bitmaps_.clear();
     floor_geometries_.clear();
     visible_candidates_.clear();
     cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
+    cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
     ReleaseTargetBitmap();
+    selection_brush_.Reset();
     floor_edge_brush_.Reset();
     floor_brush_.Reset();
     border_brush_.Reset();
     accent_brush_.Reset();
     grid_brush_.Reset();
+    wic_factory_.Reset();
     d2d_context_.Reset();
     d2d_device_.Reset();
     d2d_factory_.Reset();
@@ -132,6 +137,14 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     if (FAILED(hr))
         return false;
 
+    hr = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(wic_factory_.GetAddressOf()));
+    if (FAILED(hr))
+        return false;
+
     if (!CreateTargetBitmap())
         return false;
 
@@ -162,6 +175,12 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     hr = d2d_context_->CreateSolidColorBrush(
         D2D1::ColorF(0x181612, 0.48f),
         floor_edge_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0xFFD250),
+        selection_brush_.GetAddressOf());
     return SUCCEEDED(hr);
 }
 
@@ -262,7 +281,133 @@ bool D2DBackend::SyncSceneGeometry(const LevelScene* scene, std::uint64_t scene_
     return true;
 }
 
-void D2DBackend::DrawScene(const LevelScene& scene, float camera_x, float camera_y, float zoom) noexcept
+void D2DBackend::SyncIconAssets(std::uint64_t icon_assets_version) noexcept
+{
+    if (cached_icon_assets_version_ == icon_assets_version)
+        return;
+
+    icon_bitmaps_.clear();
+    cached_icon_assets_version_ = icon_assets_version;
+}
+
+ComPtr<ID2D1Bitmap1> D2DBackend::LoadBitmap(const std::wstring& path) noexcept
+{
+    ComPtr<ID2D1Bitmap1> bitmap;
+    if (path.empty() || !wic_factory_ || !d2d_context_)
+        return bitmap;
+
+    ComPtr<IWICBitmapDecoder> decoder;
+    HRESULT hr = wic_factory_->CreateDecoderFromFilename(
+        path.c_str(),
+        nullptr,
+        GENERIC_READ,
+        WICDecodeMetadataCacheOnLoad,
+        decoder.GetAddressOf());
+    if (FAILED(hr))
+        return bitmap;
+
+    ComPtr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, frame.GetAddressOf());
+    if (FAILED(hr))
+        return bitmap;
+
+    ComPtr<IWICFormatConverter> converter;
+    hr = wic_factory_->CreateFormatConverter(converter.GetAddressOf());
+    if (FAILED(hr))
+        return bitmap;
+
+    hr = converter->Initialize(
+        frame.Get(),
+        GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone,
+        nullptr,
+        0.0,
+        WICBitmapPaletteTypeCustom);
+    if (FAILED(hr))
+        return bitmap;
+
+    hr = d2d_context_->CreateBitmapFromWicBitmap(
+        converter.Get(),
+        nullptr,
+        bitmap.GetAddressOf());
+    if (FAILED(hr))
+        bitmap.Reset();
+
+    return bitmap;
+}
+
+D2DBackend::IconBitmapSet* D2DBackend::GetIconBitmaps(
+    std::uint32_t icon_id,
+    const IconAssetTable* icon_assets) noexcept
+{
+    if (icon_assets == nullptr)
+        return nullptr;
+
+    IconBitmapSet& cached = icon_bitmaps_[icon_id];
+    if (cached.attempted)
+        return &cached;
+
+    cached.attempted = true;
+    const auto found = icon_assets->find(icon_id);
+    if (found == icon_assets->end())
+        return &cached;
+
+    cached.image = LoadBitmap(found->second.image_path);
+    if (!found->second.outline_path.empty())
+        cached.outline = LoadBitmap(found->second.outline_path);
+    return &cached;
+}
+
+void D2DBackend::DrawBitmapCentered(
+    ID2D1Bitmap1* bitmap,
+    float center_x,
+    float center_y,
+    float requested_size,
+    float angle_radians,
+    bool flipped) noexcept
+{
+    if (bitmap == nullptr)
+        return;
+
+    const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
+    const std::uint32_t max_dimension = std::max(pixels.width, pixels.height);
+    if (max_dimension == 0)
+        return;
+
+    const float size = std::clamp(requested_size, 10.0f, 96.0f);
+    const float scale = size / static_cast<float>(max_dimension);
+    const float draw_width = static_cast<float>(pixels.width) * scale;
+    const float draw_height = static_cast<float>(pixels.height) * scale;
+    const float cosine = std::cos(angle_radians);
+    const float sine = std::sin(angle_radians);
+    const float flip_x = flipped ? -1.0f : 1.0f;
+
+    d2d_context_->SetTransform(D2D1::Matrix3x2F(
+        flip_x * cosine,
+        flip_x * sine,
+        -sine,
+        cosine,
+        center_x,
+        center_y));
+
+    d2d_context_->DrawBitmap(
+        bitmap,
+        D2D1::RectF(
+            -draw_width * 0.5f,
+            -draw_height * 0.5f,
+            draw_width * 0.5f,
+            draw_height * 0.5f),
+        1.0f,
+        D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+}
+
+void D2DBackend::DrawScene(
+    const LevelScene& scene,
+    const IconAssetTable* icon_assets,
+    float camera_x,
+    float camera_y,
+    float zoom,
+    std::int32_t selected_floor) noexcept
 {
     zoom = std::clamp(zoom, 0.05f, 400.0f);
     const float half_width = static_cast<float>(width_) * 0.5f / zoom;
@@ -288,12 +433,14 @@ void D2DBackend::DrawScene(const LevelScene& scene, float camera_x, float camera
 
     const float edge_pixels = std::clamp(zoom * 0.022f, 1.0f, 5.0f);
     const float edge_world = edge_pixels / zoom;
+    const float selection_world = 2.0f / zoom;
     const float screen_center_x = static_cast<float>(width_) * 0.5f;
     const float screen_center_y = static_cast<float>(height_) * 0.5f;
 
     for (std::size_t candidate_index = 0; candidate_index < visible_candidates_.size(); candidate_index += stride)
     {
-        const EeFloor& floor = scene.floors[visible_candidates_[candidate_index]];
+        const std::uint32_t floor_index = visible_candidates_[candidate_index];
+        const EeFloor& floor = scene.floors[floor_index];
         if (floor.geometry_id >= floor_geometries_.size())
             continue;
 
@@ -302,18 +449,58 @@ void D2DBackend::DrawScene(const LevelScene& scene, float camera_x, float camera
         const float cosine = std::cos(floor.entry_angle);
         const float sine = std::sin(floor.entry_angle);
 
-        const D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F(
+        d2d_context_->SetTransform(D2D1::Matrix3x2F(
             zoom * cosine,
             -zoom * sine,
             -zoom * sine,
             -zoom * cosine,
             center_x,
-            center_y);
+            center_y));
 
-        d2d_context_->SetTransform(transform);
         ID2D1PathGeometry* geometry = floor_geometries_[floor.geometry_id].Get();
         d2d_context_->FillGeometry(geometry, floor_brush_.Get());
         d2d_context_->DrawGeometry(geometry, floor_edge_brush_.Get(), edge_world);
+        if (selected_floor >= 0 && floor_index == static_cast<std::uint32_t>(selected_floor))
+            d2d_context_->DrawGeometry(geometry, selection_brush_.Get(), selection_world);
+    }
+
+    if (zoom >= 12.0f && icon_assets != nullptr)
+    {
+        for (std::size_t candidate_index = 0; candidate_index < visible_candidates_.size(); candidate_index += stride)
+        {
+            const EeFloor& floor = scene.floors[visible_candidates_[candidate_index]];
+            if (floor.icon_id == EE_ICON_NONE)
+                continue;
+
+            IconBitmapSet* bitmaps = GetIconBitmaps(floor.icon_id, icon_assets);
+            if (bitmaps == nullptr || !bitmaps->image)
+                continue;
+
+            const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
+            const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
+            const bool is_floor_icon = (floor.icon_flags & EE_ICON_FLAG_FLOOR) != 0;
+            const bool flipped = (floor.icon_flags & EE_ICON_FLAG_FLIPPED) != 0;
+            const float size = zoom * (is_floor_icon ? 0.78f : 0.62f);
+
+            if (is_floor_icon && bitmaps->outline)
+            {
+                DrawBitmapCentered(
+                    bitmaps->outline.Get(),
+                    center_x,
+                    center_y,
+                    size * 1.04f,
+                    floor.icon_angle,
+                    flipped);
+            }
+
+            DrawBitmapCentered(
+                bitmaps->image.Get(),
+                center_x,
+                center_y,
+                size,
+                floor.icon_angle,
+                flipped);
+        }
     }
 
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -323,15 +510,19 @@ HRESULT D2DBackend::RenderFrame(
     double seconds,
     const LevelScene* scene,
     std::uint64_t scene_version,
+    const IconAssetTable* icon_assets,
+    std::uint64_t icon_assets_version,
     float camera_x,
     float camera_y,
-    float zoom) noexcept
+    float zoom,
+    std::int32_t selected_floor) noexcept
 {
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_)
         return E_FAIL;
 
     if (!SyncSceneGeometry(scene, scene_version))
         return E_FAIL;
+    SyncIconAssets(icon_assets_version);
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -357,7 +548,7 @@ HRESULT D2DBackend::RenderFrame(
 
     if (scene != nullptr)
     {
-        DrawScene(*scene, camera_x, camera_y, zoom);
+        DrawScene(*scene, icon_assets, camera_x, camera_y, zoom, selected_floor);
     }
     else
     {
