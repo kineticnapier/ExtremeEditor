@@ -5,7 +5,9 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <vector>
 
