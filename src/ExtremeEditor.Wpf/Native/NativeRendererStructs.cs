@@ -20,3 +20,26 @@ internal struct NativeRendererCreateInfo
     public uint Height;
     public uint Flags;
 }
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeFloor
+{
+    public float X;
+    public float Y;
+    public float EntryAngle;
+    public uint GeometryId;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeGeometry
+{
+    public uint PointOffset;
+    public uint PointCount;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativePoint
+{
+    public float X;
+    public float Y;
+}
