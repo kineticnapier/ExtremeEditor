@@ -65,6 +65,22 @@ internal struct NativePlaybackTiming
     public uint Reserved;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeRendererDiagnostics
+{
+    public uint StructSize;
+    public uint Reserved;
+    public double Fps;
+    public double FrameMilliseconds;
+    public double MaxFrameMilliseconds;
+    public double RenderMilliseconds;
+    public double CullMilliseconds;
+    public uint VisibleCandidates;
+    public uint FloorDraws;
+    public uint IconDraws;
+    public uint DrawCalls;
+}
+
 internal sealed record NativeIconAsset(
     uint Id,
     string ImagePath,
