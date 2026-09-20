@@ -86,15 +86,12 @@ private:
     std::chrono::steady_clock::time_point playback_anchor_steady_{};
 
     std::atomic_uint64_t frame_counter_{0};
-    std::atomic<double> native_fps_{0.0};
     std::atomic<double> last_frame_ms_{0.0};
     std::atomic<double> max_frame_ms_{0.0};
     std::atomic<double> last_render_ms_{0.0};
-    std::atomic<double> last_cull_ms_{0.0};
-    std::atomic_uint32_t visible_candidates_{0};
-    std::atomic_uint32_t floor_draws_{0};
-    std::atomic_uint32_t icon_draws_{0};
-    std::atomic_uint32_t draw_calls_{0};
+    mutable std::mutex diagnostics_mutex_;
+    std::uint64_t diagnostics_last_frame_counter_ = 0;
+    std::chrono::steady_clock::time_point diagnostics_last_sample_{};
 
     bool panning_ = false;
     UINT pan_button_ = 0;
