@@ -57,7 +57,9 @@ public partial class MainWindow : Window
         FollowPlayerToggle.Checked += FollowPlayerToggleChanged;
         FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
         Viewport.FollowPlayerChanged += ViewportFollowPlayerChanged;
+        NativeViewport.FollowPlayerChanged += NativeViewportFollowPlayerChanged;
         Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
+        NativeViewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
         NativeViewport.SelectedFloorChanged += NativeViewportSelectedFloorChanged;
 
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
@@ -68,6 +70,7 @@ public partial class MainWindow : Window
         _level = level;
         Viewport.SetLevel(level, index);
         NativeViewport.SetLevel(level);
+        NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
 
         StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | synthetic 4096-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -78,6 +81,7 @@ public partial class MainWindow : Window
         _playbackTimer.Stop();
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
         Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
+        NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
         NativeViewport.SelectedFloorChanged -= NativeViewportSelectedFloorChanged;
         Viewport.ShutdownRasterWorker();
         _audio.Dispose();
@@ -130,6 +134,7 @@ public partial class MainWindow : Window
             _hitSoundTimeline = playback.HitSoundTimeline;
             Viewport.SetLevel(loaded.Document, loaded.Index);
             NativeViewport.SetLevel(loaded.Document);
+            NativeViewport.SetPlaybackTimeline(playback.TimingMap);
             totalWatch.Stop();
 
             StatusText.Text =
@@ -225,6 +230,7 @@ public partial class MainWindow : Window
     {
         _audio.Stop();
         Viewport.SetPlaybackPose(null);
+        NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
         CommandManager.InvalidateRequerySuggested();
@@ -238,6 +244,7 @@ public partial class MainWindow : Window
             if (_level is null || _timingMap is null || !_audio.IsLoaded)
             {
                 Viewport.SetPlaybackPose(null);
+                NativeViewport.ClearPlayback();
                 if (ShouldRefreshPlaybackDiagnostics(started))
                     PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
                 PlayButton.Content = "Play";
@@ -252,6 +259,13 @@ public partial class MainWindow : Window
                 _timingMap,
                 audioSeconds,
                 _audio.IsStopped);
+
+            double chartRate = Math.Max(0.000001, _level.PitchPercent * 0.01);
+            NativeViewport.SetPlaybackState(
+                chartTime,
+                chartRate,
+                active: !_audio.IsStopped,
+                playing: _audio.IsPlaying);
 
             LogPlaybackAnomalies(chartTime);
             if (ShouldRefreshPlaybackDiagnostics(started))
@@ -290,12 +304,23 @@ public partial class MainWindow : Window
 
     private void FollowPlayerToggleChanged(object sender, RoutedEventArgs e)
     {
-        Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
+        bool enabled = FollowPlayerToggle.IsChecked == true;
+        Viewport.FollowPlayer = enabled;
+        NativeViewport.FollowPlayer = enabled;
     }
 
     private void ViewportFollowPlayerChanged(object? sender, EventArgs e)
     {
-        FollowPlayerToggle.IsChecked = Viewport.FollowPlayer;
+        bool enabled = Viewport.FollowPlayer;
+        FollowPlayerToggle.IsChecked = enabled;
+        NativeViewport.FollowPlayer = enabled;
+    }
+
+    private void NativeViewportFollowPlayerChanged(bool enabled)
+    {
+        NativeViewport.FollowPlayer = enabled;
+        Viewport.FollowPlayer = enabled;
+        FollowPlayerToggle.IsChecked = enabled;
     }
 
     private void NativeViewportSelectedFloorChanged(int floor)
@@ -310,7 +335,7 @@ public partial class MainWindow : Window
         Viewport.Visibility = useNative ? Visibility.Collapsed : Visibility.Visible;
 
         StatusText.Text = useNative
-            ? $"Native Direct2D/D3D11 floor viewport | {EditorVersion.Current} | independent native render thread"
+            ? $"Native Direct2D/D3D11 playback viewport | {EditorVersion.Current} | independent native render thread"
             : $"WPF viewport | {EditorVersion.Current}";
     }
 }
