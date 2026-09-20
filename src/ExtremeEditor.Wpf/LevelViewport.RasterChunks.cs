@@ -9,6 +9,7 @@ public sealed partial class LevelViewport
 {
     private const int RasterChunkPixelSize = 512;
     private const float RasterPrefetchViewportCount = 3f;
+    private const float RasterSceneRebaseViewportCount = 2f;
 
     private readonly RasterChunkCache _rasterChunks = new();
     private readonly RasterChunkWorker _rasterWorker = new();
@@ -50,7 +51,9 @@ public sealed partial class LevelViewport
         if (_level is null || _index is null || !StaticSceneRasterCacheActive || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
-        bool readyEvicted = QueueVisibleAndPrefetchChunks(GetViewportWorldRect(), playbackActive);
+        MaybeRebaseRasterScene();
+        WorldRect viewport = GetViewportWorldRect();
+        bool readyEvicted = QueueVisibleAndPrefetchChunks(viewport, playbackActive);
         bool completed = DrainCompletedRasterChunks(rebuildVisuals: false);
         if (readyEvicted || completed)
             RebuildRasterChunkVisuals();
@@ -200,6 +203,22 @@ public sealed partial class LevelViewport
         return evictedReady > 0;
     }
 
+    private void MaybeRebaseRasterScene()
+    {
+        double xPixels = Math.Abs((_camera.X - _sceneAnchorCamera.X) * _zoom);
+        double yPixels = Math.Abs((_camera.Y - _sceneAnchorCamera.Y) * _zoom);
+        if (xPixels <= ActualWidth * RasterSceneRebaseViewportCount &&
+            yPixels <= ActualHeight * RasterSceneRebaseViewportCount)
+        {
+            return;
+        }
+
+        _sceneAnchorCamera = _camera;
+        _sceneTranslate.X = 0.0;
+        _sceneTranslate.Y = 0.0;
+        RebuildRasterChunkVisuals();
+    }
+
     private void RebuildRasterChunkVisuals()
     {
         if (_level is null)
@@ -212,16 +231,41 @@ public sealed partial class LevelViewport
             foreach (RasterChunkKey key in _rasterChunks.GetReadyKeys())
             {
                 if (_rasterChunks.TryGetReady(key, out RasterChunkResult? result) && result is not null)
-                    dc.DrawImage(result.Bitmap, result.ScreenRect);
+                {
+                    Rect screenRect = WorldRectToSceneRect(GetRasterChunkWorldRect(key));
+                    dc.DrawImage(result.Bitmap, screenRect);
+                }
             }
 
             if (StaticSceneIconsEnabled)
-                DrawMeshPreviewIcons(dc, _sceneCoverage);
+                DrawMeshPreviewIcons(dc, GetRasterIconCoverage());
         }
         finally
         {
             _renderCameraOverride = null;
         }
+    }
+
+    private WorldRect GetRasterIconCoverage()
+    {
+        WorldRect viewport = GetViewportWorldRect();
+        float marginX = Math.Max(2f, viewport.Width * 0.5f);
+        float marginY = Math.Max(2f, viewport.Height * 0.5f);
+        return new WorldRect(
+            viewport.Left - marginX,
+            viewport.Top - marginY,
+            viewport.Right + marginX,
+            viewport.Bottom + marginY);
+    }
+
+    private WorldRect GetRasterChunkWorldRect(RasterChunkKey key)
+    {
+        float chunkWorldSize = RasterChunkPixelSize / Math.Max(_zoom, 0.0001f);
+        return new WorldRect(
+            key.X * chunkWorldSize,
+            key.Y * chunkWorldSize,
+            (key.X + 1) * chunkWorldSize,
+            (key.Y + 1) * chunkWorldSize);
     }
 
     private Rect WorldRectToSceneRect(WorldRect world)
