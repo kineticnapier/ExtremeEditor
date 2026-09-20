@@ -2,6 +2,7 @@
 
 #include "floor_instanced_renderer.h"
 #include "icon_assets.h"
+#include "icon_instanced_renderer.h"
 #include "level_scene.h"
 
 #include <windows.h>
@@ -143,6 +144,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
 
     FloorInstancedRenderer floor_renderer_;
+    IconInstancedRenderer icon_renderer_;
     std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> floor_geometries_;
     std::vector<std::uint32_t> visible_candidates_;
     std::unordered_map<std::uint32_t, IconBitmapSet> icon_bitmaps_;
