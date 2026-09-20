@@ -23,6 +23,7 @@ extern "C" {
 #endif
 
 typedef void* EeRendererHandle;
+typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor);
 
 typedef enum EeResult
 {
@@ -102,6 +103,10 @@ EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     const wchar_t* image_path,
     const wchar_t* outline_path);
 EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer);
+EE_RENDERER_API void ee_renderer_set_selection_changed_callback(
+    EeRendererHandle renderer,
+    EeSelectionChangedCallback callback,
+    void* user_data);
 
 #ifdef __cplusplus
 }
