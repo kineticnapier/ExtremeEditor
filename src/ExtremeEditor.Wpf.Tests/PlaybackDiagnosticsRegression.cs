@@ -12,6 +12,36 @@ internal static class PlaybackDiagnosticsRegression
         RequireProperty(type, "PlaybackUiRollingMilliseconds", typeof(double));
         RequireProperty(type, "PlaybackUiMaxMilliseconds", typeof(double));
         RequireProperty(type, "PlaybackDiagnosticsSnapshot", typeof(string));
+        VerifySnapshotIncludesTemporalFields();
+    }
+
+    private static void VerifySnapshotIncludesTemporalFields()
+    {
+        var window = new MainWindow();
+        try
+        {
+            string snapshot = window.PlaybackDiagnosticsSnapshot;
+            string[] required =
+            [
+                "temporal=",
+                "visibleFloors=",
+                "visibleIcons=",
+                "visibleActions=",
+                "temporalDraw=",
+                "mode="
+            ];
+
+            foreach (string token in required)
+            {
+                if (!snapshot.Contains(token, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"Playback diagnostics snapshot is missing '{token}'. snapshot='{snapshot}'.");
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static void RequireProperty(Type type, string name, Type propertyType)
