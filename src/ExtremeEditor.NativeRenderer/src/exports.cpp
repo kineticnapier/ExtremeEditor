@@ -18,7 +18,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
 
     info->api_version = EE_RENDERER_API_VERSION;
     info->floor_size = sizeof(EeFloor);
-    info->clock_size = 0u;
+    info->clock_size = sizeof(EePlaybackTiming);
     info->diagnostics_size = 0u;
     return EE_OK;
 }
@@ -161,4 +161,42 @@ void ee_renderer_set_selection_changed_callback(
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->SetSelectionChangedCallback(callback, user_data);
+}
+
+EeResult ee_renderer_set_playback_timeline(
+    EeRendererHandle renderer,
+    const EePlaybackTiming* timings,
+    uint32_t timing_count)
+{
+    if (renderer == nullptr || (timing_count > 0 && timings == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetPlaybackTimeline(timings, timing_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
+void ee_renderer_set_playback_anchor(
+    EeRendererHandle renderer,
+    double chart_time,
+    double chart_rate,
+    uint32_t flags)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetPlaybackAnchor(chart_time, chart_rate, flags);
+}
+
+void ee_renderer_set_follow_player(EeRendererHandle renderer, int32_t enabled)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetFollowPlayer(enabled != 0);
+}
+
+void ee_renderer_set_follow_player_changed_callback(
+    EeRendererHandle renderer,
+    EeFollowPlayerChangedCallback callback,
+    void* user_data)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetFollowPlayerChangedCallback(callback, user_data);
 }
