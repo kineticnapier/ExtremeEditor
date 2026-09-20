@@ -29,6 +29,9 @@ void D2DBackend::Shutdown() noexcept
     cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
     cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
     ReleaseTargetBitmap();
+    planet_outline_brush_.Reset();
+    planet_blue_brush_.Reset();
+    planet_red_brush_.Reset();
     selection_brush_.Reset();
     floor_edge_brush_.Reset();
     floor_brush_.Reset();
@@ -181,6 +184,24 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     hr = d2d_context_->CreateSolidColorBrush(
         D2D1::ColorF(0xFFD250),
         selection_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0xEB4848),
+        planet_red_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0x488EEB),
+        planet_blue_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0xF5F5FA, 0.86f),
+        planet_outline_brush_.GetAddressOf());
     return SUCCEEDED(hr);
 }
 
@@ -506,6 +527,43 @@ void D2DBackend::DrawScene(
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
 }
 
+void D2DBackend::DrawPlaybackPlanets(
+    const PlaybackVisualState& playback,
+    float camera_x,
+    float camera_y,
+    float zoom) noexcept
+{
+    if (!playback.active)
+        return;
+
+    zoom = std::clamp(zoom, 0.05f, 400.0f);
+    const float center_x = static_cast<float>(width_) * 0.5f;
+    const float center_y = static_cast<float>(height_) * 0.5f;
+    const float radius = std::clamp(zoom * 0.28f, 6.0f, 28.0f);
+
+    const D2D1_POINT_2F stationary = D2D1::Point2F(
+        (playback.stationary_x - camera_x) * zoom + center_x,
+        (camera_y - playback.stationary_y) * zoom + center_y);
+    const D2D1_POINT_2F orbiting = D2D1::Point2F(
+        (playback.orbiting_x - camera_x) * zoom + center_x,
+        (camera_y - playback.orbiting_y) * zoom + center_y);
+
+    ID2D1SolidColorBrush* stationary_brush = playback.stationary_is_red
+        ? planet_red_brush_.Get()
+        : planet_blue_brush_.Get();
+    ID2D1SolidColorBrush* orbiting_brush = playback.stationary_is_red
+        ? planet_blue_brush_.Get()
+        : planet_red_brush_.Get();
+
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+    const D2D1_ELLIPSE stationary_ellipse = D2D1::Ellipse(stationary, radius, radius);
+    const D2D1_ELLIPSE orbiting_ellipse = D2D1::Ellipse(orbiting, radius, radius);
+    d2d_context_->FillEllipse(stationary_ellipse, stationary_brush);
+    d2d_context_->DrawEllipse(stationary_ellipse, planet_outline_brush_.Get(), 1.5f);
+    d2d_context_->FillEllipse(orbiting_ellipse, orbiting_brush);
+    d2d_context_->DrawEllipse(orbiting_ellipse, planet_outline_brush_.Get(), 1.5f);
+}
+
 HRESULT D2DBackend::RenderFrame(
     double seconds,
     const LevelScene* scene,
@@ -515,7 +573,8 @@ HRESULT D2DBackend::RenderFrame(
     float camera_x,
     float camera_y,
     float zoom,
-    std::int32_t selected_floor) noexcept
+    std::int32_t selected_floor,
+    const PlaybackVisualState& playback) noexcept
 {
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_)
         return E_FAIL;
@@ -549,6 +608,7 @@ HRESULT D2DBackend::RenderFrame(
     if (scene != nullptr)
     {
         DrawScene(*scene, icon_assets, camera_x, camera_y, zoom, selected_floor);
+        DrawPlaybackPlanets(playback, camera_x, camera_y, zoom);
     }
     else
     {
