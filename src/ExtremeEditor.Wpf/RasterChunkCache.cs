@@ -22,6 +22,8 @@ internal sealed class RasterChunkCache
 
     public long CurrentGeneration { get; private set; }
     public int? CurrentZoomBucket => _currentZoomBucket;
+    public int PendingCount => _pending.Count;
+    public int ReadyCount => _ready.Count;
 
     public void Reset(long generation)
     {
@@ -55,8 +57,9 @@ internal sealed class RasterChunkCache
             return false;
         if (!result.Bitmap.IsFrozen)
             return false;
+        if (!_pending.Remove(result.Key))
+            return false;
 
-        _pending.Remove(result.Key);
         _ready[result.Key] = result;
         return true;
     }
@@ -70,6 +73,40 @@ internal sealed class RasterChunkCache
         }
 
         return _ready.TryGetValue(key, out result);
+    }
+
+    public int EvictReadyOutside(IReadOnlySet<RasterChunkKey> desiredKeys)
+    {
+        ArgumentNullException.ThrowIfNull(desiredKeys);
+
+        int evicted = 0;
+        foreach (RasterChunkKey key in _ready.Keys.ToArray())
+        {
+            if (desiredKeys.Contains(key))
+                continue;
+
+            _ready.Remove(key);
+            evicted++;
+        }
+
+        return evicted;
+    }
+
+    public int EvictPendingOutside(IReadOnlySet<RasterChunkKey> desiredKeys)
+    {
+        ArgumentNullException.ThrowIfNull(desiredKeys);
+
+        int evicted = 0;
+        foreach (RasterChunkKey key in _pending.ToArray())
+        {
+            if (desiredKeys.Contains(key))
+                continue;
+
+            _pending.Remove(key);
+            evicted++;
+        }
+
+        return evicted;
     }
 
     public IReadOnlyList<RasterChunkKey> GetReadyKeys() => _ready.Keys.ToArray();
