@@ -61,6 +61,15 @@ public sealed class NativeLevelViewport : HwndHost
         _session?.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
     }
 
+    internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
+    {
+        if (_session is not null)
+            return _session.TryGetDiagnostics(out diagnostics);
+
+        diagnostics = default;
+        return false;
+    }
+
     public void FrameAll()
     {
         if (_session is null)
