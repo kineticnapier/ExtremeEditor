@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
@@ -24,6 +25,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        _playbackDiagnosticLogger = new PlaybackDiagnosticLogger(
+            Console.Out,
+            Path.Combine(Environment.CurrentDirectory, "playback-diagnostics.log"));
+        CompositionTarget.Rendering += PlaybackCompositionRendering;
 
         Title = $"ExtremeEditor {EditorVersion.Current} — WPF";
 
@@ -68,9 +74,11 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _playbackTimer.Stop();
+        CompositionTarget.Rendering -= PlaybackCompositionRendering;
         Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
         Viewport.ShutdownRasterWorker();
         _audio.Dispose();
+        _playbackDiagnosticLogger.Dispose();
         base.OnClosed(e);
     }
 
@@ -240,6 +248,7 @@ public partial class MainWindow : Window
                 audioSeconds,
                 _audio.IsStopped);
 
+            LogPlaybackAnomalies(chartTime);
             PlaybackDiagnosticsText.Text =
                 $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
                 $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
