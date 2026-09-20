@@ -6,12 +6,14 @@
 
 #include <windows.h>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace ee
 {
@@ -30,6 +32,10 @@ public:
     void ClearIconAssets() noexcept;
     bool SetIconAsset(std::uint32_t icon_id, const wchar_t* image_path, const wchar_t* outline_path) noexcept;
     void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
+    bool SetPlaybackTimeline(const EePlaybackTiming* timings, std::uint32_t timing_count) noexcept;
+    void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
+    void SetFollowPlayer(bool enabled) noexcept;
+    void SetFollowPlayerChangedCallback(EeFollowPlayerChangedCallback callback, void* user_data) noexcept;
 
     [[nodiscard]] HWND ChildHwnd() const noexcept { return window_.Handle(); }
     [[nodiscard]] std::int32_t SelectedFloor() const noexcept;
@@ -40,6 +46,8 @@ private:
     void StopRenderThread() noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor) noexcept;
+    void DisableFollowForManualPan() noexcept;
+    void NotifyFollowPlayerChanged(bool enabled) noexcept;
 
     NativeWindow window_;
     std::thread render_thread_;
@@ -56,6 +64,8 @@ private:
     mutable std::mutex scene_mutex_;
     std::shared_ptr<LevelScene> scene_;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
+    std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings_ =
+        std::make_shared<std::vector<EePlaybackTiming>>();
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
@@ -64,6 +74,15 @@ private:
     std::uint64_t icon_assets_version_ = 0;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
+    EeFollowPlayerChangedCallback follow_callback_ = nullptr;
+    void* follow_user_data_ = nullptr;
+
+    bool playback_active_ = false;
+    bool playback_playing_ = false;
+    bool follow_player_ = true;
+    double playback_anchor_chart_time_ = 0.0;
+    double playback_chart_rate_ = 1.0;
+    std::chrono::steady_clock::time_point playback_anchor_steady_{};
 
     bool panning_ = false;
     UINT pan_button_ = 0;
