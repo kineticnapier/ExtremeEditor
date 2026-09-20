@@ -42,6 +42,62 @@ public sealed partial class LevelViewport
         _ => throw new ArgumentOutOfRangeException(nameof(index))
     };
 
+    internal void SetPlaybackFrame(TimingMap timingMap, double chartTime, PlaybackPose pose)
+    {
+        ArgumentNullException.ThrowIfNull(timingMap);
+        PlaybackPose = pose;
+
+        bool useTemporal = _useFloorPreview &&
+                           _zoom >= MinMeshPreviewZoom &&
+                           (TemporalPlaybackActive || StaticSceneRasterCacheActive);
+
+        if (useTemporal && !TemporalPlaybackActive)
+            EnterTemporalPlaybackMode();
+
+        if (FollowPlayer && _camera != pose.StationaryPlanet)
+        {
+            _camera = pose.StationaryPlanet;
+            if (!TemporalPlaybackActive)
+            {
+                UpdateStaticSceneTransform();
+                EnsureSceneCoverage();
+            }
+        }
+
+        if (TemporalPlaybackActive)
+            RenderTemporalPlaybackFloors(timingMap, chartTime);
+        else if (StaticSceneRasterCacheActive)
+            DrainCompletedRasterChunks();
+
+        RenderPlaybackVisual();
+    }
+
+    internal void ClearPlaybackFrame()
+    {
+        PlaybackPose = null;
+        bool wasTemporal = TemporalPlaybackActive;
+        TemporalPlaybackActive = false;
+        ClearTemporalPlaybackVisual();
+        _sceneRoot.Opacity = 1.0;
+
+        if (wasTemporal && _level is not null)
+        {
+            ResetStaticScene();
+            EnsureSceneCoverage();
+        }
+
+        RenderPlaybackVisual();
+    }
+
+    private void EnterTemporalPlaybackMode()
+    {
+        TemporalPlaybackActive = true;
+        _sceneRoot.Opacity = 0.0;
+        ResetRasterChunks();
+    }
+
+    // Pose-only compatibility path used by existing callers/tests. Production
+    // playback supplies timing context through SetPlaybackFrame instead.
     public void SetPlaybackPose(PlaybackPose? pose)
     {
         PlaybackPose = pose;
