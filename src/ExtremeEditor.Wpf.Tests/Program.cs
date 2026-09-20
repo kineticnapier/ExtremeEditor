@@ -25,9 +25,10 @@ internal static class Program
             DenseIconRegression.Run();
             RasterChunkCacheRegression.Run();
             RasterChunkStreamingRegression.Run();
+            RasterSceneRebaseRegression.Run();
             PlaybackRasterPrefetchRegression.Run();
             PlaybackDiagnosticsRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster worker, threading, playback diagnostics, and performance regressions are valid.");
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
@@ -62,7 +63,7 @@ internal static class Program
 
         Rect bounds = geometry.Bounds;
         if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
-            throw new InvalidOperationException("Cached floor geometry must have non-empty bounds.");
+            throw new InvalidOperationException("Cached StreamGeometry must have non-empty bounds.");
     }
 
     private static void VerifyIconBitmapIsCachedAndFrozen()
