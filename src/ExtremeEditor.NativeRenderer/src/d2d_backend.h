@@ -1,15 +1,19 @@
 #pragma once
 
+#include "icon_assets.h"
 #include "level_scene.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <cstdint>
 #include <limits>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ee
@@ -29,16 +33,42 @@ public:
         double seconds,
         const LevelScene* scene,
         std::uint64_t scene_version,
+        const IconAssetTable* icon_assets,
+        std::uint64_t icon_assets_version,
         float camera_x,
         float camera_y,
-        float zoom) noexcept;
+        float zoom,
+        std::int32_t selected_floor) noexcept;
 
 private:
+    struct IconBitmapSet
+    {
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> image;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> outline;
+        bool attempted = false;
+    };
+
     bool CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept;
     bool CreateTargetBitmap() noexcept;
     void ReleaseTargetBitmap() noexcept;
     bool SyncSceneGeometry(const LevelScene* scene, std::uint64_t scene_version) noexcept;
-    void DrawScene(const LevelScene& scene, float camera_x, float camera_y, float zoom) noexcept;
+    void SyncIconAssets(std::uint64_t icon_assets_version) noexcept;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> LoadBitmap(const std::wstring& path) noexcept;
+    IconBitmapSet* GetIconBitmaps(std::uint32_t icon_id, const IconAssetTable* icon_assets) noexcept;
+    void DrawBitmapCentered(
+        ID2D1Bitmap1* bitmap,
+        float center_x,
+        float center_y,
+        float requested_size,
+        float angle_radians,
+        bool flipped) noexcept;
+    void DrawScene(
+        const LevelScene& scene,
+        const IconAssetTable* icon_assets,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        std::int32_t selected_floor) noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -51,14 +81,18 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2d_context_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> target_bitmap_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> grid_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_edge_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selection_brush_;
 
     std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> floor_geometries_;
     std::vector<std::uint32_t> visible_candidates_;
+    std::unordered_map<std::uint32_t, IconBitmapSet> icon_bitmaps_;
     std::uint64_t cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
 };
 }
