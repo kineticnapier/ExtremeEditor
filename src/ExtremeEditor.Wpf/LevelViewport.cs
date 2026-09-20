@@ -78,6 +78,7 @@ public sealed partial class LevelViewport : FrameworkElement
         Focusable = true;
         ClipToBounds = true;
         AddVisualChild(_sceneRoot);
+        AddVisualChild(_playbackFloorVisual);
         AddVisualChild(_playbackVisual);
     }
 
