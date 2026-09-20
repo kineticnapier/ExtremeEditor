@@ -18,6 +18,17 @@
 
 namespace ee
 {
+struct PlaybackVisualState
+{
+    bool active = false;
+    std::int32_t floor = -1;
+    float stationary_x = 0.0f;
+    float stationary_y = 0.0f;
+    float orbiting_x = 0.0f;
+    float orbiting_y = 0.0f;
+    bool stationary_is_red = true;
+};
+
 class D2DBackend
 {
 public:
@@ -38,7 +49,8 @@ public:
         float camera_x,
         float camera_y,
         float zoom,
-        std::int32_t selected_floor) noexcept;
+        std::int32_t selected_floor,
+        const PlaybackVisualState& playback) noexcept;
 
 private:
     struct IconBitmapSet
@@ -69,6 +81,11 @@ private:
         float camera_y,
         float zoom,
         std::int32_t selected_floor) noexcept;
+    void DrawPlaybackPlanets(
+        const PlaybackVisualState& playback,
+        float camera_x,
+        float camera_y,
+        float zoom) noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -88,6 +105,9 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_edge_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selection_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_red_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
 
     std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> floor_geometries_;
     std::vector<std::uint32_t> visible_candidates_;
