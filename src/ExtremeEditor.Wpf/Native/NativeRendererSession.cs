@@ -53,6 +53,11 @@ internal sealed class NativeRendererSession : IDisposable
             throw new InvalidOperationException(
                 $"Native playback timing ABI mismatch. Managed {managedTimingSize}, native {abiInfo.ClockSize}.");
 
+        uint managedDiagnosticsSize = checked((uint)Marshal.SizeOf<NativeRendererDiagnostics>());
+        if (abiInfo.DiagnosticsSize != managedDiagnosticsSize)
+            throw new InvalidOperationException(
+                $"Native diagnostics ABI mismatch. Managed {managedDiagnosticsSize}, native {abiInfo.DiagnosticsSize}.");
+
         var createInfo = new NativeRendererCreateInfo
         {
             StructSize = checked((uint)Marshal.SizeOf<NativeRendererCreateInfo>()),
@@ -188,6 +193,17 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer != nint.Zero)
             NativeRendererNative.SetFollowPlayer(_renderer, enabled ? 1 : 0);
+    }
+
+    internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
+    {
+        diagnostics = new NativeRendererDiagnostics
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeRendererDiagnostics>())
+        };
+
+        return _renderer != nint.Zero &&
+               NativeRendererNative.GetDiagnostics(_renderer, ref diagnostics) == 0;
     }
 
     internal void FrameAll()
