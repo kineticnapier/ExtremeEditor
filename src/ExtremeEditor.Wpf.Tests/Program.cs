@@ -30,11 +30,12 @@ internal static class Program
             PlaybackDiagnosticsRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
             PlaybackStallDiagnosticsRegression.Run();
+            PlaybackLookaheadDiagnosticsRegression.Run();
             TemporalPlaybackRenderingRegression.Run();
             TemporalPlaybackRoutingRegression.Run();
             TemporalPlaybackIconDiagnosticsRegression.Run();
             TemporalPlaybackRetentionRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall logging, temporal playback rendering/routing/icon diagnostics/retention, and performance regressions are valid.");
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
