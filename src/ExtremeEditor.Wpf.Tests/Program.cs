@@ -24,9 +24,10 @@ internal static class Program
             PerformanceRegression.Run();
             DenseIconRegression.Run();
             RasterChunkCacheRegression.Run();
+            RasterChunkStreamingRegression.Run();
             PlaybackRasterPrefetchRegression.Run();
             PlaybackDiagnosticsRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster worker, threading, playback diagnostics, and performance regressions are valid.");
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster worker, threading, playback diagnostics, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
