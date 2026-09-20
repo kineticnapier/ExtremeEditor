@@ -24,6 +24,14 @@ int main()
         return 1;
     }
 
+    if (info.floor_size != sizeof(EeFloor) ||
+        info.clock_size != sizeof(EePlaybackTiming) ||
+        info.diagnostics_size != sizeof(EeRendererDiagnostics))
+    {
+        std::cerr << "ABI struct size mismatch.\n";
+        return 1;
+    }
+
     EeAbiInfo bad{};
     if (ee_renderer_get_abi_info(&bad) != EE_ERROR_ABI_MISMATCH)
     {
