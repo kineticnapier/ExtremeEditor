@@ -14,6 +14,9 @@
 #endif
 
 #define EE_RENDERER_API_VERSION 1u
+#define EE_ICON_NONE 0xffffffffu
+#define EE_ICON_FLAG_FLOOR 0x1u
+#define EE_ICON_FLAG_FLIPPED 0x2u
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +56,9 @@ typedef struct EeFloor
     float y;
     float entry_angle;
     uint32_t geometry_id;
+    uint32_t icon_id;
+    uint32_t icon_flags;
+    float icon_angle;
 } EeFloor;
 
 typedef struct EeGeometry
@@ -89,6 +95,13 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_right,
     float bounds_bottom);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
+EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
+EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
+    EeRendererHandle renderer,
+    uint32_t icon_id,
+    const wchar_t* image_path,
+    const wchar_t* outline_path);
+EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer);
 
 #ifdef __cplusplus
 }
