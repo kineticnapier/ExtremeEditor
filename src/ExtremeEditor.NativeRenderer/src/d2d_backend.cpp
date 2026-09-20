@@ -1,6 +1,7 @@
 #include "d2d_backend.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 
@@ -23,6 +24,7 @@ bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height
 
 void D2DBackend::Shutdown() noexcept
 {
+    floor_renderer_.Shutdown();
     icon_bitmaps_.clear();
     floor_geometries_.clear();
     visible_candidates_.clear();
@@ -202,13 +204,51 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     hr = d2d_context_->CreateSolidColorBrush(
         D2D1::ColorF(0xF5F5FA, 0.86f),
         planet_outline_brush_.GetAddressOf());
-    return SUCCEEDED(hr);
+    if (FAILED(hr))
+        return false;
+
+    return floor_renderer_.Initialize(d3d_device_.Get());
 }
 
 bool D2DBackend::CreateTargetBitmap() noexcept
 {
+    ComPtr<ID3D11Texture2D> back_buffer;
+    HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(back_buffer.GetAddressOf()));
+    if (FAILED(hr))
+        return false;
+
+    hr = d3d_device_->CreateRenderTargetView(
+        back_buffer.Get(),
+        nullptr,
+        render_target_view_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    D3D11_TEXTURE2D_DESC depth_desc{};
+    depth_desc.Width = width_;
+    depth_desc.Height = height_;
+    depth_desc.MipLevels = 1;
+    depth_desc.ArraySize = 1;
+    depth_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth_desc.SampleDesc.Count = 1;
+    depth_desc.Usage = D3D11_USAGE_DEFAULT;
+    depth_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    hr = d3d_device_->CreateTexture2D(
+        &depth_desc,
+        nullptr,
+        depth_texture_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d3d_device_->CreateDepthStencilView(
+        depth_texture_.Get(),
+        nullptr,
+        depth_stencil_view_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
     ComPtr<IDXGISurface> surface;
-    HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(surface.GetAddressOf()));
+    hr = back_buffer.As(&surface);
     if (FAILED(hr))
         return false;
 
@@ -233,7 +273,12 @@ void D2DBackend::ReleaseTargetBitmap() noexcept
 {
     if (d2d_context_)
         d2d_context_->SetTarget(nullptr);
+    if (d3d_context_)
+        d3d_context_->OMSetRenderTargets(0, nullptr, nullptr);
     target_bitmap_.Reset();
+    depth_stencil_view_.Reset();
+    depth_texture_.Reset();
+    render_target_view_.Reset();
 }
 
 bool D2DBackend::Resize(std::uint32_t width, std::uint32_t height) noexcept
@@ -422,74 +467,84 @@ void D2DBackend::DrawBitmapCentered(
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
 
-void D2DBackend::DrawScene(
+void D2DBackend::QueryVisibleFloors(
     const LevelScene& scene,
-    const IconAssetTable* icon_assets,
     float camera_x,
     float camera_y,
     float zoom,
-    std::int32_t selected_floor) noexcept
+    RenderFrameStats& stats) noexcept
 {
     zoom = std::clamp(zoom, 0.05f, 400.0f);
     const float half_width = static_cast<float>(width_) * 0.5f / zoom;
     const float half_height = static_cast<float>(height_) * 0.5f / zoom;
-    const float margin = 2.5f;
+    constexpr float margin = 2.5f;
 
+    const auto started = std::chrono::steady_clock::now();
     scene.Query(
         camera_x - half_width - margin,
         camera_y - half_height - margin,
         camera_x + half_width + margin,
         camera_y + half_height + margin,
         visible_candidates_);
-
-    if (visible_candidates_.empty())
-        return;
-
     std::sort(visible_candidates_.begin(), visible_candidates_.end(), std::greater<>());
+    const auto finished = std::chrono::steady_clock::now();
 
-    constexpr std::size_t MaxIndividualDraw = 80000;
-    const std::size_t stride = std::max<std::size_t>(
-        1,
-        (visible_candidates_.size() + MaxIndividualDraw - 1) / MaxIndividualDraw);
+    stats.cull_ms = std::chrono::duration<double, std::milli>(finished - started).count();
+    stats.visible_candidates = static_cast<std::uint32_t>(
+        std::min<std::size_t>(visible_candidates_.size(), UINT32_MAX));
+}
 
-    const float edge_pixels = std::clamp(zoom * 0.022f, 1.0f, 5.0f);
-    const float edge_world = edge_pixels / zoom;
+void D2DBackend::DrawSceneOverlays(
+    const LevelScene& scene,
+    const IconAssetTable* icon_assets,
+    float camera_x,
+    float camera_y,
+    float zoom,
+    std::int32_t selected_floor,
+    RenderFrameStats& stats) noexcept
+{
+    zoom = std::clamp(zoom, 0.05f, 400.0f);
     const float selection_world = 2.0f / zoom;
     const float screen_center_x = static_cast<float>(width_) * 0.5f;
     const float screen_center_y = static_cast<float>(height_) * 0.5f;
 
-    for (std::size_t candidate_index = 0; candidate_index < visible_candidates_.size(); candidate_index += stride)
+    if (selected_floor >= 0)
     {
-        const std::uint32_t floor_index = visible_candidates_[candidate_index];
-        const EeFloor& floor = scene.floors[floor_index];
-        if (floor.geometry_id >= floor_geometries_.size())
-            continue;
-
-        const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
-        const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
-        const float cosine = std::cos(floor.entry_angle);
-        const float sine = std::sin(floor.entry_angle);
-
-        d2d_context_->SetTransform(D2D1::Matrix3x2F(
-            zoom * cosine,
-            -zoom * sine,
-            -zoom * sine,
-            -zoom * cosine,
-            center_x,
-            center_y));
-
-        ID2D1PathGeometry* geometry = floor_geometries_[floor.geometry_id].Get();
-        d2d_context_->FillGeometry(geometry, floor_brush_.Get());
-        d2d_context_->DrawGeometry(geometry, floor_edge_brush_.Get(), edge_world);
-        if (selected_floor >= 0 && floor_index == static_cast<std::uint32_t>(selected_floor))
-            d2d_context_->DrawGeometry(geometry, selection_brush_.Get(), selection_world);
+        const std::uint32_t selected = static_cast<std::uint32_t>(selected_floor);
+        if (std::find(visible_candidates_.begin(), visible_candidates_.end(), selected) != visible_candidates_.end() &&
+            selected < scene.floors.size())
+        {
+            const EeFloor& floor = scene.floors[selected];
+            if (floor.geometry_id < floor_geometries_.size())
+            {
+                const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
+                const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
+                const float cosine = std::cos(floor.entry_angle);
+                const float sine = std::sin(floor.entry_angle);
+                d2d_context_->SetTransform(D2D1::Matrix3x2F(
+                    zoom * cosine,
+                    -zoom * sine,
+                    -zoom * sine,
+                    -zoom * cosine,
+                    center_x,
+                    center_y));
+                d2d_context_->DrawGeometry(
+                    floor_geometries_[floor.geometry_id].Get(),
+                    selection_brush_.Get(),
+                    selection_world);
+                ++stats.draw_calls;
+            }
+        }
     }
 
     if (zoom >= 12.0f && icon_assets != nullptr)
     {
-        for (std::size_t candidate_index = 0; candidate_index < visible_candidates_.size(); candidate_index += stride)
+        for (std::uint32_t floor_index : visible_candidates_)
         {
-            const EeFloor& floor = scene.floors[visible_candidates_[candidate_index]];
+            if (floor_index >= scene.floors.size())
+                continue;
+
+            const EeFloor& floor = scene.floors[floor_index];
             if (floor.icon_id == EE_ICON_NONE)
                 continue;
 
@@ -512,6 +567,7 @@ void D2DBackend::DrawScene(
                     size * 1.04f,
                     floor.icon_angle,
                     flipped);
+                ++stats.draw_calls;
             }
 
             DrawBitmapCentered(
@@ -521,6 +577,8 @@ void D2DBackend::DrawScene(
                 size,
                 floor.icon_angle,
                 flipped);
+            ++stats.icon_draws;
+            ++stats.draw_calls;
         }
     }
 
@@ -564,6 +622,16 @@ void D2DBackend::DrawPlaybackPlanets(
     d2d_context_->DrawEllipse(orbiting_ellipse, planet_outline_brush_.Get(), 1.5f);
 }
 
+HRESULT D2DBackend::EndD2DDraw() noexcept
+{
+    HRESULT hr = d2d_context_->EndDraw();
+    if (hr != D2DERR_RECREATE_TARGET)
+        return hr;
+
+    ReleaseTargetBitmap();
+    return CreateTargetBitmap() ? S_FALSE : hr;
+}
+
 HRESULT D2DBackend::RenderFrame(
     double seconds,
     const LevelScene* scene,
@@ -574,12 +642,17 @@ HRESULT D2DBackend::RenderFrame(
     float camera_y,
     float zoom,
     std::int32_t selected_floor,
-    const PlaybackVisualState& playback) noexcept
+    const PlaybackVisualState& playback,
+    RenderFrameStats& stats) noexcept
 {
-    if (!d2d_context_ || !swap_chain_ || !target_bitmap_)
+    stats = {};
+    if (!d2d_context_ || !swap_chain_ || !target_bitmap_ ||
+        !render_target_view_ || !depth_stencil_view_)
         return E_FAIL;
 
     if (!SyncSceneGeometry(scene, scene_version))
+        return E_FAIL;
+    if (scene != nullptr && !floor_renderer_.SyncGeometry(*scene, scene_version))
         return E_FAIL;
     SyncIconAssets(icon_assets_version);
 
@@ -595,6 +668,7 @@ HRESULT D2DBackend::RenderFrame(
             D2D1::Point2F(x, static_cast<float>(height_)),
             grid_brush_.Get(),
             1.0f);
+        ++stats.draw_calls;
     }
     for (float y = 0.0f; y <= static_cast<float>(height_); y += grid_step)
     {
@@ -603,12 +677,54 @@ HRESULT D2DBackend::RenderFrame(
             D2D1::Point2F(static_cast<float>(width_), y),
             grid_brush_.Get(),
             1.0f);
+        ++stats.draw_calls;
     }
+
+    HRESULT hr = EndD2DDraw();
+    if (hr == S_FALSE)
+        return S_OK;
+    if (FAILED(hr))
+        return hr;
 
     if (scene != nullptr)
     {
-        DrawScene(*scene, icon_assets, camera_x, camera_y, zoom, selected_floor);
+        QueryVisibleFloors(*scene, camera_x, camera_y, zoom, stats);
+
+        InstancedFloorDrawStats floor_stats;
+        if (!floor_renderer_.Draw(
+                d3d_context_.Get(),
+                render_target_view_.Get(),
+                depth_stencil_view_.Get(),
+                *scene,
+                visible_candidates_,
+                camera_x,
+                camera_y,
+                std::clamp(zoom, 0.05f, 400.0f),
+                width_,
+                height_,
+                floor_stats))
+            return E_FAIL;
+
+        stats.floor_draws = floor_stats.floor_instances;
+        stats.draw_calls += floor_stats.draw_calls;
+    }
+
+    d2d_context_->BeginDraw();
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    if (scene != nullptr)
+    {
+        DrawSceneOverlays(
+            *scene,
+            icon_assets,
+            camera_x,
+            camera_y,
+            zoom,
+            selected_floor,
+            stats);
         DrawPlaybackPlanets(playback, camera_x, camera_y, zoom);
+        if (playback.active)
+            stats.draw_calls += 4u;
     }
     else
     {
@@ -618,6 +734,7 @@ HRESULT D2DBackend::RenderFrame(
             static_cast<float>(width_) * 0.5f,
             static_cast<float>(height_) * 0.5f);
         d2d_context_->FillEllipse(D2D1::Ellipse(center, radius, radius), accent_brush_.Get());
+        ++stats.draw_calls;
     }
 
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -627,13 +744,11 @@ HRESULT D2DBackend::RenderFrame(
         std::max(1.0f, static_cast<float>(width_) - 0.5f),
         std::max(1.0f, static_cast<float>(height_) - 0.5f));
     d2d_context_->DrawRectangle(border, border_brush_.Get(), 1.0f);
+    ++stats.draw_calls;
 
-    HRESULT hr = d2d_context_->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET)
-    {
-        ReleaseTargetBitmap();
-        return CreateTargetBitmap() ? S_OK : hr;
-    }
+    hr = EndD2DDraw();
+    if (hr == S_FALSE)
+        return S_OK;
     if (FAILED(hr))
         return hr;
 
