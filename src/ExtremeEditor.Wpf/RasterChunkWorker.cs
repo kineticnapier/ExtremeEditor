@@ -16,8 +16,10 @@ internal sealed class RasterChunkWorker : IDisposable
     ];
     private readonly ConcurrentQueue<RasterChunkResult> _completed = new();
     private readonly AutoResetEvent _signal = new(false);
+    private readonly object _lifecycleGate = new();
     private readonly Thread _thread;
     private volatile bool _stopping;
+    private bool _signalDisposed;
     private int _requestedCount;
     private int _completedCount;
     private int _lastBuildThreadId;
@@ -39,13 +41,16 @@ internal sealed class RasterChunkWorker : IDisposable
 
     public void Enqueue(RasterChunkRequest request)
     {
-        if (_stopping)
-            return;
+        lock (_lifecycleGate)
+        {
+            if (_stopping)
+                return;
 
-        int priority = Math.Clamp(request.Priority, 0, _pending.Length - 1);
-        _pending[priority].Enqueue(request);
-        Interlocked.Increment(ref _requestedCount);
-        _signal.Set();
+            int priority = Math.Clamp(request.Priority, 0, _pending.Length - 1);
+            _pending[priority].Enqueue(request);
+            Interlocked.Increment(ref _requestedCount);
+            _signal.Set();
+        }
     }
 
     public bool TryDequeueCompleted(out RasterChunkResult? result)
@@ -62,13 +67,25 @@ internal sealed class RasterChunkWorker : IDisposable
 
     public void Dispose()
     {
-        if (_stopping)
-            return;
+        lock (_lifecycleGate)
+        {
+            if (_stopping)
+                return;
 
-        _stopping = true;
-        _signal.Set();
+            _stopping = true;
+            _signal.Set();
+        }
+
         _thread.Join(TimeSpan.FromSeconds(2));
-        _signal.Dispose();
+
+        lock (_lifecycleGate)
+        {
+            if (!_signalDisposed)
+            {
+                _signal.Dispose();
+                _signalDisposed = true;
+            }
+        }
     }
 
     private void Run()
