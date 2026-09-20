@@ -24,12 +24,16 @@ public sealed partial class LevelViewport
     public int RasterChunkBuildsCompleted => _rasterChunkBuildsCompleted;
     public int RasterVisibleMissingChunkCount => _rasterVisibleMissingChunkCount;
     public int RasterPrefetchReadyOrQueuedCount => _rasterPrefetchReadyOrQueuedCount;
+    public int RasterReadyChunkCount => _rasterChunks.ReadyCount;
+    public int RasterPendingChunkCount => _rasterChunks.PendingCount;
+    public int RasterChunksCanceled => _rasterWorker.CanceledCount;
     public long RasterCacheGeneration => _rasterGeneration;
 
     private void ResetRasterChunks()
     {
         _rasterGeneration++;
         _rasterChunks.Reset(_rasterGeneration, GetRasterZoomBucket());
+        _rasterWorker.SetDesiredKeys(new HashSet<RasterChunkKey>());
         _rasterVisibleMissingChunkCount = 0;
         _rasterPrefetchReadyOrQueuedCount = 0;
         _rasterPlaybackMotion = Vector2.Zero;
@@ -37,6 +41,7 @@ public sealed partial class LevelViewport
 
     internal void ShutdownRasterWorker()
     {
+        _rasterWorker.SetDesiredKeys(new HashSet<RasterChunkKey>());
         _rasterWorker.Dispose();
     }
 
@@ -45,11 +50,13 @@ public sealed partial class LevelViewport
         if (_level is null || _index is null || !StaticSceneRasterCacheActive || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
-        DrainCompletedRasterChunks();
-        QueueVisibleAndPrefetchChunks(GetViewportWorldRect(), playbackActive);
+        bool readyEvicted = QueueVisibleAndPrefetchChunks(GetViewportWorldRect(), playbackActive);
+        bool completed = DrainCompletedRasterChunks(rebuildVisuals: false);
+        if (readyEvicted || completed)
+            RebuildRasterChunkVisuals();
     }
 
-    private void DrainCompletedRasterChunks()
+    private bool DrainCompletedRasterChunks(bool rebuildVisuals = true)
     {
         bool changed = false;
         while (_rasterWorker.TryDequeueCompleted(out RasterChunkResult? result))
@@ -62,14 +69,16 @@ public sealed partial class LevelViewport
             changed = true;
         }
 
-        if (changed)
+        if (changed && rebuildVisuals)
             RebuildRasterChunkVisuals();
+
+        return changed;
     }
 
-    private void QueueVisibleAndPrefetchChunks(WorldRect viewport, bool playbackActive)
+    private bool QueueVisibleAndPrefetchChunks(WorldRect viewport, bool playbackActive)
     {
         if (_level is null || _index is null)
-            return;
+            return false;
 
         float chunkWorldSize = RasterChunkPixelSize / Math.Max(_zoom, 0.0001f);
         int zoomBucket = GetRasterZoomBucket();
@@ -100,15 +109,8 @@ public sealed partial class LevelViewport
         int minY = (int)MathF.Floor(requested.Top / chunkWorldSize);
         int maxY = (int)MathF.Floor(requested.Bottom / chunkWorldSize);
 
-        var queuedByPriority = new List<(RasterChunkKey Key, WorldRect World)>[]
-        {
-            new(),
-            new(),
-            new()
-        };
-
-        int visibleMissing = 0;
-        int prefetchReadyOrQueued = 0;
+        var desired = new HashSet<RasterChunkKey>();
+        var chunks = new List<(RasterChunkKey Key, WorldRect World, bool Visible, bool Ahead, int Priority)>();
 
         for (int y = minY; y <= maxY; y++)
         {
@@ -124,28 +126,47 @@ public sealed partial class LevelViewport
                 bool ahead = !visible && hasForwardMotion && Intersects(chunkWorld, forward);
                 int priority = visible ? 0 : ahead ? 1 : 2;
                 var key = new RasterChunkKey(x, y, zoomBucket, _rasterGeneration);
+                desired.Add(key);
+                chunks.Add((key, chunkWorld, visible, ahead, priority));
+            }
+        }
 
-                if (_rasterChunks.TryGetReady(key, out _))
-                {
-                    if (ahead)
-                        prefetchReadyOrQueued++;
-                    continue;
-                }
+        int evictedReady = _rasterChunks.EvictReadyOutside(desired);
+        _rasterChunks.EvictPendingOutside(desired);
+        _rasterWorker.SetDesiredKeys(desired);
 
-                if (visible)
-                    visibleMissing++;
+        var queuedByPriority = new List<(RasterChunkKey Key, WorldRect World)>[]
+        {
+            new(),
+            new(),
+            new()
+        };
 
-                if (!_rasterChunks.TryMarkQueued(key))
-                {
-                    if (ahead)
-                        prefetchReadyOrQueued++;
-                    continue;
-                }
+        int visibleMissing = 0;
+        int prefetchReadyOrQueued = 0;
 
+        foreach ((RasterChunkKey key, WorldRect chunkWorld, bool visible, bool ahead, int priority) in chunks)
+        {
+            if (_rasterChunks.TryGetReady(key, out _))
+            {
                 if (ahead)
                     prefetchReadyOrQueued++;
-                queuedByPriority[priority].Add((key, chunkWorld));
+                continue;
             }
+
+            if (visible)
+                visibleMissing++;
+
+            if (!_rasterChunks.TryMarkQueued(key))
+            {
+                if (ahead)
+                    prefetchReadyOrQueued++;
+                continue;
+            }
+
+            if (ahead)
+                prefetchReadyOrQueued++;
+            queuedByPriority[priority].Add((key, chunkWorld));
         }
 
         for (int priority = 0; priority < queuedByPriority.Length; priority++)
@@ -176,6 +197,7 @@ public sealed partial class LevelViewport
 
         _rasterVisibleMissingChunkCount = visibleMissing;
         _rasterPrefetchReadyOrQueuedCount = prefetchReadyOrQueued;
+        return evictedReady > 0;
     }
 
     private void RebuildRasterChunkVisuals()
