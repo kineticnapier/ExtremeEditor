@@ -103,6 +103,17 @@ public sealed partial class LevelViewport : FrameworkElement
         InvalidateVisual();
     }
 
+    public void SetSelectedFloorFromExternal(int floor)
+    {
+        if (_level is null)
+        {
+            SelectedFloor = -1;
+            return;
+        }
+
+        SelectedFloor = (uint)floor < (uint)_level.FloorCount ? floor : -1;
+    }
+
     public void FrameAll()
     {
         if (_level is null || ActualWidth <= 0 || ActualHeight <= 0)
