@@ -6,6 +6,8 @@ enable_testing()
 
 add_library(ExtremeEditor.NativeRenderer SHARED
     src/exports.cpp
+    src/native_window.cpp
+    src/renderer.cpp
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
@@ -13,7 +15,11 @@ target_compile_definitions(ExtremeEditor.NativeRenderer PRIVATE EE_RENDERER_BUIL
 target_include_directories(ExtremeEditor.NativeRenderer
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE user32)
 
 if(MSVC)
     target_compile_options(ExtremeEditor.NativeRenderer PRIVATE /W4 /permissive-)
