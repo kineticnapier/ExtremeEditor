@@ -83,14 +83,16 @@ public sealed partial class LevelViewport
 
     private void DrawPlaybackPlanets(DrawingContext drawingContext)
     {
-        // Playback is kept in its own retained visual. A parent render only needs
-        // to make sure its child visual reflects the latest camera/zoom state.
+        // Selection and playback planets share one lightweight dynamic overlay.
+        // Static floor/icon content remains retained beneath it.
         RenderPlaybackVisual();
     }
 
     private void RenderPlaybackVisual()
     {
         using DrawingContext drawingContext = _playbackVisual.RenderOpen();
+        DrawSelectedFloorOverlay(drawingContext);
+
         if (PlaybackPose is not PlaybackPose pose)
             return;
 
