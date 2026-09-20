@@ -199,6 +199,9 @@ public partial class MainWindow : Window
             _audio.Seek(TimeSpan.FromSeconds(Math.Max(0.0, audioTime)));
         }
 
+        if (_audio.IsStopped)
+            ResetPlaybackUiDiagnostics();
+
         _audio.Play();
         PlayButton.Content = _audio.IsPlaying ? "Pause" : "Play";
         CommandManager.InvalidateRequerySuggested();
@@ -216,29 +219,37 @@ public partial class MainWindow : Window
 
     private void UpdatePlaybackDisplay()
     {
-        if (_level is null || _timingMap is null || !_audio.IsLoaded)
+        long started = BeginPlaybackUiSample();
+        try
         {
-            Viewport.SetPlaybackPose(null);
-            PlaybackText.Text = "--:--.---";
-            PlayButton.Content = "Play";
-            return;
+            if (_level is null || _timingMap is null || !_audio.IsLoaded)
+            {
+                Viewport.SetPlaybackPose(null);
+                PlaybackText.Text = "--:--.---";
+                PlayButton.Content = "Play";
+                return;
+            }
+
+            double audioSeconds = _audio.Position.TotalSeconds;
+            double chartTime = PlaybackClock.AudioToChartTime(_level, audioSeconds);
+            WpfPlaybackPresenter.Update(
+                Viewport,
+                _level,
+                _timingMap,
+                audioSeconds,
+                _audio.IsStopped);
+
+            PlaybackText.Text =
+                $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
+                $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
+
+            if (!_audio.IsPlaying)
+                PlayButton.Content = "Play";
         }
-
-        double audioSeconds = _audio.Position.TotalSeconds;
-        double chartTime = PlaybackClock.AudioToChartTime(_level, audioSeconds);
-        WpfPlaybackPresenter.Update(
-            Viewport,
-            _level,
-            _timingMap,
-            audioSeconds,
-            _audio.IsStopped);
-
-        PlaybackText.Text =
-            $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
-            $"C {chartTime:F3}/{_timingMap.Duration:F3}s";
-
-        if (!_audio.IsPlaying)
-            PlayButton.Content = "Play";
+        finally
+        {
+            EndPlaybackUiSample(started);
+        }
     }
 
     private void ExecuteFrame(object sender, ExecutedRoutedEventArgs e)
