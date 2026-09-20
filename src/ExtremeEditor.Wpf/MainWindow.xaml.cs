@@ -58,6 +58,7 @@ public partial class MainWindow : Window
         FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
         Viewport.FollowPlayerChanged += ViewportFollowPlayerChanged;
         Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
+        NativeViewport.SelectedFloorChanged += NativeViewportSelectedFloorChanged;
 
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
@@ -77,6 +78,7 @@ public partial class MainWindow : Window
         _playbackTimer.Stop();
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
         Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
+        NativeViewport.SelectedFloorChanged -= NativeViewportSelectedFloorChanged;
         Viewport.ShutdownRasterWorker();
         _audio.Dispose();
         _playbackDiagnosticLogger.Dispose();
@@ -294,6 +296,11 @@ public partial class MainWindow : Window
     private void ViewportFollowPlayerChanged(object? sender, EventArgs e)
     {
         FollowPlayerToggle.IsChecked = Viewport.FollowPlayer;
+    }
+
+    private void NativeViewportSelectedFloorChanged(int floor)
+    {
+        Viewport.SetSelectedFloorFromExternal(floor);
     }
 
     private void NativeViewportToggleChanged(object sender, RoutedEventArgs e)
