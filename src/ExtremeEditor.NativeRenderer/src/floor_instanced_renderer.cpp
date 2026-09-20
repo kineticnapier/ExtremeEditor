@@ -1,4 +1,5 @@
 #include "floor_instanced_renderer.h"
+#include "floor_triangulation.h"
 
 #include <d3dcompiler.h>
 
@@ -270,12 +271,12 @@ bool FloorInstancedRenderer::CreateGeometryBuffers(
         return false;
 
     std::vector<std::uint32_t> fill_indices;
-    fill_indices.reserve((geometry.point_count - 2u) * 3u);
-    for (std::uint32_t i = 1; i + 1 < geometry.point_count; ++i)
+    if (!detail::triangulation::TriangulateSimplePolygon(
+            points,
+            geometry.point_count,
+            fill_indices))
     {
-        fill_indices.push_back(0u);
-        fill_indices.push_back(i);
-        fill_indices.push_back(i + 1u);
+        return false;
     }
 
     D3D11_SUBRESOURCE_DATA fill_data{};
