@@ -51,6 +51,20 @@ internal struct NativePoint
     public float Y;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativePlaybackTiming
+{
+    public const uint FlagCcw = 1u;
+
+    public double EntryTime;
+    public double ExitTime;
+    public double PauseSeconds;
+    public float EntryAngle;
+    public float AngleMoved;
+    public uint Flags;
+    public uint Reserved;
+}
+
 internal sealed record NativeIconAsset(
     uint Id,
     string ImagePath,
