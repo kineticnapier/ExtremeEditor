@@ -292,4 +292,15 @@ public partial class MainWindow : Window
     {
         FollowPlayerToggle.IsChecked = Viewport.FollowPlayer;
     }
+
+    private void NativeViewportToggleChanged(object sender, RoutedEventArgs e)
+    {
+        bool useNative = NativeViewportToggle.IsChecked == true;
+        NativeViewport.Visibility = useNative ? Visibility.Visible : Visibility.Collapsed;
+        Viewport.Visibility = useNative ? Visibility.Collapsed : Visibility.Visible;
+
+        StatusText.Text = useNative
+            ? $"Native Direct2D/D3D11 preview | {EditorVersion.Current} | independent native render thread"
+            : $"WPF viewport | {EditorVersion.Current}";
+    }
 }
