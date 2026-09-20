@@ -66,6 +66,7 @@ public partial class MainWindow : Window
         var index = new SpatialGridIndex(level.Positions);
         _level = level;
         Viewport.SetLevel(level, index);
+        NativeViewport.SetLevel(level);
 
         StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | synthetic 4096-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -126,6 +127,7 @@ public partial class MainWindow : Window
             _timingMap = playback.TimingMap;
             _hitSoundTimeline = playback.HitSoundTimeline;
             Viewport.SetLevel(loaded.Document, loaded.Index);
+            NativeViewport.SetLevel(loaded.Document);
             totalWatch.Stop();
 
             StatusText.Text =
@@ -269,6 +271,7 @@ public partial class MainWindow : Window
     private void ExecuteFrame(object sender, ExecutedRoutedEventArgs e)
     {
         Viewport.FrameAll();
+        NativeViewport.FrameAll();
         e.Handled = true;
     }
 
@@ -300,7 +303,7 @@ public partial class MainWindow : Window
         Viewport.Visibility = useNative ? Visibility.Collapsed : Visibility.Visible;
 
         StatusText.Text = useNative
-            ? $"Native Direct2D/D3D11 preview | {EditorVersion.Current} | independent native render thread"
+            ? $"Native Direct2D/D3D11 floor viewport | {EditorVersion.Current} | independent native render thread"
             : $"WPF viewport | {EditorVersion.Current}";
     }
 }
