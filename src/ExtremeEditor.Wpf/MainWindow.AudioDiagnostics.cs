@@ -47,7 +47,23 @@ public partial class MainWindow
         $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")} " +
         $"chunks req={Viewport.RasterChunkRequestsQueued} done={Viewport.RasterChunkBuildsCompleted} " +
         $"ready={Viewport.RasterReadyChunkCount} pending={Viewport.RasterPendingChunkCount} canceled={Viewport.RasterChunksCanceled} " +
-        $"missing={Viewport.RasterVisibleMissingChunkCount} syncDense={Viewport.PlaybackSynchronousRasterBuildCount}";
+        $"missing={Viewport.RasterVisibleMissingChunkCount} syncDense={Viewport.PlaybackSynchronousRasterBuildCount} | " +
+        NativeDiagnosticsSnapshot;
+
+    private string NativeDiagnosticsSnapshot
+    {
+        get
+        {
+            if (!NativeViewport.TryGetDiagnostics(out var diagnostics))
+                return "native=unavailable";
+
+            return
+                $"native fps={diagnostics.Fps:F1} frame={diagnostics.FrameMilliseconds:F2}ms " +
+                $"max={diagnostics.MaxFrameMilliseconds:F2}ms render={diagnostics.RenderMilliseconds:F2}ms " +
+                $"cull={diagnostics.CullMilliseconds:F3}ms cand={diagnostics.VisibleCandidates} " +
+                $"floors={diagnostics.FloorDraws} icons={diagnostics.IconDraws} calls={diagnostics.DrawCalls}";
+        }
+    }
 
     private long BeginPlaybackUiSample()
     {
@@ -143,7 +159,8 @@ public partial class MainWindow
             $"visibleFloors={Viewport.TemporalPlaybackVisibleFloorCount} visibleIcons={Viewport.TemporalPlaybackVisibleIconCount} " +
             $"visibleActions={Viewport.TemporalPlaybackVisibleActionFloorCount} " +
             $"temporalDraw={Viewport.TemporalPlaybackDrawMilliseconds:F2}ms " +
-            $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")}");
+            $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")} " +
+            NativeDiagnosticsSnapshot);
 
         _lastLoggedLateAdmissionCount = lateAdmissions;
         _pendingTickStallMilliseconds = 0.0;
