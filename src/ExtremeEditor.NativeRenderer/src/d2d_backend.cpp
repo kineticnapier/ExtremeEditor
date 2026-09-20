@@ -22,7 +22,12 @@ bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height
 
 void D2DBackend::Shutdown() noexcept
 {
+    floor_geometries_.clear();
+    visible_candidates_.clear();
+    cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
     ReleaseTargetBitmap();
+    floor_edge_brush_.Reset();
+    floor_brush_.Reset();
     border_brush_.Reset();
     accent_brush_.Reset();
     grid_brush_.Reset();
@@ -145,6 +150,18 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
     hr = d2d_context_->CreateSolidColorBrush(
         D2D1::ColorF(0xA8B0BD),
         border_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0xE1E4EB, 0.94f),
+        floor_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0x181612, 0.48f),
+        floor_edge_brush_.GetAddressOf());
     return SUCCEEDED(hr);
 }
 
@@ -201,9 +218,119 @@ bool D2DBackend::Resize(std::uint32_t width, std::uint32_t height) noexcept
     return CreateTargetBitmap();
 }
 
-HRESULT D2DBackend::RenderFrame(double seconds) noexcept
+bool D2DBackend::SyncSceneGeometry(const LevelScene* scene, std::uint64_t scene_version) noexcept
+{
+    if (cached_scene_version_ == scene_version)
+        return true;
+
+    floor_geometries_.clear();
+    if (scene == nullptr)
+    {
+        cached_scene_version_ = scene_version;
+        return true;
+    }
+
+    floor_geometries_.reserve(scene->geometries.size());
+    for (const EeGeometry& geometry : scene->geometries)
+    {
+        ComPtr<ID2D1PathGeometry> path;
+        HRESULT hr = d2d_factory_->CreatePathGeometry(path.GetAddressOf());
+        if (FAILED(hr))
+            return false;
+
+        ComPtr<ID2D1GeometrySink> sink;
+        hr = path->Open(sink.GetAddressOf());
+        if (FAILED(hr))
+            return false;
+
+        const EePoint& first = scene->points[geometry.point_offset];
+        sink->BeginFigure(D2D1::Point2F(first.x, first.y), D2D1_FIGURE_BEGIN_FILLED);
+        for (std::uint32_t i = 1; i < geometry.point_count; ++i)
+        {
+            const EePoint& point = scene->points[geometry.point_offset + i];
+            sink->AddLine(D2D1::Point2F(point.x, point.y));
+        }
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        hr = sink->Close();
+        if (FAILED(hr))
+            return false;
+
+        floor_geometries_.push_back(std::move(path));
+    }
+
+    cached_scene_version_ = scene_version;
+    return true;
+}
+
+void D2DBackend::DrawScene(const LevelScene& scene, float camera_x, float camera_y, float zoom) noexcept
+{
+    zoom = std::clamp(zoom, 0.05f, 400.0f);
+    const float half_width = static_cast<float>(width_) * 0.5f / zoom;
+    const float half_height = static_cast<float>(height_) * 0.5f / zoom;
+    const float margin = 2.5f;
+
+    scene.Query(
+        camera_x - half_width - margin,
+        camera_y - half_height - margin,
+        camera_x + half_width + margin,
+        camera_y + half_height + margin,
+        visible_candidates_);
+
+    if (visible_candidates_.empty())
+        return;
+
+    std::sort(visible_candidates_.begin(), visible_candidates_.end(), std::greater<>());
+
+    constexpr std::size_t MaxIndividualDraw = 80000;
+    const std::size_t stride = std::max<std::size_t>(
+        1,
+        (visible_candidates_.size() + MaxIndividualDraw - 1) / MaxIndividualDraw);
+
+    const float edge_pixels = std::clamp(zoom * 0.022f, 1.0f, 5.0f);
+    const float edge_world = edge_pixels / zoom;
+    const float screen_center_x = static_cast<float>(width_) * 0.5f;
+    const float screen_center_y = static_cast<float>(height_) * 0.5f;
+
+    for (std::size_t candidate_index = 0; candidate_index < visible_candidates_.size(); candidate_index += stride)
+    {
+        const EeFloor& floor = scene.floors[visible_candidates_[candidate_index]];
+        if (floor.geometry_id >= floor_geometries_.size())
+            continue;
+
+        const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
+        const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
+        const float cosine = std::cos(floor.entry_angle);
+        const float sine = std::sin(floor.entry_angle);
+
+        const D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F(
+            zoom * cosine,
+            -zoom * sine,
+            -zoom * sine,
+            -zoom * cosine,
+            center_x,
+            center_y);
+
+        d2d_context_->SetTransform(transform);
+        ID2D1PathGeometry* geometry = floor_geometries_[floor.geometry_id].Get();
+        d2d_context_->FillGeometry(geometry, floor_brush_.Get());
+        d2d_context_->DrawGeometry(geometry, floor_edge_brush_.Get(), edge_world);
+    }
+
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+HRESULT D2DBackend::RenderFrame(
+    double seconds,
+    const LevelScene* scene,
+    std::uint64_t scene_version,
+    float camera_x,
+    float camera_y,
+    float zoom) noexcept
 {
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_)
+        return E_FAIL;
+
+    if (!SyncSceneGeometry(scene, scene_version))
         return E_FAIL;
 
     d2d_context_->BeginDraw();
@@ -228,16 +355,21 @@ HRESULT D2DBackend::RenderFrame(double seconds) noexcept
             1.0f);
     }
 
-    const float pulse = 0.5f + 0.5f * static_cast<float>(std::sin(seconds * 2.0));
-    const float radius = 28.0f + 10.0f * pulse;
-    const D2D1_POINT_2F center = D2D1::Point2F(
-        static_cast<float>(width_) * 0.5f,
-        static_cast<float>(height_) * 0.5f);
+    if (scene != nullptr)
+    {
+        DrawScene(*scene, camera_x, camera_y, zoom);
+    }
+    else
+    {
+        const float pulse = 0.5f + 0.5f * static_cast<float>(std::sin(seconds * 2.0));
+        const float radius = 28.0f + 10.0f * pulse;
+        const D2D1_POINT_2F center = D2D1::Point2F(
+            static_cast<float>(width_) * 0.5f,
+            static_cast<float>(height_) * 0.5f);
+        d2d_context_->FillEllipse(D2D1::Ellipse(center, radius, radius), accent_brush_.Get());
+    }
 
-    d2d_context_->FillEllipse(
-        D2D1::Ellipse(center, radius, radius),
-        accent_brush_.Get());
-
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
     const D2D1_RECT_F border = D2D1::RectF(
         0.5f,
         0.5f,
