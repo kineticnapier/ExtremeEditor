@@ -142,19 +142,28 @@ bool Renderer::SetIconAsset(
     }
 }
 
+void Renderer::SetSelectionChangedCallback(
+    EeSelectionChangedCallback callback,
+    void* user_data) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    selection_callback_ = callback;
+    selection_user_data_ = user_data;
+}
+
 std::int32_t Renderer::SelectedFloor() const noexcept
 {
     std::lock_guard lock(scene_mutex_);
     return selected_floor_;
 }
 
-void Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
+std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
 {
     std::lock_guard lock(scene_mutex_);
     if (!scene_ || zoom_ <= 0.0f)
     {
         selected_floor_ = -1;
-        return;
+        return selected_floor_;
     }
 
     const float width = static_cast<float>(width_.load(std::memory_order_relaxed));
@@ -190,6 +199,21 @@ void Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
     }
 
     selected_floor_ = best_floor;
+    return selected_floor_;
+}
+
+void Renderer::NotifySelectionChanged(std::int32_t floor) noexcept
+{
+    EeSelectionChangedCallback callback = nullptr;
+    void* user_data = nullptr;
+    {
+        std::lock_guard lock(scene_mutex_);
+        callback = selection_callback_;
+        user_data = selection_user_data_;
+    }
+
+    if (callback != nullptr)
+        callback(user_data, floor);
 }
 
 LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept
@@ -263,9 +287,12 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         break;
 
     case WM_LBUTTONDOWN:
+    {
         SetFocus(hwnd);
-        SelectFloorAt(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        const std::int32_t selected = SelectFloorAt(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        NotifySelectionChanged(selected);
         return 0;
+    }
     }
 
     return DefWindowProcW(hwnd, message, wparam, lparam);
