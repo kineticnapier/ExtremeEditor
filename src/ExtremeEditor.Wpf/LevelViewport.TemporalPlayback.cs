@@ -16,6 +16,7 @@ public sealed partial class LevelViewport
     public int TemporalPlaybackCandidateCount { get; private set; }
     public int TemporalPlaybackVisibleFloorCount { get; private set; }
     public int TemporalPlaybackVisibleIconCount { get; private set; }
+    public int TemporalPlaybackVisibleActionFloorCount { get; private set; }
     public double TemporalPlaybackDrawMilliseconds { get; private set; }
 
     private void RenderTemporalPlaybackFloors(TimingMap timingMap, double chartTime)
@@ -32,6 +33,7 @@ public sealed partial class LevelViewport
         TemporalPlaybackCandidateCount = range.Count;
         TemporalPlaybackVisibleFloorCount = 0;
         TemporalPlaybackVisibleIconCount = 0;
+        TemporalPlaybackVisibleActionFloorCount = 0;
 
         if (_level is null)
         {
@@ -67,6 +69,16 @@ public sealed partial class LevelViewport
                 midSpin,
                 selected: false);
             TemporalPlaybackVisibleFloorCount++;
+
+            if (_level.ActionsByFloor.ContainsKey(floor))
+            {
+                TemporalPlaybackVisibleActionFloorCount++;
+                if (StaticSceneIconsEnabled &&
+                    DrawFloorIcon(drawingContext, floor, center, entryAngle, exitAngle, midSpin))
+                {
+                    TemporalPlaybackVisibleIconCount++;
+                }
+            }
         }
 
         TemporalPlaybackDrawMilliseconds =
@@ -86,6 +98,7 @@ public sealed partial class LevelViewport
         TemporalPlaybackCandidateCount = 0;
         TemporalPlaybackVisibleFloorCount = 0;
         TemporalPlaybackVisibleIconCount = 0;
+        TemporalPlaybackVisibleActionFloorCount = 0;
         TemporalPlaybackDrawMilliseconds = 0.0;
     }
 }
