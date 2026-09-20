@@ -27,16 +27,16 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
         playback_active = playback_active_;
     }
 
-    const double last_frame_ms = last_frame_ms_.load(std::memory_order_relaxed);
+    const double frame_ms = last_frame_ms_.load(std::memory_order_relaxed);
     const auto now = std::chrono::steady_clock::now();
     const std::uint64_t frame_counter = frame_counter_.load(std::memory_order_relaxed);
-    double fps = last_frame_ms > 1e-6 ? 1000.0 / last_frame_ms : 0.0;
+    double fps = frame_ms > 1e-6 ? 1000.0 / frame_ms : 0.0;
     {
         std::lock_guard lock(diagnostics_mutex_);
         if (diagnostics_last_sample_.time_since_epoch().count() != 0)
         {
             const double elapsed = std::chrono::duration<double>(now - diagnostics_last_sample_).count();
-            if (elapsed > 1e-6)
+            if (elapsed > 0.01)
                 fps = static_cast<double>(frame_counter - diagnostics_last_frame_counter_) / elapsed;
         }
         diagnostics_last_sample_ = now;
@@ -45,10 +45,10 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
 
     diagnostics.reserved = 0u;
     diagnostics.fps = fps;
-    diagnostics.frame_ms = last_frame_ms;
+    diagnostics.frame_ms = frame_ms;
     diagnostics.max_frame_ms = std::max(
-        last_frame_ms,
-        max_frame_ms_.exchange(last_frame_ms, std::memory_order_acq_rel));
+        frame_ms,
+        max_frame_ms_.exchange(frame_ms, std::memory_order_acq_rel));
     diagnostics.render_ms = last_render_ms_.load(std::memory_order_relaxed);
     diagnostics.cull_ms = 0.0;
     diagnostics.visible_candidates = 0;
@@ -87,40 +87,39 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     diagnostics.visible_candidates = static_cast<std::uint32_t>(
         std::min<std::size_t>(candidates.size(), UINT32_MAX));
 
-    // Match the current Direct2D renderer exactly so these counters describe
-    // what is actually submitted today. The upcoming instanced path can replace
-    // this accounting without changing the public diagnostics ABI.
-    constexpr std::size_t MaxIndividualDraw = 80000;
-    const std::size_t stride = std::max<std::size_t>(
-        1,
-        (candidates.size() + MaxIndividualDraw - 1) / MaxIndividualDraw);
-
+    std::vector<bool> geometry_seen(scene->geometries.size(), false);
+    std::uint32_t geometry_batches = 0;
     bool selection_drawn = false;
     std::uint32_t floor_draws = 0;
-    for (std::size_t candidate_index = 0; candidate_index < candidates.size(); candidate_index += stride)
+    for (std::uint32_t floor_index : candidates)
     {
-        const std::uint32_t floor_index = candidates[candidate_index];
         if (floor_index >= scene->floors.size())
             continue;
+
         const EeFloor& floor = scene->floors[floor_index];
         if (floor.geometry_id >= scene->geometries.size())
             continue;
 
         ++floor_draws;
+        if (!geometry_seen[floor.geometry_id])
+        {
+            geometry_seen[floor.geometry_id] = true;
+            ++geometry_batches;
+        }
         if (selected_floor >= 0 && floor_index == static_cast<std::uint32_t>(selected_floor))
             selection_drawn = true;
     }
+
     diagnostics.floor_draws = floor_draws;
-    diagnostics.draw_calls += floor_draws * 2u;
+    diagnostics.draw_calls += geometry_batches * 2u; // one instanced fill + edge call per geometry
     if (selection_drawn)
         diagnostics.draw_calls += 1u;
 
     if (zoom >= 12.0f && icon_assets)
     {
         std::uint32_t icon_draws = 0;
-        for (std::size_t candidate_index = 0; candidate_index < candidates.size(); candidate_index += stride)
+        for (std::uint32_t floor_index : candidates)
         {
-            const std::uint32_t floor_index = candidates[candidate_index];
             if (floor_index >= scene->floors.size())
                 continue;
 
@@ -133,7 +132,7 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
                 continue;
 
             ++icon_draws;
-            ++diagnostics.draw_calls; // icon image
+            ++diagnostics.draw_calls;
             if ((floor.icon_flags & EE_ICON_FLAG_FLOOR) != 0 && !asset->second.outline_path.empty())
                 ++diagnostics.draw_calls;
         }
@@ -141,7 +140,7 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     }
 
     if (playback_active)
-        diagnostics.draw_calls += 4u; // two fills + two outlines
+        diagnostics.draw_calls += 4u;
 
     return true;
 }
