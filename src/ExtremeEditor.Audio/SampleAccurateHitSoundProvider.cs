@@ -44,8 +44,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (frameCount == 0)
             return 0;
 
+        // Deliberately do not clamp this bus. Overlapping hit sounds must remain
+        // linear until the song and hit-sound buses reach the single master limiter.
         CopyRenderedPcm(buffer, offset, _positionFrames, frameCount);
-        BoundPcm(buffer, offset, sampleCount);
         _positionFrames += frameCount;
         return sampleCount;
     }
@@ -169,16 +170,6 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         for (; i < count; i++)
             destination[destinationOffset + i] += source[sourceOffset + i] * volume;
-    }
-
-    private static void BoundPcm(float[] buffer, int offset, int count)
-    {
-        int end = offset + count;
-        for (int i = offset; i < end; i++)
-        {
-            float sample = buffer[i];
-            buffer[i] = float.IsNaN(sample) ? 0.0f : Math.Clamp(sample, -1.0f, 1.0f);
-        }
     }
 
     private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)
