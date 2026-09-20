@@ -10,6 +10,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/renderer.cpp
     src/renderer_diagnostics.cpp
     src/d2d_backend.cpp
+    src/floor_instanced_renderer.cpp
     src/level_scene.cpp
 )
 
@@ -30,6 +31,7 @@ target_include_directories(ExtremeEditor.NativeRenderer
 target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE
     user32
     d3d11
+    d3dcompiler
     dxgi
     d2d1
     windowscodecs
