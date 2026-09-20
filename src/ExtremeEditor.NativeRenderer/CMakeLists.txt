@@ -9,6 +9,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/native_window.cpp
     src/renderer.cpp
     src/d2d_backend.cpp
+    src/level_scene.cpp
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
