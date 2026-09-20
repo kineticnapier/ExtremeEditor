@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.24)
+
+project(ExtremeEditorNativeRenderer LANGUAGES CXX)
+
+enable_testing()
+
+add_library(ExtremeEditor.NativeRenderer SHARED
+    src/exports.cpp
+)
+
+target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
+target_compile_definitions(ExtremeEditor.NativeRenderer PRIVATE EE_RENDERER_BUILD=1)
+target_include_directories(ExtremeEditor.NativeRenderer
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(MSVC)
+    target_compile_options(ExtremeEditor.NativeRenderer PRIVATE /W4 /permissive-)
+endif()
+
+add_executable(native_renderer_tests
+    tests/native_renderer_tests.cpp
+)
+
+target_compile_features(native_renderer_tests PRIVATE cxx_std_20)
+target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
+
+add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
