@@ -9,11 +9,11 @@ internal static class DenseMixSafetyRegression
     [ModuleInitializer]
     public static void Run()
     {
-        RequireBoundedHitSoundBus();
-        RequireBoundedUnifiedMix();
+        RequireLinearHitSoundBus();
+        RequireLimitedUnifiedMix();
     }
 
-    private static void RequireBoundedHitSoundBus()
+    private static void RequireLinearHitSoundBus()
     {
         const int sampleRate = 1_000;
         LevelDocument level = CreateLevel(3);
@@ -38,10 +38,17 @@ internal static class DenseMixSafetyRegression
         var buffer = new float[2];
         provider.Read(buffer, 0, buffer.Length);
 
-        RequireSafePcm(buffer, "dense hitsound bus");
+        foreach (float sample in buffer)
+        {
+            if (!float.IsFinite(sample))
+                throw new InvalidOperationException($"dense hitsound bus: expected finite PCM, actual {sample}");
+            if (Math.Abs(sample - 1.5f) > 0.0001f)
+                throw new InvalidOperationException(
+                    $"dense hitsound bus: expected unclipped linear sum 1.5, actual {sample}");
+        }
     }
 
-    private static void RequireBoundedUnifiedMix()
+    private static void RequireLimitedUnifiedMix()
     {
         const int sampleRate = 1_000;
         WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
@@ -53,16 +60,29 @@ internal static class DenseMixSafetyRegression
         HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
         var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
         {
-            ["Kick"] = new RenderedHitSound([0.75f, 0.75f], 0.0)
+            ["Kick"] = new RenderedHitSound([
+                0.75f, 0.75f,
+                0.375f, 0.375f
+            ], 0.0)
         };
         var hitSounds = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
         var song = new ConstantSampleProvider(format, 0.75f);
-        var provider = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames: 1);
-        var buffer = new float[2];
+        var provider = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames: 2);
+        var buffer = new float[4];
 
         provider.Read(buffer, 0, buffer.Length);
 
         RequireSafePcm(buffer, "unified song and hitsound mix");
+
+        if (Math.Abs(buffer[0] - buffer[1]) > 0.0001f || Math.Abs(buffer[2] - buffer[3]) > 0.0001f)
+            throw new InvalidOperationException("master limiter must preserve linked stereo gain");
+
+        if (buffer[0] < 0.99f || buffer[0] > 1.0f)
+            throw new InvalidOperationException($"master limiter: expected first peak near ceiling, actual {buffer[0]}");
+
+        if (buffer[2] >= buffer[0] - 0.05f)
+            throw new InvalidOperationException(
+                $"master limiter: expected waveform dynamics instead of flat-top clipping, actual {buffer[0]}, {buffer[2]}");
     }
 
     private static void RequireSafePcm(IEnumerable<float> samples, string name)
