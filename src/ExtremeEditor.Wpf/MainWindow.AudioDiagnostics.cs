@@ -22,6 +22,7 @@ public partial class MainWindow
     public string PlaybackDiagnosticsSnapshot =>
         $"playback-ui fps={PlaybackUiFps:F1} rolling={PlaybackUiRollingMilliseconds:F2}ms max={PlaybackUiMaxMilliseconds:F2}ms " +
         $"temporal={Viewport.TemporalPlaybackCandidateCount} " +
+        $"retained={Viewport.TemporalPlaybackRetainedFloorCount} " +
         $"visibleFloors={Viewport.TemporalPlaybackVisibleFloorCount} " +
         $"visibleIcons={Viewport.TemporalPlaybackVisibleIconCount} " +
         $"visibleActions={Viewport.TemporalPlaybackVisibleActionFloorCount} " +
