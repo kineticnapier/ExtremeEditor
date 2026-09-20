@@ -83,46 +83,47 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     private void ApplyMasterLimiter(float[] buffer, int offset, int frameCount, int channels)
     {
-        int sampleCount = frameCount * channels;
-        int end = offset + sampleCount;
-        float peak = 0.0f;
-
-        for (int i = offset; i < end; i++)
-        {
-            float sample = buffer[i];
-            if (!float.IsFinite(sample))
-            {
-                buffer[i] = 0.0f;
-                continue;
-            }
-
-            peak = Math.Max(peak, Math.Abs(sample));
-        }
-
-        float targetGain = peak > MasterCeiling
-            ? MasterCeiling / peak
-            : 1.0f;
-
-        // Attack is immediate so a newly arriving transient cannot clip. Release
-        // is smoothed per frame so dense hit-sound passages do not turn into the
-        // flat-topped waveform produced by the old Math.Clamp path.
-        if (targetGain < _limiterGain)
-            _limiterGain = targetGain;
-
         float releaseCoefficient = MathF.Exp(
             -1.0f / Math.Max(1.0f, WaveFormat.SampleRate * LimiterReleaseSeconds));
 
         int sample = offset;
         for (int frame = 0; frame < frameCount; frame++)
         {
-            if (_limiterGain < targetGain)
+            int frameOffset = sample;
+            float framePeak = 0.0f;
+            for (int channel = 0; channel < channels; channel++)
+            {
+                float value = buffer[sample + channel];
+                if (!float.IsFinite(value))
+                {
+                    buffer[sample + channel] = 0.0f;
+                    continue;
+                }
+
+                framePeak = Math.Max(framePeak, Math.Abs(value));
+            }
+
+            float targetGain = framePeak > MasterCeiling
+                ? MasterCeiling / framePeak
+                : 1.0f;
+
+            // Linked-channel, zero-lookahead peak limiter: attack immediately on
+            // the current frame, then recover smoothly. The waveform is scaled,
+            // never flat-topped by per-sample Math.Clamp.
+            if (targetGain < _limiterGain)
+            {
+                _limiterGain = targetGain;
+            }
+            else if (_limiterGain < targetGain)
             {
                 float released = 1.0f - (1.0f - _limiterGain) * releaseCoefficient;
                 _limiterGain = Math.Min(targetGain, released);
             }
 
             for (int channel = 0; channel < channels; channel++)
-                buffer[sample++] *= _limiterGain;
+                buffer[frameOffset + channel] *= _limiterGain;
+
+            sample += channels;
         }
     }
 }
