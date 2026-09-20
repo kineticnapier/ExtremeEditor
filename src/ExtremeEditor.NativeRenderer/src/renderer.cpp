@@ -14,6 +14,19 @@ namespace
 {
 constexpr float PlanetDistance = 1.5f;
 
+void UpdateAtomicMax(std::atomic<double>& target, double value) noexcept
+{
+    double current = target.load(std::memory_order_relaxed);
+    while (current < value &&
+           !target.compare_exchange_weak(
+               current,
+               value,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed))
+    {
+    }
+}
+
 PlaybackVisualState CalculatePlaybackVisual(
     const LevelScene* scene,
     const std::vector<EePlaybackTiming>* timings,
@@ -83,6 +96,15 @@ bool Renderer::Initialize(HWND parent, std::uint32_t width, std::uint32_t height
     height_.store(safe_height, std::memory_order_relaxed);
     resize_pending_.store(false, std::memory_order_relaxed);
     stop_requested_.store(false, std::memory_order_release);
+    frame_counter_.store(0, std::memory_order_relaxed);
+    last_frame_ms_.store(0.0, std::memory_order_relaxed);
+    max_frame_ms_.store(0.0, std::memory_order_relaxed);
+    last_render_ms_.store(0.0, std::memory_order_relaxed);
+    {
+        std::lock_guard lock(diagnostics_mutex_);
+        diagnostics_last_frame_counter_ = 0;
+        diagnostics_last_sample_ = {};
+    }
 
     {
         std::lock_guard lock(initialize_mutex_);
@@ -466,6 +488,8 @@ void Renderer::RenderLoop() noexcept
 
     while (!stop_requested_.load(std::memory_order_acquire))
     {
+        const auto frame_started = std::chrono::steady_clock::now();
+
         if (resize_pending_.exchange(false, std::memory_order_acq_rel))
         {
             ready = backend.Resize(
@@ -535,6 +559,7 @@ void Renderer::RenderLoop() noexcept
                 }
             }
 
+            const auto render_started = std::chrono::steady_clock::now();
             const HRESULT hr = backend.RenderFrame(
                 seconds,
                 scene.get(),
@@ -546,6 +571,10 @@ void Renderer::RenderLoop() noexcept
                 zoom,
                 selected_floor,
                 playback);
+            const auto render_finished = std::chrono::steady_clock::now();
+            last_render_ms_.store(
+                std::chrono::duration<double, std::milli>(render_finished - render_started).count(),
+                std::memory_order_relaxed);
             ready = SUCCEEDED(hr);
         }
 
@@ -558,6 +587,13 @@ void Renderer::RenderLoop() noexcept
                 width_.load(std::memory_order_relaxed),
                 height_.load(std::memory_order_relaxed));
         }
+
+        const auto frame_finished = std::chrono::steady_clock::now();
+        const double frame_ms =
+            std::chrono::duration<double, std::milli>(frame_finished - frame_started).count();
+        last_frame_ms_.store(frame_ms, std::memory_order_relaxed);
+        UpdateAtomicMax(max_frame_ms_, frame_ms);
+        frame_counter_.fetch_add(1, std::memory_order_relaxed);
     }
 
     backend.Shutdown();
