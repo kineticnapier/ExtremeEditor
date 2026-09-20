@@ -12,6 +12,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/d2d_backend.cpp
     src/d2d_backend_compat.cpp
     src/floor_instanced_renderer.cpp
+    src/icon_instanced_renderer.cpp
     src/level_scene.cpp
 )
 
