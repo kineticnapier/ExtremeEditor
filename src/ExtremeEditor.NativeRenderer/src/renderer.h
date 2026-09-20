@@ -36,6 +36,7 @@ public:
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetFollowPlayer(bool enabled) noexcept;
     void SetFollowPlayerChangedCallback(EeFollowPlayerChangedCallback callback, void* user_data) noexcept;
+    bool GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept;
 
     [[nodiscard]] HWND ChildHwnd() const noexcept { return window_.Handle(); }
     [[nodiscard]] std::int32_t SelectedFloor() const noexcept;
@@ -83,6 +84,14 @@ private:
     double playback_anchor_chart_time_ = 0.0;
     double playback_chart_rate_ = 1.0;
     std::chrono::steady_clock::time_point playback_anchor_steady_{};
+
+    std::atomic_uint64_t frame_counter_{0};
+    std::atomic<double> last_frame_ms_{0.0};
+    std::atomic<double> max_frame_ms_{0.0};
+    std::atomic<double> last_render_ms_{0.0};
+    mutable std::mutex diagnostics_mutex_;
+    std::uint64_t diagnostics_last_frame_counter_ = 0;
+    std::chrono::steady_clock::time_point diagnostics_last_sample_{};
 
     bool panning_ = false;
     UINT pan_button_ = 0;
