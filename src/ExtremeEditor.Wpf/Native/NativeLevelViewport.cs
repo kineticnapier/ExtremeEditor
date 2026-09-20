@@ -4,12 +4,13 @@ using System.Windows.Interop;
 
 namespace ExtremeEditor.Wpf.Native;
 
-internal sealed class NativeLevelViewport : HwndHost
+public sealed class NativeLevelViewport : HwndHost
 {
     private NativeRendererSession? _session;
 
     public NativeLevelViewport()
     {
+        Focusable = false;
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
