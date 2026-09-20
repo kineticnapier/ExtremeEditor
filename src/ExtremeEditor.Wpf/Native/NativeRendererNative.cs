@@ -43,4 +43,21 @@ internal static class NativeRendererNative
 
     [DllImport(DllName, EntryPoint = "ee_renderer_frame_all", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void FrameAll(nint renderer);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_clear_icon_assets", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ClearIconAssets(nint renderer);
+
+    [DllImport(
+        DllName,
+        EntryPoint = "ee_renderer_set_icon_asset",
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Unicode)]
+    internal static extern int SetIconAsset(
+        nint renderer,
+        uint iconId,
+        string imagePath,
+        string? outlinePath);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_get_selected_floor", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int GetSelectedFloor(nint renderer);
 }
