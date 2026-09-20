@@ -29,6 +29,7 @@ public:
     void FrameAll() noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(std::uint32_t icon_id, const wchar_t* image_path, const wchar_t* outline_path) noexcept;
+    void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
 
     [[nodiscard]] HWND ChildHwnd() const noexcept { return window_.Handle(); }
     [[nodiscard]] std::int32_t SelectedFloor() const noexcept;
@@ -37,7 +38,8 @@ public:
 private:
     void RenderLoop() noexcept;
     void StopRenderThread() noexcept;
-    void SelectFloorAt(int screen_x, int screen_y) noexcept;
+    std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
+    void NotifySelectionChanged(std::int32_t floor) noexcept;
 
     NativeWindow window_;
     std::thread render_thread_;
@@ -60,6 +62,8 @@ private:
     std::int32_t selected_floor_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;
+    EeSelectionChangedCallback selection_callback_ = nullptr;
+    void* selection_user_data_ = nullptr;
 
     bool panning_ = false;
     UINT pan_button_ = 0;
