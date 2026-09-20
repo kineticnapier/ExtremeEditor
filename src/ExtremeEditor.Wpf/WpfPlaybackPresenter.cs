@@ -17,11 +17,12 @@ internal static class WpfPlaybackPresenter
 
         if (isStopped)
         {
-            viewport.SetPlaybackPose(null);
+            viewport.ClearPlaybackFrame();
             return;
         }
 
         double chartTime = PlaybackClock.AudioToChartTime(level, audioSeconds);
-        viewport.SetPlaybackPose(timingMap.GetPose(level, chartTime));
+        PlaybackPose pose = timingMap.GetPose(level, chartTime);
+        viewport.SetPlaybackFrame(timingMap, chartTime, pose);
     }
 }
