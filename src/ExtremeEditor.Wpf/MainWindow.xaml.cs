@@ -62,6 +62,7 @@ public partial class MainWindow : Window
         Viewport.SetLevel(level, index);
 
         StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | synthetic 4096-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
+        PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
     }
 
     protected override void OnClosed(EventArgs e)
@@ -213,7 +214,7 @@ public partial class MainWindow : Window
         _audio.Stop();
         Viewport.SetPlaybackPose(null);
         PlayButton.Content = "Play";
-        PlaybackText.Text = "--:--.---";
+        PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -225,7 +226,7 @@ public partial class MainWindow : Window
             if (_level is null || _timingMap is null || !_audio.IsLoaded)
             {
                 Viewport.SetPlaybackPose(null);
-                PlaybackText.Text = "--:--.---";
+                PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
                 PlayButton.Content = "Play";
                 return;
             }
@@ -239,7 +240,7 @@ public partial class MainWindow : Window
                 audioSeconds,
                 _audio.IsStopped);
 
-            PlaybackText.Text =
+            PlaybackDiagnosticsText.Text =
                 $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
                 $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
 
