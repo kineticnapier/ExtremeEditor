@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace ee
 {
@@ -29,9 +32,13 @@ cbuffer ColorConstants : register(b1)
     float4 drawColor;
 };
 
+Texture2D floorTexture : register(t0);
+SamplerState floorSampler : register(s0);
+
 struct VSInput
 {
     float2 localPosition : POSITION;
+    float2 localUv : TEXCOORD0;
     float2 worldPosition : INSTANCEPOS;
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
@@ -41,6 +48,7 @@ struct VSOutput
 {
     float4 position : SV_Position;
     float2 localPosition : TEXCOORD0;
+    float2 uv : TEXCOORD1;
 };
 
 VSOutput VSMain(VSInput input)
@@ -60,6 +68,7 @@ VSOutput VSMain(VSInput input)
         1.0 - screen.y * 2.0 / viewport.y);
     output.position = float4(clip, input.depth, 1.0);
     output.localPosition = input.localPosition;
+    output.uv = input.localUv;
     return output;
 }
 
@@ -87,6 +96,7 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
 
     VSOutput vertex;
     vertex.localPosition = float2(0.0, 0.0);
+    vertex.uv = float2(0.0, 0.0);
     vertex.position = float4(a - extendClip + normalClip, input[0].position.z, 1.0);
     stream.Append(vertex);
     vertex.position = float4(a - extendClip - normalClip, input[0].position.z, 1.0);
@@ -98,19 +108,24 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
     stream.RestartStrip();
 }
 
-float4 PSMain(VSOutput input) : SV_Target
+float4 PSTextured(VSOutput input) : SV_Target
 {
-    // The old native material was a single flat color, unlike the stock tile
-    // material. Keep the renderer texture-free for now, but restore a lightweight
-    // bevel/center highlight in local tile space. Edge passes use alpha 0.48 and
-    // intentionally stay flat so the outline remains crisp.
-    if (drawColor.a < 0.8)
-        return drawColor;
+    float4 sampled = floorTexture.Sample(floorSampler, input.uv);
+    clip(sampled.a - (1.0 / 255.0));
+    return sampled;
+}
 
+float4 PSFallback(VSOutput input) : SV_Target
+{
     float directional = saturate(0.5 + input.localPosition.y * 0.45 - input.localPosition.x * 0.08);
     float center = saturate(1.0 - length(input.localPosition) * 0.55);
     float shade = 0.86 + directional * 0.10 + center * 0.08;
     return float4(saturate(drawColor.rgb * shade), drawColor.a);
+}
+
+float4 PSFlat(VSOutput input) : SV_Target
+{
+    return drawColor;
 }
 )";
 
@@ -155,7 +170,21 @@ bool FloorInstancedRenderer::Initialize(ID3D11Device* device) noexcept
         return false;
 
     device_ = device;
-    return CreatePipeline(device);
+    if (!CreatePipeline(device))
+        return false;
+
+    // WPF and native rendering deliberately share the same imported floor asset.
+    // Texture loading is optional: if the cache is absent we retain the procedural
+    // fallback instead of failing renderer initialization.
+    if (SUCCEEDED(CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(wic_factory_.GetAddressOf()))))
+    {
+        TryLoadDefaultTileTexture();
+    }
+    return true;
 }
 
 void FloorInstancedRenderer::Shutdown() noexcept
@@ -166,6 +195,9 @@ void FloorInstancedRenderer::Shutdown() noexcept
     instance_ranges_.clear();
     instance_capacity_ = 0;
     cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
+    tile_sampler_.Reset();
+    tile_texture_.Reset();
+    wic_factory_.Reset();
     edge_depth_state_.Reset();
     fill_depth_state_.Reset();
     rasterizer_state_.Reset();
@@ -175,7 +207,9 @@ void FloorInstancedRenderer::Shutdown() noexcept
     frame_constants_.Reset();
     input_layout_.Reset();
     edge_geometry_shader_.Reset();
-    pixel_shader_.Reset();
+    flat_pixel_shader_.Reset();
+    fallback_pixel_shader_.Reset();
+    textured_pixel_shader_.Reset();
     vertex_shader_.Reset();
     device_.Reset();
 }
@@ -183,10 +217,14 @@ void FloorInstancedRenderer::Shutdown() noexcept
 bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
 {
     ComPtr<ID3DBlob> vertex_bytecode;
-    ComPtr<ID3DBlob> pixel_bytecode;
+    ComPtr<ID3DBlob> textured_bytecode;
+    ComPtr<ID3DBlob> fallback_bytecode;
+    ComPtr<ID3DBlob> flat_bytecode;
     ComPtr<ID3DBlob> geometry_bytecode;
     if (!CompileShader("VSMain", "vs_5_0", vertex_bytecode) ||
-        !CompileShader("PSMain", "ps_5_0", pixel_bytecode) ||
+        !CompileShader("PSTextured", "ps_5_0", textured_bytecode) ||
+        !CompileShader("PSFallback", "ps_5_0", fallback_bytecode) ||
+        !CompileShader("PSFlat", "ps_5_0", flat_bytecode) ||
         !CompileShader("GSEdge", "gs_5_0", geometry_bytecode))
         return false;
 
@@ -196,10 +234,20 @@ bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
             nullptr,
             vertex_shader_.GetAddressOf())) ||
         FAILED(device->CreatePixelShader(
-            pixel_bytecode->GetBufferPointer(),
-            pixel_bytecode->GetBufferSize(),
+            textured_bytecode->GetBufferPointer(),
+            textured_bytecode->GetBufferSize(),
             nullptr,
-            pixel_shader_.GetAddressOf())) ||
+            textured_pixel_shader_.GetAddressOf())) ||
+        FAILED(device->CreatePixelShader(
+            fallback_bytecode->GetBufferPointer(),
+            fallback_bytecode->GetBufferSize(),
+            nullptr,
+            fallback_pixel_shader_.GetAddressOf())) ||
+        FAILED(device->CreatePixelShader(
+            flat_bytecode->GetBufferPointer(),
+            flat_bytecode->GetBufferSize(),
+            nullptr,
+            flat_pixel_shader_.GetAddressOf())) ||
         FAILED(device->CreateGeometryShader(
             geometry_bytecode->GetBufferPointer(),
             geometry_bytecode->GetBufferSize(),
@@ -210,6 +258,7 @@ bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
     const D3D11_INPUT_ELEMENT_DESC elements[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"INSTANCEPOS", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1}
@@ -231,6 +280,16 @@ bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
 
     constant_desc.ByteWidth = sizeof(ColorConstants);
     if (FAILED(device->CreateBuffer(&constant_desc, nullptr, color_constants_.GetAddressOf())))
+        return false;
+
+    D3D11_SAMPLER_DESC sampler_desc{};
+    sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.MinLOD = 0.0f;
+    sampler_desc.MaxLOD = D3D11_FLOAT32_MAX;
+    if (FAILED(device->CreateSamplerState(&sampler_desc, tile_sampler_.GetAddressOf())))
         return false;
 
     D3D11_BLEND_DESC blend_desc{};
@@ -266,6 +325,96 @@ bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
     return true;
 }
 
+bool FloorInstancedRenderer::TryLoadDefaultTileTexture() noexcept
+{
+    wchar_t* local_app_data = nullptr;
+    std::size_t length = 0;
+    if (_wdupenv_s(&local_app_data, &length, L"LOCALAPPDATA") != 0 ||
+        local_app_data == nullptr || length <= 1)
+    {
+        std::free(local_app_data);
+        return false;
+    }
+
+    std::wstring path(local_app_data);
+    std::free(local_app_data);
+    path += L"\\ExtremeEditor\\AssetCache\\floor-mesh\\tile.png";
+    return LoadTileTexture(path.c_str());
+}
+
+bool FloorInstancedRenderer::LoadTileTexture(const wchar_t* path) noexcept
+{
+    if (path == nullptr || *path == L'\0' || !wic_factory_ || !device_)
+        return false;
+
+    ComPtr<IWICBitmapDecoder> decoder;
+    if (FAILED(wic_factory_->CreateDecoderFromFilename(
+            path,
+            nullptr,
+            GENERIC_READ,
+            WICDecodeMetadataCacheOnLoad,
+            decoder.GetAddressOf())))
+        return false;
+
+    ComPtr<IWICBitmapFrameDecode> frame;
+    if (FAILED(decoder->GetFrame(0, frame.GetAddressOf())))
+        return false;
+
+    ComPtr<IWICFormatConverter> converter;
+    if (FAILED(wic_factory_->CreateFormatConverter(converter.GetAddressOf())) ||
+        FAILED(converter->Initialize(
+            frame.Get(),
+            GUID_WICPixelFormat32bppRGBA,
+            WICBitmapDitherTypeNone,
+            nullptr,
+            0.0,
+            WICBitmapPaletteTypeCustom)))
+        return false;
+
+    UINT width = 0;
+    UINT height = 0;
+    if (FAILED(converter->GetSize(&width, &height)) || width == 0 || height == 0)
+        return false;
+    if (width > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
+        height > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION || width > UINT_MAX / 4u)
+        return false;
+
+    const UINT stride = width * 4u;
+    const std::uint64_t byte_count64 = static_cast<std::uint64_t>(stride) * height;
+    if (byte_count64 > UINT_MAX)
+        return false;
+    const UINT byte_count = static_cast<UINT>(byte_count64);
+
+    std::vector<std::uint8_t> pixels(byte_count);
+    if (FAILED(converter->CopyPixels(nullptr, stride, byte_count, pixels.data())))
+        return false;
+
+    D3D11_TEXTURE2D_DESC texture_desc{};
+    texture_desc.Width = width;
+    texture_desc.Height = height;
+    texture_desc.MipLevels = 1;
+    texture_desc.ArraySize = 1;
+    texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
+    texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA texture_data{};
+    texture_data.pSysMem = pixels.data();
+    texture_data.SysMemPitch = stride;
+
+    ComPtr<ID3D11Texture2D> texture;
+    if (FAILED(device_->CreateTexture2D(&texture_desc, &texture_data, texture.GetAddressOf())))
+        return false;
+
+    ComPtr<ID3D11ShaderResourceView> view;
+    if (FAILED(device_->CreateShaderResourceView(texture.Get(), nullptr, view.GetAddressOf())))
+        return false;
+
+    tile_texture_ = std::move(view);
+    return true;
+}
+
 bool FloorInstancedRenderer::CreateGeometryBuffers(
     ID3D11Device* device,
     const LevelScene& scene,
@@ -276,9 +425,34 @@ bool FloorInstancedRenderer::CreateGeometryBuffers(
         return false;
 
     const EePoint* points = scene.points.data() + geometry.point_offset;
-    const UINT vertex_bytes = geometry.point_count * sizeof(EePoint);
+    float min_x = points[0].x;
+    float max_x = points[0].x;
+    float min_y = points[0].y;
+    float max_y = points[0].y;
+    for (std::uint32_t i = 1; i < geometry.point_count; ++i)
+    {
+        min_x = std::min(min_x, points[i].x);
+        max_x = std::max(max_x, points[i].x);
+        min_y = std::min(min_y, points[i].y);
+        max_y = std::max(max_y, points[i].y);
+    }
+
+    const float width = std::max(0.000001f, max_x - min_x);
+    const float height = std::max(0.000001f, max_y - min_y);
+    std::vector<FloorVertex> vertices;
+    vertices.reserve(geometry.point_count);
+    for (std::uint32_t i = 0; i < geometry.point_count; ++i)
+    {
+        vertices.push_back(FloorVertex{
+            points[i].x,
+            points[i].y,
+            (points[i].x - min_x) / width,
+            (max_y - points[i].y) / height});
+    }
+
+    const UINT vertex_bytes = static_cast<UINT>(vertices.size() * sizeof(FloorVertex));
     D3D11_SUBRESOURCE_DATA vertex_data{};
-    vertex_data.pSysMem = points;
+    vertex_data.pSysMem = vertices.data();
     D3D11_BUFFER_DESC vertex_desc = ImmutableBufferDesc(vertex_bytes, D3D11_BIND_VERTEX_BUFFER);
     if (FAILED(device->CreateBuffer(&vertex_desc, &vertex_data, output.vertices.GetAddressOf())))
         return false;
@@ -288,9 +462,7 @@ bool FloorInstancedRenderer::CreateGeometryBuffers(
             points,
             geometry.point_count,
             fill_indices))
-    {
         return false;
-    }
 
     D3D11_SUBRESOURCE_DATA fill_data{};
     fill_data.pSysMem = fill_indices.data();
@@ -414,7 +586,8 @@ bool FloorInstancedRenderer::Draw(
 {
     stats = {};
     if (context == nullptr || render_target == nullptr || depth_target == nullptr ||
-        !device_ || !vertex_shader_ || !pixel_shader_ || !instance_buffer_ && visible_floors.empty())
+        !device_ || !vertex_shader_ || !fallback_pixel_shader_ ||
+        !flat_pixel_shader_ || !instance_buffer_ && visible_floors.empty())
     {
         if (visible_floors.empty())
             return true;
@@ -501,17 +674,29 @@ bool FloorInstancedRenderer::Draw(
     context->IASetInputLayout(input_layout_.Get());
     context->VSSetShader(vertex_shader_.Get(), nullptr, 0);
     context->VSSetConstantBuffers(0, 1, frame_constants_.GetAddressOf());
-    context->PSSetShader(pixel_shader_.Get(), nullptr, 0);
     context->PSSetConstantBuffers(1, 1, color_constants_.GetAddressOf());
 
-    const UINT vertex_stride = sizeof(EePoint);
+    const UINT vertex_stride = sizeof(FloorVertex);
     const UINT instance_stride = sizeof(InstanceData);
     const UINT vertex_offset = 0;
 
-    SetColor(context, ColorConstants{225.0f / 255.0f, 228.0f / 255.0f, 235.0f / 255.0f, 0.94f});
     context->GSSetShader(nullptr, nullptr, 0);
     context->OMSetDepthStencilState(fill_depth_state_.Get(), 0);
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    if (tile_texture_ && textured_pixel_shader_)
+    {
+        context->PSSetShader(textured_pixel_shader_.Get(), nullptr, 0);
+        ID3D11ShaderResourceView* view = tile_texture_.Get();
+        ID3D11SamplerState* sampler = tile_sampler_.Get();
+        context->PSSetShaderResources(0, 1, &view);
+        context->PSSetSamplers(0, 1, &sampler);
+    }
+    else
+    {
+        SetColor(context, ColorConstants{225.0f / 255.0f, 228.0f / 255.0f, 235.0f / 255.0f, 0.94f});
+        context->PSSetShader(fallback_pixel_shader_.Get(), nullptr, 0);
+    }
 
     for (std::size_t geometry_id = 0; geometry_id < geometries_.size(); ++geometry_id)
     {
@@ -530,7 +715,11 @@ bool FloorInstancedRenderer::Draw(
         ++stats.draw_calls;
     }
 
+    ID3D11ShaderResourceView* no_view = nullptr;
+    context->PSSetShaderResources(0, 1, &no_view);
+
     SetColor(context, ColorConstants{24.0f / 255.0f, 22.0f / 255.0f, 18.0f / 255.0f, 0.48f});
+    context->PSSetShader(flat_pixel_shader_.Get(), nullptr, 0);
     context->GSSetShader(edge_geometry_shader_.Get(), nullptr, 0);
     context->GSSetConstantBuffers(0, 1, frame_constants_.GetAddressOf());
     context->OMSetDepthStencilState(edge_depth_state_.Get(), 0);
