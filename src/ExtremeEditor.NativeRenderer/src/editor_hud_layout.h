@@ -30,7 +30,7 @@ struct EditorHudButton
     bool accent = false;
 };
 
-inline constexpr std::size_t EditorHudButtonCount = 12;
+inline constexpr std::size_t EditorHudButtonCount = 8;
 
 inline std::array<EditorHudButton, EditorHudButtonCount> BuildEditorHudButtons(
     float anchor_x,
@@ -50,11 +50,7 @@ inline std::array<EditorHudButton, EditorHudButtonCount> BuildEditorHudButtons(
         { EE_EDITOR_ACTION_INSERT_ANGLE,   0.0, anchor_x + x_axis, anchor_y,          diagonal, diagonal, EditorHudShape::Diamond, L"D", L"0\x00B0", false, false },
         { EE_EDITOR_ACTION_INSERT_ANGLE, 225.0, anchor_x - x_near, anchor_y + y_near, diagonal, diagonal, EditorHudShape::Diamond, L"Z", L"225\x00B0", false, false },
         { EE_EDITOR_ACTION_INSERT_ANGLE, 270.0, anchor_x,          anchor_y + y_axis, diagonal, diagonal, EditorHudShape::Diamond, L"S", L"270\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 315.0, anchor_x + x_near, anchor_y + y_near, diagonal, diagonal, EditorHudShape::Diamond, L"C", L"315\x00B0", false, false },
-        { EE_EDITOR_ACTION_ROTATE_180,     0.0, anchor_x,          anchor_y - 128.0f, 35.0f, 14.0f, EditorHudShape::RoundedRect, L"180\x00B0", L"", false, false },
-        { EE_EDITOR_ACTION_INSERT_MIDSPIN, 0.0, anchor_x - 62.0f,  anchor_y + 126.0f, 31.0f, 15.0f, EditorHudShape::RoundedRect, L"MID", L"", false, true },
-        { EE_EDITOR_ACTION_INSERT_FULL_TURN, 0.0, anchor_x + 8.0f, anchor_y + 126.0f, 31.0f, 15.0f, EditorHudShape::RoundedRect, L"360\x00B0", L"", false, true },
-        { EE_EDITOR_ACTION_DELETE,         0.0, anchor_x + 88.0f,  anchor_y + 126.0f, 34.0f, 15.0f, EditorHudShape::RoundedRect, L"DEL", L"", true, false }
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 315.0, anchor_x + x_near, anchor_y + y_near, diagonal, diagonal, EditorHudShape::Diamond, L"C", L"315\x00B0", false, false }
     }};
 }
 

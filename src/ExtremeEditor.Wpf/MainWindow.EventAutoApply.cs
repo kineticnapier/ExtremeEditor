@@ -13,9 +13,6 @@ public partial class MainWindow
 
     private static void RegisterEventPropertyAutoApplyHandlers()
     {
-        // Property controls are created dynamically by MainWindow.EventPropertyEditor.
-        // Listen at the containing StackPanel so the control's own handler has already
-        // copied the edited value into _eventPropertyDraft before we commit it.
         EventManager.RegisterClassHandler(
             typeof(StackPanel),
             Keyboard.LostKeyboardFocusEvent,
@@ -76,8 +73,6 @@ public partial class MainWindow
         if (e.OriginalSource is not TextBox box || ReferenceEquals(box, window.EventEditorText))
             return;
 
-        // Enter commits a scalar/text field by moving focus, which causes the
-        // TextBox's existing LostKeyboardFocus handler to parse the value first.
         if (!box.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)))
             window.EventList.Focus();
         e.Handled = true;
@@ -132,15 +127,15 @@ public partial class MainWindow
         bool speedVisualChanged = before.Kind == LevelActionKind.SetSpeed ||
                                   after.Kind == LevelActionKind.SetSpeed;
 
+        if (speedVisualChanged)
+            RecomputeSpeedRatios();
+
         if (timingChanged)
         {
             _timingMap = FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
-        // Native floor icons are baked into the level snapshot. Re-upload the
-        // snapshot as soon as a SetSpeed edit changes SpeedRatio so the
-        // snail/rabbit icon does not wait for the next structural edit.
         if (speedVisualChanged)
             NativeViewport.SetLevel(_level);
 
@@ -153,6 +148,40 @@ public partial class MainWindow
 
         UpdateEditorStatus();
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void RecomputeSpeedRatios()
+    {
+        if (_level is null)
+            return;
+
+        double bpm = _level.InitialBpm > 0 ? _level.InitialBpm : 100.0;
+        LevelActionStore store = _level.ActionStore;
+        for (int actionFloorIndex = 0; actionFloorIndex < store.ActionFloorCount; actionFloorIndex++)
+        {
+            ReadOnlySpan<LevelAction> actions = store.GetActionsAt(actionFloorIndex);
+            foreach (LevelAction action in actions)
+            {
+                if (action.Kind != LevelActionKind.SetSpeed)
+                    continue;
+
+                action.SpeedRatio = null;
+                if (!action.Active)
+                    continue;
+
+                if (string.Equals(action.SpeedType, "Multiplier", StringComparison.OrdinalIgnoreCase) &&
+                    action.BpmMultiplier is double multiplier && multiplier > 0)
+                {
+                    action.SpeedRatio = multiplier;
+                    bpm *= multiplier;
+                }
+                else if (action.BeatsPerMinute is double target && target > 0)
+                {
+                    action.SpeedRatio = bpm > 0 ? target / bpm : null;
+                    bpm = target;
+                }
+            }
+        }
     }
 
     private static bool AffectsEditorTiming(LevelAction action) => action.Kind is
