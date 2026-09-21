@@ -23,6 +23,14 @@ public partial class MainWindow : Window
     private HitSoundTimeline? _hitSoundTimeline;
     private bool _isLoading;
 
+    // ADOFAI's editor can preview a chart even before a song file is assigned.
+    // Keep a chart-time transport alongside the real audio transport so editor
+    // playback is a level feature, not an AudioPlayer feature.
+    private bool _silentPlaybackActive;
+    private bool _silentPlaybackPlaying;
+    private double _silentPlaybackChartTime;
+    private long _silentPlaybackTimestamp;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -76,6 +84,8 @@ public partial class MainWindow : Window
         Viewport.SetLevel(level, index);
         NativeViewport.SetLevel(level);
         NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
+        Viewport.SetSelection([0], 0);
+        NativeViewport.SetSelection([0], 0);
 
         StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | new 2-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -190,6 +200,8 @@ public partial class MainWindow : Window
 
             NativeLevelLoadMetrics nativeMetrics = NativeViewport.SetLevelProfiled(loaded.Document);
             NativePlaybackLoadMetrics nativePlaybackMetrics = NativeViewport.SetPlaybackTimelineProfiled(playback.TimingMap);
+            Viewport.SetSelection([0], 0);
+            NativeViewport.SetSelection([0], 0);
             Console.WriteLine(
                 $"[load] viewport wpfSetLevel={wpfSetLevel.TotalMilliseconds:N1}ms " +
                 $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
@@ -261,15 +273,23 @@ public partial class MainWindow : Window
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = _level is not null &&
-                       (_timingMap is not null || _editorPlaybackRefreshPending) &&
-                       _audio.IsLoaded;
+                       (_timingMap is not null || _editorPlaybackRefreshPending);
         e.Handled = true;
     }
 
     private void TogglePlayback()
     {
-        if (_level is null || _timingMap is null || !_audio.IsLoaded)
+        FlushEditorPlaybackRefresh();
+        if (_level is null || _timingMap is null)
             return;
+
+        if (!_audio.IsLoaded)
+        {
+            ToggleSilentPlayback();
+            return;
+        }
+
+        ClearSilentPlaybackState();
 
         if (_audio.IsPlaying)
         {
@@ -295,9 +315,76 @@ public partial class MainWindow : Window
         UpdatePlaybackDisplay();
     }
 
+    private void ToggleSilentPlayback()
+    {
+        if (_level is null || _timingMap is null)
+            return;
+
+        double chartRate = EditorChartRate;
+        if (!_silentPlaybackActive)
+        {
+            _silentPlaybackChartTime = Viewport.SelectedFloor >= 0
+                ? _timingMap.GetEntryTime(Viewport.SelectedFloor)
+                : 0.0;
+            _silentPlaybackChartTime = Math.Clamp(_silentPlaybackChartTime, 0.0, _timingMap.Duration);
+            _silentPlaybackActive = true;
+            _silentPlaybackPlaying = true;
+            _silentPlaybackTimestamp = Stopwatch.GetTimestamp();
+            ResetPlaybackUiDiagnostics();
+        }
+        else if (_silentPlaybackPlaying)
+        {
+            _silentPlaybackChartTime = CurrentSilentChartTime;
+            _silentPlaybackPlaying = false;
+        }
+        else
+        {
+            if (_silentPlaybackChartTime >= _timingMap.Duration)
+            {
+                _silentPlaybackChartTime = Viewport.SelectedFloor >= 0
+                    ? _timingMap.GetEntryTime(Viewport.SelectedFloor)
+                    : 0.0;
+            }
+            _silentPlaybackTimestamp = Stopwatch.GetTimestamp();
+            _silentPlaybackPlaying = true;
+        }
+
+        NativeViewport.SetPlaybackState(
+            _silentPlaybackChartTime,
+            chartRate,
+            active: true,
+            playing: _silentPlaybackPlaying);
+        PlayButton.Content = _silentPlaybackPlaying ? "Pause" : "Play";
+        CommandManager.InvalidateRequerySuggested();
+        UpdatePlaybackDisplay();
+    }
+
+    private double EditorChartRate => Math.Max(0.000001, (_level?.PitchPercent ?? 100.0) * 0.01);
+
+    private double CurrentSilentChartTime
+    {
+        get
+        {
+            if (!_silentPlaybackActive || !_silentPlaybackPlaying)
+                return _silentPlaybackChartTime;
+
+            return _silentPlaybackChartTime +
+                   Stopwatch.GetElapsedTime(_silentPlaybackTimestamp).TotalSeconds * EditorChartRate;
+        }
+    }
+
+    private void ClearSilentPlaybackState()
+    {
+        _silentPlaybackActive = false;
+        _silentPlaybackPlaying = false;
+        _silentPlaybackChartTime = 0.0;
+        _silentPlaybackTimestamp = 0;
+    }
+
     private void StopPlayback()
     {
         _audio.Stop();
+        ClearSilentPlaybackState();
         Viewport.SetPlaybackPose(null);
         NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
@@ -310,13 +397,19 @@ public partial class MainWindow : Window
         long started = BeginPlaybackUiSample();
         try
         {
-            if (_level is null || _timingMap is null || !_audio.IsLoaded)
+            if (_level is null || _timingMap is null)
             {
                 Viewport.SetPlaybackPose(null);
                 NativeViewport.ClearPlayback();
                 if (ShouldRefreshPlaybackDiagnostics(started))
                     PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
                 PlayButton.Content = "Play";
+                return;
+            }
+
+            if (!_audio.IsLoaded)
+            {
+                UpdateSilentPlaybackDisplay(started);
                 return;
             }
 
@@ -329,7 +422,7 @@ public partial class MainWindow : Window
                 audioSeconds,
                 _audio.IsStopped);
 
-            double chartRate = Math.Max(0.000001, _level.PitchPercent * 0.01);
+            double chartRate = EditorChartRate;
             NativeViewport.SetPlaybackState(
                 chartTime,
                 chartRate,
@@ -351,6 +444,43 @@ public partial class MainWindow : Window
         {
             EndPlaybackUiSample(started);
         }
+    }
+
+    private void UpdateSilentPlaybackDisplay(long sampleStarted)
+    {
+        if (_level is null || _timingMap is null || !_silentPlaybackActive)
+        {
+            Viewport.SetPlaybackPose(null);
+            NativeViewport.ClearPlayback();
+            if (ShouldRefreshPlaybackDiagnostics(sampleStarted))
+                PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+            PlayButton.Content = "Play";
+            return;
+        }
+
+        double chartTime = CurrentSilentChartTime;
+        if (_silentPlaybackPlaying && chartTime >= _timingMap.Duration)
+        {
+            StopPlayback();
+            return;
+        }
+
+        chartTime = Math.Clamp(chartTime, 0.0, _timingMap.Duration);
+        PlaybackPose pose = _timingMap.GetPose(_level, chartTime);
+        Viewport.SetPlaybackFrame(_timingMap, chartTime, pose);
+        NativeViewport.SetPlaybackState(
+            chartTime,
+            EditorChartRate,
+            active: true,
+            playing: _silentPlaybackPlaying);
+
+        if (ShouldRefreshPlaybackDiagnostics(sampleStarted))
+        {
+            PlaybackDiagnosticsText.Text =
+                $"A --:--.--- | C {chartTime:F3}/{_timingMap.Duration:F3}s | silent preview | {PlaybackDiagnosticsSnapshot}";
+        }
+
+        PlayButton.Content = _silentPlaybackPlaying ? "Pause" : "Play";
     }
 
     private void ExecuteFrame(object sender, ExecutedRoutedEventArgs e)
