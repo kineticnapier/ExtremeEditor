@@ -154,6 +154,19 @@ public partial class MainWindow : Window
                 $"[load] audio unload={audioUnload.TotalMilliseconds:N1}ms " +
                 $"configure={audioConfigure.TotalMilliseconds:N1}ms " +
                 $"load={audioLoad.TotalMilliseconds:N1}ms");
+            if (_audio.IsLoaded)
+            {
+                AudioLoadMetrics audioMetrics = _audio.LastLoadMetrics;
+                Console.WriteLine(
+                    $"[load] audio-detail openReader={audioMetrics.OpenReader.TotalMilliseconds:N1}ms " +
+                    $"renderAssets={audioMetrics.RenderHitSoundAssets.TotalMilliseconds:N1}ms " +
+                    $"buildSchedule={audioMetrics.BuildHitSoundSchedule.TotalMilliseconds:N1}ms " +
+                    $"renderChunks={audioMetrics.RenderHitSoundChunks.TotalMilliseconds:N1}ms " +
+                    $"waveOutInit={audioMetrics.WaveOutInit.TotalMilliseconds:N1}ms " +
+                    $"sourceHits={audioMetrics.SourceHitCount:N0} " +
+                    $"scheduledHits={audioMetrics.ScheduledHitCount:N0} " +
+                    $"chunks={audioMetrics.RenderedChunkCount:N0}");
+            }
 
             _level = loaded.Document;
             _timingMap = playback.TimingMap;
