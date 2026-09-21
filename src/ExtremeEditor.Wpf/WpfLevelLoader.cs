@@ -24,16 +24,17 @@ internal static class WpfLevelLoader
 
         LoadResult loaded;
         TrackColorSourceData trackColors;
+        CameraSourceData cameraEvents;
         try
         {
             loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
                 .ConfigureAwait(false);
 
             // The flat core loader intentionally keeps only timing/gameplay fields.
-            // Read the small subset of track-colour metadata required by the renderer
-            // in a second streaming pass; it never materializes angleData/actions as a
-            // full JSON DOM, so pathological charts remain bounded in memory.
+            // Read renderer-specific visual metadata in narrow streaming passes so
+            // pathological charts never need a full actions DOM during load.
             trackColors = TrackColorSourceReader.Load(path, cancellationToken);
+            cameraEvents = CameraSourceReader.Load(path, cancellationToken);
         }
         catch (JsonException)
         {
@@ -48,6 +49,7 @@ internal static class WpfLevelLoader
                     .ConfigureAwait(false);
                 loaded.Document.SourcePath = path;
                 trackColors = TrackColorSourceReader.Load(normalizedPath, cancellationToken);
+                cameraEvents = CameraSourceReader.Load(normalizedPath, cancellationToken);
             }
             finally
             {
@@ -70,6 +72,7 @@ internal static class WpfLevelLoader
         // it must still appear in the event list and participate in editing/rendering.
         TrackColorActionRecovery.MergeMissing(loaded.Document, trackColors);
         TrackColorMetadataCache.Attach(loaded.Document, trackColors);
+        CameraMetadataCache.Attach(loaded.Document, cameraEvents);
 
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);

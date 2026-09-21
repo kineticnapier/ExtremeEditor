@@ -66,6 +66,58 @@ internal struct NativePlaybackTiming
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeCameraEvent
+{
+    public const uint FlagTargetPlayerX = 1u;
+    public const uint FlagTargetPlayerY = 2u;
+
+    public const uint EaseLinear = 0u;
+    public const uint EaseInSine = 1u;
+    public const uint EaseOutSine = 2u;
+    public const uint EaseInOutSine = 3u;
+    public const uint EaseInQuad = 4u;
+    public const uint EaseOutQuad = 5u;
+    public const uint EaseInOutQuad = 6u;
+    public const uint EaseInCubic = 7u;
+    public const uint EaseOutCubic = 8u;
+    public const uint EaseInOutCubic = 9u;
+    public const uint EaseInQuart = 10u;
+    public const uint EaseOutQuart = 11u;
+    public const uint EaseInOutQuart = 12u;
+    public const uint EaseInQuint = 13u;
+    public const uint EaseOutQuint = 14u;
+    public const uint EaseInOutQuint = 15u;
+    public const uint EaseInExpo = 16u;
+    public const uint EaseOutExpo = 17u;
+    public const uint EaseInOutExpo = 18u;
+    public const uint EaseInCirc = 19u;
+    public const uint EaseOutCirc = 20u;
+    public const uint EaseInOutCirc = 21u;
+    public const uint EaseInBack = 22u;
+    public const uint EaseOutBack = 23u;
+    public const uint EaseInOutBack = 24u;
+    public const uint EaseInElastic = 25u;
+    public const uint EaseOutElastic = 26u;
+    public const uint EaseInOutElastic = 27u;
+    public const uint EaseInBounce = 28u;
+    public const uint EaseOutBounce = 29u;
+    public const uint EaseInOutBounce = 30u;
+
+    public double StartTime;
+    public double DurationSeconds;
+    public float StartX;
+    public float StartY;
+    public float TargetX;
+    public float TargetY;
+    public float StartRotation;
+    public float TargetRotation;
+    public float StartZoom;
+    public float TargetZoom;
+    public uint Flags;
+    public uint Ease;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal struct NativeRendererDiagnostics
 {
     public uint StructSize;

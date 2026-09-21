@@ -197,6 +197,19 @@ EeResult ee_renderer_set_playback_timeline(
         : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_set_camera_timeline(
+    EeRendererHandle renderer,
+    const EeCameraEvent* events,
+    uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0 && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetCameraTimeline(events, event_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
 void ee_renderer_set_playback_anchor(
     EeRendererHandle renderer,
     double chart_time,

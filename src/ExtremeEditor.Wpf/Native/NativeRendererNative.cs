@@ -102,6 +102,12 @@ internal static class NativeRendererNative
         nint timings,
         uint timingCount);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_camera_timeline", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetCameraTimeline(
+        nint renderer,
+        nint events,
+        uint eventCount);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_anchor", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetPlaybackAnchor(
         nint renderer,

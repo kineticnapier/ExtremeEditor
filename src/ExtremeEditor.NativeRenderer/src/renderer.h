@@ -35,6 +35,7 @@ public:
     void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
     void SetEditorActionCallback(EeEditorActionCallback callback, void* user_data) noexcept;
     bool SetPlaybackTimeline(const EePlaybackTiming* timings, std::uint32_t timing_count) noexcept;
+    bool SetCameraTimeline(const EeCameraEvent* events, std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetFollowPlayer(bool enabled) noexcept;
     void SetFollowPlayerChangedCallback(EeFollowPlayerChangedCallback callback, void* user_data) noexcept;
@@ -72,6 +73,8 @@ private:
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
     std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings_ =
         std::make_shared<std::vector<EePlaybackTiming>>();
+    std::shared_ptr<const std::vector<EeCameraEvent>> camera_events_ =
+        std::make_shared<std::vector<EeCameraEvent>>();
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;

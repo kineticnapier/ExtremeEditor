@@ -46,6 +46,20 @@ public:
         std::uint32_t viewport_height,
         InstancedIconDrawStats& stats) noexcept;
 
+    bool DrawCamera(
+        ID3D11DeviceContext* context,
+        ID3D11RenderTargetView* render_target,
+        ID3D11DepthStencilView* depth_target,
+        const LevelScene& scene,
+        const std::vector<std::uint32_t>& visible_floors,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        std::uint32_t viewport_width,
+        std::uint32_t viewport_height,
+        InstancedIconDrawStats& stats) noexcept;
+
 private:
     struct SpriteTexture
     {
@@ -98,7 +112,24 @@ private:
         float padding2;
     };
 
+    struct CameraFrameConstants
+    {
+        float camera_x;
+        float camera_y;
+        float zoom;
+        float padding0;
+        float viewport_width;
+        float viewport_height;
+        float padding1;
+        float padding2;
+        float camera_cosine;
+        float camera_sine;
+        float padding3;
+        float padding4;
+    };
+
     bool CreatePipeline(ID3D11Device* device) noexcept;
+    bool EnsureCameraPipeline() noexcept;
     bool LoadTexture(const std::wstring& path, SpriteTexture& output) noexcept;
     bool EnsureInstanceBuffer(std::size_t instance_count) noexcept;
     bool UploadInstances(ID3D11DeviceContext* context) noexcept;
@@ -117,6 +148,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D11BlendState> blend_state_;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_state_;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> depth_state_;
+
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> camera_vertex_shader_;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> camera_input_layout_;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> camera_frame_constants_;
+    ID3D11Device* camera_pipeline_device_ = nullptr;
 
     std::unordered_map<std::uint32_t, AssetEntry> assets_;
     std::vector<Batch> batches_;

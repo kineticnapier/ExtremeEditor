@@ -44,6 +44,20 @@ public:
         std::uint32_t viewport_height,
         InstancedFloorDrawStats& stats) noexcept;
 
+    bool DrawCamera(
+        ID3D11DeviceContext* context,
+        ID3D11RenderTargetView* render_target,
+        ID3D11DepthStencilView* depth_target,
+        const LevelScene& scene,
+        const std::vector<std::uint32_t>& visible_floors,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        std::uint32_t viewport_width,
+        std::uint32_t viewport_height,
+        InstancedFloorDrawStats& stats) noexcept;
+
 private:
     struct FloorVertex
     {
@@ -93,6 +107,22 @@ private:
         float padding1;
     };
 
+    struct CameraFrameConstants
+    {
+        float camera_x;
+        float camera_y;
+        float zoom;
+        float padding0;
+        float viewport_width;
+        float viewport_height;
+        float edge_pixels;
+        float padding1;
+        float camera_cosine;
+        float camera_sine;
+        float padding2;
+        float padding3;
+    };
+
     struct ColorConstants
     {
         float r;
@@ -102,6 +132,7 @@ private:
     };
 
     bool CreatePipeline(ID3D11Device* device) noexcept;
+    bool EnsureCameraPipeline() noexcept;
     bool TryLoadDefaultTileTexture() noexcept;
     bool LoadTileTexture(const wchar_t* path) noexcept;
     bool EnsureInstanceBuffer(ID3D11Device* device, std::size_t instance_count) noexcept;
@@ -130,6 +161,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> edge_depth_state_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> tile_texture_;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> tile_sampler_;
+
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> camera_vertex_shader_;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> camera_input_layout_;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> camera_frame_constants_;
+    ID3D11Device* camera_pipeline_device_ = nullptr;
 
     std::vector<GeometryBuffers> geometries_;
     std::vector<std::vector<InstanceData>> grouped_instances_;

@@ -72,6 +72,18 @@ public:
         float camera_x,
         float camera_y,
         float zoom,
+        float camera_rotation,
+        std::int32_t selected_floor,
+        const PlaybackVisualState& playback) noexcept;
+    HRESULT RenderFrame(
+        double seconds,
+        const LevelScene* scene,
+        std::uint64_t scene_version,
+        const IconAssetTable* icon_assets,
+        std::uint64_t icon_assets_version,
+        float camera_x,
+        float camera_y,
+        float zoom,
         std::int32_t selected_floor,
         const PlaybackVisualState& playback,
         RenderFrameStats& stats) noexcept;
@@ -104,12 +116,28 @@ private:
         float camera_y,
         float zoom,
         RenderFrameStats& stats) noexcept;
+    void QueryVisibleFloorsCamera(
+        const LevelScene& scene,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        RenderFrameStats& stats) noexcept;
     void DrawSceneOverlays(
         const LevelScene& scene,
         const IconAssetTable* icon_assets,
         float camera_x,
         float camera_y,
         float zoom,
+        std::int32_t selected_floor,
+        RenderFrameStats& stats) noexcept;
+    void DrawSceneOverlaysCamera(
+        const LevelScene& scene,
+        const IconAssetTable* icon_assets,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
     void DrawEditorHud(
@@ -124,6 +152,12 @@ private:
         float camera_x,
         float camera_y,
         float zoom) noexcept;
+    void DrawPlaybackPlanetsCamera(
+        const PlaybackVisualState& playback,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation) noexcept;
     HRESULT EndD2DDraw() noexcept;
 
     std::uint32_t width_ = 1;

@@ -17,6 +17,33 @@ HRESULT D2DBackend::RenderFrame(
     std::int32_t selected_floor,
     const PlaybackVisualState& playback) noexcept
 {
+    return RenderFrame(
+        seconds,
+        scene,
+        scene_version,
+        icon_assets,
+        icon_assets_version,
+        camera_x,
+        camera_y,
+        zoom,
+        0.0f,
+        selected_floor,
+        playback);
+}
+
+HRESULT D2DBackend::RenderFrame(
+    double seconds,
+    const LevelScene* scene,
+    std::uint64_t scene_version,
+    const IconAssetTable* icon_assets,
+    std::uint64_t icon_assets_version,
+    float camera_x,
+    float camera_y,
+    float zoom,
+    float camera_rotation,
+    std::int32_t selected_floor,
+    const PlaybackVisualState& playback) noexcept
+{
     RenderFrameStats stats{};
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_ ||
         !render_target_view_ || !depth_stencil_view_)
@@ -62,10 +89,10 @@ HRESULT D2DBackend::RenderFrame(
 
     if (scene != nullptr)
     {
-        QueryVisibleFloors(*scene, camera_x, camera_y, zoom, stats);
+        QueryVisibleFloorsCamera(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
 
         InstancedFloorDrawStats floor_stats;
-        if (!floor_renderer_.Draw(
+        if (!floor_renderer_.DrawCamera(
                 d3d_context_.Get(),
                 render_target_view_.Get(),
                 depth_stencil_view_.Get(),
@@ -74,6 +101,7 @@ HRESULT D2DBackend::RenderFrame(
                 camera_x,
                 camera_y,
                 std::clamp(zoom, 0.05f, 400.0f),
+                camera_rotation,
                 width_,
                 height_,
                 floor_stats))
@@ -83,7 +111,7 @@ HRESULT D2DBackend::RenderFrame(
         stats.draw_calls += floor_stats.draw_calls;
 
         InstancedIconDrawStats icon_stats;
-        if (!icon_renderer_.Draw(
+        if (!icon_renderer_.DrawCamera(
                 d3d_context_.Get(),
                 render_target_view_.Get(),
                 depth_stencil_view_.Get(),
@@ -92,6 +120,7 @@ HRESULT D2DBackend::RenderFrame(
                 camera_x,
                 camera_y,
                 std::clamp(zoom, 0.05f, 400.0f),
+                camera_rotation,
                 width_,
                 height_,
                 icon_stats))
@@ -106,19 +135,20 @@ HRESULT D2DBackend::RenderFrame(
 
     if (scene != nullptr)
     {
-        DrawSceneOverlays(
+        DrawSceneOverlaysCamera(
             *scene,
             nullptr,
             camera_x,
             camera_y,
             zoom,
+            camera_rotation,
             selected_floor,
             stats);
 
         if (!playback.active)
             DrawEditorHud(*scene, camera_x, camera_y, zoom, selected_floor, stats);
 
-        DrawPlaybackPlanets(playback, camera_x, camera_y, zoom);
+        DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
         if (playback.active)
             stats.draw_calls += 4u;
     }

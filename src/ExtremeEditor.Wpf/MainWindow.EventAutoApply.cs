@@ -121,6 +121,7 @@ public partial class MainWindow
         StopPlayback();
 
         bool timingChanged = AffectsEditorTiming(before) || AffectsEditorTiming(after);
+        bool cameraChanged = IsCameraEvent(before.EventType) || IsCameraEvent(after.EventType);
         bool hitSoundChanged = timingChanged ||
                                before.Kind == LevelActionKind.SetHitsound ||
                                after.Kind == LevelActionKind.SetHitsound;
@@ -132,9 +133,10 @@ public partial class MainWindow
         if (speedVisualChanged)
             RecomputeSpeedRatios();
 
-        if (timingChanged)
+        if (timingChanged || cameraChanged)
         {
-            _timingMap = FlatTimingMapBuilder.Build(_level);
+            if (timingChanged || _timingMap is null)
+                _timingMap = FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
@@ -188,6 +190,9 @@ public partial class MainWindow
 
     private static bool IsTrackVisualEvent(string eventType) =>
         eventType is "ColorTrack" or "RecolorTrack";
+
+    private static bool IsCameraEvent(string eventType) =>
+        string.Equals(eventType, "MoveCamera", StringComparison.Ordinal);
 
     private static bool AffectsEditorTiming(LevelAction action) => action.Kind is
         LevelActionKind.Twirl or

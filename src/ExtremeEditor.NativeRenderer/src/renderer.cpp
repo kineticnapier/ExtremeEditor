@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "d2d_backend.h"
+#include "renderer_camera.h"
 
 #include <algorithm>
 #include <chrono>
@@ -173,9 +174,6 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     const bool had_scene = static_cast<bool>(scene_);
     scene_ = std::move(scene);
 
-    // SetLevel is also the hot editor-update path. Resetting the camera here made
-    // every Q/W/E/... floor insertion snap back to the first tile. Only initialize
-    // the view for the first scene; subsequent uploads preserve pan and zoom.
     if (!had_scene)
     {
         camera_x_ = scene_->floors.front().x;
@@ -525,6 +523,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<LevelScene> scene;
         std::shared_ptr<const IconAssetTable> icon_assets;
         std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
+        std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
@@ -542,6 +541,7 @@ void Renderer::RenderLoop() noexcept
             scene = scene_;
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;
+            camera_events = camera_events_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
@@ -562,9 +562,7 @@ void Renderer::RenderLoop() noexcept
             const double seconds = std::chrono::duration<double>(now - start).count();
             double chart_time = anchor_chart_time;
             if (playback_active && playback_playing)
-            {
                 chart_time += std::chrono::duration<double>(now - anchor_steady).count() * chart_rate;
-            }
 
             PlaybackVisualState playback;
             if (playback_active)
@@ -572,10 +570,28 @@ void Renderer::RenderLoop() noexcept
 
             float render_camera_x = camera_x;
             float render_camera_y = camera_y;
+            float render_zoom = zoom;
+            float render_camera_rotation = 0.0f;
             if (follow_player && playback.active)
             {
-                render_camera_x = playback.stationary_x;
-                render_camera_y = playback.stationary_y;
+                CameraVisualState camera_visual = CalculateCameraVisual(
+                    camera_events.get(), playback, chart_time);
+                if (camera_visual.active)
+                {
+                    render_camera_x = camera_visual.x;
+                    render_camera_y = camera_visual.y;
+                    render_zoom = std::clamp(
+                        zoom * camera_visual.zoom_multiplier,
+                        0.05f,
+                        400.0f);
+                    render_camera_rotation = camera_visual.rotation;
+                }
+                else
+                {
+                    render_camera_x = playback.stationary_x;
+                    render_camera_y = playback.stationary_y;
+                }
+
                 std::lock_guard lock(scene_mutex_);
                 if (follow_player_)
                 {
@@ -593,7 +609,8 @@ void Renderer::RenderLoop() noexcept
                 icon_assets_version,
                 render_camera_x,
                 render_camera_y,
-                zoom,
+                render_zoom,
+                render_camera_rotation,
                 selected_floor,
                 playback);
             const auto render_finished = std::chrono::steady_clock::now();

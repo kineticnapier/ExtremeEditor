@@ -19,7 +19,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 3;
+    private const uint ExpectedApiVersion = 4;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -215,6 +215,36 @@ internal sealed class NativeRendererSession : IDisposable
                 checked((uint)timings.Length));
             if (result != 0)
                 throw new InvalidOperationException($"Native playback timeline upload failed with result {result}.");
+        }
+        finally
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+    }
+
+    internal void SetCameraTimeline(NativeCameraEvent[] events)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        if (_renderer == nint.Zero)
+            throw new ObjectDisposedException(nameof(NativeRendererSession));
+
+        GCHandle handle = default;
+        try
+        {
+            nint pointer = nint.Zero;
+            if (events.Length > 0)
+            {
+                handle = GCHandle.Alloc(events, GCHandleType.Pinned);
+                pointer = handle.AddrOfPinnedObject();
+            }
+
+            int result = NativeRendererNative.SetCameraTimeline(
+                _renderer,
+                pointer,
+                checked((uint)events.Length));
+            if (result != 0)
+                throw new InvalidOperationException($"Native camera timeline upload failed with result {result}.");
         }
         finally
         {

@@ -63,6 +63,7 @@ public sealed class NativeLevelViewport : HwndHost
     private LevelDocument? _level;
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
+    private NativeCameraEvent[] _cameraTimeline = [];
     private int[] _selectedFloors = [];
     private int _primarySelection = -1;
     private bool _frameAllPending;
@@ -105,6 +106,7 @@ public sealed class NativeLevelViewport : HwndHost
         {
             _selectedFloors = [];
             _primarySelection = -1;
+            _cameraTimeline = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
     }
@@ -136,11 +138,15 @@ public sealed class NativeLevelViewport : HwndHost
 
         var watch = Stopwatch.StartNew();
         _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
+        _cameraTimeline = _level is null
+            ? []
+            : NativeCameraTimelineBuilder.Build(_level, timingMap);
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
 
         watch.Restart();
         UploadPendingPlaybackTimeline();
+        UploadPendingCameraTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
             buildTime,
@@ -191,6 +197,7 @@ public sealed class NativeLevelViewport : HwndHost
 
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
+        UploadPendingCameraTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
         {
@@ -294,6 +301,14 @@ public sealed class NativeLevelViewport : HwndHost
             return;
 
         _session.SetPlaybackTimeline(_playbackTimeline);
+    }
+
+    private void UploadPendingCameraTimeline()
+    {
+        if (_session is null)
+            return;
+
+        _session.SetCameraTimeline(_cameraTimeline);
     }
 
     private void ResizeNativeChild()

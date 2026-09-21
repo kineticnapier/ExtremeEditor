@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 3u
+#define EE_RENDERER_API_VERSION 4u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -24,6 +24,8 @@
 #define EE_INPUT_MODIFIER_CONTROL 0x2u
 #define EE_INPUT_MODIFIER_ALT 0x4u
 #define EE_INPUT_MODIFIER_WINDOWS 0x8u
+#define EE_CAMERA_TARGET_PLAYER_X 0x1u
+#define EE_CAMERA_TARGET_PLAYER_Y 0x2u
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +58,41 @@ typedef enum EeResult
     EE_ERROR_INITIALIZATION = 3,
     EE_ERROR_DEVICE_LOST = 4
 } EeResult;
+
+typedef enum EeCameraEase
+{
+    EE_CAMERA_EASE_LINEAR = 0,
+    EE_CAMERA_EASE_IN_SINE = 1,
+    EE_CAMERA_EASE_OUT_SINE = 2,
+    EE_CAMERA_EASE_IN_OUT_SINE = 3,
+    EE_CAMERA_EASE_IN_QUAD = 4,
+    EE_CAMERA_EASE_OUT_QUAD = 5,
+    EE_CAMERA_EASE_IN_OUT_QUAD = 6,
+    EE_CAMERA_EASE_IN_CUBIC = 7,
+    EE_CAMERA_EASE_OUT_CUBIC = 8,
+    EE_CAMERA_EASE_IN_OUT_CUBIC = 9,
+    EE_CAMERA_EASE_IN_QUART = 10,
+    EE_CAMERA_EASE_OUT_QUART = 11,
+    EE_CAMERA_EASE_IN_OUT_QUART = 12,
+    EE_CAMERA_EASE_IN_QUINT = 13,
+    EE_CAMERA_EASE_OUT_QUINT = 14,
+    EE_CAMERA_EASE_IN_OUT_QUINT = 15,
+    EE_CAMERA_EASE_IN_EXPO = 16,
+    EE_CAMERA_EASE_OUT_EXPO = 17,
+    EE_CAMERA_EASE_IN_OUT_EXPO = 18,
+    EE_CAMERA_EASE_IN_CIRC = 19,
+    EE_CAMERA_EASE_OUT_CIRC = 20,
+    EE_CAMERA_EASE_IN_OUT_CIRC = 21,
+    EE_CAMERA_EASE_IN_BACK = 22,
+    EE_CAMERA_EASE_OUT_BACK = 23,
+    EE_CAMERA_EASE_IN_OUT_BACK = 24,
+    EE_CAMERA_EASE_IN_ELASTIC = 25,
+    EE_CAMERA_EASE_OUT_ELASTIC = 26,
+    EE_CAMERA_EASE_IN_OUT_ELASTIC = 27,
+    EE_CAMERA_EASE_IN_BOUNCE = 28,
+    EE_CAMERA_EASE_OUT_BOUNCE = 29,
+    EE_CAMERA_EASE_IN_OUT_BOUNCE = 30
+} EeCameraEase;
 
 typedef struct EeAbiInfo
 {
@@ -107,6 +144,22 @@ typedef struct EePlaybackTiming
     uint32_t flags;
     uint32_t reserved;
 } EePlaybackTiming;
+
+typedef struct EeCameraEvent
+{
+    double start_time;
+    double duration_seconds;
+    float start_x;
+    float start_y;
+    float target_x;
+    float target_y;
+    float start_rotation;
+    float target_rotation;
+    float start_zoom;
+    float target_zoom;
+    uint32_t flags;
+    uint32_t ease;
+} EeCameraEvent;
 
 typedef struct EeRendererDiagnostics
 {
@@ -169,6 +222,10 @@ EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(
     EeRendererHandle renderer,
     const EePlaybackTiming* timings,
     uint32_t timing_count);
+EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(
+    EeRendererHandle renderer,
+    const EeCameraEvent* events,
+    uint32_t event_count);
 EE_RENDERER_API void ee_renderer_set_playback_anchor(
     EeRendererHandle renderer,
     double chart_time,
