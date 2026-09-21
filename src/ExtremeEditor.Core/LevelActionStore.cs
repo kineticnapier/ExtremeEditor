@@ -44,8 +44,6 @@ public sealed class LevelActionStore
 
         if (!sorted)
         {
-            // OrderBy is stable, so multiple actions on the same floor retain
-            // their original ADOFAI action-array order.
             actions = actions.OrderBy(static action => action.Floor).ToArray();
         }
 
@@ -81,8 +79,8 @@ public sealed class LevelActionStore
             return Empty;
 
         var actions = new List<LevelAction>();
-        foreach ((_, LevelAction[] floorActions) in source)
-            actions.AddRange(floorActions);
+        foreach (KeyValuePair<int, LevelAction[]> pair in source)
+            actions.AddRange(pair.Value);
         return Create(actions);
     }
 
@@ -128,7 +126,7 @@ public sealed class LevelActionStore
         }
 
         public LevelAction[] this[int key] =>
-            TryGetValue(key, out LevelAction[]? value)
+            TryGetValue(key, out LevelAction[] value)
                 ? value
                 : throw new KeyNotFoundException();
 
