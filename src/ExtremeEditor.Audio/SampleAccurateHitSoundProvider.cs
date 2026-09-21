@@ -1,8 +1,16 @@
+using System.Diagnostics;
 using System.Numerics;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
 namespace ExtremeEditor.Audio;
+
+internal readonly record struct HitSoundRenderMetrics(
+    TimeSpan BuildSchedule,
+    TimeSpan RenderChunks,
+    int SourceHitCount,
+    int ScheduledHitCount,
+    int RenderedChunkCount);
 
 /// <summary>
 /// Serves a prerendered hit-sound PCM layer on the same absolute sample clock as
@@ -13,7 +21,6 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 {
     private const int ChunkFrames = 4096;
 
-    private readonly ScheduledHit[] _scheduledHits;
     private readonly Dictionary<long, float[]> _renderedChunks;
     private long _positionFrames;
 
@@ -22,19 +29,41 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         LevelDocument level,
         TimingMap timingMap,
         HitSoundTimeline timeline,
-        IReadOnlyDictionary<string, RenderedHitSound> clips)
+        IReadOnlyDictionary<string, RenderedHitSound> clips,
+        long totalFrames)
     {
         if (waveFormat.Encoding != WaveFormatEncoding.IeeeFloat || waveFormat.Channels != 2)
             throw new ArgumentException("The hit-sound renderer requires stereo IEEE float audio.", nameof(waveFormat));
 
         WaveFormat = waveFormat;
-        _scheduledHits = BuildSchedule(waveFormat.SampleRate, level, timingMap, timeline, clips);
-        _renderedChunks = RenderChunks(_scheduledHits);
+
+        var watch = Stopwatch.StartNew();
+        ScheduleBuildResult schedule = BuildSchedule(
+            waveFormat.SampleRate,
+            level,
+            timingMap,
+            timeline,
+            clips,
+            Math.Max(0, totalFrames));
+        watch.Stop();
+        TimeSpan buildSchedule = watch.Elapsed;
+
+        watch.Restart();
+        _renderedChunks = RenderChunks(schedule.Hits, Math.Max(0, totalFrames));
+        watch.Stop();
+
+        Metrics = new HitSoundRenderMetrics(
+            buildSchedule,
+            watch.Elapsed,
+            schedule.SourceHitCount,
+            schedule.Hits.Count,
+            _renderedChunks.Count);
         Seek(0);
     }
 
     public WaveFormat WaveFormat { get; }
     internal long PositionFrames => _positionFrames;
+    internal HitSoundRenderMetrics Metrics { get; }
 
     public int Read(float[] buffer, int offset, int count)
     {
@@ -59,58 +88,155 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
         checked((long)Math.Round(audioSeconds * sampleRate, MidpointRounding.AwayFromZero));
 
-    private static ScheduledHit[] BuildSchedule(
+    private static ScheduleBuildResult BuildSchedule(
         int sampleRate,
         LevelDocument level,
         TimingMap timingMap,
         HitSoundTimeline timeline,
-        IReadOnlyDictionary<string, RenderedHitSound> clips)
+        IReadOnlyDictionary<string, RenderedHitSound> clips,
+        long totalFrames)
     {
-        if (clips.Count == 0)
-            return [];
+        if (clips.Count == 0 || totalFrames <= 0)
+            return new ScheduleBuildResult([], 0);
 
         int floorCount = Math.Min(level.FloorCount, timingMap.Floors.Count);
         if (floorCount <= 1)
-            return [];
+            return new ScheduleBuildResult([], 0);
 
-        var hits = new List<ScheduledHit>(floorCount - 1);
+        IReadOnlyList<FloorTiming> timings = timingMap.Floors;
+        IReadOnlyList<HitSoundStateChange> changes = timeline.Changes;
+        int changeIndex = 0;
+        HitSoundState state = timeline.InitialState;
+        ResolveState(state, clips, out RenderedHitSound? currentClip, out float currentVolume);
+
+        // Do not reserve one element per floor: ultra-high-BPM charts collapse
+        // many landings onto the same sample frame before they reach this list.
+        var hits = new List<ScheduledHit>(Math.Min(floorCount - 1, 262_144));
+        int sourceHitCount = 0;
+
+        RenderedHitSound? pendingClip = null;
+        long pendingStartFrame = 0;
+        float pendingVolume = 0f;
+
         for (int floor = 1; floor < floorCount; floor++)
         {
-            if (timingMap.Floors[floor].MidSpin)
+            while (changeIndex < changes.Count && changes[changeIndex].Floor <= floor)
+            {
+                state = changes[changeIndex].State;
+                changeIndex++;
+                ResolveState(state, clips, out currentClip, out currentVolume);
+            }
+
+            FloorTiming timing = timings[floor];
+            if (timing.MidSpin || currentClip is null)
                 continue;
 
-            HitSoundState state = timeline.GetStateAtFloor(floor);
-            if (string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            string name = HitSoundLibrary.NormalizeName(state.Name);
-            if (!clips.TryGetValue(name, out RenderedHitSound? clip))
-                continue;
-
-            double floorAudio = PlaybackClock.ChartToAudioTime(level, timingMap.GetEntryTime(floor));
-            double startAudio = floorAudio - clip.OffsetSeconds;
+            double floorAudio = PlaybackClock.ChartToAudioTime(level, timing.EntryTime);
+            double startAudio = floorAudio - currentClip.OffsetSeconds;
             long startFrame = AudioTimeToSampleFrame(startAudio, sampleRate);
-            float volume = (float)Math.Clamp(state.Volume, 0.0, 1.0);
-            hits.Add(new ScheduledHit(clip, startFrame, volume, floor));
+            long endFrame = startFrame + currentClip.FrameCount;
+            if (endFrame <= 0 || startFrame >= totalFrames)
+                continue;
+
+            sourceHitCount++;
+
+            // At extreme BPM several floors often round to the exact same sample.
+            // Linear mixing lets those identical clip/frame contributions collapse
+            // into one scaled voice without changing their timing or waveform.
+            if (pendingClip is not null &&
+                ReferenceEquals(pendingClip, currentClip) &&
+                pendingStartFrame == startFrame)
+            {
+                pendingVolume += currentVolume;
+                continue;
+            }
+
+            if (pendingClip is not null)
+                hits.Add(new ScheduledHit(pendingClip, pendingStartFrame, pendingVolume));
+
+            pendingClip = currentClip;
+            pendingStartFrame = startFrame;
+            pendingVolume = currentVolume;
         }
 
-        hits.Sort(static (left, right) =>
-        {
-            int startOrder = left.StartFrame.CompareTo(right.StartFrame);
-            return startOrder != 0 ? startOrder : left.Floor.CompareTo(right.Floor);
-        });
-        return hits.ToArray();
+        if (pendingClip is not null)
+            hits.Add(new ScheduledHit(pendingClip, pendingStartFrame, pendingVolume));
+
+        return new ScheduleBuildResult(hits, sourceHitCount);
     }
 
-    private static Dictionary<long, float[]> RenderChunks(ScheduledHit[] hits)
+    private static void ResolveState(
+        HitSoundState state,
+        IReadOnlyDictionary<string, RenderedHitSound> clips,
+        out RenderedHitSound? clip,
+        out float volume)
     {
-        var chunks = new Dictionary<long, float[]>();
+        volume = (float)Math.Clamp(state.Volume, 0.0, 1.0);
+        if (string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            clip = null;
+            return;
+        }
+
+        string name = HitSoundLibrary.NormalizeName(state.Name);
+        clips.TryGetValue(name, out clip);
+    }
+
+    private static Dictionary<long, float[]> RenderChunks(
+        IReadOnlyList<ScheduledHit> hits,
+        long totalFrames)
+    {
+        if (hits.Count == 0 || totalFrames <= 0)
+            return [];
+
+        // Build sparse, independent chunk jobs first. Each output chunk is then
+        // owned by exactly one worker, so the expensive PCM mixing needs no locks.
+        var workByChunk = new Dictionary<long, List<HitSlice>>();
         foreach (ScheduledHit hit in hits)
-            RenderHitIntoChunks(chunks, hit);
+            AddHitSlices(workByChunk, hit, totalFrames);
+
+        if (workByChunk.Count == 0)
+            return [];
+
+        KeyValuePair<long, List<HitSlice>>[] work = workByChunk.ToArray();
+        var rendered = new float[work.Length][];
+
+        void RenderChunk(int index)
+        {
+            var chunk = new float[ChunkFrames * 2];
+            foreach (HitSlice slice in work[index].Value)
+            {
+                AddScaled(
+                    chunk,
+                    slice.DestinationSample,
+                    slice.Clip.Samples,
+                    slice.SourceSample,
+                    slice.SampleCount,
+                    slice.Volume);
+            }
+            rendered[index] = chunk;
+        }
+
+        if (work.Length < 4 || Environment.ProcessorCount <= 1)
+        {
+            for (int i = 0; i < work.Length; i++)
+                RenderChunk(i);
+        }
+        else
+        {
+            Parallel.For(0, work.Length, RenderChunk);
+        }
+
+        var chunks = new Dictionary<long, float[]>(work.Length);
+        for (int i = 0; i < work.Length; i++)
+            chunks.Add(work[i].Key, rendered[i]);
         return chunks;
     }
 
-    private static void RenderHitIntoChunks(Dictionary<long, float[]> chunks, ScheduledHit hit)
+    private static void AddHitSlices(
+        Dictionary<long, List<HitSlice>> workByChunk,
+        ScheduledHit hit,
+        long totalFrames)
     {
         long sourceFrame = Math.Max(0, -hit.StartFrame);
         while (sourceFrame < hit.Clip.FrameCount)
@@ -121,28 +247,31 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 sourceFrame++;
                 continue;
             }
+            if (destinationFrame >= totalFrames)
+                break;
 
             long chunkIndex = destinationFrame / ChunkFrames;
             int frameInChunk = (int)(destinationFrame % ChunkFrames);
             int availableInChunk = ChunkFrames - frameInChunk;
-            int framesToMix = (int)Math.Min(availableInChunk, hit.Clip.FrameCount - sourceFrame);
+            long audibleFrames = totalFrames - destinationFrame;
+            int framesToMix = (int)Math.Min(
+                Math.Min((long)availableInChunk, hit.Clip.FrameCount - sourceFrame),
+                audibleFrames);
+            if (framesToMix <= 0)
+                break;
 
-            if (!chunks.TryGetValue(chunkIndex, out float[]? chunk))
+            if (!workByChunk.TryGetValue(chunkIndex, out List<HitSlice>? slices))
             {
-                chunk = new float[ChunkFrames * 2];
-                chunks.Add(chunkIndex, chunk);
+                slices = new List<HitSlice>(32);
+                workByChunk.Add(chunkIndex, slices);
             }
 
-            int sourceSample = checked((int)sourceFrame) * 2;
-            int destinationSample = frameInChunk * 2;
-            int sampleCount = framesToMix * 2;
-            AddScaled(
-                chunk,
-                destinationSample,
-                hit.Clip.Samples,
-                sourceSample,
-                sampleCount,
-                hit.Volume);
+            slices.Add(new HitSlice(
+                hit.Clip,
+                checked((int)sourceFrame) * 2,
+                frameInChunk * 2,
+                framesToMix * 2,
+                hit.Volume));
 
             sourceFrame += framesToMix;
         }
@@ -201,9 +330,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
     }
 
-    private readonly record struct ScheduledHit(
+    private readonly record struct ScheduleBuildResult(List<ScheduledHit> Hits, int SourceHitCount);
+    private readonly record struct ScheduledHit(RenderedHitSound Clip, long StartFrame, float Volume);
+    private readonly record struct HitSlice(
         RenderedHitSound Clip,
-        long StartFrame,
-        float Volume,
-        int Floor);
+        int SourceSample,
+        int DestinationSample,
+        int SampleCount,
+        float Volume);
 }
