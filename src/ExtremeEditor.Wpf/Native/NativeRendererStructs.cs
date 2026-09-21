@@ -70,6 +70,11 @@ internal struct NativeCameraEvent
 {
     public const uint FlagTargetPlayerX = 1u;
     public const uint FlagTargetPlayerY = 2u;
+    public const uint FlagApplyX = 0x100u;
+    public const uint FlagApplyY = 0x200u;
+    public const uint FlagApplyRotation = 0x400u;
+    public const uint FlagApplyZoom = 0x800u;
+    public const uint FlagApplyMask = FlagApplyX | FlagApplyY | FlagApplyRotation | FlagApplyZoom;
 
     public const uint EaseLinear = 0u;
     public const uint EaseInSine = 1u;

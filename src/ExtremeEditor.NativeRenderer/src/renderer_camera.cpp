@@ -121,6 +121,40 @@ double ApplyEase(std::uint32_t ease, double t) noexcept
         return t;
     }
 }
+
+float EventProgress(const EeCameraEvent& item, double chart_time) noexcept
+{
+    const double progress = item.duration_seconds <= 1e-9
+        ? 1.0
+        : std::clamp((chart_time - item.start_time) / item.duration_seconds, 0.0, 1.0);
+    return static_cast<float>(ApplyEase(item.ease, progress));
+}
+
+float EvaluateAxis(
+    const EeCameraEvent& item,
+    double chart_time,
+    float player,
+    bool x_axis) noexcept
+{
+    const float start = x_axis ? item.start_x : item.start_y;
+    float target = x_axis ? item.target_x : item.target_y;
+    const std::uint32_t player_flag = x_axis
+        ? EE_CAMERA_TARGET_PLAYER_X
+        : EE_CAMERA_TARGET_PLAYER_Y;
+    if ((item.flags & player_flag) != 0u)
+        target += player;
+    return Lerp(start, target, EventProgress(item, chart_time));
+}
+
+float EvaluateScalar(
+    const EeCameraEvent& item,
+    double chart_time,
+    bool zoom) noexcept
+{
+    const float start = zoom ? item.start_zoom : item.start_rotation;
+    const float target = zoom ? item.target_zoom : item.target_rotation;
+    return Lerp(start, target, EventProgress(item, chart_time));
+}
 }
 
 bool Renderer::SetCameraTimeline(const EeCameraEvent* events, std::uint32_t event_count) noexcept
@@ -170,26 +204,43 @@ CameraVisualState CalculateCameraVisual(
         {
             return value < item.start_time;
         });
-    if (upper == events->begin())
-        return result;
 
-    const EeCameraEvent& item = *(upper - 1);
-    const float target_x = (item.flags & EE_CAMERA_TARGET_PLAYER_X) != 0u
-        ? playback.stationary_x + item.target_x
-        : item.target_x;
-    const float target_y = (item.flags & EE_CAMERA_TARGET_PLAYER_Y) != 0u
-        ? playback.stationary_y + item.target_y
-        : item.target_y;
+    const EeCameraEvent* x_event = nullptr;
+    const EeCameraEvent* y_event = nullptr;
+    const EeCameraEvent* rotation_event = nullptr;
+    const EeCameraEvent* zoom_event = nullptr;
 
-    const double progress = item.duration_seconds <= 1e-9
-        ? 1.0
-        : std::clamp((chart_time - item.start_time) / item.duration_seconds, 0.0, 1.0);
-    const float t = static_cast<float>(ApplyEase(item.ease, progress));
+    auto it = upper;
+    while (it != events->begin() &&
+           (x_event == nullptr || y_event == nullptr ||
+            rotation_event == nullptr || zoom_event == nullptr))
+    {
+        --it;
+        const EeCameraEvent& item = *it;
+        if (x_event == nullptr && (item.flags & EE_CAMERA_APPLY_X) != 0u)
+            x_event = &item;
+        if (y_event == nullptr && (item.flags & EE_CAMERA_APPLY_Y) != 0u)
+            y_event = &item;
+        if (rotation_event == nullptr && (item.flags & EE_CAMERA_APPLY_ROTATION) != 0u)
+            rotation_event = &item;
+        if (zoom_event == nullptr && (item.flags & EE_CAMERA_APPLY_ZOOM) != 0u)
+            zoom_event = &item;
+    }
 
-    result.x = Lerp(item.start_x, target_x, t);
-    result.y = Lerp(item.start_y, target_y, t);
-    result.rotation = Lerp(item.start_rotation, item.target_rotation, t);
-    result.zoom_multiplier = std::clamp(Lerp(item.start_zoom, item.target_zoom, t), 0.01f, 100.0f);
+    if (x_event != nullptr)
+        result.x = EvaluateAxis(*x_event, chart_time, playback.stationary_x, true);
+    if (y_event != nullptr)
+        result.y = EvaluateAxis(*y_event, chart_time, playback.stationary_y, false);
+    if (rotation_event != nullptr)
+        result.rotation = EvaluateScalar(*rotation_event, chart_time, false);
+    if (zoom_event != nullptr)
+    {
+        result.zoom_multiplier = std::clamp(
+            EvaluateScalar(*zoom_event, chart_time, true),
+            0.01f,
+            100.0f);
+    }
+
     return result;
 }
 }

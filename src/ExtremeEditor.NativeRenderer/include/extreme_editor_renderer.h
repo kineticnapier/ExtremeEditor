@@ -26,6 +26,10 @@
 #define EE_INPUT_MODIFIER_WINDOWS 0x8u
 #define EE_CAMERA_TARGET_PLAYER_X 0x1u
 #define EE_CAMERA_TARGET_PLAYER_Y 0x2u
+#define EE_CAMERA_APPLY_X 0x100u
+#define EE_CAMERA_APPLY_Y 0x200u
+#define EE_CAMERA_APPLY_ROTATION 0x400u
+#define EE_CAMERA_APPLY_ZOOM 0x800u
 
 #ifdef __cplusplus
 extern "C" {
