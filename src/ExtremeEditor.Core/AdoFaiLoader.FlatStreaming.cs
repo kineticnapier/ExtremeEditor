@@ -261,6 +261,12 @@ public static partial class AdoFaiLoader
                 return;
             }
 
+            // The document's own StartObject/EndObject tokens are not property
+            // values. Treating the initial StartObject as an unknown complex value
+            // would put the parser in Skip mode and skip the entire chart.
+            if (_rootField == FlatRootField.None)
+                return;
+
             FlatRootField field = _rootField;
             _rootField = FlatRootField.None;
             if (field == FlatRootField.AngleData && reader.TokenType == JsonTokenType.StartArray)
