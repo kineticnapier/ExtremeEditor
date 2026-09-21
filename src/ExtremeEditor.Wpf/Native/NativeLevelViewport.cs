@@ -47,6 +47,12 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 
 public sealed class NativeLevelViewport : HwndHost
 {
+    private const int VkShift = 0x10;
+    private const int VkControl = 0x11;
+    private const int VkMenu = 0x12;
+    private const int VkLWin = 0x5B;
+    private const int VkRWin = 0x5C;
+
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
         "FloorSelectionRequested",
         RoutingStrategy.Bubble,
@@ -219,12 +225,16 @@ public sealed class NativeLevelViewport : HwndHost
 
     private void NativeSelectionChanged(int floor)
     {
+        // Keyboard.Modifiers is a WPF input-state abstraction and is unreliable for
+        // a real child HWND. Snapshot the physical modifier state at the native click
+        // so Shift range-selection and Ctrl toggle-selection survive the bridge.
+        ModifierKeys modifiers = GetNativeModifierKeys();
         void RaiseSelection()
         {
             RaiseEvent(new NativeFloorSelectionRequestedEventArgs(
                 FloorSelectionRequestedEvent,
                 floor,
-                Keyboard.Modifiers));
+                modifiers));
         }
 
         if (Dispatcher.CheckAccess())
@@ -298,6 +308,18 @@ public sealed class NativeLevelViewport : HwndHost
         _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
     }
 
+    private static ModifierKeys GetNativeModifierKeys()
+    {
+        ModifierKeys result = ModifierKeys.None;
+        if (IsKeyDown(VkShift)) result |= ModifierKeys.Shift;
+        if (IsKeyDown(VkControl)) result |= ModifierKeys.Control;
+        if (IsKeyDown(VkMenu)) result |= ModifierKeys.Alt;
+        if (IsKeyDown(VkLWin) || IsKeyDown(VkRWin)) result |= ModifierKeys.Windows;
+        return result;
+    }
+
+    private static bool IsKeyDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
     private static uint ToPixelExtent(double value)
     {
         if (!double.IsFinite(value) || value <= 0d)
@@ -305,4 +327,7 @@ public sealed class NativeLevelViewport : HwndHost
 
         return checked((uint)Math.Clamp(Math.Ceiling(value), 1d, uint.MaxValue));
     }
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 }
