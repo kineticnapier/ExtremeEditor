@@ -14,6 +14,7 @@ public partial class MainWindow
     private EditorSession? _editor;
     private bool _editorFeaturesInitialized;
     private bool _allowClose;
+    private bool _saveBeforeCloseInProgress;
 
     protected override void OnContentRendered(EventArgs e)
     {
@@ -36,6 +37,12 @@ public partial class MainWindow
             return;
         }
 
+        if (_saveBeforeCloseInProgress)
+        {
+            e.Cancel = true;
+            return;
+        }
+
         MessageBoxResult result = MessageBox.Show(
             this,
             "Save changes before closing?",
@@ -51,25 +58,29 @@ public partial class MainWindow
 
         if (result == MessageBoxResult.Yes)
         {
-            try
-            {
-                bool saved = SaveCurrentAsync(saveAs: false).GetAwaiter().GetResult();
-                if (!saved)
-                {
-                    e.Cancel = true;
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.ToString(), "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                e.Cancel = true;
-                return;
-            }
+            e.Cancel = true;
+            _saveBeforeCloseInProgress = true;
+            _ = SaveAndCloseAsync();
+            return;
         }
 
         _allowClose = true;
         base.OnClosing(e);
+    }
+
+    private async Task SaveAndCloseAsync()
+    {
+        try
+        {
+            if (!await SaveCurrentAsync(saveAs: false))
+                return;
+            _allowClose = true;
+            Close();
+        }
+        finally
+        {
+            _saveBeforeCloseInProgress = false;
+        }
     }
 
     private void InitializeEditorCommandBindings()
@@ -115,6 +126,20 @@ public partial class MainWindow
         return _editor;
     }
 
+    private bool ConfirmDiscardCurrentChanges()
+    {
+        if (_editor is null || !_editor.IsDirty)
+            return true;
+
+        MessageBoxResult result = MessageBox.Show(
+            this,
+            "The current chart has unsaved changes. Discard them?",
+            "ExtremeEditor",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        return result == MessageBoxResult.Yes;
+    }
+
     private void ViewportSelectionChanged(object? sender, EventArgs e)
     {
         EnsureEditorSession();
@@ -128,6 +153,14 @@ public partial class MainWindow
             return;
         if (_level is null || Viewport.SelectedFloor < 0)
             return;
+
+        if (e.Key == Key.Delete)
+        {
+            if (Viewport.SelectedFloors.Count > 0)
+                EditorCommands.Delete.Execute(null, this);
+            e.Handled = true;
+            return;
+        }
 
         int target = Viewport.SelectedFloor;
         switch (e.Key)
@@ -312,8 +345,9 @@ public partial class MainWindow
         if (editor is null)
             return;
         int[] selection = Viewport.SelectedFloors.ToArray();
+        int primary = Viewport.SelectedFloor;
         editor.Rotate(selection, degrees);
-        RefreshEditorAfterMutation(Viewport.SelectedFloor, selection);
+        RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
     }
 
@@ -323,8 +357,9 @@ public partial class MainWindow
         if (editor is null)
             return;
         int[] selection = Viewport.SelectedFloors.ToArray();
+        int primary = Viewport.SelectedFloor;
         editor.FlipHorizontal(selection);
-        RefreshEditorAfterMutation(Viewport.SelectedFloor, selection);
+        RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
     }
 
@@ -334,8 +369,9 @@ public partial class MainWindow
         if (editor is null)
             return;
         int[] selection = Viewport.SelectedFloors.ToArray();
+        int primary = Viewport.SelectedFloor;
         editor.FlipVertical(selection);
-        RefreshEditorAfterMutation(Viewport.SelectedFloor, selection);
+        RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
     }
 
@@ -348,8 +384,9 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(type))
             return;
         int[] selection = Viewport.SelectedFloors.ToArray();
-        editor.AddAction(Viewport.SelectedFloor, type);
-        RefreshEditorAfterMutation(Viewport.SelectedFloor, selection);
+        int primary = Viewport.SelectedFloor;
+        editor.AddAction(primary, type);
+        RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
     }
 
@@ -361,8 +398,9 @@ public partial class MainWindow
         if (editor is null)
             return;
         int[] selection = Viewport.SelectedFloors.ToArray();
+        int primary = Viewport.SelectedFloor;
         editor.DeleteAction(item.Action);
-        RefreshEditorAfterMutation(Viewport.SelectedFloor, selection);
+        RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
     }
 
@@ -379,6 +417,8 @@ public partial class MainWindow
             JsonObject obj = JsonNode.Parse(EventEditorText.Text) as JsonObject
                              ?? throw new JsonException("Event editor expects a JSON object.");
             LevelAction updated = ParseEditedAction(obj, item.Action);
+            updated.PropertyOverrides = (JsonObject)obj.DeepClone();
+            updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             int[] selection = Viewport.SelectedFloors.ToArray();
             editor.ReplaceAction(item.Action, updated);
             RefreshEditorAfterMutation(updated.Floor, selection);
@@ -392,10 +432,15 @@ public partial class MainWindow
 
     private void EventListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (EventList.SelectedItem is EventListItem item)
-            EventEditorText.Text = FormatActionJson(item.Action);
+        if (EventList.SelectedItem is EventListItem item && EnsureEditorSession() is EditorSession editor)
+        {
+            JsonObject obj = AdoFaiEditorSaveService.BuildEditableActionJson(editor, item.Action);
+            EventEditorText.Text = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        }
         else
+        {
             EventEditorText.Clear();
+        }
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -461,27 +506,6 @@ public partial class MainWindow
         Title = $"ExtremeEditor {EditorVersion.Current} — WPF{(_editor.IsDirty ? " *" : string.Empty)}";
     }
 
-    private static string FormatActionJson(LevelAction action)
-    {
-        var obj = new JsonObject
-        {
-            ["floor"] = action.Floor,
-            ["eventType"] = action.EventType,
-            ["active"] = action.Active
-        };
-        AddIfNotNull(obj, "speedType", action.SpeedType);
-        AddIfNotNull(obj, "beatsPerMinute", action.BeatsPerMinute);
-        AddIfNotNull(obj, "bpmMultiplier", action.BpmMultiplier);
-        AddIfNotNull(obj, "icon", action.CustomIcon);
-        AddIfNotNull(obj, "hitsound", action.HitSound);
-        AddIfNotNull(obj, "hitsoundVolume", action.HitSoundVolumePercent);
-        AddIfNotNull(obj, "gameSound", action.GameSound);
-        AddIfNotNull(obj, "planets", action.Planets);
-        AddIfNotNull(obj, "angleOffset", action.AngleOffset);
-        AddIfNotNull(obj, "duration", action.Duration);
-        return obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-    }
-
     private static LevelAction ParseEditedAction(JsonObject obj, LevelAction original)
     {
         int floor = GetInt(obj, "floor", original.Floor);
@@ -503,7 +527,9 @@ public partial class MainWindow
             GameSound = GetString(obj, "gameSound"),
             Planets = GetString(obj, "planets"),
             AngleOffset = GetDouble(obj, "angleOffset"),
-            Duration = GetDouble(obj, "duration")
+            Duration = GetDouble(obj, "duration"),
+            PropertyOverrides = original.PropertyOverrides,
+            PropertyOverridesStructureRevision = original.PropertyOverridesStructureRevision
         };
     }
 
@@ -529,18 +555,6 @@ public partial class MainWindow
     private static bool GetBool(JsonObject obj, string name, bool fallback)
     {
         return obj[name] is JsonValue value && value.TryGetValue(out bool result) ? result : fallback;
-    }
-
-    private static void AddIfNotNull(JsonObject obj, string name, string? value)
-    {
-        if (value is not null)
-            obj[name] = value;
-    }
-
-    private static void AddIfNotNull(JsonObject obj, string name, double? value)
-    {
-        if (value is not null)
-            obj[name] = value.Value;
     }
 
     private void CanExecuteEditorDocument(object sender, CanExecuteRoutedEventArgs e)
