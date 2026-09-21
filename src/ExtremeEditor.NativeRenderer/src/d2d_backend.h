@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <d2d1_1.h>
 #include <d3d11.h>
+#include <dwrite.h>
 #include <dxgi1_2.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -111,6 +112,13 @@ private:
         float zoom,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
+    void DrawEditorHud(
+        const LevelScene& scene,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        std::int32_t selected_floor,
+        RenderFrameStats& stats) noexcept;
     void DrawPlaybackPlanets(
         const PlaybackVisualState& playback,
         float camera_x,
@@ -133,6 +141,10 @@ private:
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2d_context_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> target_bitmap_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_text_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_subtext_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_center_format_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> grid_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border_brush_;
@@ -142,6 +154,12 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_red_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_button_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_destructive_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_accent_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_text_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_subtext_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_center_brush_;
 
     FloorInstancedRenderer floor_renderer_;
     IconInstancedRenderer icon_renderer_;
