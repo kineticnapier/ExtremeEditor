@@ -370,7 +370,7 @@ public sealed partial class LevelViewport
 
     private static SolidColorBrush CreateBrush(byte red, byte green, byte blue, byte alpha = 255)
     {
-        var brush = new SolidColorBrush(Color.FromArgb(alpha, red, green, blue, alpha));
+        var brush = new SolidColorBrush(Color.FromArgb(alpha, red, green, blue));
         brush.Freeze();
         return brush;
     }
