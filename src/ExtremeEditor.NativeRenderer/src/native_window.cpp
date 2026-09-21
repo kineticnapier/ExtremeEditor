@@ -49,7 +49,12 @@ LRESULT CALLBACK NativeWindow::WindowProc(HWND hwnd, UINT message, WPARAM wparam
     }
 
     if (owner != nullptr)
+    {
+        LRESULT editor_result = 0;
+        if (owner->HandleEditorHudMessage(hwnd, message, wparam, lparam, editor_result))
+            return editor_result;
         return owner->HandleWindowMessage(hwnd, message, wparam, lparam);
+    }
 
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }
