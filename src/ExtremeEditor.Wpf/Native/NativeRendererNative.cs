@@ -8,9 +8,13 @@ internal static class NativeRendererNative
 
     internal const uint PlaybackFlagActive = 1u;
     internal const uint PlaybackFlagPlaying = 2u;
+    internal const uint InputModifierShift = 1u;
+    internal const uint InputModifierControl = 2u;
+    internal const uint InputModifierAlt = 4u;
+    internal const uint InputModifierWindows = 8u;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate void SelectionChangedCallback(nint userData, int floor);
+    internal delegate void SelectionChangedCallback(nint userData, int floor, uint modifiers);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void FollowPlayerChangedCallback(nint userData, int enabled);

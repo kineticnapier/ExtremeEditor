@@ -15,7 +15,7 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 1u)
+        if (version != 3u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
     }
 }

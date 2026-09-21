@@ -50,7 +50,7 @@ private:
     void StopRenderThread() noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
-    void NotifySelectionChanged(std::int32_t floor) noexcept;
+    void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;
     void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;
     void DisableFollowForManualPan() noexcept;
     void NotifyFollowPlayerChanged(bool enabled) noexcept;

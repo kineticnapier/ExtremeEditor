@@ -19,7 +19,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 2;
+    private const uint ExpectedApiVersion = 3;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -40,7 +40,7 @@ internal sealed class NativeRendererSession : IDisposable
 
     internal nint ChildHwnd { get; private set; }
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
-    internal event Action<int>? SelectionChanged;
+    internal event Action<int, uint>? SelectionChanged;
     internal event Action<bool>? FollowPlayerChanged;
     internal event Action<NativeEditorActionRequest>? EditorActionRequested;
 
@@ -260,9 +260,9 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.FrameAll(_renderer);
     }
 
-    private void OnNativeSelectionChanged(nint userData, int floor)
+    private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers)
     {
-        SelectionChanged?.Invoke(floor);
+        SelectionChanged?.Invoke(floor, modifiers);
     }
 
     private void OnNativeFollowPlayerChanged(nint userData, int enabled)

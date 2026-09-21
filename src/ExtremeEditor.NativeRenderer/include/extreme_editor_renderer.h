@@ -13,20 +13,24 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 2u
+#define EE_RENDERER_API_VERSION 3u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
 #define EE_PLAYBACK_TIMING_FLAG_CCW 0x1u
 #define EE_PLAYBACK_FLAG_ACTIVE 0x1u
 #define EE_PLAYBACK_FLAG_PLAYING 0x2u
+#define EE_INPUT_MODIFIER_SHIFT 0x1u
+#define EE_INPUT_MODIFIER_CONTROL 0x2u
+#define EE_INPUT_MODIFIER_ALT 0x4u
+#define EE_INPUT_MODIFIER_WINDOWS 0x8u
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef void* EeRendererHandle;
-typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor);
+typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor, uint32_t modifiers);
 typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
 typedef void (__cdecl *EeEditorActionCallback)(
     void* user_data,

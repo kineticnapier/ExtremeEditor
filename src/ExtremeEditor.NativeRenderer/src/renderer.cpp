@@ -27,6 +27,20 @@ void UpdateAtomicMax(std::atomic<double>& target, double value) noexcept
     }
 }
 
+std::uint32_t CaptureInputModifiers(WPARAM mouse_keys) noexcept
+{
+    std::uint32_t result = 0u;
+    if ((mouse_keys & MK_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+        result |= EE_INPUT_MODIFIER_SHIFT;
+    if ((mouse_keys & MK_CONTROL) != 0 || (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        result |= EE_INPUT_MODIFIER_CONTROL;
+    if ((GetKeyState(VK_MENU) & 0x8000) != 0)
+        result |= EE_INPUT_MODIFIER_ALT;
+    if ((GetKeyState(VK_LWIN) & 0x8000) != 0 || (GetKeyState(VK_RWIN) & 0x8000) != 0)
+        result |= EE_INPUT_MODIFIER_WINDOWS;
+    return result;
+}
+
 PlaybackVisualState CalculatePlaybackVisual(
     const LevelScene* scene,
     const std::vector<EePlaybackTiming>* timings,
@@ -342,7 +356,7 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
     return selected_floor_;
 }
 
-void Renderer::NotifySelectionChanged(std::int32_t floor) noexcept
+void Renderer::NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept
 {
     EeSelectionChangedCallback callback = nullptr;
     void* user_data = nullptr;
@@ -353,7 +367,7 @@ void Renderer::NotifySelectionChanged(std::int32_t floor) noexcept
     }
 
     if (callback != nullptr)
-        callback(user_data, floor);
+        callback(user_data, floor, modifiers);
 }
 
 void Renderer::DisableFollowForManualPan() noexcept
@@ -459,9 +473,10 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
 
     case WM_LBUTTONDOWN:
     {
+        const std::uint32_t modifiers = CaptureInputModifiers(wparam);
         SetFocus(hwnd);
         const std::int32_t selected = SelectFloorAt(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
-        NotifySelectionChanged(selected);
+        NotifySelectionChanged(selected, modifiers);
         return 0;
     }
     }
