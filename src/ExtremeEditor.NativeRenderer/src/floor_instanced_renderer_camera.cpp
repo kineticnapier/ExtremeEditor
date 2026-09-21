@@ -1,4 +1,5 @@
 #include "floor_instanced_renderer.h"
+#include "track_visual.h"
 
 #include <d3dcompiler.h>
 
@@ -12,8 +13,6 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
-constexpr std::uint32_t TrackColorFlag = 0x80u;
-
 constexpr char CameraVertexShaderSource[] = R"(
 cbuffer FrameConstants : register(b0)
 {
@@ -176,6 +175,7 @@ bool FloorInstancedRenderer::DrawCamera(
         group.clear();
 
     const float depth_denominator = static_cast<float>(scene.floors.size() + 1u);
+    const float track_time = TrackVisualTimeSeconds();
     std::size_t valid_instances = 0;
     for (std::uint32_t floor_index : visible_floors)
     {
@@ -185,21 +185,17 @@ bool FloorInstancedRenderer::DrawCamera(
         if (floor.geometry_id >= grouped_instances_.size())
             continue;
 
-        const bool has_track_color = (floor.icon_flags & TrackColorFlag) != 0u;
-        const float color_r = has_track_color ? static_cast<float>((floor.icon_flags >> 8) & 0xffu) / 255.0f : 1.0f;
-        const float color_g = has_track_color ? static_cast<float>((floor.icon_flags >> 16) & 0xffu) / 255.0f : 1.0f;
-        const float color_b = has_track_color ? static_cast<float>((floor.icon_flags >> 24) & 0xffu) / 255.0f : 1.0f;
-
+        const ResolvedTrackVisual visual = ResolveTrackVisual(floor, floor_index, track_time);
         grouped_instances_[floor.geometry_id].push_back(InstanceData{
             floor.x,
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
             (static_cast<float>(floor_index) + 1.0f) / depth_denominator,
-            color_r,
-            color_g,
-            color_b,
-            1.0f});
+            visual.r,
+            visual.g,
+            visual.b,
+            visual.style_glow});
         ++valid_instances;
     }
 
