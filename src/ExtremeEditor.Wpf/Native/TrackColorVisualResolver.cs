@@ -690,7 +690,7 @@ internal static class TrackColorVisualResolver
         double p = v * (1.0 - s);
         double q = v * (1.0 - s * f);
         double t = v * (1.0 - s * (1.0 - f));
-        (double r, double g, double b) = i % 6 switch
+        (double r, double g, double b) = (i % 6) switch
         {
             0 => (v, t, p),
             1 => (q, v, p),
