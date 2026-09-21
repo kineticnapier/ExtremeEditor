@@ -40,6 +40,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
+    float2 localPosition : TEXCOORD0;
 };
 
 VSOutput VSMain(VSInput input)
@@ -58,6 +59,7 @@ VSOutput VSMain(VSInput input)
         screen.x * 2.0 / viewport.x - 1.0,
         1.0 - screen.y * 2.0 / viewport.y);
     output.position = float4(clip, input.depth, 1.0);
+    output.localPosition = input.localPosition;
     return output;
 }
 
@@ -84,6 +86,7 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
     float2 extendClip = PixelsToClip(extendPixels);
 
     VSOutput vertex;
+    vertex.localPosition = float2(0.0, 0.0);
     vertex.position = float4(a - extendClip + normalClip, input[0].position.z, 1.0);
     stream.Append(vertex);
     vertex.position = float4(a - extendClip - normalClip, input[0].position.z, 1.0);
@@ -97,7 +100,17 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
 
 float4 PSMain(VSOutput input) : SV_Target
 {
-    return drawColor;
+    // The old native material was a single flat color, unlike the stock tile
+    // material. Keep the renderer texture-free for now, but restore a lightweight
+    // bevel/center highlight in local tile space. Edge passes use alpha 0.48 and
+    // intentionally stay flat so the outline remains crisp.
+    if (drawColor.a < 0.8)
+        return drawColor;
+
+    float directional = saturate(0.5 + input.localPosition.y * 0.45 - input.localPosition.x * 0.08);
+    float center = saturate(1.0 - length(input.localPosition) * 0.55);
+    float shade = 0.86 + directional * 0.10 + center * 0.08;
+    return float4(saturate(drawColor.rgb * shade), drawColor.a);
 }
 )";
 
