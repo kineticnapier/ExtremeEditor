@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 1u
+#define EE_RENDERER_API_VERSION 2u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -28,6 +28,21 @@ extern "C" {
 typedef void* EeRendererHandle;
 typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor);
 typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
+typedef void (__cdecl *EeEditorActionCallback)(
+    void* user_data,
+    uint32_t action,
+    int32_t floor,
+    double value);
+
+typedef enum EeEditorAction
+{
+    EE_EDITOR_ACTION_NONE = 0,
+    EE_EDITOR_ACTION_INSERT_ANGLE = 1,
+    EE_EDITOR_ACTION_DELETE = 2,
+    EE_EDITOR_ACTION_ROTATE_180 = 3,
+    EE_EDITOR_ACTION_INSERT_MIDSPIN = 4,
+    EE_EDITOR_ACTION_INSERT_FULL_TURN = 5
+} EeEditorAction;
 
 typedef enum EeResult
 {
@@ -133,9 +148,18 @@ EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     const wchar_t* image_path,
     const wchar_t* outline_path);
 EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer);
+EE_RENDERER_API void ee_renderer_set_selection(
+    EeRendererHandle renderer,
+    const int32_t* floors,
+    uint32_t floor_count,
+    int32_t primary_floor);
 EE_RENDERER_API void ee_renderer_set_selection_changed_callback(
     EeRendererHandle renderer,
     EeSelectionChangedCallback callback,
+    void* user_data);
+EE_RENDERER_API void ee_renderer_set_editor_action_callback(
+    EeRendererHandle renderer,
+    EeEditorActionCallback callback,
     void* user_data);
 EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(
     EeRendererHandle renderer,
