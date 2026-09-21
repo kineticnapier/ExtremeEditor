@@ -89,6 +89,7 @@ public partial class MainWindow
             (key == Key.P || key == Key.Space) &&
             (!control || control))
         {
+            FlushEditorPlaybackRefresh();
             TogglePlayback();
             e.Handled = true;
             return;
@@ -489,8 +490,7 @@ public partial class MainWindow
         int preferredPrimary,
         IEnumerable<int>? preferredSelection = null)
     {
-        RefreshEditorAfterMutation(preferredPrimary, preferredSelection);
-        NativeViewport.SetSelection(Viewport.SelectedFloors, Viewport.SelectedFloor);
+        RefreshEditorInteractionAfterMutation(preferredPrimary, preferredSelection);
     }
 
     private void ExecuteRouted(RoutedCommand command)
