@@ -9,7 +9,7 @@
         MinHeight="650"
         WindowStartupLocation="CenterScreen"
         Background="#14161A"
-        PreviewKeyDown="MainWindowPreviewKeyDown">
+        PreviewKeyDown="AdoFaiPreviewKeyDown">
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{x:Static local:EditorCommands.Open}" />
         <KeyBinding Key="S" Modifiers="Control" Command="{x:Static local:EditorCommands.Save}" />
@@ -19,7 +19,6 @@
         <KeyBinding Key="C" Modifiers="Control" Command="{x:Static local:EditorCommands.Copy}" />
         <KeyBinding Key="X" Modifiers="Control" Command="{x:Static local:EditorCommands.Cut}" />
         <KeyBinding Key="V" Modifiers="Control" Command="{x:Static local:EditorCommands.Paste}" />
-        <KeyBinding Key="Delete" Command="{x:Static local:EditorCommands.Delete}" />
     </Window.InputBindings>
 
     <DockPanel LastChildFill="True">
