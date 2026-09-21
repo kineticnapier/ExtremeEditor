@@ -126,6 +126,8 @@ public partial class MainWindow
                                after.Kind == LevelActionKind.SetHitsound;
         bool speedVisualChanged = before.Kind == LevelActionKind.SetSpeed ||
                                   after.Kind == LevelActionKind.SetSpeed;
+        bool trackVisualChanged = IsTrackVisualEvent(before.EventType) ||
+                                  IsTrackVisualEvent(after.EventType);
 
         if (speedVisualChanged)
             RecomputeSpeedRatios();
@@ -136,7 +138,7 @@ public partial class MainWindow
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
-        if (speedVisualChanged)
+        if (speedVisualChanged || trackVisualChanged)
             NativeViewport.SetLevel(_level);
 
         if (hitSoundChanged)
@@ -183,6 +185,9 @@ public partial class MainWindow
             }
         }
     }
+
+    private static bool IsTrackVisualEvent(string eventType) =>
+        eventType is "ColorTrack" or "RecolorTrack";
 
     private static bool AffectsEditorTiming(LevelAction action) => action.Kind is
         LevelActionKind.Twirl or
