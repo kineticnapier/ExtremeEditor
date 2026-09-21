@@ -54,18 +54,31 @@ public static class HitSoundTimelineBuilder
 {
     public static HitSoundTimeline Build(LevelDocument level)
     {
-        HitSoundState current = HitSoundState.FromLevel(level);
-        var changes = new List<HitSoundStateChange>();
+        HitSoundState initial = HitSoundState.FromLevel(level);
 
-        foreach ((int floor, LevelAction[] actions) in level.ActionsByFloor.OrderBy(pair => pair.Key))
+        // The common pathological case can contain millions of unrelated actions.
+        // Do not walk them at all when the parser already proved SetHitsound absent.
+        if (!level.ActionTypeCounts.TryGetValue("SetHitsound", out int setHitSoundCount) ||
+            setHitSoundCount <= 0)
         {
+            return new HitSoundTimeline(initial, []);
+        }
+
+        HitSoundState current = initial;
+        var changes = new List<HitSoundStateChange>(Math.Min(setHitSoundCount, 65_536));
+
+        foreach (int floor in level.ActionFloors)
+        {
+            if (!level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+                continue;
+
             string hitSound = current.Name;
             double volume = current.Volume;
             bool changed = false;
 
             foreach (LevelAction action in actions)
             {
-                if (!action.Active || !string.Equals(action.EventType, "SetHitsound", StringComparison.Ordinal))
+                if (!action.Active || action.Kind != LevelActionKind.SetHitsound)
                     continue;
 
                 // Midspin has a separate stock hitsound state. Normal landing
@@ -94,6 +107,6 @@ public static class HitSoundTimelineBuilder
                 changes.Add(new HitSoundStateChange(floor, current));
         }
 
-        return new HitSoundTimeline(HitSoundState.FromLevel(level), changes.ToArray());
+        return new HitSoundTimeline(initial, changes.ToArray());
     }
 }
