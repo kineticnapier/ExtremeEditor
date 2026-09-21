@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Native;
 
@@ -21,14 +22,48 @@ internal static class WpfLevelLoader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
-            .ConfigureAwait(false);
+        LoadResult loaded;
+        TrackColorSourceData trackColors;
+        try
+        {
+            loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
+                .ConfigureAwait(false);
 
-        // The flat core loader intentionally keeps only timing/gameplay fields.
-        // Read the small subset of track-colour metadata required by the renderer
-        // in a second streaming pass; it never materializes angleData/actions as a
-        // full JSON DOM, so pathological charts remain bounded in memory.
-        TrackColorSourceData trackColors = TrackColorSourceReader.Load(path, cancellationToken);
+            // The flat core loader intentionally keeps only timing/gameplay fields.
+            // Read the small subset of track-colour metadata required by the renderer
+            // in a second streaming pass; it never materializes angleData/actions as a
+            // full JSON DOM, so pathological charts remain bounded in memory.
+            trackColors = TrackColorSourceReader.Load(path, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // Some ADOFAI charts contain literal CR/LF/TAB bytes inside JSON strings.
+            // The game accepts those loose files, while System.Text.Json correctly
+            // rejects them. Keep the fast streaming path for normal charts and only
+            // normalize the exceptional file into a temporary copy.
+            string normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+            try
+            {
+                loaded = await AdoFaiLoader.LoadFlatAsync(normalizedPath, cancellationToken)
+                    .ConfigureAwait(false);
+                loaded.Document.SourcePath = path;
+                trackColors = TrackColorSourceReader.Load(normalizedPath, cancellationToken);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(normalizedPath);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+
         TrackColorMetadataCache.Attach(loaded.Document, trackColors);
 
         var indexWatch = Stopwatch.StartNew();
