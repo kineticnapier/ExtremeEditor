@@ -15,6 +15,8 @@ public partial class MainWindow
             typeof(MainWindow),
             NativeLevelViewport.EditorActionRequestedEvent,
             new EventHandler<NativeEditorActionRequestedEventArgs>(OnNativeEditorActionRequested));
+
+        RegisterEventPropertyAutoApplyHandlers();
     }
 
     private static void OnNativeFloorSelectionRequested(object? sender, NativeFloorSelectionRequestedEventArgs e)
