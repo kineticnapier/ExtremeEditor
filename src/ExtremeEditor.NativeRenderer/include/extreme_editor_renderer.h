@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 4u
+#define EE_RENDERER_API_VERSION 5u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -30,6 +30,14 @@
 #define EE_CAMERA_APPLY_Y 0x200u
 #define EE_CAMERA_APPLY_ROTATION 0x400u
 #define EE_CAMERA_APPLY_ZOOM 0x800u
+#define EE_TRACK_VISUAL_ENABLED 0x80000000u
+#define EE_TRACK_VISUAL_COLOR_TYPE_MASK 0x7u
+#define EE_TRACK_VISUAL_STYLE_SHIFT 3u
+#define EE_TRACK_VISUAL_STYLE_MASK (0x7u << EE_TRACK_VISUAL_STYLE_SHIFT)
+#define EE_TRACK_VISUAL_PULSE_SHIFT 6u
+#define EE_TRACK_VISUAL_PULSE_MASK (0x3u << EE_TRACK_VISUAL_PULSE_SHIFT)
+#define EE_TRACK_VISUAL_USE_TEXTURE 0x100u
+#define EE_TRACK_VISUAL_CUSTOM_TEXTURE 0x200u
 
 #ifdef __cplusplus
 extern "C" {
@@ -124,6 +132,13 @@ typedef struct EeFloor
     uint32_t icon_id;
     uint32_t icon_flags;
     float icon_angle;
+    uint32_t track_primary_color;
+    uint32_t track_secondary_color;
+    uint32_t track_visual_flags;
+    float track_anim_duration;
+    float track_glow_intensity;
+    int32_t track_start_floor;
+    uint32_t track_pulse_length;
 } EeFloor;
 
 typedef struct EeGeometry
