@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf;
 
@@ -22,6 +23,13 @@ internal static class WpfLevelLoader
 
         LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
             .ConfigureAwait(false);
+
+        // The flat core loader intentionally keeps only timing/gameplay fields.
+        // Read the small subset of track-colour metadata required by the renderer
+        // in a second streaming pass; it never materializes angleData/actions as a
+        // full JSON DOM, so pathological charts remain bounded in memory.
+        TrackColorSourceData trackColors = TrackColorSourceReader.Load(path, cancellationToken);
+        TrackColorMetadataCache.Attach(loaded.Document, trackColors);
 
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);
