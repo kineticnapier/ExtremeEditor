@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using ExtremeEditor.Core;
 
@@ -20,12 +21,50 @@ internal readonly record struct NativePlaybackTimelineUploadMetrics(
     TimeSpan TimelineBuild,
     TimeSpan NativeUpload);
 
+internal sealed class NativeFloorSelectionRequestedEventArgs : RoutedEventArgs
+{
+    internal NativeFloorSelectionRequestedEventArgs(RoutedEvent routedEvent, int floor, ModifierKeys modifiers)
+        : base(routedEvent)
+    {
+        Floor = floor;
+        Modifiers = modifiers;
+    }
+
+    internal int Floor { get; }
+    internal ModifierKeys Modifiers { get; }
+}
+
+internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
+{
+    internal NativeEditorActionRequestedEventArgs(RoutedEvent routedEvent, NativeEditorActionRequest request)
+        : base(routedEvent)
+    {
+        Request = request;
+    }
+
+    internal NativeEditorActionRequest Request { get; }
+}
+
 public sealed class NativeLevelViewport : HwndHost
 {
+    internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
+        "FloorSelectionRequested",
+        RoutingStrategy.Bubble,
+        typeof(EventHandler<NativeFloorSelectionRequestedEventArgs>),
+        typeof(NativeLevelViewport));
+
+    internal static readonly RoutedEvent EditorActionRequestedEvent = EventManager.RegisterRoutedEvent(
+        "EditorActionRequested",
+        RoutingStrategy.Bubble,
+        typeof(EventHandler<NativeEditorActionRequestedEventArgs>),
+        typeof(NativeLevelViewport));
+
     private NativeRendererSession? _session;
     private LevelDocument? _level;
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
+    private int[] _selectedFloors = [];
+    private int _primarySelection = -1;
     private bool _frameAllPending;
     private bool _followPlayer = true;
 
@@ -35,6 +74,8 @@ public sealed class NativeLevelViewport : HwndHost
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
+    // Retained for compatibility with the earlier single-selection bridge. New
+    // editor code uses the routed event above so modifier keys survive HWND input.
     public event Action<int>? SelectedFloorChanged;
     public event Action<bool>? FollowPlayerChanged;
 
@@ -57,9 +98,36 @@ public sealed class NativeLevelViewport : HwndHost
     public void SetLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
         _snapshot = null;
+        if (changedDocument)
+        {
+            _selectedFloors = [];
+            _primarySelection = -1;
+        }
         LastLevelUploadMetrics = UploadPendingLevel();
+    }
+
+    public void SetSelection(IEnumerable<int> floors, int primaryFloor)
+    {
+        if (_level is null)
+        {
+            _selectedFloors = [];
+            _primarySelection = -1;
+            _session?.SetSelection(_selectedFloors, _primarySelection);
+            return;
+        }
+
+        _selectedFloors = floors
+            .Where(floor => (uint)floor < (uint)_level.FloorCount)
+            .Distinct()
+            .OrderBy(floor => floor)
+            .ToArray();
+        _primarySelection = _selectedFloors.Contains(primaryFloor)
+            ? primaryFloor
+            : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
+        _session?.SetSelection(_selectedFloors, _primarySelection);
     }
 
     public void SetPlaybackTimeline(TimingMap timingMap)
@@ -117,6 +185,7 @@ public sealed class NativeLevelViewport : HwndHost
         _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
         _session.SelectionChanged += NativeSelectionChanged;
         _session.FollowPlayerChanged += NativeFollowPlayerChanged;
+        _session.EditorActionRequested += NativeEditorActionRequested;
         _session.SetFollowPlayer(_followPlayer);
         LastLevelUploadMetrics = UploadPendingLevel();
 
@@ -142,6 +211,7 @@ public sealed class NativeLevelViewport : HwndHost
         {
             _session.SelectionChanged -= NativeSelectionChanged;
             _session.FollowPlayerChanged -= NativeFollowPlayerChanged;
+            _session.EditorActionRequested -= NativeEditorActionRequested;
         }
         _session?.Dispose();
         _session = null;
@@ -149,7 +219,28 @@ public sealed class NativeLevelViewport : HwndHost
 
     private void NativeSelectionChanged(int floor)
     {
-        SelectedFloorChanged?.Invoke(floor);
+        void RaiseSelection()
+        {
+            RaiseEvent(new NativeFloorSelectionRequestedEventArgs(
+                FloorSelectionRequestedEvent,
+                floor,
+                Keyboard.Modifiers));
+        }
+
+        if (Dispatcher.CheckAccess())
+            RaiseSelection();
+        else
+            Dispatcher.BeginInvoke((Action)RaiseSelection);
+    }
+
+    private void NativeEditorActionRequested(NativeEditorActionRequest request)
+    {
+        void RaiseAction() => RaiseEvent(new NativeEditorActionRequestedEventArgs(EditorActionRequestedEvent, request));
+
+        if (Dispatcher.CheckAccess())
+            RaiseAction();
+        else
+            Dispatcher.BeginInvoke((Action)RaiseAction);
     }
 
     private void NativeFollowPlayerChanged(bool enabled)
@@ -180,6 +271,7 @@ public sealed class NativeLevelViewport : HwndHost
 
         var uploadWatch = Stopwatch.StartNew();
         _session.SetLevel(_snapshot);
+        _session.SetSelection(_selectedFloors, _primarySelection);
         uploadWatch.Stop();
 
         return new NativeLevelUploadMetrics(
