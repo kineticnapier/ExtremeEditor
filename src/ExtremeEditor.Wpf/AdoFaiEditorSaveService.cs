@@ -46,36 +46,43 @@ internal static class AdoFaiEditorSaveService
         File.Move(tempPath, fullPath, overwrite: true);
     }
 
-    internal static JsonObject BuildEditableActionJson(
-        EditorSession session,
-        LevelAction action)
+    internal static JsonObject BuildEditableActionJson(EditorSession session, LevelAction action)
+    {
+        JsonObject obj;
+        int revision;
+        if (action.PropertyOverrides is not null)
+        {
+            obj = (JsonObject)action.PropertyOverrides.DeepClone();
+            revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
+        }
+        else
+        {
+            obj = GetBaseActionObject(session, action);
+            revision = 0;
+        }
+
+        for (int i = revision; i < session.StructureEdits.Count; i++)
+            TransformObject(obj, session.StructureEdits[i], removeWhenDeleted: false);
+
+        UpdateKnownActionProperties(obj, action);
+        return obj;
+    }
+
+    private static JsonObject GetBaseActionObject(EditorSession session, LevelAction action)
     {
         JsonObject root = session.GetSourceRootForSave();
-        JsonObject obj = new();
         if (action.SourceIndex >= 0 &&
             root["actions"] is JsonArray actions &&
             action.SourceIndex < actions.Count &&
             actions[action.SourceIndex] is JsonObject source)
         {
-            obj = (JsonObject)source.DeepClone();
-            foreach (FloorStructureEdit edit in session.StructureEdits)
-            {
-                if (!TransformObject(obj, edit, removeWhenDeleted: false))
-                    break;
-            }
-        }
-        else if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
-        {
-            obj = (JsonObject)template.DeepClone();
+            return (JsonObject)source.DeepClone();
         }
 
-        if (action.PropertyOverrides is not null)
-        {
-            foreach (KeyValuePair<string, JsonNode?> pair in action.PropertyOverrides)
-                obj[pair.Key] = pair.Value?.DeepClone();
-        }
-        UpdateKnownActionProperties(obj, action);
-        return obj;
+        if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
+            return (JsonObject)template.DeepClone();
+
+        return new JsonObject();
     }
 
     private static void ReplaceAngles(JsonObject root, IReadOnlyList<double> angles)
@@ -114,7 +121,14 @@ internal static class AdoFaiEditorSaveService
         foreach (LevelAction action in session.Document.ActionStore.Actions)
         {
             JsonObject obj;
-            if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
+            if (action.PropertyOverrides is not null)
+            {
+                obj = (JsonObject)action.PropertyOverrides.DeepClone();
+                int revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
+                for (int i = revision; i < session.StructureEdits.Count; i++)
+                    TransformObject(obj, session.StructureEdits[i], removeWhenDeleted: false);
+            }
+            else if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
             {
                 obj = original;
             }
@@ -127,11 +141,6 @@ internal static class AdoFaiEditorSaveService
                 obj = new JsonObject();
             }
 
-            if (action.PropertyOverrides is not null)
-            {
-                foreach (KeyValuePair<string, JsonNode?> pair in action.PropertyOverrides)
-                    obj[pair.Key] = pair.Value?.DeepClone();
-            }
             UpdateKnownActionProperties(obj, action);
             output.Add(obj);
         }
