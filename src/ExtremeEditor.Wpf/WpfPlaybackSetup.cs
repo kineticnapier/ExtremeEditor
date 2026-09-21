@@ -18,7 +18,7 @@ internal static class WpfPlaybackSetupBuilder
         ArgumentNullException.ThrowIfNull(level);
 
         var watch = Stopwatch.StartNew();
-        TimingMap timingMap = TimingMapBuilder.Build(level);
+        TimingMap timingMap = FlatTimingMapBuilder.Build(level);
         watch.Stop();
         TimeSpan timingMapTime = watch.Elapsed;
 
