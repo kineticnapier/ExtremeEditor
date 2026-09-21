@@ -11,11 +11,17 @@ internal sealed record WpfLevelLoadResult(
 
 internal static class WpfLevelLoader
 {
-    public static WpfLevelLoadResult Load(string path)
+    public static WpfLevelLoadResult Load(string path) =>
+        LoadAsync(path).GetAwaiter().GetResult();
+
+    public static async Task<WpfLevelLoadResult> LoadAsync(
+        string path,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        LoadResult loaded = AdoFaiLoader.Load(path);
+        LoadResult loaded = await AdoFaiLoader.LoadAsync(path, cancellationToken)
+            .ConfigureAwait(false);
 
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);
