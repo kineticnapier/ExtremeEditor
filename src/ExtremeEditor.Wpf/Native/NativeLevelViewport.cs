@@ -171,7 +171,7 @@ public sealed class NativeLevelViewport : HwndHost
         if (_snapshot is null)
         {
             var snapshotWatch = Stopwatch.StartNew();
-            NativeLevelSnapshotBuildResult result = NativeLevelSnapshotBuilder.BuildProfiled(_level);
+            NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(_level);
             _snapshot = result.Snapshot;
             buildMetrics = result.Metrics;
             snapshotWatch.Stop();
