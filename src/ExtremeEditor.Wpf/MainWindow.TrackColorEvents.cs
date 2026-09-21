@@ -25,6 +25,8 @@ public partial class MainWindow
 
         schemas["RecolorTrack"] =
         [
+            TileReferenceProperty("startTile", 0, "ThisTile"),
+            TileReferenceProperty("endTile", 0, "ThisTile"),
             IntegerProperty("gapLength", 0),
             TextProperty("trackColorType", "Single"),
             TextProperty("trackColor", "debb7b"),
@@ -43,4 +45,7 @@ public partial class MainWindow
             TextProperty("eventTag", "")
         ];
     }
+
+    private static EventPropertyDefinition TileReferenceProperty(string name, int offset, string mode) =>
+        new(name, EventPropertyEditorKind.Vector2, new object?[] { offset, mode }, string.Empty, null);
 }
