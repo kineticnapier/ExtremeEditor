@@ -11,7 +11,7 @@ public partial class MainWindow
 {
     private bool _eventAutoApplyInProgress;
 
-    static MainWindow()
+    private static void RegisterEventPropertyAutoApplyHandlers()
     {
         // Property controls are created dynamically by MainWindow.EventPropertyEditor.
         // Listen at the containing StackPanel so the control's own handler has already
