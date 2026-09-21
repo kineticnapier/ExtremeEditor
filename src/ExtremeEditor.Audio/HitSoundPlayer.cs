@@ -56,6 +56,7 @@ internal sealed class HitSoundLibrary
 
     private readonly Dictionary<string, CachedHitSound> _sounds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _offsets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, IReadOnlyDictionary<string, RenderedHitSound>> _renderedBySampleRate = new();
 
     public int LoadedCount => _sounds.Count;
     public string AssetSummary => _sounds.Count == 0 ? "hitsounds none" : $"hitsounds {_sounds.Count}";
@@ -66,6 +67,7 @@ internal sealed class HitSoundLibrary
         using IDisposable? measurement = log?.Measure("hitsounds.reload");
         _sounds.Clear();
         _offsets.Clear();
+        _renderedBySampleRate.Clear();
 
         string directory = HitSoundAssetCache.CacheDirectory;
         if (!Directory.Exists(directory))
@@ -102,6 +104,9 @@ internal sealed class HitSoundLibrary
 
     public IReadOnlyDictionary<string, RenderedHitSound> RenderFor(int sampleRate)
     {
+        if (_renderedBySampleRate.TryGetValue(sampleRate, out IReadOnlyDictionary<string, RenderedHitSound>? cached))
+            return cached;
+
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
         using IDisposable? measurement = log?.Measure(
             "hitsounds.render_all", $"target_rate={sampleRate} clip_count={_sounds.Count}");
@@ -123,6 +128,7 @@ internal sealed class HitSoundLibrary
             log?.Write("hitsounds.rendered_clip", $"name={name} output_samples={samples.Length}");
         }
 
+        _renderedBySampleRate[sampleRate] = rendered;
         return rendered;
     }
 
