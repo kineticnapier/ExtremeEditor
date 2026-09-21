@@ -6,6 +6,14 @@ namespace ExtremeEditor.Wpf;
 
 public partial class MainWindow
 {
+    private static readonly HashSet<string> DecorationObjectEventTypes = new(StringComparer.Ordinal)
+    {
+        "AddDecoration",
+        "AddText",
+        "AddObject",
+        "AddParticle"
+    };
+
     private static readonly EventCategoryDefinition[] EventCategories =
     [
         new("Gameplay",
@@ -40,11 +48,13 @@ public partial class MainWindow
         new("Conveniences",
         [
             "EditorComment", "Bookmark", "CallMethod", "AddComponent"
-        ])
+        ]),
+        new("Favorites", [])
     ];
 
     private static readonly EventCatalogEntry[] EventCatalog = EventCategories
         .SelectMany(category => category.Events.Select(eventType => new EventCatalogEntry(category.Name, eventType)))
+        .Where(entry => !DecorationObjectEventTypes.Contains(entry.EventType))
         .ToArray();
 
     private int _eventCategoryIndex;
@@ -190,8 +200,7 @@ public partial class MainWindow
         if ((uint)slot >= (uint)category.Events.Length)
             return false;
 
-        AddEventAtSelection(category.Events[slot]);
-        return true;
+        return TryAddEventAtSelection(category.Events[slot]);
     }
 
     private void CycleEventCategory(int delta)
@@ -209,8 +218,14 @@ public partial class MainWindow
         string keys = string.Join(
             "   ",
             category.Events.Take(10).Select((eventType, index) =>
-                $"{(index == 9 ? 0 : index + 1)} {eventType}"));
-        _eventQuickPickerText.Text = $"Ctrl+{_eventCategoryIndex}: {category.Name}   [ / ] category\n{keys}";
+            {
+                string marker = DecorationObjectEventTypes.Contains(eventType) ? "*" : string.Empty;
+                return $"{(index == 9 ? 0 : index + 1)} {eventType}{marker}";
+            }));
+        string note = category.Events.Any(DecorationObjectEventTypes.Contains)
+            ? "   * decoration creation pending"
+            : string.Empty;
+        _eventQuickPickerText.Text = $"Ctrl+{_eventCategoryIndex}: {category.Name}   [ / ] category{note}\n{keys}";
     }
 
     private void OpenEventPicker(object sender, RoutedEventArgs e)
@@ -230,16 +245,22 @@ public partial class MainWindow
             if (categoryIndex >= 0)
                 _eventCategoryIndex = categoryIndex;
             RefreshEventQuickPickerText();
-            AddEventAtSelection(selected.EventType);
+            TryAddEventAtSelection(selected.EventType);
         }
     }
 
-    private void AddEventAtSelection(string eventType)
+    private bool TryAddEventAtSelection(string eventType)
     {
+        if (DecorationObjectEventTypes.Contains(eventType))
+        {
+            StatusText.Text = $"{eventType} is stored in decorations[]; creation is not wired yet";
+            return true;
+        }
+
         EditorSession? editor = EnsureEditorSession();
         int primary = Viewport.SelectedFloor;
         if (editor is null || primary < 0)
-            return;
+            return false;
 
         int[] selection = Viewport.SelectedFloors.ToArray();
         editor.AddAction(primary, eventType);
@@ -249,6 +270,7 @@ public partial class MainWindow
             .Cast<EventListItem>()
             .LastOrDefault(item => string.Equals(item.Action.EventType, eventType, StringComparison.Ordinal));
         StatusText.Text = $"Added {eventType} @ {primary:N0}";
+        return true;
     }
 
     private sealed record EventCategoryDefinition(string Name, string[] Events);
