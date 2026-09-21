@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Core;
 
@@ -47,6 +48,7 @@ public sealed record LevelAction(
     public string? Planets { get; set; }
     public double? AngleOffset { get; set; }
     public double? Duration { get; set; }
+    public JsonObject? PropertyOverrides { get; set; }
 }
 
 public sealed class LevelDocument
