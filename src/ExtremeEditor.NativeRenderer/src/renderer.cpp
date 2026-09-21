@@ -156,11 +156,21 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
         return false;
 
     std::lock_guard lock(scene_mutex_);
+    const bool had_scene = static_cast<bool>(scene_);
     scene_ = std::move(scene);
-    camera_x_ = scene_->floors.front().x;
-    camera_y_ = scene_->floors.front().y;
-    zoom_ = 28.0f;
-    selected_floor_ = -1;
+
+    // SetLevel is also the hot editor-update path. Resetting the camera here made
+    // every Q/W/E/... floor insertion snap back to the first tile. Only initialize
+    // the view for the first scene; subsequent uploads preserve pan and zoom.
+    if (!had_scene)
+    {
+        camera_x_ = scene_->floors.front().x;
+        camera_y_ = scene_->floors.front().y;
+        zoom_ = 28.0f;
+    }
+
+    if (selected_floor_ < 0 || static_cast<std::size_t>(selected_floor_) >= scene_->floors.size())
+        selected_floor_ = -1;
     playback_active_ = false;
     ++scene_version_;
     return true;
