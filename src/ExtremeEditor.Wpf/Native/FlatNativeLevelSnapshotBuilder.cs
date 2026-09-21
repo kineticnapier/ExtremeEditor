@@ -40,7 +40,7 @@ internal static class FlatNativeLevelSnapshotBuilder
         NativeLevelSnapshot geometrySnapshot = geometryResult.Snapshot;
         NativeFloor[] floors = geometrySnapshot.Floors;
         double[] angles = level.Angles;
-        uint[] trackColorFlags = TrackColorVisualResolver.ResolveFlags(level);
+        NativeTrackVisual[] trackVisuals = TrackVisualResolver.Resolve(level);
 
         var watch = Stopwatch.StartNew();
         var iconAssets = new List<NativeIconAsset>();
@@ -113,12 +113,20 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.IconAngle = resolved.AngleRadians;
         }
 
-        // Track colour is packed into the otherwise-unused high bits of icon_flags.
-        // Apply it after icon resolution so the Twirl fast-path assignment above
-        // cannot discard the visual state.
-        int trackColorCount = Math.Min(floors.Length, trackColorFlags.Length);
-        for (int floor = 0; floor < trackColorCount; floor++)
-            floors[floor].IconFlags |= trackColorFlags[floor];
+        // Track visual state has its own ABI fields now; icon flags stay icon-only.
+        int trackVisualCount = Math.Min(floors.Length, trackVisuals.Length);
+        for (int floor = 0; floor < trackVisualCount; floor++)
+        {
+            NativeTrackVisual visual = trackVisuals[floor];
+            ref NativeFloor target = ref floors[floor];
+            target.TrackPrimaryColor = visual.PrimaryColor;
+            target.TrackSecondaryColor = visual.SecondaryColor;
+            target.TrackVisualFlags = visual.Flags;
+            target.TrackAnimDuration = visual.AnimDuration;
+            target.TrackGlowIntensity = visual.GlowIntensity;
+            target.TrackStartFloor = visual.StartFloor;
+            target.TrackPulseLength = visual.PulseLength;
+        }
 
         watch.Stop();
         TimeSpan iconTime = watch.Elapsed;
