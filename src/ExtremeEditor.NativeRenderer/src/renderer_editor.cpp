@@ -46,6 +46,17 @@ void Renderer::SetSelection(
     {
         selected_floor_ = selected_floors_.empty() ? -1 : selected_floors_.back();
     }
+
+    // ADOFAI's editor keeps the active tile under the camera while stepping through
+    // or extending the path. Do the same in edit mode. Playback owns the camera when
+    // Follow Player is active, so selection updates must not fight it there.
+    if (scene_ && !playback_active_ && selected_floor_ >= 0 &&
+        static_cast<std::size_t>(selected_floor_) < scene_->floors.size())
+    {
+        const EeFloor& selected = scene_->floors[static_cast<std::size_t>(selected_floor_)];
+        camera_x_ = selected.x;
+        camera_y_ = selected.y;
+    }
 }
 
 void Renderer::SetEditorActionCallback(
