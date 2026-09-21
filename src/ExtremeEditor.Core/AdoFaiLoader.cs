@@ -13,7 +13,7 @@ public sealed record LoadMetrics(
 
 public sealed record LoadResult(LevelDocument Document, LoadMetrics Metrics);
 
-public static class AdoFaiLoader
+public static partial class AdoFaiLoader
 {
     private static readonly JsonDocumentOptions TolerantJsonOptions = new()
     {
