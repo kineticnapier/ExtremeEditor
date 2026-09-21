@@ -55,8 +55,10 @@ public sealed partial class LevelViewport
             return;
 
         Vector2[] positions = _level.Positions;
-        foreach ((int floor, LevelAction[] _) in _level.ActionsByFloor)
+        LevelActionStore store = _level.ActionStore;
+        for (int actionFloorIndex = 0; actionFloorIndex < store.ActionFloorCount; actionFloorIndex++)
         {
+            int floor = store.GetFloor(actionFloorIndex);
             if ((uint)floor >= (uint)positions.Length)
                 continue;
 
@@ -79,7 +81,7 @@ public sealed partial class LevelViewport
         float exitAngle,
         bool midSpin)
     {
-        if (_level is null || !_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+        if (_level is null || !_level.ActionStore.TryGetActions(floor, out ReadOnlySpan<LevelAction> actions))
             return false;
 
         LevelAction? customIconAction = null;
@@ -94,14 +96,21 @@ public sealed partial class LevelViewport
                 continue;
 
             hasActiveAction = true;
-            if (customIconAction is null && string.Equals(action.EventType, "SetFloorIcon", StringComparison.Ordinal))
-                customIconAction = action;
-            if (string.Equals(action.EventType, "Checkpoint", StringComparison.Ordinal))
-                checkpoint = true;
-            if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
-                twirl = true;
-            if (speedAction is null && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
-                speedAction = action;
+            switch (action.Kind)
+            {
+                case LevelActionKind.SetFloorIcon when customIconAction is null:
+                    customIconAction = action;
+                    break;
+                case LevelActionKind.Checkpoint:
+                    checkpoint = true;
+                    break;
+                case LevelActionKind.Twirl:
+                    twirl = true;
+                    break;
+                case LevelActionKind.SetSpeed when speedAction is null:
+                    speedAction = action;
+                    break;
+            }
         }
 
         if (!hasActiveAction)
@@ -228,13 +237,18 @@ public sealed partial class LevelViewport
 
         _floorIsCcw = new bool[_level.FloorCount];
         bool isCcw = false;
+        LevelActionStore store = _level.ActionStore;
+        int actionFloorIndex = 0;
+        while (actionFloorIndex < store.ActionFloorCount && store.GetFloor(actionFloorIndex) < 0)
+            actionFloorIndex++;
+
         for (int floor = 0; floor < _floorIsCcw.Length; floor++)
         {
-            if (_level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            if (actionFloorIndex < store.ActionFloorCount && store.GetFloor(actionFloorIndex) == floor)
             {
-                foreach (LevelAction action in actions)
+                foreach (LevelAction action in store.GetActionsAt(actionFloorIndex++))
                 {
-                    if (action.Active && string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
+                    if (action.Active && action.Kind == LevelActionKind.Twirl)
                         isCcw = !isCcw;
                 }
             }
@@ -356,7 +370,7 @@ public sealed partial class LevelViewport
 
     private static SolidColorBrush CreateBrush(byte red, byte green, byte blue, byte alpha = 255)
     {
-        var brush = new SolidColorBrush(Color.FromArgb(alpha, red, green, blue));
+        var brush = new SolidColorBrush(Color.FromArgb(alpha, red, green, blue, alpha));
         brush.Freeze();
         return brush;
     }
