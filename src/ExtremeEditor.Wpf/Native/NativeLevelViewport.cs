@@ -140,7 +140,7 @@ public sealed class NativeLevelViewport : HwndHost
         _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
         _cameraTimeline = _level is null
             ? []
-            : NativeCameraTimelineBuilder.Build(_level, timingMap);
+            : FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
 
