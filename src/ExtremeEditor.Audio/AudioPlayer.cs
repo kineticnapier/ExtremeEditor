@@ -19,10 +19,16 @@ public readonly record struct AudioLoadMetrics(
 
 /// <summary>
 /// Owns the decoder, unified song/hit-sound graph, output device and presentation
-/// clock. There is exactly one WaveOutEvent for all audible playback.
+/// clock. There is exactly one WaveOutEvent for all audible playback. When a level
+/// has no song, a finite silent bus takes the song's place so hit sounds still use
+/// the exact same graph, limiter and device clock.
 /// </summary>
 public sealed class AudioPlayer : IDisposable
 {
+    private const int HitSoundOnlySampleRate = 48_000;
+    private const double HitSoundOnlyMinimumSeconds = 0.25;
+    private const double HitSoundOnlyEndPaddingSeconds = 0.05;
+
     private readonly HitSoundLibrary _hitSoundLibrary = new();
     private WaveOutEvent? _output;
     private WaveStream? _reader;
@@ -33,6 +39,7 @@ public sealed class AudioPlayer : IDisposable
     private WaveFormat? _outputFormat;
     private long _clockBaseDeviceBytes;
     private double _clockBaseAudioSeconds;
+    private double _transportDurationSeconds;
     private bool _clockReady;
     private bool _hitSoundsEnabled = true;
 
@@ -42,7 +49,9 @@ public sealed class AudioPlayer : IDisposable
         _hitSoundLibrary.ReloadAssets();
     }
 
-    public bool IsLoaded => _reader is not null;
+    /// <summary>True when either a song graph or a hit-sound-only graph is ready.</summary>
+    public bool IsLoaded => _graph is not null && _output is not null;
+    public bool HasSong => _reader is not null;
     public bool IsPlaying => _output?.PlaybackState == PlaybackState.Playing;
     public bool IsPaused => _output?.PlaybackState == PlaybackState.Paused;
     public bool IsStopped => _output is null || _output.PlaybackState == PlaybackState.Stopped;
@@ -65,15 +74,19 @@ public sealed class AudioPlayer : IDisposable
     }
 
     // WaveStream.CurrentTime is a decoder read-ahead position. The device byte
-    // position is the presentation clock shared by the song and hit sounds.
+    // position is the presentation clock shared by the song and hit sounds. This
+    // also works for hit-sound-only playback because the clock belongs to WaveOut,
+    // not to the decoder.
     public TimeSpan Position
     {
         get
         {
-            if (_reader is null)
+            if (_graph is null)
                 return TimeSpan.Zero;
+
+            double fallbackSeconds = _reader?.CurrentTime.TotalSeconds ?? _clockBaseAudioSeconds;
             if (_output is null || _outputFormat is null || !_clockReady)
-                return _reader.CurrentTime;
+                return TimeSpan.FromSeconds(Math.Clamp(fallbackSeconds, 0.0, _transportDurationSeconds));
 
             try
             {
@@ -83,36 +96,36 @@ public sealed class AudioPlayer : IDisposable
 
                 int bytesPerSecond = _outputFormat.AverageBytesPerSecond;
                 if (bytesPerSecond <= 0)
-                    return _reader.CurrentTime;
+                    return TimeSpan.FromSeconds(Math.Clamp(fallbackSeconds, 0.0, _transportDurationSeconds));
 
                 double seconds = _clockBaseAudioSeconds + (double)elapsedBytes / bytesPerSecond;
-                return TimeSpan.FromSeconds(Math.Clamp(seconds, 0.0, _reader.TotalTime.TotalSeconds));
+                return TimeSpan.FromSeconds(Math.Clamp(seconds, 0.0, _transportDurationSeconds));
             }
             catch
             {
-                return _reader.CurrentTime;
+                return TimeSpan.FromSeconds(Math.Clamp(fallbackSeconds, 0.0, _transportDurationSeconds));
             }
         }
     }
 
-    public TimeSpan Duration => _reader?.TotalTime ?? TimeSpan.Zero;
+    public TimeSpan Duration => TimeSpan.FromSeconds(Math.Max(0.0, _transportDurationSeconds));
 
     public void ConfigureHitSounds(LevelDocument? level, TimingMap? timingMap, HitSoundTimeline? timeline)
     {
         AudioDiagnosticLog.Shared?.Write("audio_player.configure_hitsounds",
             $"level_floors={level?.FloorCount ?? 0} timing_floors={timingMap?.Floors.Count ?? 0} " +
-            $"timeline_changes={timeline?.StateChangeCount ?? 0} reader_loaded={_reader is not null}");
+            $"timeline_changes={timeline?.StateChangeCount ?? 0} transport_loaded={IsLoaded} song_loaded={_reader is not null}");
         _level = level;
         _timingMap = timingMap;
         _hitSoundTimeline = timeline;
-        if (_reader is not null)
+        if (_graph is not null)
             RebuildGraphPreservingTransport();
     }
 
     public void ReloadHitSoundAssets()
     {
         _hitSoundLibrary.ReloadAssets();
-        if (_reader is not null)
+        if (_graph is not null)
             RebuildGraphPreservingTransport();
     }
 
@@ -151,16 +164,7 @@ public sealed class AudioPlayer : IDisposable
                 ResetClock(0.0);
 
             totalWatch.Stop();
-            LastLoadMetrics = new AudioLoadMetrics(
-                openReader,
-                graphMetrics.RenderHitSoundAssets,
-                graphMetrics.BuildHitSoundSchedule,
-                graphMetrics.RenderHitSoundChunks,
-                graphMetrics.WaveOutInit,
-                totalWatch.Elapsed,
-                graphMetrics.SourceHitCount,
-                graphMetrics.ScheduledHitCount,
-                graphMetrics.RenderedChunkCount);
+            LastLoadMetrics = CreateLoadMetrics(openReader, graphMetrics, totalWatch.Elapsed);
         }
         catch (Exception ex)
         {
@@ -171,14 +175,43 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Builds the normal unified playback graph with silence in place of the song.
+    /// This is intentionally not a metronome path: the exact hit-sound timeline is
+    /// pre-rendered and mixed exactly as it is when a song is present.
+    /// </summary>
+    public void LoadHitSoundsOnly()
+    {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        using IDisposable? measurement = log?.Measure("audio_player.load_hitsounds_only");
+        var totalWatch = Stopwatch.StartNew();
+        LastLoadMetrics = default;
+
+        DisposePlayback();
+        try
+        {
+            BuildGraphMetrics graphMetrics = BuildGraph();
+            ResetClock(0.0);
+            totalWatch.Stop();
+            LastLoadMetrics = CreateLoadMetrics(TimeSpan.Zero, graphMetrics, totalWatch.Elapsed);
+        }
+        catch (Exception ex)
+        {
+            log?.Write("audio_player.load_hitsounds_only_failed",
+                $"exception={ex.GetType().FullName} message={ex.Message}");
+            DisposePlayback();
+            throw;
+        }
+    }
+
     public void Unload() => DisposePlayback();
 
     public void Play()
     {
-        if (_output is null || _reader is null || _graph is null)
+        if (_output is null || _graph is null)
             return;
 
-        if (Position >= _reader.TotalTime - TimeSpan.FromMilliseconds(1))
+        if (Position >= Duration - TimeSpan.FromMilliseconds(1))
             Seek(TimeSpan.Zero);
 
         _output.Play();
@@ -192,24 +225,26 @@ public sealed class AudioPlayer : IDisposable
 
     public void Stop()
     {
-        if (_output is null || _reader is null || _graph is null)
+        if (_output is null || _graph is null)
             return;
 
         _output.Stop();
-        _reader.CurrentTime = TimeSpan.Zero;
+        if (_reader is not null)
+            _reader.CurrentTime = TimeSpan.Zero;
         _graph.Seek(0);
         ResetClock(0.0);
     }
 
     public void Seek(TimeSpan position)
     {
-        if (_reader is null || _output is null || _graph is null || _outputFormat is null)
+        if (_output is null || _graph is null || _outputFormat is null)
             return;
 
-        double seconds = Math.Clamp(position.TotalSeconds, 0, _reader.TotalTime.TotalSeconds);
+        double seconds = Math.Clamp(position.TotalSeconds, 0, _transportDurationSeconds);
         PlaybackState previousState = _output.PlaybackState;
         _output.Stop();
-        _reader.CurrentTime = TimeSpan.FromSeconds(seconds);
+        if (_reader is not null)
+            _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(seconds, _outputFormat.SampleRate);
         _graph.Seek(frame);
         ResetClock(seconds);
@@ -231,37 +266,54 @@ public sealed class AudioPlayer : IDisposable
 
     private BuildGraphMetrics BuildGraph()
     {
-        if (_reader is null)
-            return default;
-
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
-        ISampleProvider song = _reader.ToSampleProvider();
-        if (song.WaveFormat.Channels == 1)
-            song = new MonoToStereoSampleProvider(song);
-        else if (song.WaveFormat.Channels > 2)
-            song = new FirstTwoChannelsSampleProvider(song);
 
-        _outputFormat = song.WaveFormat;
+        ISampleProvider song;
+        if (_reader is not null)
+        {
+            song = _reader.ToSampleProvider();
+            if (song.WaveFormat.Channels == 1)
+                song = new MonoToStereoSampleProvider(song);
+            else if (song.WaveFormat.Channels > 2)
+                song = new FirstTwoChannelsSampleProvider(song);
+            _outputFormat = song.WaveFormat;
+        }
+        else
+        {
+            _outputFormat = WaveFormat.CreateIeeeFloatWaveFormat(HitSoundOnlySampleRate, 2);
+            song = new SilentSampleProvider(_outputFormat);
+        }
+
         log?.Write("audio_player.output_format",
             $"provider={song.GetType().FullName} rate={_outputFormat.SampleRate} " +
-            $"channels={_outputFormat.Channels} encoding={_outputFormat.Encoding}");
+            $"channels={_outputFormat.Channels} encoding={_outputFormat.Encoding} " +
+            $"hitsound_only={_reader is null}");
 
-        long totalFrames = (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
         TimeSpan renderAssets = TimeSpan.Zero;
-        HitSoundRenderMetrics renderMetrics = default;
-        SampleAccurateHitSoundProvider? hitSounds = null;
+        IReadOnlyDictionary<string, RenderedHitSound>? clips = null;
         if (_level is not null && _timingMap is not null && _hitSoundTimeline is not null &&
             _hitSoundLibrary.LoadedCount > 0)
         {
-            using (log?.Measure("audio_player.render_hitsounds",
-                       $"rate={_outputFormat.SampleRate} count={_hitSoundLibrary.LoadedCount}"))
-            {
-                var watch = Stopwatch.StartNew();
-                IReadOnlyDictionary<string, RenderedHitSound> clips =
-                    _hitSoundLibrary.RenderFor(_outputFormat.SampleRate);
-                watch.Stop();
-                renderAssets = watch.Elapsed;
+            var watch = Stopwatch.StartNew();
+            clips = _hitSoundLibrary.RenderFor(_outputFormat.SampleRate);
+            watch.Stop();
+            renderAssets = watch.Elapsed;
+        }
 
+        long totalFrames = _reader is not null
+            ? (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate)
+            : CalculateHitSoundOnlyFrames(_outputFormat.SampleRate, clips);
+        _transportDurationSeconds = totalFrames <= 0
+            ? 0.0
+            : (double)totalFrames / _outputFormat.SampleRate;
+
+        HitSoundRenderMetrics renderMetrics = default;
+        SampleAccurateHitSoundProvider? hitSounds = null;
+        if (clips is not null && _level is not null && _timingMap is not null && _hitSoundTimeline is not null)
+        {
+            using (log?.Measure("audio_player.render_hitsounds",
+                       $"rate={_outputFormat.SampleRate} count={clips.Count}"))
+            {
                 hitSounds = new SampleAccurateHitSoundProvider(
                     _outputFormat,
                     _level,
@@ -298,9 +350,33 @@ public sealed class AudioPlayer : IDisposable
             renderMetrics.RenderedChunkCount);
     }
 
+    private long CalculateHitSoundOnlyFrames(
+        int sampleRate,
+        IReadOnlyDictionary<string, RenderedHitSound>? clips)
+    {
+        double chartEndAudio = 0.0;
+        if (_level is not null && _timingMap is not null)
+            chartEndAudio = PlaybackClock.ChartToAudioTime(_level, _timingMap.Duration);
+
+        double tailSeconds = 0.0;
+        if (clips is not null)
+        {
+            foreach (RenderedHitSound clip in clips.Values)
+            {
+                double clipSeconds = (double)clip.FrameCount / sampleRate;
+                tailSeconds = Math.Max(tailSeconds, Math.Max(0.0, clipSeconds - clip.OffsetSeconds));
+            }
+        }
+
+        double totalSeconds = Math.Max(
+            HitSoundOnlyMinimumSeconds,
+            Math.Max(0.0, chartEndAudio) + tailSeconds + HitSoundOnlyEndPaddingSeconds);
+        return checked((long)Math.Ceiling(totalSeconds * sampleRate));
+    }
+
     private void RebuildGraphPreservingTransport()
     {
-        if (_reader is null)
+        if (_graph is null)
             return;
 
         TimeSpan position = Position;
@@ -309,11 +385,14 @@ public sealed class AudioPlayer : IDisposable
         _output?.Dispose();
         _output = null;
         _graph = null;
-        _reader.CurrentTime = position;
+        if (_reader is not null)
+            _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(position.TotalSeconds, _reader.TotalTime.TotalSeconds));
+
         _ = BuildGraph();
+        double restoredSeconds = Math.Clamp(position.TotalSeconds, 0.0, _transportDurationSeconds);
         _graph!.Seek(SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-            position.TotalSeconds, _outputFormat!.SampleRate));
-        ResetClock(position.TotalSeconds);
+            restoredSeconds, _outputFormat!.SampleRate));
+        ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
             _output!.Play();
@@ -339,7 +418,7 @@ public sealed class AudioPlayer : IDisposable
         }
         catch
         {
-            // Position temporarily falls back to the decoder read-ahead clock.
+            // Position temporarily falls back to the graph/decoder clock.
         }
     }
 
@@ -356,11 +435,27 @@ public sealed class AudioPlayer : IDisposable
         _reader = null;
         _graph = null;
         _outputFormat = null;
+        _transportDurationSeconds = 0.0;
         _clockBaseDeviceBytes = 0;
         _clockBaseAudioSeconds = 0.0;
         _clockReady = false;
         LoadedPath = null;
     }
+
+    private static AudioLoadMetrics CreateLoadMetrics(
+        TimeSpan openReader,
+        BuildGraphMetrics graphMetrics,
+        TimeSpan total) =>
+        new(
+            openReader,
+            graphMetrics.RenderHitSoundAssets,
+            graphMetrics.BuildHitSoundSchedule,
+            graphMetrics.RenderHitSoundChunks,
+            graphMetrics.WaveOutInit,
+            total,
+            graphMetrics.SourceHitCount,
+            graphMetrics.ScheduledHitCount,
+            graphMetrics.RenderedChunkCount);
 
     private readonly record struct BuildGraphMetrics(
         TimeSpan RenderHitSoundAssets,
@@ -370,6 +465,22 @@ public sealed class AudioPlayer : IDisposable
         int SourceHitCount,
         int ScheduledHitCount,
         int RenderedChunkCount);
+
+    private sealed class SilentSampleProvider : ISampleProvider
+    {
+        public SilentSampleProvider(WaveFormat waveFormat)
+        {
+            WaveFormat = waveFormat;
+        }
+
+        public WaveFormat WaveFormat { get; }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            Array.Clear(buffer, offset, count);
+            return count;
+        }
+    }
 
     private sealed class FirstTwoChannelsSampleProvider : ISampleProvider
     {
