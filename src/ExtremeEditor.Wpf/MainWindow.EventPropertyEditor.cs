@@ -349,8 +349,8 @@ public partial class MainWindow
 
         void Commit()
         {
-            JsonNode? xNode = ParseNullableDoubleNode(xBox.Text);
-            JsonNode? yNode = ParseNullableDoubleNode(yBox.Text);
+            JsonNode? xNode = ParseVectorComponentNode(xBox.Text);
+            JsonNode? yNode = ParseVectorComponentNode(yBox.Text);
             SetEventDraftValue(property.Name, new JsonArray(xNode, yNode));
         }
 
@@ -425,14 +425,14 @@ public partial class MainWindow
         };
     }
 
-    private static JsonNode? ParseNullableDoubleNode(string text)
+    private static JsonNode? ParseVectorComponentNode(string text)
     {
         string trimmed = text.Trim();
         if (trimmed.Length == 0)
             return null;
         return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
             ? JsonValue.Create(value)
-            : null;
+            : JsonValue.Create(trimmed);
     }
 
     private static bool TryReadBool(JsonNode? node, out bool value)
@@ -492,9 +492,11 @@ public partial class MainWindow
 
     private static string ReadDefaultVectorComponent(object? value, int index)
     {
-        if (value is not double?[] pair || index >= pair.Length || pair[index] is not double component)
-            return string.Empty;
-        return component.ToString("G", CultureInfo.InvariantCulture);
+        if (value is double?[] numericPair && index < numericPair.Length && numericPair[index] is double numeric)
+            return numeric.ToString("G", CultureInfo.InvariantCulture);
+        if (value is object?[] pair && index < pair.Length)
+            return Convert.ToString(pair[index], CultureInfo.InvariantCulture) ?? string.Empty;
+        return string.Empty;
     }
 
     private static EventPropertyDefinition BoolProperty(string name, bool defaultValue) =>
