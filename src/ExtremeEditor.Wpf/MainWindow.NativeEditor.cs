@@ -19,6 +19,7 @@ public partial class MainWindow
         RegisterTrackColorEventSchemas();
         RegisterEventPropertyAutoApplyHandlers();
         RegisterReadableEventPaletteHandlers();
+        RegisterEventListAutoSelectionHandlers();
     }
 
     private static void OnNativeFloorSelectionRequested(object? sender, NativeFloorSelectionRequestedEventArgs e)
