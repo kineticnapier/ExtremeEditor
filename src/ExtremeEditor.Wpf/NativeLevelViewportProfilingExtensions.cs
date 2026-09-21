@@ -28,6 +28,14 @@ internal static class NativeLevelViewportProfilingExtensions
 
         viewport.SetLevel(level);
         NativeLevelUploadMetrics metrics = viewport.LastLevelUploadMetrics;
+        Console.WriteLine(
+            $"[load] native-detail floorGeometry={metrics.SnapshotFloorGeometry.TotalMilliseconds:N1}ms " +
+            $"icons={metrics.SnapshotIcons.TotalMilliseconds:N1}ms " +
+            $"finalize={metrics.SnapshotFinalize.TotalMilliseconds:N1}ms " +
+            $"geometries={metrics.GeometryCount:N0} " +
+            $"actionFloors={metrics.ActionFloorCount:N0} " +
+            $"iconAssets={metrics.IconAssetCount:N0}");
+
         return new NativeLevelLoadMetrics(
             metrics.SnapshotBuild,
             metrics.NativeUpload,
