@@ -39,6 +39,7 @@ public sealed record LevelAction(
     string? CustomIcon)
 {
     public LevelActionKind Kind { get; init; } = LevelActionKinds.FromEventType(EventType);
+    public int SourceIndex { get; init; } = -1;
     public double? SpeedRatio { get; set; }
     public string? HitSound { get; set; }
     public double? HitSoundVolumePercent { get; set; }
@@ -50,38 +51,32 @@ public sealed record LevelAction(
 
 public sealed class LevelDocument
 {
-    private readonly object _actionStoreLock = new();
-    private LevelActionStore? _actionStore;
+    private LevelActionStore _actionStore = LevelActionStore.Empty;
 
-    public required string SourcePath { get; init; }
-    public required double[] Angles { get; init; }
+    public required string SourcePath { get; set; }
+    public required double[] Angles { get; set; }
     public required Vector2[] Positions { get; set; }
-    public required int ActionCount { get; init; }
-    public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; init; }
-    public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; init; }
+    public required int ActionCount { get; set; }
+    public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; set; }
+    public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; set; }
     public LevelActionStore ActionStore
     {
-        get
+        get => _actionStore;
+        set
         {
-            if (_actionStore is not null)
-                return _actionStore;
-
-            lock (_actionStoreLock)
-            {
-                _actionStore ??= LevelActionStore.FromDictionary(ActionsByFloor);
-                return _actionStore;
-            }
+            _actionStore = value ?? LevelActionStore.Empty;
+            ActionsByFloor = _actionStore.DictionaryView;
+            ActionCount = _actionStore.ActionCount;
         }
-        init => _actionStore = value;
     }
-    public required double InitialBpm { get; init; }
-    public required string? SongFilename { get; init; }
-    public required double OffsetMilliseconds { get; init; }
-    public required double PitchPercent { get; init; }
-    public required int CountdownTicks { get; init; }
-    public required bool SeparateCountdownTime { get; init; }
-    public required string DefaultHitSound { get; init; }
-    public required double HitSoundVolumePercent { get; init; }
+    public required double InitialBpm { get; set; }
+    public required string? SongFilename { get; set; }
+    public required double OffsetMilliseconds { get; set; }
+    public required double PitchPercent { get; set; }
+    public required int CountdownTicks { get; set; }
+    public required bool SeparateCountdownTime { get; set; }
+    public required string DefaultHitSound { get; set; }
+    public required double HitSoundVolumePercent { get; set; }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
@@ -94,6 +89,22 @@ public sealed class LevelDocument
 
         string? directory = Path.GetDirectoryName(SourcePath);
         return directory is null ? null : Path.GetFullPath(Path.Combine(directory, SongFilename));
+    }
+
+    public void ReplaceActions(IEnumerable<LevelAction> actions)
+    {
+        LevelActionStore store = LevelActionStore.Create(actions);
+        _actionStore = store;
+        ActionsByFloor = store.DictionaryView;
+        ActionCount = store.ActionCount;
+
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (LevelAction action in store.Actions)
+        {
+            counts.TryGetValue(action.EventType, out int count);
+            counts[action.EventType] = count + 1;
+        }
+        ActionTypeCounts = counts;
     }
 
     public void RebuildGeometry()
