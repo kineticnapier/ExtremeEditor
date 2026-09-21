@@ -31,7 +31,9 @@ public:
     void FrameAll() noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(std::uint32_t icon_id, const wchar_t* image_path, const wchar_t* outline_path) noexcept;
+    void SetSelection(const std::int32_t* floors, std::uint32_t floor_count, std::int32_t primary_floor) noexcept;
     void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
+    void SetEditorActionCallback(EeEditorActionCallback callback, void* user_data) noexcept;
     bool SetPlaybackTimeline(const EePlaybackTiming* timings, std::uint32_t timing_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetFollowPlayer(bool enabled) noexcept;
@@ -46,7 +48,9 @@ private:
     void RenderLoop() noexcept;
     void StopRenderThread() noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
+    int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor) noexcept;
+    void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;
     void DisableFollowForManualPan() noexcept;
     void NotifyFollowPlayerChanged(bool enabled) noexcept;
 
@@ -71,10 +75,14 @@ private:
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
     std::int32_t selected_floor_ = -1;
+    std::vector<std::int32_t> selected_floors_;
+    int hover_hud_button_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
+    EeEditorActionCallback editor_action_callback_ = nullptr;
+    void* editor_action_user_data_ = nullptr;
     EeFollowPlayerChangedCallback follow_callback_ = nullptr;
     void* follow_user_data_ = nullptr;
 
