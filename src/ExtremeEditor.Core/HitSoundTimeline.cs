@@ -8,10 +8,6 @@ public readonly record struct HitSoundState(string Name, double Volume)
 
 public readonly record struct HitSoundStateChange(int Floor, HitSoundState State);
 
-/// <summary>
-/// Stores only floors where the normal hitsound state changes. This deliberately
-/// avoids allocating one cue object per floor on multi-million-floor levels.
-/// </summary>
 public sealed class HitSoundTimeline
 {
     private readonly HitSoundState _initialState;
@@ -55,9 +51,6 @@ public static class HitSoundTimelineBuilder
     public static HitSoundTimeline Build(LevelDocument level)
     {
         HitSoundState initial = HitSoundState.FromLevel(level);
-
-        // The common pathological case can contain millions of unrelated actions.
-        // Do not walk them at all when the parser already proved SetHitsound absent.
         if (!level.ActionTypeCounts.TryGetValue("SetHitsound", out int setHitSoundCount) ||
             setHitSoundCount <= 0)
         {
@@ -66,12 +59,12 @@ public static class HitSoundTimelineBuilder
 
         HitSoundState current = initial;
         var changes = new List<HitSoundStateChange>(Math.Min(setHitSoundCount, 65_536));
+        LevelActionStore store = level.ActionStore;
 
-        foreach (int floor in level.ActionFloors)
+        for (int actionFloorIndex = 0; actionFloorIndex < store.ActionFloorCount; actionFloorIndex++)
         {
-            if (!level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
-                continue;
-
+            int floor = store.GetFloor(actionFloorIndex);
+            ReadOnlySpan<LevelAction> actions = store.GetActionsAt(actionFloorIndex);
             string hitSound = current.Name;
             double volume = current.Volume;
             bool changed = false;
@@ -81,8 +74,6 @@ public static class HitSoundTimelineBuilder
                 if (!action.Active || action.Kind != LevelActionKind.SetHitsound)
                     continue;
 
-                // Midspin has a separate stock hitsound state. Normal landing
-                // sounds should only be changed by Hitsound/default SetHitsound.
                 if (!string.Equals(action.GameSound, "Midspin", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(action.HitSound))
                 {
