@@ -34,7 +34,8 @@ internal static class WpfLevelLoader
             // Read renderer-specific visual metadata in narrow streaming passes so
             // pathological charts never need a full actions DOM during load.
             trackColors = TrackColorSourceReader.Load(path, cancellationToken);
-            cameraEvents = CameraSourceReader.Load(path, cancellationToken);
+            cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
+                CameraSourceReader.Load(path, cancellationToken));
         }
         catch (JsonException)
         {
@@ -49,7 +50,8 @@ internal static class WpfLevelLoader
                     .ConfigureAwait(false);
                 loaded.Document.SourcePath = path;
                 trackColors = TrackColorSourceReader.Load(normalizedPath, cancellationToken);
-                cameraEvents = CameraSourceReader.Load(normalizedPath, cancellationToken);
+                cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
+                    CameraSourceReader.Load(normalizedPath, cancellationToken));
             }
             finally
             {
