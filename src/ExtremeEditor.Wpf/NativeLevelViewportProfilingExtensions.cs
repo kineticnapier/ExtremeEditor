@@ -5,7 +5,13 @@ namespace ExtremeEditor.Wpf;
 
 internal readonly record struct NativeLevelLoadMetrics(
     TimeSpan SnapshotBuild,
-    TimeSpan Upload);
+    TimeSpan Upload,
+    TimeSpan FloorGeometry,
+    TimeSpan Icons,
+    TimeSpan Finalize,
+    int GeometryCount,
+    int IconAssetCount,
+    int ActionFloorCount);
 
 internal readonly record struct NativePlaybackLoadMetrics(
     TimeSpan TimelineBuild,
@@ -22,7 +28,15 @@ internal static class NativeLevelViewportProfilingExtensions
 
         viewport.SetLevel(level);
         NativeLevelUploadMetrics metrics = viewport.LastLevelUploadMetrics;
-        return new NativeLevelLoadMetrics(metrics.SnapshotBuild, metrics.NativeUpload);
+        return new NativeLevelLoadMetrics(
+            metrics.SnapshotBuild,
+            metrics.NativeUpload,
+            metrics.SnapshotFloorGeometry,
+            metrics.SnapshotIcons,
+            metrics.SnapshotFinalize,
+            metrics.GeometryCount,
+            metrics.IconAssetCount,
+            metrics.ActionFloorCount);
     }
 
     internal static NativePlaybackLoadMetrics SetPlaybackTimelineProfiled(
