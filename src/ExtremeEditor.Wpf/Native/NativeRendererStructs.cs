@@ -35,6 +35,13 @@ internal struct NativeFloor
     public uint IconId;
     public uint IconFlags;
     public float IconAngle;
+    public uint TrackPrimaryColor;
+    public uint TrackSecondaryColor;
+    public uint TrackVisualFlags;
+    public float TrackAnimDuration;
+    public float TrackGlowIntensity;
+    public int TrackStartFloor;
+    public uint TrackPulseLength;
 }
 
 [StructLayout(LayoutKind.Sequential)]
