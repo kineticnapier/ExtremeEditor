@@ -2,6 +2,15 @@ namespace ExtremeEditor.Wpf;
 
 public partial class MainWindow
 {
+    private static readonly string[] TrackColorTypes =
+        ["Single", "Stripes", "Glow", "Blink", "Switch", "Rainbow", "Volume"];
+
+    private static readonly string[] TrackColorPulses =
+        ["None", "Forward", "Backward"];
+
+    private static readonly string[] TrackStyles =
+        ["Standard", "Neon", "NeonLight", "Basic", "Minimal", "Gems"];
+
     private static void RegisterTrackColorEventSchemas()
     {
         if (EventPropertySchemas is not Dictionary<string, EventPropertyDefinition[]> schemas)
@@ -9,13 +18,13 @@ public partial class MainWindow
 
         schemas["ColorTrack"] =
         [
-            TextProperty("trackColorType", "Single"),
+            EnumProperty("trackColorType", "Single", TrackColorTypes),
             TextProperty("trackColor", "debb7b"),
             TextProperty("secondaryTrackColor", "ffffff"),
-            NumberProperty("trackColorAnimDuration", 0.0, "beats"),
-            TextProperty("trackColorPulse", "None"),
-            IntegerProperty("trackPulseLength", 10),
-            TextProperty("trackStyle", "Standard"),
+            NumberProperty("trackColorAnimDuration", 2.0, "seconds"),
+            EnumProperty("trackColorPulse", "None", TrackColorPulses),
+            IntegerProperty("trackPulseLength", 10, "tiles"),
+            EnumProperty("trackStyle", "Standard", TrackStyles),
             TextProperty("trackTexture", ""),
             NumberProperty("trackTextureScale", 1.0),
             NumberProperty("trackGlowIntensity", 100.0, "%"),
@@ -28,18 +37,15 @@ public partial class MainWindow
             TileReferenceProperty("startTile", 0, "ThisTile"),
             TileReferenceProperty("endTile", 0, "ThisTile"),
             IntegerProperty("gapLength", 0),
-            TextProperty("trackColorType", "Single"),
+            NumberProperty("duration", 0.0, "beats"),
+            EnumProperty("trackColorType", "Single", TrackColorTypes),
             TextProperty("trackColor", "debb7b"),
             TextProperty("secondaryTrackColor", "ffffff"),
-            NumberProperty("trackColorAnimDuration", 0.0, "beats"),
-            TextProperty("trackColorPulse", "None"),
-            IntegerProperty("trackPulseLength", 10),
-            TextProperty("trackStyle", "Standard"),
-            TextProperty("trackTexture", ""),
-            NumberProperty("trackTextureScale", 1.0),
+            NumberProperty("trackColorAnimDuration", 2.0, "seconds"),
+            EnumProperty("trackColorPulse", "None", TrackColorPulses),
+            IntegerProperty("trackPulseLength", 10, "tiles"),
+            EnumProperty("trackStyle", "Standard", TrackStyles),
             NumberProperty("trackGlowIntensity", 100.0, "%"),
-            BoolProperty("floorIconOutlines", false),
-            NumberProperty("duration", 0.0, "beats"),
             NumberProperty("angleOffset", 0.0, "°"),
             TextProperty("ease", "Linear"),
             TextProperty("eventTag", "")
