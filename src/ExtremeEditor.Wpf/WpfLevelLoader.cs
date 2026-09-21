@@ -64,6 +64,11 @@ internal static class WpfLevelLoader
             }
         }
 
+        // Track-colour metadata is parsed independently so the renderer can preserve
+        // ADOFAI's full colour state. Reconcile that source with the generic action
+        // store as well: if the flat loader skipped a ColorTrack/RecolorTrack action,
+        // it must still appear in the event list and participate in editing/rendering.
+        TrackColorActionRecovery.MergeMissing(loaded.Document, trackColors);
         TrackColorMetadataCache.Attach(loaded.Document, trackColors);
 
         var indexWatch = Stopwatch.StartNew();
