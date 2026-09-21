@@ -2,6 +2,33 @@ using System.Numerics;
 
 namespace ExtremeEditor.Core;
 
+public enum LevelActionKind : byte
+{
+    Unknown,
+    Twirl,
+    SetSpeed,
+    MultiPlanet,
+    Pause,
+    SetHitsound,
+    SetFloorIcon,
+    Checkpoint
+}
+
+public static class LevelActionKinds
+{
+    public static LevelActionKind FromEventType(string eventType) => eventType switch
+    {
+        "Twirl" => LevelActionKind.Twirl,
+        "SetSpeed" => LevelActionKind.SetSpeed,
+        "MultiPlanet" => LevelActionKind.MultiPlanet,
+        "Pause" => LevelActionKind.Pause,
+        "SetHitsound" => LevelActionKind.SetHitsound,
+        "SetFloorIcon" => LevelActionKind.SetFloorIcon,
+        "Checkpoint" => LevelActionKind.Checkpoint,
+        _ => LevelActionKind.Unknown
+    };
+}
+
 public sealed record LevelAction(
     int Floor,
     string EventType,
@@ -11,6 +38,9 @@ public sealed record LevelAction(
     double? BpmMultiplier,
     string? CustomIcon)
 {
+    // Parse the event type once. Multi-million-action levels otherwise repeat
+    // the same string comparisons independently in timing, hitsounds and render setup.
+    public LevelActionKind Kind { get; init; } = LevelActionKinds.FromEventType(EventType);
     public double? SpeedRatio { get; set; }
     public string? HitSound { get; set; }
     public double? HitSoundVolumePercent { get; set; }
@@ -22,6 +52,9 @@ public sealed record LevelAction(
 
 public sealed class LevelDocument
 {
+    private readonly object _actionFloorsLock = new();
+    private int[]? _actionFloors;
+
     public required string SourcePath { get; init; }
     public required double[] Angles { get; init; }
     public required Vector2[] Positions { get; set; }
@@ -39,6 +72,43 @@ public sealed class LevelDocument
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
+
+    /// <summary>
+    /// Sorted action-floor keys shared by all consumers. Building/sorting millions
+    /// of dictionary keys separately in timing, hitsounds and native rendering was
+    /// a measurable load-time cost on extreme charts.
+    /// </summary>
+    public IReadOnlyList<int> ActionFloors
+    {
+        get
+        {
+            if (_actionFloors is not null)
+                return _actionFloors;
+
+            lock (_actionFloorsLock)
+            {
+                if (_actionFloors is not null)
+                    return _actionFloors;
+
+                int[] floors = ActionsByFloor.Keys.ToArray();
+                bool sorted = true;
+                for (int i = 1; i < floors.Length; i++)
+                {
+                    if (floors[i] < floors[i - 1])
+                    {
+                        sorted = false;
+                        break;
+                    }
+                }
+
+                if (!sorted)
+                    Array.Sort(floors);
+
+                _actionFloors = floors;
+                return floors;
+            }
+        }
+    }
 
     public string? ResolveSongPath()
     {
