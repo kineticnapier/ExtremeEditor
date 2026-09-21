@@ -48,19 +48,6 @@ LRESULT CALLBACK NativeWindow::WindowProc(HWND hwnd, UINT message, WPARAM wparam
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(owner));
     }
 
-    // Mouse input belongs to the native viewport, but editor keyboard shortcuts
-    // belong to WPF. Renderer mouse handlers call SetFocus(hwnd), so immediately
-    // hand keyboard focus back to the WPF parent HWND when that happens.
-    if (message == WM_SETFOCUS)
-    {
-        HWND parent = GetParent(hwnd);
-        if (parent != nullptr)
-        {
-            SetFocus(parent);
-            return 0;
-        }
-    }
-
     if (owner != nullptr)
     {
         LRESULT editor_result = 0;
