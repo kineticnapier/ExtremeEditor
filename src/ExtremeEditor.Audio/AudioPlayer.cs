@@ -118,8 +118,23 @@ public sealed class AudioPlayer : IDisposable
         _level = level;
         _timingMap = timingMap;
         _hitSoundTimeline = timeline;
+
         if (_graph is not null)
+        {
             RebuildGraphPreservingTransport();
+            return;
+        }
+
+        // LoadLevel configures the timeline before it attempts to open the song.
+        // If the setting is empty or the referenced file is absent, build the
+        // hit-sound-only graph now. Existing-song levels still take the normal Load
+        // path once, so this does not double-render hit sounds on ordinary charts.
+        if (level is not null && timingMap is not null && timeline is not null)
+        {
+            string? songPath = level.ResolveSongPath();
+            if (songPath is null || !File.Exists(songPath))
+                LoadHitSoundsOnly();
+        }
     }
 
     public void ReloadHitSoundAssets()
