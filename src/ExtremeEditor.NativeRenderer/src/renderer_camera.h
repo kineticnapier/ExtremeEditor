@@ -6,12 +6,9 @@
 
 namespace ee
 {
-// ADOFAI playback camera zoom is relative to the game's fixed 100% camera scale,
-// not to whatever editor zoom/Frame All scale was active before playback.  Keep
-// the existing renderer expression `editor_zoom * camera_zoom` source-compatible,
-// but make that product resolve against ExtremeEditor's stock 100% scale (28 px
-// per world unit).  This also means stopping playback naturally returns to the
-// untouched editor zoom stored by Renderer.
+// ADOFAI stores camera zoom as a view-size multiplier: 200% shows twice as
+// much world (it is zoomed OUT), not twice as many pixels per world unit.
+// Playback also uses its own 100% scale rather than the editor/Frame All zoom.
 struct PlaybackCameraZoom
 {
     float multiplier = 1.0f;
@@ -29,7 +26,10 @@ struct PlaybackCameraZoom
 inline float operator*(float /* editor_zoom */, PlaybackCameraZoom camera_zoom) noexcept
 {
     constexpr float PlaybackBaseZoom = 28.0f;
-    return PlaybackBaseZoom * camera_zoom.multiplier;
+    const float safe_multiplier = camera_zoom.multiplier > 0.0001f
+        ? camera_zoom.multiplier
+        : 0.0001f;
+    return PlaybackBaseZoom / safe_multiplier;
 }
 
 struct CameraVisualState
