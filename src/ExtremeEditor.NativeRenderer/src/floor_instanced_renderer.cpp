@@ -16,6 +16,8 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+constexpr std::uint32_t TrackColorFlag = 0x80u;
+
 constexpr char ShaderSource[] = R"(
 cbuffer FrameConstants : register(b0)
 {
@@ -42,6 +44,7 @@ struct VSInput
     float2 worldPosition : INSTANCEPOS;
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
+    float4 color : INSTANCECOLOR;
 };
 
 struct VSOutput
@@ -49,6 +52,7 @@ struct VSOutput
     float4 position : SV_Position;
     float2 localPosition : TEXCOORD0;
     float2 uv : TEXCOORD1;
+    float4 color : COLOR0;
 };
 
 VSOutput VSMain(VSInput input)
@@ -69,6 +73,7 @@ VSOutput VSMain(VSInput input)
     output.position = float4(clip, input.depth, 1.0);
     output.localPosition = input.localPosition;
     output.uv = input.localUv;
+    output.color = input.color;
     return output;
 }
 
@@ -97,6 +102,7 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
     VSOutput vertex;
     vertex.localPosition = float2(0.0, 0.0);
     vertex.uv = float2(0.0, 0.0);
+    vertex.color = input[0].color;
     vertex.position = float4(a - extendClip + normalClip, input[0].position.z, 1.0);
     stream.Append(vertex);
     vertex.position = float4(a - extendClip - normalClip, input[0].position.z, 1.0);
@@ -112,7 +118,7 @@ float4 PSTextured(VSOutput input) : SV_Target
 {
     float4 sampled = floorTexture.Sample(floorSampler, input.uv);
     clip(sampled.a - (1.0 / 255.0));
-    return sampled;
+    return float4(sampled.rgb * input.color.rgb, sampled.a * input.color.a);
 }
 
 float4 PSFallback(VSOutput input) : SV_Target
@@ -120,7 +126,7 @@ float4 PSFallback(VSOutput input) : SV_Target
     float directional = saturate(0.5 + input.localPosition.y * 0.45 - input.localPosition.x * 0.08);
     float center = saturate(1.0 - length(input.localPosition) * 0.55);
     float shade = 0.86 + directional * 0.10 + center * 0.08;
-    return float4(saturate(drawColor.rgb * shade), drawColor.a);
+    return float4(saturate(drawColor.rgb * input.color.rgb * shade), drawColor.a * input.color.a);
 }
 
 float4 PSFlat(VSOutput input) : SV_Target
@@ -261,7 +267,8 @@ bool FloorInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"INSTANCEPOS", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCECOLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 20, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(device->CreateInputLayout(
             elements,
@@ -612,12 +619,27 @@ bool FloorInstancedRenderer::Draw(
         if (floor.geometry_id >= grouped_instances_.size())
             continue;
 
+        const bool has_track_color = (floor.icon_flags & TrackColorFlag) != 0u;
+        const float color_r = has_track_color
+            ? static_cast<float>((floor.icon_flags >> 8) & 0xffu) / 255.0f
+            : 1.0f;
+        const float color_g = has_track_color
+            ? static_cast<float>((floor.icon_flags >> 16) & 0xffu) / 255.0f
+            : 1.0f;
+        const float color_b = has_track_color
+            ? static_cast<float>((floor.icon_flags >> 24) & 0xffu) / 255.0f
+            : 1.0f;
+
         grouped_instances_[floor.geometry_id].push_back(InstanceData{
             floor.x,
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
-            (static_cast<float>(floor_index) + 1.0f) / depth_denominator});
+            (static_cast<float>(floor_index) + 1.0f) / depth_denominator,
+            color_r,
+            color_g,
+            color_b,
+            1.0f});
         ++valid_instances;
     }
 
@@ -694,7 +716,7 @@ bool FloorInstancedRenderer::Draw(
     }
     else
     {
-        SetColor(context, ColorConstants{225.0f / 255.0f, 228.0f / 255.0f, 235.0f / 255.0f, 0.94f});
+        SetColor(context, ColorConstants{1.0f, 1.0f, 1.0f, 0.94f});
         context->PSSetShader(fallback_pixel_shader_.Get(), nullptr, 0);
     }
 
