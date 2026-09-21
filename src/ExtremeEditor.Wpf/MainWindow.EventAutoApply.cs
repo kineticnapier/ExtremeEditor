@@ -129,12 +129,20 @@ public partial class MainWindow
         bool hitSoundChanged = timingChanged ||
                                before.Kind == LevelActionKind.SetHitsound ||
                                after.Kind == LevelActionKind.SetHitsound;
+        bool speedVisualChanged = before.Kind == LevelActionKind.SetSpeed ||
+                                  after.Kind == LevelActionKind.SetSpeed;
 
         if (timingChanged)
         {
             _timingMap = FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
+
+        // Native floor icons are baked into the level snapshot. Re-upload the
+        // snapshot as soon as a SetSpeed edit changes SpeedRatio so the
+        // snail/rabbit icon does not wait for the next structural edit.
+        if (speedVisualChanged)
+            NativeViewport.SetLevel(_level);
 
         if (hitSoundChanged)
         {
