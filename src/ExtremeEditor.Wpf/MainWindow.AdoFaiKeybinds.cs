@@ -17,6 +17,15 @@ public partial class MainWindow
         if (Keyboard.FocusedElement is TextBox or PasswordBox)
             return;
 
+        // EditorKeybind(..., true) is an edge-triggered action in ADOFAI. WPF emits
+        // PreviewKeyDown repeatedly while a key is held, so reject repeats here as
+        // well as in the native HWND bridge.
+        if (e.IsRepeat)
+        {
+            e.Handled = true;
+            return;
+        }
+
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         ModifierKeys modifiers = Keyboard.Modifiers;
         bool control = (modifiers & ModifierKeys.Control) != 0;
@@ -49,8 +58,7 @@ public partial class MainWindow
                     }
                     else if (GetAdoFaiDirectionForKey(key, backQuote: true) is double chordDirection)
                     {
-                        chordEditor.InsertAngle(chordPrimary, chordDirection);
-                        RefreshAfterAdoFaiMutation(chordPrimary + 1);
+                        ApplyAdoFaiDirection(chordEditor, chordPrimary, chordDirection);
                     }
                 }
             }
@@ -86,8 +94,7 @@ public partial class MainWindow
         // ExtremeEditor does not have a separate editor-speed selector yet, so both
         // currently use the same transport while keeping the game's exact key slots.
         if (!alt && !windows && !shift &&
-            (key == Key.P || key == Key.Space) &&
-            (!control || control))
+            (key == Key.P || key == Key.Space))
         {
             FlushEditorPlaybackRefresh();
             TogglePlayback();
@@ -271,11 +278,7 @@ public partial class MainWindow
                 "Absolute ADOFAI angle in degrees:",
                 initial);
             if (angle is not null)
-            {
-                int inserted = primary + 1;
-                editor.InsertAngle(primary, angle.Value);
-                RefreshAfterAdoFaiMutation(inserted);
-            }
+                ApplyAdoFaiDirection(editor, primary, angle.Value);
             e.Handled = true;
             return;
         }
@@ -298,9 +301,7 @@ public partial class MainWindow
         // Floor creation ring. Shift is explicitly registered as equivalent to no modifier.
         if (GetAdoFaiDirectionForKey(key, backQuote: false) is double direction)
         {
-            int inserted = primary + 1;
-            editor.InsertAngle(primary, direction);
-            RefreshAfterAdoFaiMutation(inserted);
+            ApplyAdoFaiDirection(editor, primary, direction);
             e.Handled = true;
         }
     }
@@ -324,18 +325,14 @@ public partial class MainWindow
         }
         else if (key == Key.Left)
         {
-            if (control)
-                target = 0;
-            else
-                target = Math.Max(0, Viewport.SelectedFloor - 1);
+            target = control ? 0 : Math.Max(0, Viewport.SelectedFloor - 1);
             extend = shift;
         }
         else if (key == Key.Right)
         {
-            if (control)
-                target = Math.Max(0, _level.FloorCount - 1);
-            else
-                target = Math.Min(_level.FloorCount - 1, Viewport.SelectedFloor + 1);
+            target = control
+                ? Math.Max(0, _level.FloorCount - 1)
+                : Math.Min(_level.FloorCount - 1, Viewport.SelectedFloor + 1);
             extend = shift;
         }
         else
@@ -417,12 +414,45 @@ public partial class MainWindow
         return true;
     }
 
+    private void ApplyAdoFaiDirection(EditorSession editor, int primary, double direction)
+    {
+        if (_level is null || Viewport.SelectedFloors.Count != 1)
+            return;
+
+        direction = NormalizeAdoFaiAngle(direction);
+        if (AdoFaiDirectionPointsBackwards(primary, direction))
+        {
+            editor.DeleteFloors([primary]);
+            RefreshAfterAdoFaiMutation(Math.Max(0, primary - 1));
+            return;
+        }
+
+        editor.InsertAngle(primary, direction);
+        RefreshAfterAdoFaiMutation(primary + 1);
+    }
+
+    private bool AdoFaiDirectionPointsBackwards(int primary, double direction)
+    {
+        if (_level is null || primary <= 0 || primary - 1 >= _level.Angles.Length)
+            return false;
+
+        // A selected Midspin is exempt from ADOFAI's backtracking delete rule.
+        // For a normal floor, angleData[primary-1] is the absolute direction of
+        // the segment that created that floor; the reverse direction is +180°.
+        double incoming = _level.Angles[primary - 1];
+        if (Math.Abs(incoming - 999.0) < 0.000001)
+            return false;
+
+        double backwards = NormalizeAdoFaiAngle(incoming + 180.0);
+        double delta = Math.Abs(NormalizeAdoFaiAngle(direction - backwards));
+        delta = Math.Min(delta, 360.0 - delta);
+        return delta <= 0.0001;
+    }
+
     private void InsertAdoFaiRelativeFloor(EditorSession editor, int primary, double delta)
     {
         double angle = NormalizeAdoFaiAngle(GetAdoFaiPreviousDirection(primary) + delta);
-        int inserted = primary + 1;
-        editor.InsertAngle(primary, angle);
-        RefreshAfterAdoFaiMutation(inserted);
+        ApplyAdoFaiDirection(editor, primary, angle);
     }
 
     private double GetAdoFaiPreviousDirection(int floor)
@@ -431,8 +461,14 @@ public partial class MainWindow
             return 0.0;
 
         int index = Math.Clamp(floor - 1, 0, _level.Angles.Length - 1);
-        double angle = _level.Angles[index];
-        return Math.Abs(angle - 999.0) < 0.000001 ? 0.0 : angle;
+        while (index >= 0)
+        {
+            double angle = _level.Angles[index];
+            if (Math.Abs(angle - 999.0) >= 0.000001)
+                return angle;
+            index--;
+        }
+        return 0.0;
     }
 
     private static double NormalizeAdoFaiAngle(double angle)
