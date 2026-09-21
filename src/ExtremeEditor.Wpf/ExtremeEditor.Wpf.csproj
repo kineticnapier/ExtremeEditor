@@ -19,8 +19,11 @@
           CopyToPublishDirectory="PreserveNewest"
           Visible="false" />
   </ItemGroup>
-  <Target Name="BuildNativeRenderer" BeforeTargets="Build">
+  <Target Name="BuildNativeRenderer" BeforeTargets="CoreCompile">
     <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer&quot; -B &quot;$(NativeRendererBuildDir)&quot; -A x64" />
     <Exec Command="cmake --build &quot;$(NativeRendererBuildDir)&quot; --config $(Configuration)" />
+    <Copy SourceFiles="$(NativeRendererDll)"
+          DestinationFiles="$(OutDir)ExtremeEditor.NativeRenderer.dll"
+          SkipUnchangedFiles="false" />
   </Target>
 </Project>
