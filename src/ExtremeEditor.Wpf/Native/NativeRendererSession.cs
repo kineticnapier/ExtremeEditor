@@ -2,12 +2,28 @@ using System.Runtime.InteropServices;
 
 namespace ExtremeEditor.Wpf.Native;
 
+internal enum NativeEditorAction : uint
+{
+    None = 0,
+    InsertAngle = 1,
+    Delete = 2,
+    Rotate180 = 3,
+    InsertMidspin = 4,
+    InsertFullTurn = 5
+}
+
+internal readonly record struct NativeEditorActionRequest(
+    NativeEditorAction Action,
+    int Floor,
+    double Value);
+
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 1;
+    private const uint ExpectedApiVersion = 2;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
+    private readonly NativeRendererNative.EditorActionCallback _editorActionCallback;
     private nint _renderer;
 
     private NativeRendererSession(nint renderer, nint childHwnd)
@@ -16,14 +32,17 @@ internal sealed class NativeRendererSession : IDisposable
         ChildHwnd = childHwnd;
         _selectionChangedCallback = OnNativeSelectionChanged;
         _followPlayerChangedCallback = OnNativeFollowPlayerChanged;
+        _editorActionCallback = OnNativeEditorAction;
         NativeRendererNative.SetSelectionChangedCallback(_renderer, _selectionChangedCallback, nint.Zero);
         NativeRendererNative.SetFollowPlayerChangedCallback(_renderer, _followPlayerChangedCallback, nint.Zero);
+        NativeRendererNative.SetEditorActionCallback(_renderer, _editorActionCallback, nint.Zero);
     }
 
     internal nint ChildHwnd { get; private set; }
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
     internal event Action<int>? SelectionChanged;
     internal event Action<bool>? FollowPlayerChanged;
+    internal event Action<NativeEditorActionRequest>? EditorActionRequested;
 
     internal static NativeRendererSession Create(nint parentHwnd, uint width, uint height)
     {
@@ -145,6 +164,35 @@ internal sealed class NativeRendererSession : IDisposable
         }
     }
 
+    internal void SetSelection(int[] floors, int primaryFloor)
+    {
+        if (_renderer == nint.Zero)
+            return;
+
+        floors ??= [];
+        GCHandle handle = default;
+        try
+        {
+            nint pointer = nint.Zero;
+            if (floors.Length > 0)
+            {
+                handle = GCHandle.Alloc(floors, GCHandleType.Pinned);
+                pointer = handle.AddrOfPinnedObject();
+            }
+
+            NativeRendererNative.SetSelection(
+                _renderer,
+                pointer,
+                checked((uint)floors.Length),
+                primaryFloor);
+        }
+        finally
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+    }
+
     internal void SetPlaybackTimeline(NativePlaybackTiming[] timings)
     {
         ArgumentNullException.ThrowIfNull(timings);
@@ -222,6 +270,11 @@ internal sealed class NativeRendererSession : IDisposable
         FollowPlayerChanged?.Invoke(enabled != 0);
     }
 
+    private void OnNativeEditorAction(nint userData, uint action, int floor, double value)
+    {
+        EditorActionRequested?.Invoke(new NativeEditorActionRequest((NativeEditorAction)action, floor, value));
+    }
+
     public void Dispose()
     {
         nint renderer = _renderer;
@@ -230,6 +283,7 @@ internal sealed class NativeRendererSession : IDisposable
 
         NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
         NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
+        NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
         NativeRendererNative.Destroy(renderer);
