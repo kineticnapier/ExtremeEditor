@@ -37,31 +37,58 @@
             <ToolBar Band="0"
                      Background="#1A1D22"
                      Foreground="#DCDCE6">
-                <Button Content="Open" Command="{x:Static local:EditorCommands.Open}" />
-                <Button Content="Save" Command="{x:Static local:EditorCommands.Save}" />
-                <Button Content="Save As" Command="{x:Static local:EditorCommands.SaveAs}" />
+                <Button Content="Open"
+                        Command="{x:Static local:EditorCommands.Open}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Save"
+                        Command="{x:Static local:EditorCommands.Save}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Save As"
+                        Command="{x:Static local:EditorCommands.SaveAs}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
-                <Button Content="Undo" Command="{x:Static local:EditorCommands.Undo}" />
-                <Button Content="Redo" Command="{x:Static local:EditorCommands.Redo}" />
-                <Button Content="Cut" Command="{x:Static local:EditorCommands.Cut}" />
-                <Button Content="Copy" Command="{x:Static local:EditorCommands.Copy}" />
-                <Button Content="Paste" Command="{x:Static local:EditorCommands.Paste}" />
-                <Button Content="Delete" Command="{x:Static local:EditorCommands.Delete}" />
+                <Button Content="Undo"
+                        Command="{x:Static local:EditorCommands.Undo}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Redo"
+                        Command="{x:Static local:EditorCommands.Redo}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Cut"
+                        Command="{x:Static local:EditorCommands.Cut}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Copy"
+                        Command="{x:Static local:EditorCommands.Copy}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Paste"
+                        Command="{x:Static local:EditorCommands.Paste}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
-                <Button Content="+ Angle" Command="{x:Static local:EditorCommands.InsertAngle}" />
-                <Button Content="+ Midspin" Command="{x:Static local:EditorCommands.InsertMidspin}" />
-                <Button Content="+ 360°" Command="{x:Static local:EditorCommands.InsertFullTurn}" />
-                <Button Content="-90°" Command="{x:Static local:EditorCommands.RotateLeft}" />
-                <Button Content="+90°" Command="{x:Static local:EditorCommands.RotateRight}" />
-                <Button Content="180°" Command="{x:Static local:EditorCommands.Rotate180}" />
-                <Button Content="Flip H" Command="{x:Static local:EditorCommands.FlipHorizontal}" />
-                <Button Content="Flip V" Command="{x:Static local:EditorCommands.FlipVertical}" />
+                <Button Content="+ Angle"
+                        Command="{x:Static local:EditorCommands.InsertAngle}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="-90°"
+                        Command="{x:Static local:EditorCommands.RotateLeft}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="+90°"
+                        Command="{x:Static local:EditorCommands.RotateRight}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Flip H"
+                        Command="{x:Static local:EditorCommands.FlipHorizontal}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Flip V"
+                        Command="{x:Static local:EditorCommands.FlipVertical}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
-                <Button Content="Frame" Command="{x:Static local:EditorCommands.Frame}" />
+                <Button Content="Frame"
+                        Command="{x:Static local:EditorCommands.Frame}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Button x:Name="PlayButton"
                         Content="Play"
-                        Command="{x:Static local:EditorCommands.PlayPause}" />
-                <Button Content="Stop" Command="{x:Static local:EditorCommands.Stop}" />
+                        Command="{x:Static local:EditorCommands.PlayPause}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <Button Content="Stop"
+                        Command="{x:Static local:EditorCommands.Stop}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <ToggleButton x:Name="FollowPlayerToggle"
                               Content="Follow Player"
                               IsChecked="True" />
