@@ -42,6 +42,7 @@ public:
 
     [[nodiscard]] HWND ChildHwnd() const noexcept { return window_.Handle(); }
     [[nodiscard]] std::int32_t SelectedFloor() const noexcept;
+    bool HandleEditorHudMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) noexcept;
     LRESULT HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 
 private:
