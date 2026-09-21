@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private LevelDocument? _level;
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
+    private bool _isLoading;
 
     public MainWindow()
     {
@@ -92,7 +93,7 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    private void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
+    private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -101,35 +102,41 @@ public partial class MainWindow : Window
         };
 
         if (dialog.ShowDialog(this) == true)
-            LoadLevel(dialog.FileName);
+            await LoadLevelAsync(dialog.FileName);
 
         e.Handled = true;
     }
 
     private void CanExecuteOpen(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = true;
+        e.CanExecute = !_isLoading;
         e.Handled = true;
     }
 
-    private void LoadLevel(string path)
+    private async Task LoadLevelAsync(string path)
     {
         try
         {
+            _isLoading = true;
+            CommandManager.InvalidateRequerySuggested();
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Loading…";
 
             var totalWatch = Stopwatch.StartNew();
             Console.WriteLine($"[load] begin file={Path.GetFileName(path)}");
 
-            WpfLevelLoadResult loaded = WpfLevelLoader.Load(path);
+            WpfLevelLoadResult loaded = await WpfLevelLoader.LoadAsync(path);
             Console.WriteLine(
                 $"[load] source read={loaded.Metrics.Read.TotalMilliseconds:N1}ms " +
                 $"parse={loaded.Metrics.Parse.TotalMilliseconds:N1}ms " +
                 $"path={loaded.Metrics.BuildPath.TotalMilliseconds:N1}ms " +
                 $"managedIndex={loaded.IndexTime.TotalMilliseconds:N1}ms");
 
-            WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(loaded.Document);
+            // Timing and hit-sound setup are pure CPU work. Keep them off the UI
+            // thread as well so a multi-million-floor chart stays responsive while
+            // its playback model is prepared.
+            WpfPlaybackSetup playback = await Task.Run(
+                () => WpfPlaybackSetupBuilder.Build(loaded.Document));
             Console.WriteLine(
                 $"[load] playback timing={playback.TimingTime.TotalMilliseconds:N1}ms " +
                 $"hitsounds={playback.HitSoundTime.TotalMilliseconds:N1}ms " +
@@ -199,7 +206,6 @@ public partial class MainWindow : Window
                 $"index {loaded.IndexTime.TotalMilliseconds:N1} ms | " +
                 $"total {totalWatch.Elapsed.TotalMilliseconds:N1} ms | {audioState}";
 
-            CommandManager.InvalidateRequerySuggested();
             UpdatePlaybackDisplay();
         }
         catch (Exception ex)
@@ -209,7 +215,9 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _isLoading = false;
             Mouse.OverrideCursor = null;
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 
