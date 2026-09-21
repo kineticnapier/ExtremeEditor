@@ -90,17 +90,18 @@ public static partial class AdoFaiLoader
                 bool finalBlock = n == 0;
 
                 phase.Restart();
-                var reader = new Utf8JsonReader(buffer.AsSpan(0, buffered), finalBlock, state);
-                while (reader.Read())
-                    parser.Accept(ref reader);
-                state = reader.CurrentState;
-                int consumed = checked((int)reader.BytesConsumed);
+                FlatReaderPassResult pass = ProcessFlatJsonBuffer(
+                    buffer.AsSpan(0, buffered),
+                    finalBlock,
+                    state,
+                    parser);
                 phase.Stop();
                 parseTime += phase.Elapsed;
+                state = pass.State;
 
-                int remaining = buffered - consumed;
-                if (remaining > 0 && consumed > 0)
-                    buffer.AsSpan(consumed, remaining).CopyTo(buffer);
+                int remaining = buffered - pass.BytesConsumed;
+                if (remaining > 0 && pass.BytesConsumed > 0)
+                    buffer.AsSpan(pass.BytesConsumed, remaining).CopyTo(buffer);
                 buffered = remaining;
 
                 if (!finalBlock)
@@ -151,6 +152,20 @@ public static partial class AdoFaiLoader
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
+
+    private static FlatReaderPassResult ProcessFlatJsonBuffer(
+        ReadOnlySpan<byte> bytes,
+        bool finalBlock,
+        JsonReaderState state,
+        FlatStreamingParser parser)
+    {
+        var reader = new Utf8JsonReader(bytes, finalBlock, state);
+        while (reader.Read())
+            parser.Accept(ref reader);
+        return new FlatReaderPassResult(checked((int)reader.BytesConsumed), reader.CurrentState);
+    }
+
+    private readonly record struct FlatReaderPassResult(int BytesConsumed, JsonReaderState State);
 
     private sealed class FlatStreamingParser
     {
