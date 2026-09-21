@@ -7,9 +7,9 @@ internal sealed record WpfPlaybackSetup(
     TimingMap TimingMap,
     HitSoundTimeline HitSoundTimeline,
     string? SongPath,
-    TimeSpan TimingMapTime,
-    TimeSpan HitSoundTimelineTime,
-    TimeSpan ResolveSongPathTime);
+    TimeSpan TimingTime,
+    TimeSpan HitSoundTime,
+    TimeSpan ResolveSongTime);
 
 internal static class WpfPlaybackSetupBuilder
 {
