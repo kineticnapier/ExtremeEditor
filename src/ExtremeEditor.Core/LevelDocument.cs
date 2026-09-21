@@ -38,8 +38,6 @@ public sealed record LevelAction(
     double? BpmMultiplier,
     string? CustomIcon)
 {
-    // Parse the event type once. Multi-million-action levels otherwise repeat
-    // the same string comparisons independently in timing, hitsounds and render setup.
     public LevelActionKind Kind { get; init; } = LevelActionKinds.FromEventType(EventType);
     public double? SpeedRatio { get; set; }
     public string? HitSound { get; set; }
@@ -52,8 +50,8 @@ public sealed record LevelAction(
 
 public sealed class LevelDocument
 {
-    private readonly object _actionFloorsLock = new();
-    private int[]? _actionFloors;
+    private readonly object _actionStoreLock = new();
+    private LevelActionStore? _actionStore;
 
     public required string SourcePath { get; init; }
     public required double[] Angles { get; init; }
@@ -61,6 +59,21 @@ public sealed class LevelDocument
     public required int ActionCount { get; init; }
     public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; init; }
     public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; init; }
+    public LevelActionStore ActionStore
+    {
+        get
+        {
+            if (_actionStore is not null)
+                return _actionStore;
+
+            lock (_actionStoreLock)
+            {
+                _actionStore ??= LevelActionStore.FromDictionary(ActionsByFloor);
+                return _actionStore;
+            }
+        }
+        init => _actionStore = value;
+    }
     public required double InitialBpm { get; init; }
     public required string? SongFilename { get; init; }
     public required double OffsetMilliseconds { get; init; }
@@ -72,43 +85,7 @@ public sealed class LevelDocument
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
-
-    /// <summary>
-    /// Sorted action-floor keys shared by all consumers. Building/sorting millions
-    /// of dictionary keys separately in timing, hitsounds and native rendering was
-    /// a measurable load-time cost on extreme charts.
-    /// </summary>
-    public IReadOnlyList<int> ActionFloors
-    {
-        get
-        {
-            if (_actionFloors is not null)
-                return _actionFloors;
-
-            lock (_actionFloorsLock)
-            {
-                if (_actionFloors is not null)
-                    return _actionFloors;
-
-                int[] floors = ActionsByFloor.Keys.ToArray();
-                bool sorted = true;
-                for (int i = 1; i < floors.Length; i++)
-                {
-                    if (floors[i] < floors[i - 1])
-                    {
-                        sorted = false;
-                        break;
-                    }
-                }
-
-                if (!sorted)
-                    Array.Sort(floors);
-
-                _actionFloors = floors;
-                return floors;
-            }
-        }
-    }
+    public IReadOnlyList<int> ActionFloors => ActionStore.Floors;
 
     public string? ResolveSongPath()
     {
@@ -145,7 +122,8 @@ public sealed class LevelDocument
             Positions = positions,
             ActionCount = 0,
             ActionTypeCounts = new Dictionary<string, int>(),
-            ActionsByFloor = new Dictionary<int, LevelAction[]>(),
+            ActionsByFloor = LevelActionStore.Empty.DictionaryView,
+            ActionStore = LevelActionStore.Empty,
             InitialBpm = 100.0,
             SongFilename = null,
             OffsetMilliseconds = 0,
