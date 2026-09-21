@@ -37,6 +37,7 @@ public sealed class AudioPlayer : IDisposable
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
     private WaveFormat? _outputFormat;
+    private int _deviceBytesPerSecond;
     private long _clockBaseDeviceBytes;
     private double _clockBaseAudioSeconds;
     private double _transportDurationSeconds;
@@ -94,7 +95,7 @@ public sealed class AudioPlayer : IDisposable
                 if (elapsedBytes < 0)
                     elapsedBytes = 0;
 
-                int bytesPerSecond = _outputFormat.AverageBytesPerSecond;
+                int bytesPerSecond = _deviceBytesPerSecond;
                 if (bytesPerSecond <= 0)
                     return TimeSpan.FromSeconds(Math.Clamp(fallbackSeconds, 0.0, _transportDurationSeconds));
 
@@ -345,13 +346,26 @@ public sealed class AudioPlayer : IDisposable
             HitSoundsEnabled = _hitSoundsEnabled
         };
         _output = new WaveOutEvent { DesiredLatency = 80 };
+
+        // Keep the graph itself in IEEE float so hit-sound mixing and the master
+        // limiter remain sample-accurate. Some WaveOut drivers produce audible
+        // garbage for a synthetic 48 kHz float stream, though, so the songless
+        // transport converts only its final device feed to conventional PCM16.
+        // Real-song playback retains its existing output path unchanged.
+        IWaveProvider deviceProvider = _reader is null
+            ? _graph.ToWaveProvider16()
+            : _graph.ToWaveProvider();
+        _deviceBytesPerSecond = deviceProvider.WaveFormat.AverageBytesPerSecond;
+
         log?.Write("audio_player.waveout_init_before",
             $"provider={_graph.GetType().FullName} rate={_graph.WaveFormat.SampleRate} " +
-            $"channels={_graph.WaveFormat.Channels} total_frames={totalFrames}");
+            $"channels={_graph.WaveFormat.Channels} total_frames={totalFrames} " +
+            $"device_encoding={deviceProvider.WaveFormat.Encoding} " +
+            $"device_bits={deviceProvider.WaveFormat.BitsPerSample}");
 
         var initWatch = Stopwatch.StartNew();
         using (log?.Measure("audio_player.waveout_init"))
-            _output.Init(_graph.ToWaveProvider());
+            _output.Init(deviceProvider);
         initWatch.Stop();
         log?.Write("audio_player.waveout_init_after");
 
@@ -450,6 +464,7 @@ public sealed class AudioPlayer : IDisposable
         _reader = null;
         _graph = null;
         _outputFormat = null;
+        _deviceBytesPerSecond = 0;
         _transportDurationSeconds = 0.0;
         _clockBaseDeviceBytes = 0;
         _clockBaseAudioSeconds = 0.0;
