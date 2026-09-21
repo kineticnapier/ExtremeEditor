@@ -24,6 +24,8 @@ public sealed class HitSoundTimeline
     }
 
     public int StateChangeCount => _changes.Length;
+    public HitSoundState InitialState => _initialState;
+    public IReadOnlyList<HitSoundStateChange> Changes => _changes;
 
     public HitSoundState GetStateAtFloor(int floor)
     {
