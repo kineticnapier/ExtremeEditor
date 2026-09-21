@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using ExtremeEditor.Core;
 
@@ -196,35 +197,43 @@ public sealed partial class LevelViewport
 
     private void DrawSelectedFloorOverlay(DrawingContext drawingContext)
     {
-        if (_level is null || (uint)_selectedFloor >= (uint)_level.Positions.Length)
+        if (_level is null || _selectedFloors.Count == 0)
             return;
 
         Vector2[] positions = _level.Positions;
-        Point center = WorldToScreen(positions[_selectedFloor]);
         bool meshPreview = _useFloorPreview && _zoom >= MinMeshPreviewZoom;
-
         if (meshPreview)
-        {
             _floorRenderer.BeginFrame(_zoom);
-            GetFloorAngles(_selectedFloor, positions, out float entryAngle, out float exitAngle);
-            bool midSpin = _selectedFloor < _level.Angles.Length &&
-                           Math.Abs(_level.Angles[_selectedFloor] - 999.0) < 0.000001;
-            _floorRenderer.DrawSelectionOutline(
-                drawingContext,
-                center,
-                _zoom,
-                entryAngle,
-                exitAngle,
-                midSpin);
-            return;
-        }
 
-        drawingContext.DrawEllipse(
-            SelectedFloorBrush,
-            SelectedOverviewPen,
-            center,
-            FloorRadiusPixels + 3.0,
-            FloorRadiusPixels + 3.0);
+        foreach (int floor in _selectedFloors)
+        {
+            if ((uint)floor >= (uint)positions.Length)
+                continue;
+
+            Point center = WorldToScreen(positions[floor]);
+            if (meshPreview)
+            {
+                GetFloorAngles(floor, positions, out float entryAngle, out float exitAngle);
+                bool midSpin = floor < _level.Angles.Length &&
+                               Math.Abs(_level.Angles[floor] - 999.0) < 0.000001;
+                _floorRenderer.DrawSelectionOutline(
+                    drawingContext,
+                    center,
+                    _zoom,
+                    entryAngle,
+                    exitAngle,
+                    midSpin);
+            }
+            else
+            {
+                drawingContext.DrawEllipse(
+                    SelectedFloorBrush,
+                    SelectedOverviewPen,
+                    center,
+                    FloorRadiusPixels + 3.0,
+                    FloorRadiusPixels + 3.0);
+            }
+        }
     }
 
     private void RebuildFloorDirectionState()
@@ -281,7 +290,7 @@ public sealed partial class LevelViewport
         return result < 0f ? result + modulus : result;
     }
 
-    private void SelectNearest(Point screenPoint)
+    private void SelectNearest(Point screenPoint, ModifierKeys modifiers)
     {
         if (_level is null || _index is null)
             return;
@@ -311,7 +320,10 @@ public sealed partial class LevelViewport
             }
         }
 
-        SelectedFloor = bestFloor;
+        if (bestFloor >= 0)
+            SelectFloor(bestFloor, modifiers);
+        else if ((modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == 0)
+            SetSelection([]);
     }
 
     private static void GetFloorAngles(int floor, Vector2[] positions, out float entryAngle, out float exitAngle)
