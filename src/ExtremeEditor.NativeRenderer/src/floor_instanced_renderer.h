@@ -69,6 +69,10 @@ private:
         float cosine;
         float sine;
         float depth;
+        float color_r;
+        float color_g;
+        float color_b;
+        float color_a;
     };
 
     struct InstanceRange
