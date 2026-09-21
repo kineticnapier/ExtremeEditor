@@ -49,6 +49,7 @@ public sealed record LevelAction(
     public double? AngleOffset { get; set; }
     public double? Duration { get; set; }
     public JsonObject? PropertyOverrides { get; set; }
+    public int PropertyOverridesStructureRevision { get; set; }
 }
 
 public sealed class LevelDocument
