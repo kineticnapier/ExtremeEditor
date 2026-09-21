@@ -23,7 +23,7 @@ internal static class WpfLevelLoader
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         LoadResult loaded;
-        TrackColorSourceData trackColors;
+        TrackVisualSourceBundle trackVisuals;
         CameraSourceData cameraEvents;
         try
         {
@@ -33,7 +33,7 @@ internal static class WpfLevelLoader
             // The flat core loader intentionally keeps only timing/gameplay fields.
             // Read renderer-specific visual metadata in narrow streaming passes so
             // pathological charts never need a full actions DOM during load.
-            trackColors = TrackColorSourceReader.Load(path, cancellationToken);
+            trackVisuals = TrackVisualSourceReader.Load(path, cancellationToken);
             cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                 CameraSourceReader.Load(path, cancellationToken));
         }
@@ -49,7 +49,7 @@ internal static class WpfLevelLoader
                 loaded = await AdoFaiLoader.LoadFlatAsync(normalizedPath, cancellationToken)
                     .ConfigureAwait(false);
                 loaded.Document.SourcePath = path;
-                trackColors = TrackColorSourceReader.Load(normalizedPath, cancellationToken);
+                trackVisuals = TrackVisualSourceReader.Load(normalizedPath, cancellationToken);
                 cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                     CameraSourceReader.Load(normalizedPath, cancellationToken));
             }
@@ -68,12 +68,11 @@ internal static class WpfLevelLoader
             }
         }
 
-        // Track-colour metadata is parsed independently so the renderer can preserve
-        // ADOFAI's full colour state. Reconcile that source with the generic action
-        // store as well: if the flat loader skipped a ColorTrack/RecolorTrack action,
-        // it must still appear in the event list and participate in editing/rendering.
-        TrackColorActionRecovery.MergeMissing(loaded.Document, trackColors);
-        TrackColorMetadataCache.Attach(loaded.Document, trackColors);
+        // One track-visual pass feeds both action recovery and the richer native
+        // rendering state (style/pulse/glow) so huge charts are not reparsed twice.
+        TrackColorActionRecovery.MergeMissing(loaded.Document, trackVisuals.Legacy);
+        TrackColorMetadataCache.Attach(loaded.Document, trackVisuals.Legacy);
+        TrackVisualMetadataCache.Attach(loaded.Document, trackVisuals.Visual);
         CameraMetadataCache.Attach(loaded.Document, cameraEvents);
 
         var indexWatch = Stopwatch.StartNew();
