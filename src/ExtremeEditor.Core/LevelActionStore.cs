@@ -22,6 +22,7 @@ public sealed class LevelActionStore
     public int ActionCount => _actions.Length;
     public int ActionFloorCount => _floors.Length;
     public IReadOnlyList<int> Floors => _floors;
+    public IReadOnlyList<LevelAction> Actions => _actions;
     public IReadOnlyDictionary<int, LevelAction[]> DictionaryView => _dictionaryView;
 
     public static LevelActionStore Create(IEnumerable<LevelAction> source)
@@ -43,9 +44,7 @@ public sealed class LevelActionStore
         }
 
         if (!sorted)
-        {
             actions = actions.OrderBy(static action => action.Floor).ToArray();
-        }
 
         int floorCount = 1;
         for (int i = 1; i < actions.Length; i++)
