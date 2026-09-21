@@ -25,10 +25,36 @@ public partial class MainWindow
         bool windows = (modifiers & ModifierKeys.Windows) != 0;
         bool backQuote = Keyboard.IsKeyDown(Key.Oem3);
 
-        // ADOFAI treats BackQuote as an extra modifier for the 15-degree ring.
-        // Consume the modifier key itself so it does not trigger WPF access-key/UI behavior.
+        // ADOFAI treats BackQuote as a real modifier, not as a normal key.
         if (key == Key.Oem3 && !control && !alt && !windows)
         {
+            e.Handled = true;
+            return;
+        }
+
+        // BackQuote chords are exclusive in the game's keybind manager. They must
+        // not accidentally fall through to Space/P/navigation/etc. while ` is held.
+        if (backQuote)
+        {
+            if (!control && !alt && !windows && _level is not null && Viewport.SelectedFloor >= 0)
+            {
+                EditorSession? chordEditor = EnsureEditorSession();
+                int chordPrimary = Viewport.SelectedFloor;
+                if (chordEditor is not null)
+                {
+                    if (key == Key.Tab)
+                    {
+                        chordEditor.InsertMidspin(chordPrimary);
+                        RefreshAfterAdoFaiMutation(chordPrimary + 1);
+                    }
+                    else if (GetAdoFaiDirectionForKey(key, backQuote: true) is double chordDirection)
+                    {
+                        chordEditor.InsertAngle(chordPrimary, chordDirection);
+                        RefreshAfterAdoFaiMutation(chordPrimary + 1);
+                    }
+                }
+            }
+
             e.Handled = true;
             return;
         }
@@ -56,19 +82,12 @@ public partial class MainWindow
             }
         }
 
-        // Playback is valid even when there is no floor selection.
-        if (!alt && !windows &&
-            ((key == Key.P && (!shift && (!control || control))) ||
-             (key == Key.Space && control && !shift)))
-        {
-            // Ctrl+P / Ctrl+Space is ADOFAI's "play with speed" binding. ExtremeEditor
-            // does not have the separate editor-speed selector yet, so it uses the same
-            // transport while retaining the exact key reservation.
-            TogglePlayback();
-            e.Handled = true;
-            return;
-        }
-        if (!control && !shift && !alt && !windows && key == Key.Space)
+        // P / Space = play. Ctrl+P / Ctrl+Space is ADOFAI's "play with speed".
+        // ExtremeEditor does not have a separate editor-speed selector yet, so both
+        // currently use the same transport while keeping the game's exact key slots.
+        if (!alt && !windows && !shift &&
+            (key == Key.P || key == Key.Space) &&
+            (!control || control))
         {
             TogglePlayback();
             e.Handled = true;
@@ -220,9 +239,9 @@ public partial class MainWindow
         if (control || alt || windows)
             return;
 
-        // Tab / `+Tab = Midspin. Plain Shift+Tab remains normal focus traversal,
-        // matching ADOFAI's registrations (there is no Shift+Tab Midspin binding).
-        if (key == Key.Tab && (!shift || backQuote))
+        // Plain Tab = Midspin. `+Tab was handled by the BackQuote chord block above.
+        // Shift+Tab is not a Midspin binding in ADOFAI.
+        if (!shift && key == Key.Tab)
         {
             int inserted = primary + 1;
             editor.InsertMidspin(primary);
@@ -275,13 +294,11 @@ public partial class MainWindow
             return;
         }
 
-        // Floor creation ring. Shift is allowed without changing the direction.
-        // Holding ` switches only the 30/60-degree auxiliary keys to the 15-degree ring.
-        double? direction = GetAdoFaiDirectionForKey(key, backQuote);
-        if (direction is not null)
+        // Floor creation ring. Shift is explicitly registered as equivalent to no modifier.
+        if (GetAdoFaiDirectionForKey(key, backQuote: false) is double direction)
         {
             int inserted = primary + 1;
-            editor.InsertAngle(primary, direction.Value);
+            editor.InsertAngle(primary, direction);
             RefreshAfterAdoFaiMutation(inserted);
             e.Handled = true;
         }
