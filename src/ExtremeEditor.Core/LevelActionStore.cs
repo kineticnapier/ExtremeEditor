@@ -14,7 +14,7 @@ public sealed class LevelActionStore
         _actions = actions;
         _floors = floors;
         _offsets = offsets;
-        _dictionaryView = new DictionaryView(this);
+        _dictionaryView = new ActionDictionaryView(this);
     }
 
     public static LevelActionStore Empty { get; } = new([], [], []);
@@ -108,11 +108,11 @@ public sealed class LevelActionStore
         return true;
     }
 
-    private sealed class DictionaryView : IReadOnlyDictionary<int, LevelAction[]>
+    private sealed class ActionDictionaryView : IReadOnlyDictionary<int, LevelAction[]>
     {
         private readonly LevelActionStore _store;
 
-        public DictionaryView(LevelActionStore store) => _store = store;
+        public ActionDictionaryView(LevelActionStore store) => _store = store;
 
         public int Count => _store.ActionFloorCount;
         public IEnumerable<int> Keys => _store._floors;
