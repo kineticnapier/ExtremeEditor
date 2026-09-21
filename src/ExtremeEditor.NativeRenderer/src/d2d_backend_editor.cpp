@@ -50,7 +50,7 @@ void DrawCenteredText(
     if (context == nullptr || text == nullptr || *text == L'\0' || format == nullptr || brush == nullptr)
         return;
 
-    context->DrawTextW(
+    context->DrawText(
         text,
         static_cast<UINT32>(std::wcslen(text)),
         format,
