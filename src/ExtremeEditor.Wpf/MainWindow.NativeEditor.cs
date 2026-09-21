@@ -17,7 +17,7 @@ public partial class MainWindow
             new EventHandler<NativeEditorActionRequestedEventArgs>(OnNativeEditorActionRequested));
     }
 
-    private static void OnNativeFloorSelectionRequested(object sender, NativeFloorSelectionRequestedEventArgs e)
+    private static void OnNativeFloorSelectionRequested(object? sender, NativeFloorSelectionRequestedEventArgs e)
     {
         if (sender is not MainWindow window)
             return;
@@ -27,7 +27,7 @@ public partial class MainWindow
         e.Handled = true;
     }
 
-    private static void OnNativeEditorActionRequested(object sender, NativeEditorActionRequestedEventArgs e)
+    private static void OnNativeEditorActionRequested(object? sender, NativeEditorActionRequestedEventArgs e)
     {
         if (sender is not MainWindow window)
             return;
