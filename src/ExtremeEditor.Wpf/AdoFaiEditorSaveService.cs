@@ -46,6 +46,38 @@ internal static class AdoFaiEditorSaveService
         File.Move(tempPath, fullPath, overwrite: true);
     }
 
+    internal static JsonObject BuildEditableActionJson(
+        EditorSession session,
+        LevelAction action)
+    {
+        JsonObject root = session.GetSourceRootForSave();
+        JsonObject obj = new();
+        if (action.SourceIndex >= 0 &&
+            root["actions"] is JsonArray actions &&
+            action.SourceIndex < actions.Count &&
+            actions[action.SourceIndex] is JsonObject source)
+        {
+            obj = (JsonObject)source.DeepClone();
+            foreach (FloorStructureEdit edit in session.StructureEdits)
+            {
+                if (!TransformObject(obj, edit, removeWhenDeleted: false))
+                    break;
+            }
+        }
+        else if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
+        {
+            obj = (JsonObject)template.DeepClone();
+        }
+
+        if (action.PropertyOverrides is not null)
+        {
+            foreach (KeyValuePair<string, JsonNode?> pair in action.PropertyOverrides)
+                obj[pair.Key] = pair.Value?.DeepClone();
+        }
+        UpdateKnownActionProperties(obj, action);
+        return obj;
+    }
+
     private static void ReplaceAngles(JsonObject root, IReadOnlyList<double> angles)
     {
         var array = new JsonArray();
@@ -95,6 +127,11 @@ internal static class AdoFaiEditorSaveService
                 obj = new JsonObject();
             }
 
+            if (action.PropertyOverrides is not null)
+            {
+                foreach (KeyValuePair<string, JsonNode?> pair in action.PropertyOverrides)
+                    obj[pair.Key] = pair.Value?.DeepClone();
+            }
             UpdateKnownActionProperties(obj, action);
             output.Add(obj);
         }
@@ -136,7 +173,7 @@ internal static class AdoFaiEditorSaveService
         }
     }
 
-    private static bool TransformObject(JsonObject obj, FloorStructureEdit edit, bool removeWhenDeleted)
+    internal static bool TransformObject(JsonObject obj, FloorStructureEdit edit, bool removeWhenDeleted)
     {
         if (!EditorSession.TryGetInt(obj["floor"], out int oldFloor))
             return true;
@@ -207,12 +244,9 @@ internal static class AdoFaiEditorSaveService
         return Math.Min(edit.Floor, Math.Max(0, edit.BeforeFloorCount - edit.Count - 1));
     }
 
-    private static int MapReferenceFloor(int floor, FloorStructureEdit edit)
-    {
-        return MapFloor(floor, edit);
-    }
+    private static int MapReferenceFloor(int floor, FloorStructureEdit edit) => MapFloor(floor, edit);
 
-    private static void UpdateKnownActionProperties(JsonObject obj, LevelAction action)
+    internal static void UpdateKnownActionProperties(JsonObject obj, LevelAction action)
     {
         obj["floor"] = action.Floor;
         obj["eventType"] = action.EventType;
