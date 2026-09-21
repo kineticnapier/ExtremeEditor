@@ -28,6 +28,16 @@ public partial class MainWindow
         if (!IsNativeRendererWindow(msg.hwnd))
             return;
 
+        // scnEditor keybinds execute on a key-down edge. Win32 keeps posting
+        // WM_KEYDOWN while a key is held; bit 30 says the key was already down.
+        // Swallow those repeats so holding W/Q/etc. does not grow a path.
+        long keyFlags = msg.lParam.ToInt64();
+        if ((keyFlags & (1L << 30)) != 0)
+        {
+            handled = true;
+            return;
+        }
+
         Key key = KeyInterop.KeyFromVirtualKey(unchecked((int)msg.wParam));
         if (key == Key.None)
             return;
