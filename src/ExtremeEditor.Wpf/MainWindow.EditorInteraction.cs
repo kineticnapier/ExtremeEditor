@@ -17,7 +17,9 @@ public partial class MainWindow
         if (_level is null)
             return;
 
-        if (_audio.IsPlaying || !_audio.IsStopped)
+        // Match the editor's edit-mode transition regardless of whether playback is
+        // backed by a real song or by the silent chart-time transport.
+        if (_silentPlaybackActive || _audio.IsPlaying || !_audio.IsStopped)
             StopPlayback();
         else
         {
