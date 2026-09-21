@@ -16,6 +16,7 @@ public partial class MainWindow
             NativeLevelViewport.EditorActionRequestedEvent,
             new EventHandler<NativeEditorActionRequestedEventArgs>(OnNativeEditorActionRequested));
 
+        RegisterTrackColorEventSchemas();
         RegisterEventPropertyAutoApplyHandlers();
         RegisterReadableEventPaletteHandlers();
     }
