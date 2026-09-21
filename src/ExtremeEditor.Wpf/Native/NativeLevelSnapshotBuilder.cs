@@ -49,14 +49,11 @@ internal static class NativeLevelSnapshotBuilder
         var points = new List<NativePoint>(4096);
         var geometryIds = new Dictionary<int, uint>();
         var iconAssets = new List<NativeIconAsset>();
-        var iconIds = new Dictionary<IconAssetKey, uint>();
 
         var watch = Stopwatch.StartNew();
 
         // Derive screen-space segment angles directly from angleData instead of
-        // recovering them from float world positions with two Atan2 calls per
-        // floor. Besides being much cheaper on million-floor charts, this avoids
-        // large-world float precision leaking into floor orientation.
+        // recovering them from float world positions with two Atan2 calls per floor.
         float previousOutgoingAngle = 0f;
         for (int floor = 0; floor < positions.Length; floor++)
         {
@@ -139,14 +136,15 @@ internal static class NativeLevelSnapshotBuilder
         watch.Restart();
         bool isCcw = false;
         int validActionFloorCount = 0;
-        int[] actionFloors = level.ActionsByFloor.Keys.ToArray();
-        Array.Sort(actionFloors);
-        var floorIconPathCache = new Dictionary<string, IconPaths?>(StringComparer.OrdinalIgnoreCase);
-        var eventIconPathCache = new Dictionary<string, string?>(StringComparer.Ordinal);
+        IReadOnlyList<int> actionFloors = level.ActionFloors;
+        var floorIconCache = new Dictionary<string, FloorIconAsset?>(StringComparer.OrdinalIgnoreCase);
+        var eventIconCache = new Dictionary<string, uint?>(StringComparer.Ordinal);
 
-        // Actions are sparse compared with floors on pathological charts. Iterate
-        // only action floors instead of performing a dictionary lookup on every
-        // floor while still preserving Twirl state in floor order.
+        // Resolve the two overwhelmingly common Twirl assets once. Path expansion,
+        // file checks and long-path hashing must not happen millions of times.
+        bool hasSwirlRed = TryGetFloorIconAsset("SwirlRed", iconAssets, floorIconCache, out FloorIconAsset swirlRed);
+        bool hasSwirlBlue = TryGetFloorIconAsset("SwirlBlue", iconAssets, floorIconCache, out FloorIconAsset swirlBlue);
+
         foreach (int floor in actionFloors)
         {
             if ((uint)floor >= (uint)floors.Length ||
@@ -154,15 +152,36 @@ internal static class NativeLevelSnapshotBuilder
                 continue;
 
             validActionFloorCount++;
-            foreach (LevelAction action in actions)
-            {
-                if (action.Active && string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
-                    isCcw = !isCcw;
-            }
-
             bool midSpin = floor < angles.Length && Math.Abs(angles[floor] - 999.0) < 0.000001;
             float entryAngle = floors[floor].EntryAngle;
             float exitAngle = GetExitAngle(floor, angles, entryAngle);
+
+            // Extreme Twirl charts commonly have exactly one Twirl action on nearly
+            // every floor. Keep that path branch-free except for the color choice.
+            if (actions.Length == 1 && actions[0].Active && actions[0].Kind == LevelActionKind.Twirl)
+            {
+                isCcw = !isCcw;
+                SwirlVisual swirl = CalculateSwirlVisual(entryAngle, exitAngle, isCcw, midSpin);
+                bool hasAsset = swirl.IsRed ? hasSwirlRed : hasSwirlBlue;
+                FloorIconAsset asset = swirl.IsRed ? swirlRed : swirlBlue;
+                if (hasAsset)
+                {
+                    ref NativeFloor nativeFloor = ref floors[floor];
+                    nativeFloor.IconId = asset.IconId;
+                    nativeFloor.IconFlags = NativeFloor.IconFlagFloor |
+                                            (swirl.Flipped ? NativeFloor.IconFlagFlipped : 0u);
+                    nativeFloor.IconAngle = swirl.IconAngle;
+                    continue;
+                }
+            }
+            else
+            {
+                foreach (LevelAction action in actions)
+                {
+                    if (action.Active && action.Kind == LevelActionKind.Twirl)
+                        isCcw = !isCcw;
+                }
+            }
 
             if (!TryResolveIcon(
                     actions,
@@ -170,30 +189,19 @@ internal static class NativeLevelSnapshotBuilder
                     exitAngle,
                     isCcw,
                     midSpin,
-                    floorIconPathCache,
-                    eventIconPathCache,
+                    iconAssets,
+                    floorIconCache,
+                    eventIconCache,
                     out ResolvedIcon resolved))
                 continue;
 
-            string imagePath = Path.GetFullPath(resolved.ImagePath);
-            string? outlinePath = resolved.OutlinePath is { Length: > 0 } outline
-                ? Path.GetFullPath(outline)
-                : null;
-            var iconKey = new IconAssetKey(imagePath, outlinePath);
-            if (!iconIds.TryGetValue(iconKey, out uint iconId))
-            {
-                iconId = checked((uint)iconAssets.Count);
-                iconIds.Add(iconKey, iconId);
-                iconAssets.Add(new NativeIconAsset(iconId, imagePath, outlinePath));
-            }
-
-            ref NativeFloor nativeFloor = ref floors[floor];
-            nativeFloor.IconId = iconId;
+            ref NativeFloor target = ref floors[floor];
+            target.IconId = resolved.IconId;
             if (resolved.IsFloorIcon)
-                nativeFloor.IconFlags |= NativeFloor.IconFlagFloor;
+                target.IconFlags |= NativeFloor.IconFlagFloor;
             if (resolved.Flipped)
-                nativeFloor.IconFlags |= NativeFloor.IconFlagFlipped;
-            nativeFloor.IconAngle = resolved.AngleRadians;
+                target.IconFlags |= NativeFloor.IconFlagFlipped;
+            target.IconAngle = resolved.AngleRadians;
         }
 
         watch.Stop();
@@ -231,8 +239,9 @@ internal static class NativeLevelSnapshotBuilder
         float exitAngle,
         bool isCcw,
         bool midSpin,
-        Dictionary<string, IconPaths?> floorIconPathCache,
-        Dictionary<string, string?> eventIconPathCache,
+        List<NativeIconAsset> iconAssets,
+        Dictionary<string, FloorIconAsset?> floorIconCache,
+        Dictionary<string, uint?> eventIconCache,
         out ResolvedIcon resolved)
     {
         resolved = default;
@@ -251,24 +260,31 @@ internal static class NativeLevelSnapshotBuilder
                 continue;
 
             hasActiveAction = true;
-            if (customIconAction is null && string.Equals(action.EventType, "SetFloorIcon", StringComparison.Ordinal))
-                customIconAction = action;
-            if (string.Equals(action.EventType, "Checkpoint", StringComparison.Ordinal))
-                checkpoint = true;
-            if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
-                twirl = true;
-            if (speedAction is null && string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
-                speedAction = action;
+            switch (action.Kind)
+            {
+                case LevelActionKind.SetFloorIcon when customIconAction is null:
+                    customIconAction = action;
+                    break;
+                case LevelActionKind.Checkpoint:
+                    checkpoint = true;
+                    break;
+                case LevelActionKind.Twirl:
+                    twirl = true;
+                    break;
+                case LevelActionKind.SetSpeed when speedAction is null:
+                    speedAction = action;
+                    break;
+            }
         }
 
         if (!hasActiveAction)
             return false;
 
         if (customIconAction?.CustomIcon is { Length: > 0 } customIcon &&
-            TryFloorIcon(customIcon, 0f, false, floorIconPathCache, out resolved))
+            TryFloorIcon(customIcon, 0f, false, iconAssets, floorIconCache, out resolved))
             return true;
 
-        if (checkpoint && TryFloorIcon("Checkpoint", 0f, false, floorIconPathCache, out resolved))
+        if (checkpoint && TryFloorIcon("Checkpoint", 0f, false, iconAssets, floorIconCache, out resolved))
             return true;
 
         if (twirl)
@@ -278,7 +294,8 @@ internal static class NativeLevelSnapshotBuilder
                     swirl.IsRed ? "SwirlRed" : "SwirlBlue",
                     swirl.IconAngle,
                     swirl.Flipped,
-                    floorIconPathCache,
+                    iconAssets,
+                    floorIconCache,
                     out resolved))
                 return true;
         }
@@ -293,7 +310,7 @@ internal static class NativeLevelSnapshotBuilder
                 <= 2.05 => "Rabbit",
                 _ => "DoubleRabbit"
             };
-            if (TryFloorIcon(speedIcon, 0f, false, floorIconPathCache, out resolved))
+            if (TryFloorIcon(speedIcon, 0f, false, iconAssets, floorIconCache, out resolved))
                 return true;
         }
 
@@ -302,16 +319,26 @@ internal static class NativeLevelSnapshotBuilder
             if (!action.Active)
                 continue;
 
-            if (!eventIconPathCache.TryGetValue(action.EventType, out string? path))
+            if (!eventIconCache.TryGetValue(action.EventType, out uint? iconId))
             {
                 string candidate = IconAssetCache.EventPath(action.EventType);
-                path = File.Exists(candidate) ? candidate : null;
-                eventIconPathCache[action.EventType] = path;
+                if (File.Exists(candidate))
+                {
+                    string fullPath = Path.GetFullPath(candidate);
+                    uint id = checked((uint)iconAssets.Count);
+                    iconAssets.Add(new NativeIconAsset(id, fullPath, null));
+                    iconId = id;
+                }
+                else
+                {
+                    iconId = null;
+                }
+                eventIconCache[action.EventType] = iconId;
             }
 
-            if (path is not null)
+            if (iconId is uint resolvedId)
             {
-                resolved = new ResolvedIcon(path, null, false, 0f, false);
+                resolved = new ResolvedIcon(resolvedId, false, 0f, false);
                 return true;
             }
         }
@@ -323,38 +350,55 @@ internal static class NativeLevelSnapshotBuilder
         string key,
         float angle,
         bool flipped,
-        Dictionary<string, IconPaths?> cache,
+        List<NativeIconAsset> iconAssets,
+        Dictionary<string, FloorIconAsset?> cache,
         out ResolvedIcon resolved)
     {
-        if (!cache.TryGetValue(key, out IconPaths? paths))
-        {
-            string imagePath = IconAssetCache.FloorPath(key);
-            if (!File.Exists(imagePath))
-            {
-                cache[key] = null;
-                resolved = default;
-                return false;
-            }
-
-            string outlineCandidate = IconAssetCache.OutlinePath(key);
-            paths = new IconPaths(
-                imagePath,
-                File.Exists(outlineCandidate) ? outlineCandidate : null);
-            cache[key] = paths;
-        }
-
-        if (paths is null)
+        if (!TryGetFloorIconAsset(key, iconAssets, cache, out FloorIconAsset asset))
         {
             resolved = default;
             return false;
         }
 
-        resolved = new ResolvedIcon(
-            paths.Value.ImagePath,
-            paths.Value.OutlinePath,
-            true,
-            angle,
-            flipped);
+        resolved = new ResolvedIcon(asset.IconId, true, angle, flipped);
+        return true;
+    }
+
+    private static bool TryGetFloorIconAsset(
+        string key,
+        List<NativeIconAsset> iconAssets,
+        Dictionary<string, FloorIconAsset?> cache,
+        out FloorIconAsset asset)
+    {
+        if (cache.TryGetValue(key, out FloorIconAsset? cached))
+        {
+            if (cached is FloorIconAsset value)
+            {
+                asset = value;
+                return true;
+            }
+
+            asset = default;
+            return false;
+        }
+
+        string imageCandidate = IconAssetCache.FloorPath(key);
+        if (!File.Exists(imageCandidate))
+        {
+            cache[key] = null;
+            asset = default;
+            return false;
+        }
+
+        string imagePath = Path.GetFullPath(imageCandidate);
+        string outlineCandidate = IconAssetCache.OutlinePath(key);
+        string? outlinePath = File.Exists(outlineCandidate)
+            ? Path.GetFullPath(outlineCandidate)
+            : null;
+        uint iconId = checked((uint)iconAssets.Count);
+        iconAssets.Add(new NativeIconAsset(iconId, imagePath, outlinePath));
+        asset = new FloorIconAsset(iconId);
+        cache[key] = asset;
         return true;
     }
 
@@ -405,11 +449,9 @@ internal static class NativeLevelSnapshotBuilder
         return result < 0f ? result + modulus : result;
     }
 
-    private readonly record struct IconPaths(string ImagePath, string? OutlinePath);
-    private readonly record struct IconAssetKey(string ImagePath, string? OutlinePath);
+    private readonly record struct FloorIconAsset(uint IconId);
     private readonly record struct ResolvedIcon(
-        string ImagePath,
-        string? OutlinePath,
+        uint IconId,
         bool IsFloorIcon,
         float AngleRadians,
         bool Flipped);
