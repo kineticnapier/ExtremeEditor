@@ -214,42 +214,56 @@ public static class TimingMapBuilder
         bool threePlanets = false;
         double time = 0.0;
 
+        IReadOnlyList<int> actionFloors = level.ActionFloors;
+        int actionFloorIndex = 0;
+        while (actionFloorIndex < actionFloors.Count && actionFloors[actionFloorIndex] < 0)
+            actionFloorIndex++;
+
         for (int floor = 0; floor < floorCount; floor++)
         {
             double pauseSeconds = 0.0;
-            if (level.ActionsByFloor.TryGetValue(floor, out LevelAction[]? actions))
+            LevelAction[]? actions = null;
+            if (actionFloorIndex < actionFloors.Count && actionFloors[actionFloorIndex] == floor)
+            {
+                level.ActionsByFloor.TryGetValue(floor, out actions);
+                actionFloorIndex++;
+            }
+
+            if (actions is not null)
             {
                 foreach (LevelAction action in actions)
                 {
-                    if (!action.Active) continue;
+                    if (!action.Active)
+                        continue;
 
-                    if (string.Equals(action.EventType, "Twirl", StringComparison.Ordinal))
+                    switch (action.Kind)
                     {
-                        isCcw = !isCcw;
-                    }
-                    else if (string.Equals(action.EventType, "MultiPlanet", StringComparison.Ordinal))
-                    {
-                        if (string.Equals(action.Planets, "ThreePlanets", StringComparison.OrdinalIgnoreCase))
-                            threePlanets = true;
-                        else if (string.Equals(action.Planets, "TwoPlanets", StringComparison.OrdinalIgnoreCase))
-                            threePlanets = false;
-                    }
-                    else if (string.Equals(action.EventType, "SetSpeed", StringComparison.Ordinal))
-                    {
-                        if (string.Equals(action.SpeedType, "Multiplier", StringComparison.OrdinalIgnoreCase) &&
-                            action.BpmMultiplier is double multiplier && multiplier > 0)
-                        {
-                            bpm *= multiplier;
-                        }
-                        else if (action.BeatsPerMinute is double target && target > 0)
-                        {
-                            bpm = target;
-                        }
-                    }
-                    else if (string.Equals(action.EventType, "Pause", StringComparison.Ordinal) &&
-                             action.Duration is double pauseBeats && pauseBeats > 0)
-                    {
-                        pauseSeconds += pauseBeats * (60.0 / bpm);
+                        case LevelActionKind.Twirl:
+                            isCcw = !isCcw;
+                            break;
+
+                        case LevelActionKind.MultiPlanet:
+                            if (string.Equals(action.Planets, "ThreePlanets", StringComparison.OrdinalIgnoreCase))
+                                threePlanets = true;
+                            else if (string.Equals(action.Planets, "TwoPlanets", StringComparison.OrdinalIgnoreCase))
+                                threePlanets = false;
+                            break;
+
+                        case LevelActionKind.SetSpeed:
+                            if (string.Equals(action.SpeedType, "Multiplier", StringComparison.OrdinalIgnoreCase) &&
+                                action.BpmMultiplier is double multiplier && multiplier > 0)
+                            {
+                                bpm *= multiplier;
+                            }
+                            else if (action.BeatsPerMinute is double target && target > 0)
+                            {
+                                bpm = target;
+                            }
+                            break;
+
+                        case LevelActionKind.Pause when action.Duration is double pauseBeats && pauseBeats > 0:
+                            pauseSeconds += pauseBeats * (60.0 / bpm);
+                            break;
                     }
                 }
             }
