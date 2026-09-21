@@ -20,7 +20,7 @@ internal static class WpfLevelLoader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        LoadResult loaded = await AdoFaiLoader.LoadAsync(path, cancellationToken)
+        LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
             .ConfigureAwait(false);
 
         var indexWatch = Stopwatch.StartNew();
