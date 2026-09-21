@@ -2,6 +2,7 @@
 
 #include "extreme_editor_renderer.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
