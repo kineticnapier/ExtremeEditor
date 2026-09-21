@@ -154,6 +154,18 @@ int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer)
     return static_cast<ee::Renderer*>(renderer)->SelectedFloor();
 }
 
+void ee_renderer_set_selection(
+    EeRendererHandle renderer,
+    const int32_t* floors,
+    uint32_t floor_count,
+    int32_t primary_floor)
+{
+    if (renderer == nullptr || (floor_count > 0 && floors == nullptr))
+        return;
+
+    static_cast<ee::Renderer*>(renderer)->SetSelection(floors, floor_count, primary_floor);
+}
+
 void ee_renderer_set_selection_changed_callback(
     EeRendererHandle renderer,
     EeSelectionChangedCallback callback,
@@ -161,6 +173,15 @@ void ee_renderer_set_selection_changed_callback(
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->SetSelectionChangedCallback(callback, user_data);
+}
+
+void ee_renderer_set_editor_action_callback(
+    EeRendererHandle renderer,
+    EeEditorActionCallback callback,
+    void* user_data)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetEditorActionCallback(callback, user_data);
 }
 
 EeResult ee_renderer_set_playback_timeline(
