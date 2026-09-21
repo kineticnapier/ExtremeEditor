@@ -69,20 +69,22 @@ public partial class MainWindow : Window
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
-        LevelDocument level = LevelDocument.CreateSynthetic(4096);
+        // Startup should behave like an editor, not a renderer stress test.
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
         var index = new SpatialGridIndex(level.Positions);
         _level = level;
         Viewport.SetLevel(level, index);
         NativeViewport.SetLevel(level);
         NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
 
-        StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | synthetic 4096-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
+        StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | new 2-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _playbackTimer.Stop();
+        _editorPlaybackRefreshTimer?.Stop();
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
         Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
@@ -118,6 +120,9 @@ public partial class MainWindow : Window
         try
         {
             _isLoading = true;
+            _editorPlaybackRefreshTimer?.Stop();
+            _editorPlaybackRefreshPending = false;
+            _editorPlaybackRefreshDocument = null;
             CommandManager.InvalidateRequerySuggested();
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Loading…";
@@ -242,6 +247,7 @@ public partial class MainWindow : Window
 
     private void ExecutePlayPause(object sender, ExecutedRoutedEventArgs e)
     {
+        FlushEditorPlaybackRefresh();
         TogglePlayback();
         e.Handled = true;
     }
@@ -254,7 +260,9 @@ public partial class MainWindow : Window
 
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = _level is not null && _timingMap is not null && _audio.IsLoaded;
+        e.CanExecute = _level is not null &&
+                       (_timingMap is not null || _editorPlaybackRefreshPending) &&
+                       _audio.IsLoaded;
         e.Handled = true;
     }
 
