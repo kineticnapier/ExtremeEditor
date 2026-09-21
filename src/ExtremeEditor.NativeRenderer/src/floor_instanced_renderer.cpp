@@ -1,5 +1,6 @@
 #include "floor_instanced_renderer.h"
 #include "floor_triangulation.h"
+#include "track_visual.h"
 
 #include <d3dcompiler.h>
 
@@ -16,8 +17,6 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
-constexpr std::uint32_t TrackColorFlag = 0x80u;
-
 constexpr char ShaderSource[] = R"(
 cbuffer FrameConstants : register(b0)
 {
@@ -54,6 +53,16 @@ struct VSOutput
     float2 uv : TEXCOORD1;
     float4 color : COLOR0;
 };
+
+float TrackStyle(float payload)
+{
+    return floor(payload + 0.0001);
+}
+
+float TrackGlow(float payload)
+{
+    return saturate(frac(payload));
+}
 
 VSOutput VSMain(VSInput input)
 {
@@ -94,8 +103,11 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
         -(b.y - a.y) * viewport.y * 0.5);
     float lengthPixels = max(length(deltaPixels), 0.0001);
     float2 tangentPixels = deltaPixels / lengthPixels;
-    float2 normalPixels = float2(-tangentPixels.y, tangentPixels.x) * edgePixels * 0.5;
-    float2 extendPixels = tangentPixels * edgePixels * 0.5;
+    float style = TrackStyle(input[0].color.a);
+    float glow = TrackGlow(input[0].color.a);
+    float styleWidth = (style >= 0.5 && style < 2.5) ? (1.0 + glow * 1.5) : 1.0;
+    float2 normalPixels = float2(-tangentPixels.y, tangentPixels.x) * edgePixels * styleWidth * 0.5;
+    float2 extendPixels = tangentPixels * edgePixels * styleWidth * 0.5;
     float2 normalClip = PixelsToClip(normalPixels);
     float2 extendClip = PixelsToClip(extendPixels);
 
@@ -114,11 +126,31 @@ void GSEdge(line VSOutput input[2], inout TriangleStream<VSOutput> stream)
     stream.RestartStrip();
 }
 
+float4 TrackFill(float3 tint, float alpha, float2 localPosition, float3 textured)
+{
+    float style = TrackStyle(alpha);
+    if (style < 0.5) // Standard
+        return float4(textured * tint, 1.0);
+    if (style < 1.5) // Neon
+        return float4(tint * 0.018, 1.0);
+    if (style < 2.5) // NeonLight
+        return float4(tint * 0.48, 1.0);
+    if (style < 3.5) // Basic
+        return float4(tint, 1.0);
+    if (style < 4.5) // Minimal
+        return float4(tint, 1.0);
+    // Gems: retain a little directional variation but no stock texture.
+    float gem = saturate(0.82 + localPosition.y * 0.12 - localPosition.x * 0.04);
+    return float4(saturate(tint * gem), 1.0);
+}
+
 float4 PSTextured(VSOutput input) : SV_Target
 {
     float4 sampled = floorTexture.Sample(floorSampler, input.uv);
     clip(sampled.a - (1.0 / 255.0));
-    return float4(sampled.rgb * input.color.rgb, sampled.a * input.color.a);
+    float4 result = TrackFill(input.color.rgb, input.color.a, input.localPosition, sampled.rgb);
+    result.a = sampled.a;
+    return result;
 }
 
 float4 PSFallback(VSOutput input) : SV_Target
@@ -126,12 +158,44 @@ float4 PSFallback(VSOutput input) : SV_Target
     float directional = saturate(0.5 + input.localPosition.y * 0.45 - input.localPosition.x * 0.08);
     float center = saturate(1.0 - length(input.localPosition) * 0.55);
     float shade = 0.86 + directional * 0.10 + center * 0.08;
-    return float4(saturate(drawColor.rgb * input.color.rgb * shade), drawColor.a * input.color.a);
+    float3 procedural = saturate(drawColor.rgb * shade);
+    float4 result = TrackFill(input.color.rgb, input.color.a, input.localPosition, procedural);
+    result.a = drawColor.a;
+    return result;
 }
 
 float4 PSFlat(VSOutput input) : SV_Target
 {
-    return drawColor;
+    float style = TrackStyle(input.color.a);
+    float glow = TrackGlow(input.color.a);
+    float3 tint = input.color.rgb;
+    float3 edge;
+    float alpha = 0.62;
+
+    // Untagged legacy floors retain the old dark outline.
+    if (style < 0.5 && glow < 0.001 && all(tint > 0.999))
+        return drawColor;
+
+    if (style < 0.5) // Standard
+        edge = tint * 0.30;
+    else if (style < 1.5) // Neon
+    {
+        edge = saturate(tint * (0.82 + glow * 0.45));
+        alpha = 0.72 + glow * 0.24;
+    }
+    else if (style < 2.5) // NeonLight
+    {
+        edge = saturate(tint * (0.88 + glow * 0.35));
+        alpha = 0.76 + glow * 0.20;
+    }
+    else if (style < 3.5) // Basic
+        edge = float3(0.025, 0.025, 0.025);
+    else if (style < 4.5) // Minimal
+        edge = tint;
+    else // Gems
+        edge = tint * 0.28;
+
+    return float4(saturate(edge), saturate(alpha));
 }
 )";
 
@@ -609,6 +673,7 @@ bool FloorInstancedRenderer::Draw(
         group.clear();
 
     const float depth_denominator = static_cast<float>(scene.floors.size() + 1u);
+    const float track_time = TrackVisualTimeSeconds();
     std::size_t valid_instances = 0;
     for (std::uint32_t floor_index : visible_floors)
     {
@@ -619,27 +684,17 @@ bool FloorInstancedRenderer::Draw(
         if (floor.geometry_id >= grouped_instances_.size())
             continue;
 
-        const bool has_track_color = (floor.icon_flags & TrackColorFlag) != 0u;
-        const float color_r = has_track_color
-            ? static_cast<float>((floor.icon_flags >> 8) & 0xffu) / 255.0f
-            : 1.0f;
-        const float color_g = has_track_color
-            ? static_cast<float>((floor.icon_flags >> 16) & 0xffu) / 255.0f
-            : 1.0f;
-        const float color_b = has_track_color
-            ? static_cast<float>((floor.icon_flags >> 24) & 0xffu) / 255.0f
-            : 1.0f;
-
+        const ResolvedTrackVisual visual = ResolveTrackVisual(floor, floor_index, track_time);
         grouped_instances_[floor.geometry_id].push_back(InstanceData{
             floor.x,
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
             (static_cast<float>(floor_index) + 1.0f) / depth_denominator,
-            color_r,
-            color_g,
-            color_b,
-            1.0f});
+            visual.r,
+            visual.g,
+            visual.b,
+            visual.style_glow});
         ++valid_instances;
     }
 
