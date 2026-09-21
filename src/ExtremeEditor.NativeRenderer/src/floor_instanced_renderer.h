@@ -3,6 +3,7 @@
 #include "level_scene.h"
 
 #include <d3d11.h>
+#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <cstddef>
@@ -44,6 +45,14 @@ public:
         InstancedFloorDrawStats& stats) noexcept;
 
 private:
+    struct FloorVertex
+    {
+        float x;
+        float y;
+        float u;
+        float v;
+    };
+
     struct GeometryBuffers
     {
         Microsoft::WRL::ComPtr<ID3D11Buffer> vertices;
@@ -89,6 +98,8 @@ private:
     };
 
     bool CreatePipeline(ID3D11Device* device) noexcept;
+    bool TryLoadDefaultTileTexture() noexcept;
+    bool LoadTileTexture(const wchar_t* path) noexcept;
     bool EnsureInstanceBuffer(ID3D11Device* device, std::size_t instance_count) noexcept;
     bool CreateGeometryBuffers(
         ID3D11Device* device,
@@ -99,8 +110,11 @@ private:
     void SetColor(ID3D11DeviceContext* context, const ColorConstants& color) noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
-    Microsoft::WRL::ComPtr<ID3D11PixelShader> pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> textured_pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> fallback_pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> flat_pixel_shader_;
     Microsoft::WRL::ComPtr<ID3D11GeometryShader> edge_geometry_shader_;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> input_layout_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> frame_constants_;
@@ -110,6 +124,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_state_;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> fill_depth_state_;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> edge_depth_state_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> tile_texture_;
+    Microsoft::WRL::ComPtr<ID3D11SamplerState> tile_sampler_;
 
     std::vector<GeometryBuffers> geometries_;
     std::vector<std::vector<InstanceData>> grouped_instances_;
