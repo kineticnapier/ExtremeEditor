@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace ExtremeEditor.Wpf;
 
@@ -16,40 +17,40 @@ public partial class MainWindow
 
     private static readonly EventCategoryDefinition[] EventCategories =
     [
-        new("Gameplay",
+        new("Gameplay", "◉",
         [
             "SetSpeed", "Twirl", "Multitap", "Checkpoint", "SetHitsound",
             "SetPlanetRotation", "AutoPlayTiles", "Pause", "KillPlayer", "PlaySound", "ScalePlanets"
         ]),
-        new("TrackFx",
+        new("TrackFx", "▦",
         [
             "ColorTrack", "AnimateTrack", "RecolorTrack", "MoveTrack", "PositionTrack",
             "TileDimensions", "SetFloorIcon"
         ]),
-        new("DecorationFx",
+        new("DecorationFx", "◆",
         [
             "AddDecoration", "AddText", "MoveDecorations", "SetText", "AddObject",
             "SetObject", "SetDefaultText", "SetParticle", "EmitParticle"
         ]),
-        new("VisualFx",
+        new("VisualFx", "◫",
         [
             "CustomBackground", "Flash", "MoveCamera", "SetFilter", "SetFilterAdvanced",
             "HallOfMirrors", "ShakeScreen", "Bloom", "ScreenTile", "ScreenScroll", "SetFrameRate"
         ]),
-        new("FxModifiers",
+        new("FxModifiers", "⚙",
         [
             "RepeatEvents", "SetConditionalEvents", "SetInputEvent"
         ]),
-        new("Jank",
+        new("Jank", "+",
         [
             "Hold", "SetHoldSound", "MultiPlanet", "ScaleMargin", "ScaleRadius",
             "FreeRoam", "FreeRoamTwirl", "FreeRoamRemove", "FreeRoamWarning", "Hide"
         ]),
-        new("Conveniences",
+        new("Conveniences", "★",
         [
             "EditorComment", "Bookmark", "CallMethod", "AddComponent"
         ]),
-        new("Favorites", [])
+        new("Favorites", "☆", [])
     ];
 
     private static readonly EventCatalogEntry[] EventCatalog = EventCategories
@@ -57,8 +58,18 @@ public partial class MainWindow
         .Where(entry => !DecorationObjectEventTypes.Contains(entry.EventType))
         .ToArray();
 
+    private static readonly Brush PaletteSelected = new SolidColorBrush(Color.FromRgb(82, 58, 121));
+    private static readonly Brush PaletteNormal = new SolidColorBrush(Color.FromRgb(43, 47, 54));
+    private static readonly Brush PaletteBorder = new SolidColorBrush(Color.FromRgb(72, 77, 87));
+    private static readonly Brush PaletteKeyBadge = new SolidColorBrush(Color.FromRgb(117, 62, 174));
+    private static readonly Brush PaletteText = new SolidColorBrush(Color.FromRgb(238, 240, 244));
+    private static readonly Brush PaletteMuted = new SolidColorBrush(Color.FromRgb(166, 172, 184));
+
     private int _eventCategoryIndex;
-    private TextBlock? _eventQuickPickerText;
+    private int _eventPageIndex;
+    private StackPanel? _eventCategoryBar;
+    private WrapPanel? _eventSlotBar;
+    private TextBlock? _eventPageText;
 
     protected override void OnInitialized(EventArgs e)
     {
@@ -70,8 +81,6 @@ public partial class MainWindow
     {
         Loaded -= EventQuickPickerLoaded;
 
-        // MainWindow.xaml wires the legacy handler directly. Replace it once the
-        // visual tree is live so transport/event shortcuts run before its text-box guard.
         PreviewKeyDown -= AdoFaiPreviewKeyDown;
         PreviewKeyDown += ExtremeEditorPreviewKeyDown;
 
@@ -84,28 +93,165 @@ public partial class MainWindow
             if (addEventButton.Parent is StackPanel buttonRow &&
                 buttonRow.Parent is StackPanel inspectorHeader)
             {
-                _eventQuickPickerText = new TextBlock
-                {
-                    Foreground = System.Windows.Media.Brushes.Gray,
-                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                    FontSize = 10,
-                    Margin = new Thickness(0, 0, 0, 8),
-                    TextWrapping = TextWrapping.Wrap
-                };
+                var palette = BuildEventPalette();
                 int insertIndex = inspectorHeader.Children.IndexOf(buttonRow) + 1;
-                inspectorHeader.Children.Insert(insertIndex, _eventQuickPickerText);
+                inspectorHeader.Children.Insert(insertIndex, palette);
             }
         }
 
-        RefreshEventQuickPickerText();
+        InitializeEventPropertyEditor();
+        RefreshEventPalette();
+    }
+
+    private FrameworkElement BuildEventPalette()
+    {
+        var root = new StackPanel
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        _eventCategoryBar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        root.Children.Add(_eventCategoryBar);
+
+        _eventSlotBar = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal
+        };
+        root.Children.Add(_eventSlotBar);
+
+        _eventPageText = new TextBlock
+        {
+            Foreground = PaletteMuted,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 10,
+            Margin = new Thickness(1, 3, 0, 0)
+        };
+        root.Children.Add(_eventPageText);
+
+        return root;
+    }
+
+    private void RefreshEventPalette()
+    {
+        if (_eventCategoryBar is null || _eventSlotBar is null || _eventPageText is null)
+            return;
+
+        _eventCategoryBar.Children.Clear();
+        for (int i = 0; i < EventCategories.Length; i++)
+        {
+            int categoryIndex = i;
+            EventCategoryDefinition category = EventCategories[i];
+            var button = new Button
+            {
+                Width = 35,
+                Height = 31,
+                Margin = new Thickness(1),
+                Padding = new Thickness(0),
+                Content = category.Glyph,
+                FontFamily = new FontFamily("Segoe UI Symbol"),
+                FontSize = 16,
+                Foreground = PaletteText,
+                Background = i == _eventCategoryIndex ? PaletteSelected : PaletteNormal,
+                BorderBrush = PaletteBorder,
+                BorderThickness = new Thickness(1),
+                ToolTip = $"Ctrl+{i}: {category.Name}"
+            };
+            button.Click += (_, _) =>
+            {
+                _eventCategoryIndex = categoryIndex;
+                _eventPageIndex = 0;
+                RefreshEventPalette();
+            };
+            _eventCategoryBar.Children.Add(button);
+        }
+
+        EventCategoryDefinition selectedCategory = EventCategories[_eventCategoryIndex];
+        int pageCount = Math.Max(1, (selectedCategory.Events.Length + 9) / 10);
+        _eventPageIndex = Math.Clamp(_eventPageIndex, 0, pageCount - 1);
+        int pageStart = _eventPageIndex * 10;
+
+        _eventSlotBar.Children.Clear();
+        for (int slot = 0; slot < 10; slot++)
+        {
+            int eventIndex = pageStart + slot;
+            if (eventIndex >= selectedCategory.Events.Length)
+                break;
+
+            string eventType = selectedCategory.Events[eventIndex];
+            int digit = slot == 9 ? 0 : slot + 1;
+            bool decorationPending = DecorationObjectEventTypes.Contains(eventType);
+            string shortName = ShortEventName(eventType);
+
+            var content = new Grid();
+            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            content.Children.Add(new TextBlock
+            {
+                Text = shortName,
+                Foreground = decorationPending ? PaletteMuted : PaletteText,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            var keyBadge = new Border
+            {
+                Background = PaletteKeyBadge,
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(3, 0, 3, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0),
+                Child = new TextBlock
+                {
+                    Text = digit.ToString(),
+                    Foreground = Brushes.White,
+                    FontSize = 9,
+                    FontFamily = new FontFamily("Consolas")
+                }
+            };
+            Grid.SetRow(keyBadge, 1);
+            content.Children.Add(keyBadge);
+
+            var button = new Button
+            {
+                Width = 29,
+                Height = 40,
+                Margin = new Thickness(1),
+                Padding = new Thickness(1),
+                Background = PaletteNormal,
+                BorderBrush = PaletteBorder,
+                BorderThickness = new Thickness(1),
+                Content = content,
+                ToolTip = decorationPending
+                    ? $"{digit}: {eventType} (decoration creation pending)"
+                    : $"{digit}: {eventType}"
+            };
+            button.Click += (_, _) => TryAddEventAtSelection(eventType);
+            _eventSlotBar.Children.Add(button);
+        }
+
+        _eventPageText.Text = pageCount > 1
+            ? $"{selectedCategory.Name}  page {_eventPageIndex + 1}/{pageCount}    [ / ] page"
+            : selectedCategory.Name;
+    }
+
+    private static string ShortEventName(string eventType)
+    {
+        string capitals = new(eventType.Where(char.IsUpper).Take(3).ToArray());
+        if (capitals.Length >= 2)
+            return capitals;
+        return eventType.Length <= 3 ? eventType : eventType[..3];
     }
 
     private static Button? FindDescendantButton(DependencyObject parent, string content)
     {
-        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+        int count = VisualTreeHelper.GetChildrenCount(parent);
         for (int i = 0; i < count; i++)
         {
-            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            DependencyObject child = VisualTreeHelper.GetChild(parent, i);
             if (child is Button button && string.Equals(button.Content?.ToString(), content, StringComparison.Ordinal))
                 return button;
             if (FindDescendantButton(child, content) is Button nested)
@@ -123,9 +269,6 @@ public partial class MainWindow
         bool alt = (modifiers & ModifierKeys.Alt) != 0;
         bool windows = (modifiers & ModifierKeys.Windows) != 0;
 
-        // ADOFAI leaves edit mode when Escape is pressed during editor playback.
-        // Handle this before the text-box guard in AdoFaiPreviewKeyDown so Escape
-        // still stops playback while the raw event editor has keyboard focus.
         if (key == Key.Escape && !control && !shift && !alt && !windows && IsEditorPlaybackTransportActive())
         {
             StopPlayback();
@@ -142,7 +285,8 @@ public partial class MainWindow
                     if ((uint)digit < (uint)EventCategories.Length)
                     {
                         _eventCategoryIndex = digit;
-                        RefreshEventQuickPickerText();
+                        _eventPageIndex = 0;
+                        RefreshEventPalette();
                     }
                     e.Handled = true;
                     return;
@@ -155,15 +299,9 @@ public partial class MainWindow
                 }
             }
 
-            // ADOFAI names these actions Previous/Next Event Page, but the current
-            // implementation cycles LevelEventCategory values. Mirror that behavior.
             if (!control && !alt && !windows && key is Key.OemOpenBrackets or Key.Oem6)
             {
-                if (shift)
-                    _eventCategoryIndex = key == Key.OemOpenBrackets ? 0 : EventCategories.Length - 1;
-                else
-                    CycleEventCategory(key == Key.Oem6 ? 1 : -1);
-                RefreshEventQuickPickerText();
+                ChangeEventPage(key == Key.Oem6 ? 1 : -1, jumpToEdge: shift);
                 e.Handled = true;
                 return;
             }
@@ -193,39 +331,23 @@ public partial class MainWindow
             return false;
 
         EventCategoryDefinition category = EventCategories[_eventCategoryIndex];
-
-        // ADOFAI registers Alpha0..Alpha9. Its event buttons are numbered from 1,
-        // so the top-row 0 key is the tenth keyboard-accessible slot.
         int slot = digit == 0 ? 9 : digit - 1;
-        if ((uint)slot >= (uint)category.Events.Length)
+        int index = _eventPageIndex * 10 + slot;
+        if ((uint)index >= (uint)category.Events.Length)
             return false;
 
-        return TryAddEventAtSelection(category.Events[slot]);
+        return TryAddEventAtSelection(category.Events[index]);
     }
 
-    private void CycleEventCategory(int delta)
+    private void ChangeEventPage(int delta, bool jumpToEdge)
     {
-        int count = EventCategories.Length;
-        _eventCategoryIndex = ((_eventCategoryIndex + delta) % count + count) % count;
-    }
-
-    private void RefreshEventQuickPickerText()
-    {
-        if (_eventQuickPickerText is null)
-            return;
-
         EventCategoryDefinition category = EventCategories[_eventCategoryIndex];
-        string keys = string.Join(
-            "   ",
-            category.Events.Take(10).Select((eventType, index) =>
-            {
-                string marker = DecorationObjectEventTypes.Contains(eventType) ? "*" : string.Empty;
-                return $"{(index == 9 ? 0 : index + 1)} {eventType}{marker}";
-            }));
-        string note = category.Events.Any(DecorationObjectEventTypes.Contains)
-            ? "   * decoration creation pending"
-            : string.Empty;
-        _eventQuickPickerText.Text = $"Ctrl+{_eventCategoryIndex}: {category.Name}   [ / ] category{note}\n{keys}";
+        int pageCount = Math.Max(1, (category.Events.Length + 9) / 10);
+        if (jumpToEdge)
+            _eventPageIndex = delta < 0 ? 0 : pageCount - 1;
+        else
+            _eventPageIndex = ((_eventPageIndex + delta) % pageCount + pageCount) % pageCount;
+        RefreshEventPalette();
     }
 
     private void OpenEventPicker(object sender, RoutedEventArgs e)
@@ -243,8 +365,12 @@ public partial class MainWindow
                 EventCategories,
                 category => string.Equals(category.Name, selected.Category, StringComparison.Ordinal));
             if (categoryIndex >= 0)
+            {
                 _eventCategoryIndex = categoryIndex;
-            RefreshEventQuickPickerText();
+                int eventIndex = Array.IndexOf(EventCategories[categoryIndex].Events, selected.EventType);
+                _eventPageIndex = eventIndex < 0 ? 0 : eventIndex / 10;
+            }
+            RefreshEventPalette();
             TryAddEventAtSelection(selected.EventType);
         }
     }
@@ -273,7 +399,7 @@ public partial class MainWindow
         return true;
     }
 
-    private sealed record EventCategoryDefinition(string Name, string[] Events);
+    private sealed record EventCategoryDefinition(string Name, string Glyph, string[] Events);
 
     private sealed record EventCatalogEntry(string Category, string EventType)
     {
