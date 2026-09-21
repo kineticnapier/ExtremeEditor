@@ -8,7 +8,13 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal readonly record struct NativeLevelUploadMetrics(
     TimeSpan SnapshotBuild,
-    TimeSpan NativeUpload);
+    TimeSpan NativeUpload,
+    TimeSpan SnapshotFloorGeometry,
+    TimeSpan SnapshotIcons,
+    TimeSpan SnapshotFinalize,
+    int GeometryCount,
+    int IconAssetCount,
+    int ActionFloorCount);
 
 internal readonly record struct NativePlaybackTimelineUploadMetrics(
     TimeSpan TimelineBuild,
@@ -161,10 +167,13 @@ public sealed class NativeLevelViewport : HwndHost
             return default;
 
         TimeSpan snapshotBuild = TimeSpan.Zero;
+        NativeLevelSnapshotBuildMetrics buildMetrics = default;
         if (_snapshot is null)
         {
             var snapshotWatch = Stopwatch.StartNew();
-            _snapshot = NativeLevelSnapshotBuilder.Build(_level);
+            NativeLevelSnapshotBuildResult result = NativeLevelSnapshotBuilder.BuildProfiled(_level);
+            _snapshot = result.Snapshot;
+            buildMetrics = result.Metrics;
             snapshotWatch.Stop();
             snapshotBuild = snapshotWatch.Elapsed;
         }
@@ -173,7 +182,15 @@ public sealed class NativeLevelViewport : HwndHost
         _session.SetLevel(_snapshot);
         uploadWatch.Stop();
 
-        return new NativeLevelUploadMetrics(snapshotBuild, uploadWatch.Elapsed);
+        return new NativeLevelUploadMetrics(
+            snapshotBuild,
+            uploadWatch.Elapsed,
+            buildMetrics.FloorGeometry,
+            buildMetrics.Icons,
+            buildMetrics.Finalize,
+            buildMetrics.GeometryCount,
+            buildMetrics.IconAssetCount,
+            buildMetrics.ActionFloorCount);
     }
 
     private void UploadPendingPlaybackTimeline()
