@@ -51,21 +51,31 @@ public sealed record LevelAction(
 
 public sealed class LevelDocument
 {
-    private LevelActionStore _actionStore = LevelActionStore.Empty;
+    private LevelActionStore? _actionStore;
+    private IReadOnlyDictionary<int, LevelAction[]> _actionsByFloor =
+        LevelActionStore.Empty.DictionaryView;
 
     public required string SourcePath { get; set; }
     public required double[] Angles { get; set; }
     public required Vector2[] Positions { get; set; }
     public required int ActionCount { get; set; }
     public required IReadOnlyDictionary<string, int> ActionTypeCounts { get; set; }
-    public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor { get; set; }
+    public required IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor
+    {
+        get => _actionsByFloor;
+        set
+        {
+            _actionsByFloor = value ?? LevelActionStore.Empty.DictionaryView;
+            _actionStore = null;
+        }
+    }
     public LevelActionStore ActionStore
     {
-        get => _actionStore;
+        get => _actionStore ??= LevelActionStore.FromDictionary(_actionsByFloor);
         set
         {
             _actionStore = value ?? LevelActionStore.Empty;
-            ActionsByFloor = _actionStore.DictionaryView;
+            _actionsByFloor = _actionStore.DictionaryView;
             ActionCount = _actionStore.ActionCount;
         }
     }
@@ -95,7 +105,7 @@ public sealed class LevelDocument
     {
         LevelActionStore store = LevelActionStore.Create(actions);
         _actionStore = store;
-        ActionsByFloor = store.DictionaryView;
+        _actionsByFloor = store.DictionaryView;
         ActionCount = store.ActionCount;
 
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
