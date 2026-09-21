@@ -15,6 +15,9 @@ internal static class NativeRendererNative
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void FollowPlayerChangedCallback(nint userData, int enabled);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void EditorActionCallback(nint userData, uint action, int floor, double value);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_get_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint GetApiVersion();
 
@@ -70,10 +73,23 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_get_selected_floor", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int GetSelectedFloor(nint renderer);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_selection", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetSelection(
+        nint renderer,
+        nint floors,
+        uint floorCount,
+        int primaryFloor);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_selection_changed_callback", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetSelectionChangedCallback(
         nint renderer,
         SelectionChangedCallback? callback,
+        nint userData);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_action_callback", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetEditorActionCallback(
+        nint renderer,
+        EditorActionCallback? callback,
         nint userData);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_timeline", CallingConvention = CallingConvention.Cdecl)]
