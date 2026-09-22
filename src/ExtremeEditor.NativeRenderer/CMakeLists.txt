@@ -86,5 +86,18 @@ target_link_libraries(camera_runtime_reference_tests PRIVATE
     ole32
 )
 
+add_executable(track_transform_timeline_scaling_tests
+    tests/track_transform_timeline_scaling_tests.cpp
+    src/track_transform_runtime.cpp
+)
+
+target_compile_features(track_transform_timeline_scaling_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_transform_timeline_scaling_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(track_transform_timeline_scaling_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
+add_test(NAME track_transform_timeline_scaling_tests COMMAND track_transform_timeline_scaling_tests)
