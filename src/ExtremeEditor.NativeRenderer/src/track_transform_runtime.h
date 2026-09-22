@@ -48,6 +48,8 @@ private:
     std::vector<FloorTrack> tracks_;
     bool active_ = false;
     bool playing_ = false;
+    bool has_last_update_chart_time_ = false;
+    double last_update_chart_time_ = 0.0;
     double anchor_chart_time_ = 0.0;
     double chart_rate_ = 1.0;
     std::chrono::steady_clock::time_point anchor_steady_{};
