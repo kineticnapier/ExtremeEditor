@@ -17,7 +17,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/d2d_backend_camera.cpp
     src/d2d_backend_editor.cpp
     src/floor_instanced_renderer.cpp
-    src/floor_instanced_renderer_camera.cpp
+    src/floor_instanced_renderer_camera_transform.cpp
     src/icon_instanced_renderer.cpp
     src/icon_instanced_renderer_camera.cpp
     src/level_scene.cpp
