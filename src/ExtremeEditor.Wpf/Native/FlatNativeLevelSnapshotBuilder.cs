@@ -42,6 +42,7 @@ internal static class FlatNativeLevelSnapshotBuilder
         double[] angles = level.Angles;
         NativeTrackVisual[] trackVisuals = TrackVisualResolver.Resolve(level);
         StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
+        NativeTileDimensions[] tileDimensions = TileDimensionsResolver.Resolve(level);
 
         var watch = Stopwatch.StartNew();
         var iconAssets = new List<NativeIconAsset>();
@@ -115,21 +116,25 @@ internal static class FlatNativeLevelSnapshotBuilder
         }
 
         // PositionTrack is a persistent floor-state transform, not a runtime
-        // MoveTrack tween. Bake it into the native scene so culling, icons,
-        // selection, camera-follow and later MoveTrack targets all share the same
-        // starting state.
+        // MoveTrack tween. TileDimensions is another persistent floor state, but
+        // unlike PositionTrack scale it stretches the floor mesh independently on
+        // its local length/width axes. Compose both into the existing native scale
+        // channels so culling, selection and MoveTrack all see the same shape.
         int transformCount = Math.Min(floors.Length, staticTransforms.Length);
         for (int floor = 0; floor < transformCount; floor++)
         {
             StaticTrackTransform transform = staticTransforms[floor];
+            NativeTileDimensions dimensions = (uint)floor < (uint)tileDimensions.Length
+                ? tileDimensions[floor]
+                : new NativeTileDimensions(1f, 1f);
             ref NativeFloor target = ref floors[floor];
             target.X = transform.X;
             target.Y = transform.Y;
             target.EntryAngle += transform.Rotation;
             if (target.IconId != NativeFloor.NoIcon)
                 target.IconAngle += transform.Rotation;
-            target.TransformScaleX = transform.ScaleX;
-            target.TransformScaleY = transform.ScaleY;
+            target.TransformScaleX = transform.ScaleX * dimensions.Length;
+            target.TransformScaleY = transform.ScaleY * dimensions.Width;
             target.TransformOpacity = transform.Opacity;
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
