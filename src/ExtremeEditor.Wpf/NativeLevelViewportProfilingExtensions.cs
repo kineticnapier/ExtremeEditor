@@ -19,6 +19,44 @@ internal readonly record struct NativePlaybackLoadMetrics(
 
 internal static class NativeLevelViewportProfilingExtensions
 {
+    internal static PreparedNativeLevel PrepareLevelProfiled(LevelDocument level)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        return NativeLevelViewport.PrepareLevel(level);
+    }
+
+    internal static PreparedNativePlayback PreparePlaybackTimelineProfiled(
+        LevelDocument level,
+        TimingMap timingMap)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timingMap);
+        return NativeLevelViewport.PreparePlayback(level, timingMap);
+    }
+
+    internal static NativeLevelLoadMetrics SetPreparedLevelProfiled(
+        this NativeLevelViewport viewport,
+        LevelDocument level,
+        PreparedNativeLevel prepared)
+    {
+        ArgumentNullException.ThrowIfNull(viewport);
+        ArgumentNullException.ThrowIfNull(level);
+
+        viewport.SetPreparedLevel(level, prepared);
+        return ReadLevelMetrics(viewport);
+    }
+
+    internal static NativePlaybackLoadMetrics SetPreparedPlaybackTimelineProfiled(
+        this NativeLevelViewport viewport,
+        PreparedNativePlayback prepared)
+    {
+        ArgumentNullException.ThrowIfNull(viewport);
+
+        viewport.SetPreparedPlayback(prepared);
+        NativePlaybackTimelineUploadMetrics metrics = viewport.LastPlaybackTimelineUploadMetrics;
+        return new NativePlaybackLoadMetrics(metrics.TimelineBuild, metrics.NativeUpload);
+    }
+
     internal static NativeLevelLoadMetrics SetLevelProfiled(
         this NativeLevelViewport viewport,
         LevelDocument level)
@@ -27,6 +65,23 @@ internal static class NativeLevelViewportProfilingExtensions
         ArgumentNullException.ThrowIfNull(level);
 
         viewport.SetLevel(level);
+        return ReadLevelMetrics(viewport);
+    }
+
+    internal static NativePlaybackLoadMetrics SetPlaybackTimelineProfiled(
+        this NativeLevelViewport viewport,
+        TimingMap timingMap)
+    {
+        ArgumentNullException.ThrowIfNull(viewport);
+        ArgumentNullException.ThrowIfNull(timingMap);
+
+        viewport.SetPlaybackTimeline(timingMap);
+        NativePlaybackTimelineUploadMetrics metrics = viewport.LastPlaybackTimelineUploadMetrics;
+        return new NativePlaybackLoadMetrics(metrics.TimelineBuild, metrics.NativeUpload);
+    }
+
+    private static NativeLevelLoadMetrics ReadLevelMetrics(NativeLevelViewport viewport)
+    {
         NativeLevelUploadMetrics metrics = viewport.LastLevelUploadMetrics;
         Console.WriteLine(
             $"[load] native-detail floorGeometry={metrics.SnapshotFloorGeometry.TotalMilliseconds:N1}ms " +
@@ -45,17 +100,5 @@ internal static class NativeLevelViewportProfilingExtensions
             metrics.GeometryCount,
             metrics.IconAssetCount,
             metrics.ActionFloorCount);
-    }
-
-    internal static NativePlaybackLoadMetrics SetPlaybackTimelineProfiled(
-        this NativeLevelViewport viewport,
-        TimingMap timingMap)
-    {
-        ArgumentNullException.ThrowIfNull(viewport);
-        ArgumentNullException.ThrowIfNull(timingMap);
-
-        viewport.SetPlaybackTimeline(timingMap);
-        NativePlaybackTimelineUploadMetrics metrics = viewport.LastPlaybackTimelineUploadMetrics;
-        return new NativePlaybackLoadMetrics(metrics.TimelineBuild, metrics.NativeUpload);
     }
 }
