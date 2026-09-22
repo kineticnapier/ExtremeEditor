@@ -11,6 +11,9 @@ public partial class MainWindow
     private static readonly string[] TrackStyles =
         ["Standard", "Neon", "NeonLight", "Basic", "Minimal", "Gems"];
 
+    private static readonly string[] TileReferenceModes =
+        ["ThisTile", "Start", "End"];
+
     private static void RegisterTrackColorEventSchemas()
     {
         if (EventPropertySchemas is not Dictionary<string, EventPropertyDefinition[]> schemas)
@@ -49,6 +52,34 @@ public partial class MainWindow
             NumberProperty("angleOffset", 0.0, "°"),
             TextProperty("ease", "Linear"),
             TextProperty("eventTag", "")
+        ];
+
+        schemas["PositionTrack"] =
+        [
+            Vector2Property("positionOffset", 0.0, 0.0, "tiles"),
+            TileReferenceProperty("relativeTo", 0, "ThisTile"),
+            NumberProperty("rotation", 0.0, "°"),
+            NumberProperty("scale", 100.0, "%"),
+            NumberProperty("opacity", 100.0, "%"),
+            BoolProperty("justThisTile", false),
+            BoolProperty("editorOnly", false),
+            EnumProperty("stickToFloors", "Enabled", "Enabled", "Disabled")
+        ];
+
+        schemas["MoveTrack"] =
+        [
+            TileReferenceProperty("startTile", 0, "ThisTile"),
+            TileReferenceProperty("endTile", 0, "ThisTile"),
+            IntegerProperty("gapLength", 0),
+            NumberProperty("duration", 1.0, "beats"),
+            Vector2Property("positionOffset", null, null, "tiles"),
+            NumberProperty("rotationOffset", 0.0, "°"),
+            TileReferenceProperty("scale", 100, "100"),
+            NumberProperty("opacity", 100.0, "%"),
+            NumberProperty("angleOffset", 0.0, "°"),
+            TextProperty("ease", "Linear"),
+            TextProperty("eventTag", ""),
+            BoolProperty("maxVfxOnly", false)
         ];
     }
 
