@@ -78,6 +78,14 @@ public partial class MainWindow
             TextProperty("eventTag", ""),
             BoolProperty("maxVfxOnly", false)
         ];
+
+        // Current ADOFAI metadata defines TileDimensions as a persistent OnBar
+        // floor state with independent mesh length/width percentages.
+        schemas["TileDimensions"] =
+        [
+            NumberProperty("width", 100.0, "%"),
+            NumberProperty("length", 100.0, "%")
+        ];
     }
 
     private static EventPropertyDefinition TileReferenceProperty(string name, int offset, string mode) =>
