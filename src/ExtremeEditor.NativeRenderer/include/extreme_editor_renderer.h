@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 5u
+#define EE_RENDERER_API_VERSION 6u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -38,6 +38,14 @@
 #define EE_TRACK_VISUAL_PULSE_MASK (0x3u << EE_TRACK_VISUAL_PULSE_SHIFT)
 #define EE_TRACK_VISUAL_USE_TEXTURE 0x100u
 #define EE_TRACK_VISUAL_CUSTOM_TEXTURE 0x200u
+#define EE_TRACK_TRANSFORM_ENABLED 0x1u
+#define EE_TRACK_STICK_TO_FLOORS 0x2u
+#define EE_TRACK_TRANSFORM_X 0x1u
+#define EE_TRACK_TRANSFORM_Y 0x2u
+#define EE_TRACK_TRANSFORM_ROTATION 0x4u
+#define EE_TRACK_TRANSFORM_SCALE_X 0x8u
+#define EE_TRACK_TRANSFORM_SCALE_Y 0x10u
+#define EE_TRACK_TRANSFORM_OPACITY 0x20u
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,6 +121,7 @@ typedef struct EeAbiInfo
     uint32_t floor_size;
     uint32_t clock_size;
     uint32_t diagnostics_size;
+    uint32_t track_transform_event_size;
 } EeAbiInfo;
 
 typedef struct EeRendererCreateInfo
@@ -139,6 +148,10 @@ typedef struct EeFloor
     float track_glow_intensity;
     int32_t track_start_floor;
     uint32_t track_pulse_length;
+    float transform_scale_x;
+    float transform_scale_y;
+    float transform_opacity;
+    uint32_t track_transform_flags;
 } EeFloor;
 
 typedef struct EeGeometry
@@ -179,6 +192,28 @@ typedef struct EeCameraEvent
     uint32_t flags;
     uint32_t ease;
 } EeCameraEvent;
+
+typedef struct EeTrackTransformEvent
+{
+    double start_time;
+    double duration_seconds;
+    int32_t floor;
+    uint32_t flags;
+    float start_x;
+    float start_y;
+    float target_x;
+    float target_y;
+    float start_rotation;
+    float target_rotation;
+    float start_scale_x;
+    float start_scale_y;
+    float target_scale_x;
+    float target_scale_y;
+    float start_opacity;
+    float target_opacity;
+    uint32_t ease;
+    uint32_t reserved;
+} EeTrackTransformEvent;
 
 typedef struct EeRendererDiagnostics
 {
@@ -244,6 +279,10 @@ EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(
 EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(
     EeRendererHandle renderer,
     const EeCameraEvent* events,
+    uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(
+    EeRendererHandle renderer,
+    const EeTrackTransformEvent* events,
     uint32_t event_count);
 EE_RENDERER_API void ee_renderer_set_playback_anchor(
     EeRendererHandle renderer,
