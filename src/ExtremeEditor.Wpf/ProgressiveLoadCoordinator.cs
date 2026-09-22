@@ -17,9 +17,9 @@ internal static class ProgressiveLoadCoordinator
         Task audioTask = prepareAudio();
         Task timelineTask = prepareTimeline();
 
-        // RED baseline: the current load semantics do not publish an editor-ready
-        // state until playback preparation has also completed.
-        await Task.WhenAll(editorTask, audioTask, timelineTask).ConfigureAwait(false);
+        await editorTask.ConfigureAwait(false);
         markEditorReady();
+
+        await Task.WhenAll(audioTask, timelineTask).ConfigureAwait(false);
     }
 }
