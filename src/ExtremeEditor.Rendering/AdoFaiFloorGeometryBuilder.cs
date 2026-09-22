@@ -17,20 +17,39 @@ public static class AdoFaiFloorGeometryBuilder
 
     private static readonly Dictionary<GeometryKey, FloorGeometry> Cache = new();
 
-    public static FloorGeometry Get(float entryAngle, float exitAngle, bool midSpin)
+    public static FloorGeometry Get(float entryAngle, float exitAngle, bool midSpin) =>
+        Get(entryAngle, exitAngle, midSpin, 1f, 1f);
+
+    public static FloorGeometry Get(
+        float entryAngle,
+        float exitAngle,
+        bool midSpin,
+        float lengthMultiplier,
+        float widthMultiplier)
     {
         float delta = ModAngle(exitAngle - entryAngle);
         int curvaturePoints = midSpin ? 3 : 40;
-        var key = new GeometryKey((int)MathF.Round(delta * 100_000f), curvaturePoints);
+        float safeLength = Math.Max(0f, float.IsFinite(lengthMultiplier) ? lengthMultiplier : 1f);
+        float safeWidth = Math.Max(0f, float.IsFinite(widthMultiplier) ? widthMultiplier : 1f);
+        var key = new GeometryKey(
+            (int)MathF.Round(delta * 100_000f),
+            curvaturePoints,
+            (int)MathF.Round(safeLength * 100_000f),
+            (int)MathF.Round(safeWidth * 100_000f));
         if (!Cache.TryGetValue(key, out FloorGeometry? geometry))
         {
-            geometry = Build(0f, delta, curvaturePoints);
+            geometry = Build(0f, delta, curvaturePoints, safeLength, safeWidth);
             Cache[key] = geometry;
         }
         return geometry;
     }
 
-    private static FloorGeometry Build(float angle0, float angle1, int curvaturePoints)
+    private static FloorGeometry Build(
+        float angle0,
+        float angle1,
+        int curvaturePoints,
+        float lengthMultiplier,
+        float widthMultiplier)
     {
         angle0 = ModAngle(angle0);
         angle1 = ModAngle(angle1);
@@ -42,7 +61,8 @@ public static class AdoFaiFloorGeometryBuilder
         bool piAngle = MathF.Abs(shortAngle - MathF.PI) < Epsilon;
 
         Vector2 origin = Vector2.Zero;
-        float length = Length;
+        float length = Length * lengthMultiplier;
+        float width = Width * widthMultiplier;
         if (zeroAngle)
         {
             origin = Add(origin, angle1, -length / 12f);
@@ -51,19 +71,19 @@ public static class AdoFaiFloorGeometryBuilder
 
         Vector2 startCenter = Add(origin, angle0, length);
         float startMoreAngle = angle0 + MathF.PI / 2f;
-        Vector2 startMore = Add(startCenter, startMoreAngle, Width);
-        Vector2 startMoreRay = Add(startMore, startMoreAngle + MathF.PI / 2f, Width * 0.01f);
+        Vector2 startMore = Add(startCenter, startMoreAngle, width);
+        Vector2 startMoreRay = Add(startMore, startMoreAngle + MathF.PI / 2f, Math.Max(width, Epsilon) * 0.01f);
         float startLessAngle = angle0 - MathF.PI / 2f;
-        Vector2 startLess = Add(startCenter, startLessAngle, Width);
-        Vector2 startLessRay = Add(startLess, startLessAngle - MathF.PI / 2f, Width * 0.01f);
+        Vector2 startLess = Add(startCenter, startLessAngle, width);
+        Vector2 startLessRay = Add(startLess, startLessAngle - MathF.PI / 2f, Math.Max(width, Epsilon) * 0.01f);
 
         Vector2 endCenter = Add(origin, angle1, length);
         float endMoreAngle = angle1 + MathF.PI / 2f;
-        Vector2 endMore = Add(endCenter, endMoreAngle, Width);
-        Vector2 endMoreRay = Add(endMore, endMoreAngle + MathF.PI / 2f, Width * 0.01f);
+        Vector2 endMore = Add(endCenter, endMoreAngle, width);
+        Vector2 endMoreRay = Add(endMore, endMoreAngle + MathF.PI / 2f, Math.Max(width, Epsilon) * 0.01f);
         float endLessAngle = angle1 - MathF.PI / 2f;
-        Vector2 endLess = Add(endCenter, endLessAngle, Width);
-        Vector2 endLessRay = Add(endLess, endLessAngle - MathF.PI / 2f, Width * 0.01f);
+        Vector2 endLess = Add(endCenter, endLessAngle, width);
+        Vector2 endLessRay = Add(endLess, endLessAngle - MathF.PI / 2f, Math.Max(width, Epsilon) * 0.01f);
 
         Vector2 ccwIntersection = zeroAngle || piAngle
             ? origin
@@ -76,7 +96,7 @@ public static class AdoFaiFloorGeometryBuilder
         float angleDifference = ModAngle(angle1 - angle0);
         Vector2 cwCenter = Vector2.Lerp(cwIntersection, origin, roundness);
         Vector2 ccwCenter = Vector2.Lerp(ccwIntersection, origin, roundness);
-        float cornerRadius = Width * roundness;
+        float cornerRadius = width * roundness;
 
         List<Vector2> cwCornerPoints = angleDifference < 2.0942953f
             ? CreateCircleArc(cwCenter, ModAngle(endMoreAngle), ModAngle(startLessAngle), cornerRadius, curvaturePoints)
@@ -235,7 +255,7 @@ public static class AdoFaiFloorGeometryBuilder
     private static float ModAngle(float a) => (a % TwoPi + TwoPi) % TwoPi;
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
-    private readonly record struct GeometryKey(int Delta, int CurvaturePoints);
+    private readonly record struct GeometryKey(int Delta, int CurvaturePoints, int Length, int Width);
 }
 
 public sealed record FloorGeometry(Vector2[] Main, Vector2[][] Shadows);
