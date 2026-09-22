@@ -11,9 +11,6 @@ public partial class MainWindow
     private static readonly string[] TrackStyles =
         ["Standard", "Neon", "NeonLight", "Basic", "Minimal", "Gems"];
 
-    private static readonly string[] TileReferenceModes =
-        ["ThisTile", "Start", "End"];
-
     private static void RegisterTrackColorEventSchemas()
     {
         if (EventPropertySchemas is not Dictionary<string, EventPropertyDefinition[]> schemas)
@@ -74,7 +71,7 @@ public partial class MainWindow
             NumberProperty("duration", 1.0, "beats"),
             Vector2Property("positionOffset", null, null, "tiles"),
             NumberProperty("rotationOffset", 0.0, "°"),
-            TileReferenceProperty("scale", 100, "100"),
+            Vector2Property("scale", 100.0, 100.0, "%"),
             NumberProperty("opacity", 100.0, "%"),
             NumberProperty("angleOffset", 0.0, "°"),
             TextProperty("ease", "Linear"),
