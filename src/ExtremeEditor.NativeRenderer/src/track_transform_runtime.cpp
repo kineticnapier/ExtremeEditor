@@ -11,8 +11,7 @@ double OutBounce(double t) noexcept
 {
     constexpr double n1 = 7.5625;
     constexpr double d1 = 2.75;
-    if (t < 1.0 / d1)
-        return n1 * t * t;
+    if (t < 1.0 / d1) return n1 * t * t;
     if (t < 2.0 / d1)
     {
         t -= 1.5 / d1;
@@ -103,14 +102,25 @@ void TrackTransformRuntime::SetPlaybackAnchor(
     anchor_steady_ = std::chrono::steady_clock::now();
 }
 
-void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors) noexcept
+void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept
 {
     std::lock_guard lock(mutex_);
-    if (base_floors_.size() == floors.size())
-        floors = base_floors_;
+    if (base_floors_.size() != floors.size())
+        return;
+
+    for (const FloorTrack& track : tracks_)
+    {
+        if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+            continue;
+        const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
+        const EeFloor& old = floors[floor];
+        const EeFloor& base = base_floors_[floor];
+        ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+        floors[floor] = base;
+    }
 }
 
-void TrackTransformRuntime::Update(std::vector<EeFloor>& floors) noexcept
+void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept
 {
     std::lock_guard lock(mutex_);
     if (base_floors_.size() != floors.size())
@@ -118,13 +128,15 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors) noexcept
 
     if (!active_ || tracks_.empty())
     {
-        if (!tracks_.empty())
+        for (const FloorTrack& track : tracks_)
         {
-            for (const FloorTrack& track : tracks_)
-            {
-                if (track.floor >= 0 && static_cast<std::size_t>(track.floor) < floors.size())
-                    floors[static_cast<std::size_t>(track.floor)] = base_floors_[static_cast<std::size_t>(track.floor)];
-            }
+            if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+                continue;
+            const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
+            const EeFloor& old = floors[floor];
+            const EeFloor& base = base_floors_[floor];
+            ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+            floors[floor] = base;
         }
         return;
     }
@@ -135,8 +147,9 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors) noexcept
         if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
             continue;
 
-        const std::size_t floor_index = static_cast<std::size_t>(track.floor);
+        const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
         const EeFloor& base = base_floors_[floor_index];
+        const EeFloor old = floors[floor_index];
         EeFloor resolved = base;
 
         const auto upper = std::upper_bound(
@@ -202,6 +215,7 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors) noexcept
                 chart_time);
 
         resolved.track_transform_flags |= EE_TRACK_TRANSFORM_ENABLED;
+        ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells);
         floors[floor_index] = resolved;
     }
 }
@@ -228,6 +242,45 @@ float TrackTransformRuntime::Evaluate(
         : std::clamp((chart_time - item.start_time) / item.duration_seconds, 0.0, 1.0);
     const float t = ApplyEase(item.ease, progress);
     return start + (target - start) * t;
+}
+
+int TrackTransformRuntime::FastFloor(float value) noexcept
+{
+    const int truncated = static_cast<int>(value);
+    return value < static_cast<float>(truncated) ? truncated - 1 : truncated;
+}
+
+std::int64_t TrackTransformRuntime::CellKey(float x, float y) noexcept
+{
+    const int cell_x = FastFloor(x / CellSize);
+    const int cell_y = FastFloor(y / CellSize);
+    const std::uint64_t high = static_cast<std::uint64_t>(static_cast<std::uint32_t>(cell_x)) << 32;
+    const std::uint64_t low = static_cast<std::uint32_t>(cell_y);
+    return static_cast<std::int64_t>(high | low);
+}
+
+void TrackTransformRuntime::ReindexFloor(
+    std::uint32_t floor,
+    float old_x,
+    float old_y,
+    float new_x,
+    float new_y,
+    CellMap& cells) noexcept
+{
+    const std::int64_t old_key = CellKey(old_x, old_y);
+    const std::int64_t new_key = CellKey(new_x, new_y);
+    if (old_key == new_key)
+        return;
+
+    const auto old_found = cells.find(old_key);
+    if (old_found != cells.end())
+    {
+        auto& values = old_found->second;
+        values.erase(std::remove(values.begin(), values.end(), floor), values.end());
+        if (values.empty())
+            cells.erase(old_found);
+    }
+    cells[new_key].push_back(floor);
 }
 
 float TrackTransformRuntime::ApplyEase(std::uint32_t ease, double t) noexcept
