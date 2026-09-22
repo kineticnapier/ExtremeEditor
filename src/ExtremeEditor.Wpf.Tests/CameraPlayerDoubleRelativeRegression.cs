@@ -85,7 +85,7 @@ internal static class CameraPlayerDoubleRelativeRegression
                 Math.Abs(firstPose.StationaryPlanet.Y) <= 0.0001f)
             {
                 throw new InvalidOperationException(
-                    "RED setup: Player pivot must be non-zero so duplicate relative conversion is observable.");
+                    "RED setup: Player pivot must be non-zero so world-to-local conversion is observable.");
             }
 
             NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(level, timing, events);
@@ -93,12 +93,12 @@ internal static class CameraPlayerDoubleRelativeRegression
             NativeCameraEvent firstAfter = events[firstPlayerIndex];
             NativeCameraEvent secondAfter = events[secondPlayerIndex];
 
-            AssertWorldStartPreserved(
+            AssertConvertedExactlyOnce(
                 "Global -> Player",
                 firstBefore,
                 firstAfter,
                 firstPose);
-            AssertWorldStartPreserved(
+            AssertConvertedExactlyOnce(
                 "Player -> Player",
                 secondBefore,
                 secondAfter,
@@ -111,19 +111,31 @@ internal static class CameraPlayerDoubleRelativeRegression
         }
     }
 
-    private static void AssertWorldStartPreserved(
+    private static void AssertConvertedExactlyOnce(
         string transition,
         NativeCameraEvent before,
         NativeCameraEvent after,
         PlaybackPose pose)
     {
-        if (Math.Abs(after.StartX - before.StartX) > 0.0001f ||
-            Math.Abs(after.StartY - before.StartY) > 0.0001f)
+        float expectedX = before.StartX - pose.StationaryPlanet.X;
+        float expectedY = before.StartY - pose.StationaryPlanet.Y;
+
+        if (Math.Abs(after.StartX - expectedX) > 0.0001f ||
+            Math.Abs(after.StartY - expectedY) > 0.0001f)
         {
             throw new InvalidOperationException(
-                $"RED: {transition} Player MoveCamera start is already world-space in the faithful builder and must not be made relative again. " +
+                $"RED: {transition} Player MoveCamera start must be converted from StartEffect-time world space to Player-local exactly once. " +
                 $"Before=({before.StartX},{before.StartY}), After=({after.StartX},{after.StartY}), " +
-                $"Player=({pose.StationaryPlanet.X},{pose.StationaryPlanet.Y}).");
+                $"Expected=({expectedX},{expectedY}), Player=({pose.StationaryPlanet.X},{pose.StationaryPlanet.Y}).");
+        }
+
+        float reconstructedWorldX = after.StartX + pose.StationaryPlanet.X;
+        float reconstructedWorldY = after.StartY + pose.StationaryPlanet.Y;
+        if (Math.Abs(reconstructedWorldX - before.StartX) > 0.0001f ||
+            Math.Abs(reconstructedWorldY - before.StartY) > 0.0001f)
+        {
+            throw new InvalidOperationException(
+                $"RED: {transition} Player-local start must reconstruct the original world camera at StartEffect.");
         }
     }
 }
