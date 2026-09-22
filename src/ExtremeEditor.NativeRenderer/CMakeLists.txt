@@ -9,6 +9,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/native_window.cpp
     src/renderer.cpp
     src/renderer_camera.cpp
+    src/renderer_track.cpp
     src/renderer_editor.cpp
     src/renderer_diagnostics.cpp
     src/d2d_backend.cpp
@@ -20,6 +21,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/icon_instanced_renderer.cpp
     src/icon_instanced_renderer_camera.cpp
     src/level_scene.cpp
+    src/track_transform_runtime.cpp
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
