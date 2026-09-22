@@ -10,7 +10,12 @@ public static class PathBuilder
     // meshes overlap by half a tile and visually bite into one another.
     public const float DefaultLongTileSize = 1.5f;
 
-    public static Vector2[] BuildPositions(ReadOnlySpan<double> angles)
+    public static Vector2[] BuildPositions(ReadOnlySpan<double> angles) =>
+        BuildPositions(angles, ReadOnlySpan<float>.Empty);
+
+    public static Vector2[] BuildPositions(
+        ReadOnlySpan<double> angles,
+        ReadOnlySpan<float> radiusScales)
     {
         if (angles.Length == 0)
             return [Vector2.Zero];
@@ -30,11 +35,19 @@ public static class PathBuilder
                 ? entryAngle
                 : (-angle + 90.0) * Math.PI / 180.0;
 
+            // ScaleRadius belongs to the current floor and affects the outgoing
+            // radius to the next floor. Stock uses prevFloor.radiusScale when it
+            // places that next floor, so the scale for edge i -> i+1 is index i.
+            float radiusScale = i < radiusScales.Length && float.IsFinite(radiusScales[i])
+                ? radiusScales[i]
+                : 1.0f;
+            float step = DefaultLongTileSize * radiusScale;
+
             // Mirrors scrMisc.getVectorFromAngle(exitAngle, tileSize):
-            // (sin(a), cos(a)) * 1.5 for the stock long-tile shape.
+            // (sin(a), cos(a)) * tileSize * radiusScale.
             current += new Vector2(
-                (float)Math.Sin(exitAngle) * DefaultLongTileSize,
-                (float)Math.Cos(exitAngle) * DefaultLongTileSize);
+                (float)Math.Sin(exitAngle) * step,
+                (float)Math.Cos(exitAngle) * step);
             positions[i + 1] = current;
 
             entryAngle = PositiveMod(exitAngle + Math.PI, Math.PI * 2.0);
