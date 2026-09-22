@@ -39,23 +39,25 @@ std::shared_ptr<LevelScene> LevelScene::Create(
             return nullptr;
     }
 
-    scene->cells.reserve(std::min<std::size_t>(scene->floors.size(), 262144u));
-    for (std::uint32_t i = 0; i < floor_count; ++i)
+    for (const EeFloor& floor : scene->floors)
     {
-        const EeFloor& floor = scene->floors[i];
         if (floor.geometry_id >= geometry_count || !std::isfinite(floor.x) || !std::isfinite(floor.y))
             return nullptr;
-
-        const int x = FastFloor(floor.x / CellSize);
-        const int y = FastFloor(floor.y / CellSize);
-        scene->cells[Key(x, y)].push_back(i);
     }
 
+    scene->RebuildCells();
+    scene->track_transforms_.ResetBase(scene->floors);
     return scene;
 }
 
-void LevelScene::Query(float left, float top, float right, float bottom, std::vector<std::uint32_t>& output) const
+void LevelScene::Query(
+    float left,
+    float top,
+    float right,
+    float bottom,
+    std::vector<std::uint32_t>& output) const
 {
+    std::lock_guard lock(transform_mutex_);
     output.clear();
 
     const int min_x = FastFloor(left / CellSize);
@@ -78,6 +80,44 @@ void LevelScene::Query(float left, float top, float right, float bottom, std::ve
 
             output.insert(output.end(), found->second.begin(), found->second.end());
         }
+    }
+}
+
+bool LevelScene::SetTrackTransformTimeline(
+    const EeTrackTransformEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    track_transforms_.Restore(floors, cells);
+    return track_transforms_.SetTimeline(events, event_count);
+}
+
+void LevelScene::SetTrackPlaybackAnchor(
+    double chart_time,
+    double chart_rate,
+    std::uint32_t flags) noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    track_transforms_.SetPlaybackAnchor(chart_time, chart_rate, flags);
+    track_transforms_.Update(floors, cells);
+}
+
+void LevelScene::UpdateTrackTransforms() noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    track_transforms_.Update(floors, cells);
+}
+
+void LevelScene::RebuildCells() noexcept
+{
+    cells.clear();
+    cells.reserve(std::min<std::size_t>(floors.size(), 262144u));
+    for (std::uint32_t i = 0; i < floors.size(); ++i)
+    {
+        const EeFloor& floor = floors[i];
+        const int x = FastFloor(floor.x / CellSize);
+        const int y = FastFloor(floor.y / CellSize);
+        cells[Key(x, y)].push_back(i);
     }
 }
 
