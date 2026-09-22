@@ -39,7 +39,8 @@ internal static class Program
             NativeRendererHostRegression.Run();
             CameraRuntimeTileReferenceRegression.Run();
             CameraTileMoveTrackFreezeRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, and performance regressions are valid.");
+            CameraPlayerDoubleRelativeRegression.Run();
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
