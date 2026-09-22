@@ -230,23 +230,15 @@ struct FollowCameraState
             }
         }
 
-        // MoveTrack can continue translating the floor after it has been
-        // entered. Keep the existing two-beat follow interpolation, but move
-        // that whole interpolation frame along with the current floor instead
-        // of leaving its destination frozen at the entry-time position.
+        // ADOFAI keeps the camera's frompos fixed after a hit and, while
+        // following moving platforms, updates only camy.topos to the chosen
+        // planet's current transform. Mirroring that distinction is important:
+        // translating frompos as well makes the entire interpolation frame drift
+        // with MoveTrack and can send the camera far away from the player.
         if (target_floor == floor)
         {
-            const float delta_x = playback.stationary_x - to_x;
-            const float delta_y = playback.stationary_y - to_y;
-            if (std::abs(delta_x) > 1e-6f || std::abs(delta_y) > 1e-6f)
-            {
-                x += delta_x;
-                y += delta_y;
-                from_x += delta_x;
-                from_y += delta_y;
-                to_x = playback.stationary_x;
-                to_y = playback.stationary_y;
-            }
+            to_x = playback.stationary_x;
+            to_y = playback.stationary_y;
         }
 
         Evaluate(chart_time);
