@@ -289,6 +289,11 @@ EE_RENDERER_API void ee_renderer_set_playback_anchor(
     double chart_time,
     double chart_rate,
     uint32_t flags);
+EE_RENDERER_API void ee_renderer_set_track_playback_anchor(
+    EeRendererHandle renderer,
+    double chart_time,
+    double chart_rate,
+    uint32_t flags);
 EE_RENDERER_API void ee_renderer_set_follow_player(EeRendererHandle renderer, int32_t enabled);
 EE_RENDERER_API void ee_renderer_set_follow_player_changed_callback(
     EeRendererHandle renderer,
