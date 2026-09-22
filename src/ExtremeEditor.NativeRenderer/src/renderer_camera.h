@@ -46,6 +46,7 @@ struct CameraVisualState
 };
 
 CameraVisualState CalculateCameraVisual(
+    const LevelScene* scene,
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
     double chart_time) noexcept;
