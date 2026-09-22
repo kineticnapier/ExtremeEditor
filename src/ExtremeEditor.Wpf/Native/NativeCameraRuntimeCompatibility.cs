@@ -16,10 +16,9 @@ internal static class NativeCameraRuntimeCompatibility
     /// Converts camera events from the builder's static/world representation into
     /// the runtime reference frames consumed by the native renderer.
     ///
-    /// Player events keep using the smooth-follow pivot. Tile events now retain a
-    /// floor index and local camera coordinates so the native renderer can add the
-    /// current scene floor position every frame after PositionTrack/MoveTrack have
-    /// updated it.
+    /// Player events keep using the smooth-follow pivot. Tile events retain their
+    /// captured world-space tween start, while their target becomes Tile-local so
+    /// the native renderer can resolve the current transformed floor every frame.
     /// </summary>
     internal static void MakePlayerStartsRelative(
         LevelDocument level,
@@ -74,7 +73,7 @@ internal static class NativeCameraRuntimeCompatibility
         {
             ref NativeCameraEvent initial = ref events[0];
             if (initial.StartTime < InitialEventCutoff)
-                MakeTileLocal(ref initial, level, 0);
+                MakeTileTargetLocal(ref initial, level, 0);
         }
 
         var pending = new List<PendingSource>(metadata.Events.Length);
@@ -128,7 +127,7 @@ internal static class NativeCameraRuntimeCompatibility
                 continue;
 
             int floor = Math.Clamp(source.Floor, 0, level.Positions.Length - 1);
-            MakeTileLocal(ref item, level, floor);
+            MakeTileTargetLocal(ref item, level, floor);
         }
     }
 
@@ -145,22 +144,16 @@ internal static class NativeCameraRuntimeCompatibility
         return -1;
     }
 
-    private static void MakeTileLocal(ref NativeCameraEvent item, LevelDocument level, int floor)
+    private static void MakeTileTargetLocal(ref NativeCameraEvent item, LevelDocument level, int floor)
     {
         if ((uint)floor >= (uint)level.Positions.Length)
             return;
 
         var origin = level.Positions[floor];
         if ((item.Flags & NativeCameraEvent.FlagApplyX) != 0u)
-        {
-            item.StartX -= origin.X;
             item.TargetX -= origin.X;
-        }
         if ((item.Flags & NativeCameraEvent.FlagApplyY) != 0u)
-        {
-            item.StartY -= origin.Y;
             item.TargetY -= origin.Y;
-        }
 
         item.ReferenceFloor = floor;
         item.ReferenceFlags |= NativeCameraEvent.FlagReferenceTile;
