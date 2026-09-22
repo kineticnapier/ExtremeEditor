@@ -167,6 +167,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D11SamplerState> tile_sampler_;
 
     Microsoft::WRL::ComPtr<ID3D11VertexShader> camera_vertex_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> camera_textured_pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> camera_fallback_pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> camera_flat_pixel_shader_;
+    Microsoft::WRL::ComPtr<ID3D11GeometryShader> camera_edge_geometry_shader_;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> camera_input_layout_;
     Microsoft::WRL::ComPtr<ID3D11Buffer> camera_frame_constants_;
     ID3D11Device* camera_pipeline_device_ = nullptr;
