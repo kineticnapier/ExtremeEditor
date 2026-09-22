@@ -71,6 +71,7 @@ public sealed class NativeLevelViewport : HwndHost
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
     private NativeCameraEvent[] _cameraTimeline = [];
+    private NativeTrackTransformEvent[] _trackTransformTimeline = [];
     private int[] _selectedFloors = [];
     private int _primarySelection = -1;
     private bool _frameAllPending;
@@ -114,6 +115,7 @@ public sealed class NativeLevelViewport : HwndHost
             _selectedFloors = [];
             _primarySelection = -1;
             _cameraTimeline = [];
+            _trackTransformTimeline = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
     }
@@ -145,15 +147,27 @@ public sealed class NativeLevelViewport : HwndHost
 
         var watch = Stopwatch.StartNew();
         _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
-        _cameraTimeline = _level is null
-            ? []
-            : FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
+        if (_level is null)
+        {
+            _cameraTimeline = [];
+            _trackTransformTimeline = [];
+        }
+        else
+        {
+            _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
+            StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
+            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
+                _level,
+                timingMap,
+                staticTransforms);
+        }
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
 
         watch.Restart();
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
+        UploadPendingTrackTransformTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
             buildTime,
@@ -205,6 +219,7 @@ public sealed class NativeLevelViewport : HwndHost
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
+        UploadPendingTrackTransformTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
         {
@@ -331,6 +346,14 @@ public sealed class NativeLevelViewport : HwndHost
             adjusted[i].TargetZoom *= zoomScale;
         }
         _session.SetCameraTimeline(adjusted);
+    }
+
+    private void UploadPendingTrackTransformTimeline()
+    {
+        if (_session is null)
+            return;
+
+        _session.SetTrackTransformTimeline(_trackTransformTimeline);
     }
 
     private void ResizeNativeChild()
