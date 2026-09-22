@@ -131,24 +131,38 @@ float EventProgress(const EeCameraEvent& item, double chart_time) noexcept
 }
 
 float EvaluateAxis(
+    const LevelScene* scene,
     const EeCameraEvent& item,
     double chart_time,
     float player,
     bool x_axis) noexcept
 {
-    const float start = x_axis ? item.start_x : item.start_y;
+    float start = x_axis ? item.start_x : item.start_y;
     float target = x_axis ? item.target_x : item.target_y;
-    const std::uint32_t player_flag = x_axis
-        ? EE_CAMERA_TARGET_PLAYER_X
-        : EE_CAMERA_TARGET_PLAYER_Y;
-    if ((item.flags & player_flag) != 0u)
+
+    if ((item.reference_flags & EE_CAMERA_REFERENCE_TILE) != 0u &&
+        scene != nullptr &&
+        item.reference_floor >= 0 &&
+        static_cast<std::size_t>(item.reference_floor) < scene->floors.size())
     {
-        // Managed camera events store a Player-relative tween's start in world
-        // space and its target as a local offset. Only the target follows the
-        // smooth player pivot; adding the pivot to start as well double-counts
-        // the player position and produces a large camera displacement.
-        target += player;
+        const EeFloor& floor = scene->floors[static_cast<std::size_t>(item.reference_floor)];
+        const float base = x_axis ? floor.x : floor.y;
+        start += base;
+        target += base;
     }
+    else
+    {
+        const std::uint32_t player_flag = x_axis
+            ? EE_CAMERA_TARGET_PLAYER_X
+            : EE_CAMERA_TARGET_PLAYER_Y;
+        if ((item.flags & player_flag) != 0u)
+        {
+            // Preserve the existing Player-relative behaviour. Tile references
+            // are independent and resolve from the transformed LevelScene above.
+            target += player;
+        }
+    }
+
     return Lerp(start, target, EventProgress(item, chart_time));
 }
 
@@ -185,6 +199,7 @@ bool Renderer::SetCameraTimeline(const EeCameraEvent* events, std::uint32_t even
 }
 
 CameraVisualState CalculateCameraVisual(
+    const LevelScene* scene,
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
     double chart_time) noexcept
@@ -234,9 +249,9 @@ CameraVisualState CalculateCameraVisual(
     }
 
     if (x_event != nullptr)
-        result.x = EvaluateAxis(*x_event, chart_time, playback.stationary_x, true);
+        result.x = EvaluateAxis(scene, *x_event, chart_time, playback.stationary_x, true);
     if (y_event != nullptr)
-        result.y = EvaluateAxis(*y_event, chart_time, playback.stationary_y, false);
+        result.y = EvaluateAxis(scene, *y_event, chart_time, playback.stationary_y, false);
     if (rotation_event != nullptr)
         result.rotation = EvaluateScalar(*rotation_event, chart_time, false);
     if (zoom_event != nullptr)
@@ -248,5 +263,4 @@ CameraVisualState CalculateCameraVisual(
     }
 
     return result;
-}
 }
