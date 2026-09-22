@@ -10,6 +10,7 @@ internal struct NativeAbiInfo
     public uint FloorSize;
     public uint ClockSize;
     public uint DiagnosticsSize;
+    public uint TrackTransformEventSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -27,6 +28,8 @@ internal struct NativeFloor
     public const uint NoIcon = uint.MaxValue;
     public const uint IconFlagFloor = 1u;
     public const uint IconFlagFlipped = 2u;
+    public const uint TransformFlagEnabled = 1u;
+    public const uint TransformFlagStickToFloors = 2u;
 
     public float X;
     public float Y;
@@ -42,6 +45,10 @@ internal struct NativeFloor
     public float TrackGlowIntensity;
     public int TrackStartFloor;
     public uint TrackPulseLength;
+    public float TransformScaleX;
+    public float TransformScaleY;
+    public float TransformOpacity;
+    public uint TrackTransformFlags;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -127,6 +134,36 @@ internal struct NativeCameraEvent
     public float TargetZoom;
     public uint Flags;
     public uint Ease;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeTrackTransformEvent
+{
+    public const uint FlagX = 1u << 0;
+    public const uint FlagY = 1u << 1;
+    public const uint FlagRotation = 1u << 2;
+    public const uint FlagScaleX = 1u << 3;
+    public const uint FlagScaleY = 1u << 4;
+    public const uint FlagOpacity = 1u << 5;
+
+    public double StartTime;
+    public double DurationSeconds;
+    public int Floor;
+    public uint Flags;
+    public float StartX;
+    public float StartY;
+    public float TargetX;
+    public float TargetY;
+    public float StartRotation;
+    public float TargetRotation;
+    public float StartScaleX;
+    public float StartScaleY;
+    public float TargetScaleX;
+    public float TargetScaleY;
+    public float StartOpacity;
+    public float TargetOpacity;
+    public uint Ease;
+    public uint Reserved;
 }
 
 [StructLayout(LayoutKind.Sequential)]
