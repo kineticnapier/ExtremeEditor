@@ -11,9 +11,12 @@ internal static class LoadPreparationCoordinator
         ArgumentNullException.ThrowIfNull(prepareTimeline);
         ArgumentNullException.ThrowIfNull(prepareSnapshot);
 
-        Task<TAudio> audioTask = prepareAudio();
+        // Start the worker-friendly native preparation first. prepareAudio is
+        // allowed to do synchronous UI-thread work before returning its Task, so
+        // this ordering lets that work overlap the already-running workers.
         Task<TTimeline> timelineTask = prepareTimeline();
         Task<TSnapshot> snapshotTask = prepareSnapshot();
+        Task<TAudio> audioTask = prepareAudio();
 
         await Task.WhenAll(audioTask, timelineTask, snapshotTask);
         return (await audioTask, await timelineTask, await snapshotTask);
