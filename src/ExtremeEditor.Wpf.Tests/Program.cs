@@ -20,7 +20,8 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 LoadPreparationParallelismRegression.Run();
-                Console.WriteLine("PASS: load-preparation parallelism regression is valid.");
+                ProgressiveLoadReadinessRegression.Run();
+                Console.WriteLine("PASS: load-preparation regressions are valid.");
                 return 0;
             }
 
@@ -38,6 +39,7 @@ internal static class Program
             }
 
             LoadPreparationParallelismRegression.Run();
+            ProgressiveLoadReadinessRegression.Run();
             VerifyFloorGeometryIsCachedAndFrozen();
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
@@ -65,7 +67,7 @@ internal static class Program
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
             CameraPlayerSmoothPivotRegression.Run();
-            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation parallelism, and performance regressions are valid.");
+            Console.WriteLine("PASS: WPF floor geometry, icon bitmaps, level open, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
@@ -128,7 +130,7 @@ internal static class Program
                 throw new InvalidOperationException("Repeated icon bitmap requests must reuse the cached BitmapSource instance.");
 
             if (!bitmap.IsFrozen)
-                throw new InvalidOperationException("Cached icon BitmapSource must be frozen before reuse.");
+                throw new InvalidOperationException("Cached StreamGeometry must be frozen before reuse.");
         }
         finally
         {
