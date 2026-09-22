@@ -152,15 +152,16 @@ public partial class MainWindow
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
-        // PositionTrack changes the static floor snapshot. MoveTrack itself only
-        // changes the playback timeline. ScaleRadius changes the base floor
-        // coordinates used by both, so it also requires a native scene rebuild.
+        // PositionTrack and TileDimensions change the static floor snapshot;
+        // MoveTrack changes playback transforms. ScaleRadius changes the base
+        // coordinates used by all of them, so every one of these paths needs the
+        // native scene rebuilt when edited.
         if (speedVisualChanged || trackVisualChanged || trackTransformChanged || scaleRadiusChanged)
             NativeViewport.SetLevel(_level);
 
         // SetLevel resets the native transform runtime. Re-upload after either a
         // track transform edit or a radius edit so MoveTrack and camera targets are
-        // rebuilt from the new base floor coordinates.
+        // rebuilt from the new base floor coordinates and dimensions.
         if (trackTransformChanged || scaleRadiusChanged)
         {
             _timingMap ??= FlatTimingMapBuilder.Build(_level);
@@ -216,7 +217,7 @@ public partial class MainWindow
         eventType is "ColorTrack" or "RecolorTrack";
 
     private static bool IsTrackTransformEvent(string eventType) =>
-        eventType is "PositionTrack" or "MoveTrack";
+        eventType is "PositionTrack" or "MoveTrack" or "TileDimensions";
 
     private static bool IsScaleRadiusEvent(string eventType) =>
         string.Equals(eventType, "ScaleRadius", StringComparison.Ordinal);
