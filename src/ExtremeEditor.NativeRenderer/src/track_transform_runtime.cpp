@@ -34,6 +34,8 @@ void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexce
     tracks_.clear();
     active_ = false;
     playing_ = false;
+    has_last_update_chart_time_ = false;
+    last_update_chart_time_ = 0.0;
     anchor_chart_time_ = 0.0;
     chart_rate_ = 1.0;
     anchor_steady_ = std::chrono::steady_clock::now();
@@ -76,8 +78,19 @@ bool TrackTransformRuntime::SetTimeline(
             next.back().events.push_back(item);
         }
 
+        std::stable_sort(
+            next.begin(), next.end(),
+            [](const FloorTrack& a, const FloorTrack& b)
+            {
+                const double a_start = a.events.empty() ? 0.0 : a.events.front().start_time;
+                const double b_start = b.events.empty() ? 0.0 : b.events.front().start_time;
+                return a_start < b_start;
+            });
+
         std::lock_guard lock(mutex_);
         tracks_ = std::move(next);
+        has_last_update_chart_time_ = false;
+        last_update_chart_time_ = 0.0;
         return true;
     }
     catch (...)
@@ -115,6 +128,7 @@ void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells
         ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
         floors[floor] = base;
     }
+    has_last_update_chart_time_ = false;
 }
 
 void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept
@@ -135,14 +149,31 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
             ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
             floors[floor] = base;
         }
+        has_last_update_chart_time_ = false;
         return;
     }
 
     const double chart_time = CurrentChartTime();
+    const bool rewound = has_last_update_chart_time_ && chart_time < last_update_chart_time_;
+
     for (const FloorTrack& track : tracks_)
     {
         if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
             continue;
+
+        const bool started = !track.events.empty() && track.events.front().start_time <= chart_time;
+        if (!started)
+        {
+            if (!rewound)
+                break;
+
+            const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
+            const EeFloor old = floors[floor_index];
+            const EeFloor& base = base_floors_[floor_index];
+            ReindexFloor(floor_index, old.x, old.y, base.x, base.y, cells);
+            floors[floor_index] = base;
+            continue;
+        }
 
         const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
         const EeFloor& base = base_floors_[floor_index];
@@ -215,6 +246,9 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
         ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells);
         floors[floor_index] = resolved;
     }
+
+    last_update_chart_time_ = chart_time;
+    has_last_update_chart_time_ = true;
 }
 
 double TrackTransformRuntime::CurrentChartTime() const noexcept
