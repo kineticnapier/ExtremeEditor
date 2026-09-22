@@ -230,6 +230,25 @@ struct FollowCameraState
             }
         }
 
+        // MoveTrack can continue translating the floor after it has been
+        // entered. Keep the existing two-beat follow interpolation, but move
+        // that whole interpolation frame along with the current floor instead
+        // of leaving its destination frozen at the entry-time position.
+        if (target_floor == floor)
+        {
+            const float delta_x = playback.stationary_x - to_x;
+            const float delta_y = playback.stationary_y - to_y;
+            if (std::abs(delta_x) > 1e-6f || std::abs(delta_y) > 1e-6f)
+            {
+                x += delta_x;
+                y += delta_y;
+                from_x += delta_x;
+                from_y += delta_y;
+                to_x = playback.stationary_x;
+                to_y = playback.stationary_y;
+            }
+        }
+
         Evaluate(chart_time);
         last_chart_time = chart_time;
         scene_version = version;
