@@ -3,6 +3,7 @@
 #include "extreme_editor_renderer.h"
 #include "track_transform_runtime.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -44,6 +45,7 @@ struct LevelScene
 
 private:
     static constexpr float CellSize = 32.0f;
+    static constexpr double PlaybackAnchorJitterToleranceSeconds = 0.050;
     static thread_local const LevelScene* current_runtime_scene_;
 
     void RebuildCells() noexcept;
@@ -52,5 +54,10 @@ private:
 
     TrackTransformRuntime track_transforms_;
     mutable std::mutex transform_mutex_;
+    bool has_track_playback_anchor_ = false;
+    bool track_playback_anchor_playing_ = false;
+    double track_playback_anchor_chart_time_ = 0.0;
+    double track_playback_anchor_rate_ = 1.0;
+    std::chrono::steady_clock::time_point track_playback_anchor_steady_{};
 };
 }
