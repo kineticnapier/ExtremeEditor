@@ -24,6 +24,7 @@ internal static class WpfLevelLoader
 
         LoadResult loaded;
         TrackVisualSourceBundle trackVisuals;
+        TrackTransformSourceData trackTransforms;
         CameraSourceData cameraEvents;
         try
         {
@@ -34,6 +35,7 @@ internal static class WpfLevelLoader
             // Read renderer-specific visual metadata in narrow streaming passes so
             // pathological charts never need a full actions DOM during load.
             trackVisuals = TrackVisualSourceReader.Load(path, cancellationToken);
+            trackTransforms = TrackTransformSourceReader.Load(path, cancellationToken);
             cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                 CameraSourceReader.Load(path, cancellationToken));
         }
@@ -50,6 +52,7 @@ internal static class WpfLevelLoader
                     .ConfigureAwait(false);
                 loaded.Document.SourcePath = path;
                 trackVisuals = TrackVisualSourceReader.Load(normalizedPath, cancellationToken);
+                trackTransforms = TrackTransformSourceReader.Load(normalizedPath, cancellationToken);
                 cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                     CameraSourceReader.Load(normalizedPath, cancellationToken));
             }
@@ -68,11 +71,12 @@ internal static class WpfLevelLoader
             }
         }
 
-        // One track-visual pass feeds both action recovery and the richer native
-        // rendering state (style/pulse/glow) so huge charts are not reparsed twice.
+        // Narrow renderer passes stay out of the core model while still sharing
+        // their parsed metadata across every native snapshot/timeline rebuild.
         TrackColorActionRecovery.MergeMissing(loaded.Document, trackVisuals.Legacy);
         TrackColorMetadataCache.Attach(loaded.Document, trackVisuals.Legacy);
         TrackVisualMetadataCache.Attach(loaded.Document, trackVisuals.Visual);
+        TrackTransformMetadataCache.Attach(loaded.Document, trackTransforms);
         CameraMetadataCache.Attach(loaded.Document, cameraEvents);
 
         var indexWatch = Stopwatch.StartNew();
