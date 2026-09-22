@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOAD_PREP_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                LoadPreparationParallelismRegression.Run();
+                Console.WriteLine("PASS: load-preparation parallelism regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_ONLY"),
                 "1",
                 StringComparison.Ordinal))
