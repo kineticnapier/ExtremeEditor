@@ -19,7 +19,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 6;
+    private const uint ExpectedApiVersion = 7;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -81,6 +81,11 @@ internal sealed class NativeRendererSession : IDisposable
         if (abiInfo.TrackTransformEventSize != managedTrackTransformEventSize)
             throw new InvalidOperationException(
                 $"Native track-transform ABI mismatch. Managed {managedTrackTransformEventSize}, native {abiInfo.TrackTransformEventSize}.");
+
+        uint managedCameraEventSize = checked((uint)Marshal.SizeOf<NativeCameraEvent>());
+        if (abiInfo.CameraEventSize != managedCameraEventSize)
+            throw new InvalidOperationException(
+                $"Native camera-event ABI mismatch. Managed {managedCameraEventSize}, native {abiInfo.CameraEventSize}.");
 
         var createInfo = new NativeRendererCreateInfo
         {
