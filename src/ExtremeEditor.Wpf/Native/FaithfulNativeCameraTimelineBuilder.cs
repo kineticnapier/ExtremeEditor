@@ -307,6 +307,12 @@ internal static class FaithfulNativeCameraTimelineBuilder
             return byTime != 0 ? byTime : a.Live.Source.SourceIndex.CompareTo(b.Live.Source.SourceIndex);
         });
 
+        StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
+        NativeTrackTransformEvent[] moveTimeline = TrackTransformResolver.BuildMoveTimeline(
+            level,
+            timingMap,
+            staticTransforms);
+
         string movement = NormalizeMovement(metadata.InitialRelativeTo);
         bool followMode = movement == "Player";
         int lastTileCamFloor = -1;
@@ -316,9 +322,14 @@ internal static class FaithfulNativeCameraTimelineBuilder
         float initialY = (float)(metadata.InitialPosition.Y ?? 0.0);
         if (movement == "Tile")
         {
-            initialX += level.Positions[0].X;
-            initialY += level.Positions[0].Y;
-            lastEventRelativePosition = level.Positions[0];
+            var floorPos = TrackTransformPositionSampler.Evaluate(
+                0,
+                double.NegativeInfinity,
+                staticTransforms,
+                moveTimeline);
+            initialX += floorPos.X;
+            initialY += floorPos.Y;
+            lastEventRelativePosition = floorPos;
             lastTileCamFloor = 0;
         }
         else if (movement == "Global")
@@ -374,8 +385,6 @@ internal static class FaithfulNativeCameraTimelineBuilder
                 requestedMovement == movement &&
                 (requestedMovement != "Tile" || item.Floor == lastTileCamFloor))
             {
-                // ffxCameraPlus deduplicates a redundant relativeTo change when a
-                // partial position is being edited in the same reference frame.
                 movementTypeUsed = false;
             }
 
@@ -415,7 +424,6 @@ internal static class FaithfulNativeCameraTimelineBuilder
                 case "Player":
                     if (!followMode)
                     {
-                        // Entering follow mode preserves the current world camera.
                         xState.Current = beforeX - playerX;
                         yState.Current = beforeY - playerY;
                         beforeX = xState.Current;
@@ -429,8 +437,6 @@ internal static class FaithfulNativeCameraTimelineBuilder
                 case "Tile":
                     if (followMode)
                     {
-                        // ffxCameraPlus first freezes the current world position,
-                        // then switches the follow layer off.
                         xState.Current = beforeX + playerX;
                         yState.Current = beforeY + playerY;
                         beforeX = xState.Current;
@@ -439,7 +445,11 @@ internal static class FaithfulNativeCameraTimelineBuilder
                     }
                     {
                         int floor = Math.Clamp(item.Floor, 0, level.Positions.Length - 1);
-                        var floorPos = level.Positions[floor];
+                        var floorPos = TrackTransformPositionSampler.Evaluate(
+                            floor,
+                            pendingEvent.StartTime,
+                            staticTransforms,
+                            moveTimeline);
                         lastEventRelativePosition = floorPos;
                         lastTileCamFloor = floor;
                         finalX = vector2X + floorPos.X;
