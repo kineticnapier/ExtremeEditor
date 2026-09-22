@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf;
 
@@ -131,9 +132,18 @@ public partial class MainWindow
                                   IsTrackVisualEvent(after.EventType);
         bool trackTransformChanged = IsTrackTransformEvent(before.EventType) ||
                                      IsTrackTransformEvent(after.EventType);
+        bool scaleRadiusChanged = IsScaleRadiusEvent(before.EventType) ||
+                                  IsScaleRadiusEvent(after.EventType);
 
         if (speedVisualChanged)
             RecomputeSpeedRatios();
+
+        if (scaleRadiusChanged)
+        {
+            ScaleRadiusResolver.ApplyGeometry(_level);
+            var index = new SpatialGridIndex(_level.Positions);
+            Viewport.SetLevel(_level, index, preserveView: true);
+        }
 
         if (timingChanged || cameraChanged || trackTransformChanged)
         {
@@ -143,15 +153,15 @@ public partial class MainWindow
         }
 
         // PositionTrack changes the static floor snapshot. MoveTrack itself only
-        // changes the playback timeline, but rebuilding the snapshot here is cheap
-        // enough for editor property commits and keeps transitions between the two
-        // event types correct when the user edits eventType/raw JSON.
-        if (speedVisualChanged || trackVisualChanged || trackTransformChanged)
+        // changes the playback timeline. ScaleRadius changes the base floor
+        // coordinates used by both, so it also requires a native scene rebuild.
+        if (speedVisualChanged || trackVisualChanged || trackTransformChanged || scaleRadiusChanged)
             NativeViewport.SetLevel(_level);
 
-        // SetLevel resets the native transform runtime, so upload the timeline once
-        // more after it whenever a track-transform property was edited.
-        if (trackTransformChanged)
+        // SetLevel resets the native transform runtime. Re-upload after either a
+        // track transform edit or a radius edit so MoveTrack and camera targets are
+        // rebuilt from the new base floor coordinates.
+        if (trackTransformChanged || scaleRadiusChanged)
         {
             _timingMap ??= FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
@@ -207,6 +217,9 @@ public partial class MainWindow
 
     private static bool IsTrackTransformEvent(string eventType) =>
         eventType is "PositionTrack" or "MoveTrack";
+
+    private static bool IsScaleRadiusEvent(string eventType) =>
+        string.Equals(eventType, "ScaleRadius", StringComparison.Ordinal);
 
     private static bool IsCameraEvent(string eventType) =>
         string.Equals(eventType, "MoveCamera", StringComparison.Ordinal);
