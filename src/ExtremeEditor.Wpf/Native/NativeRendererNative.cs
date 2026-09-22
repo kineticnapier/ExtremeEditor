@@ -121,6 +121,13 @@ internal static class NativeRendererNative
         double chartRate,
         uint flags);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_track_playback_anchor", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetTrackPlaybackAnchor(
+        nint renderer,
+        double chartTime,
+        double chartRate,
+        uint flags);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_follow_player", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetFollowPlayer(nint renderer, int enabled);
 
