@@ -48,36 +48,33 @@ bool TrackTransformRuntime::SetTimeline(
 
     try
     {
-        std::vector<FloorTrack> next;
+        std::vector<EeTrackTransformEvent> ordered;
+        ordered.reserve(event_count);
         for (std::uint32_t i = 0; i < event_count; ++i)
         {
             const EeTrackTransformEvent& item = events[i];
             if (item.floor < 0 || static_cast<std::size_t>(item.floor) >= base_floors_.size())
                 continue;
+            ordered.push_back(item);
+        }
 
-            auto found = std::find_if(
-                next.begin(), next.end(),
-                [&](const FloorTrack& track) { return track.floor == item.floor; });
-            if (found == next.end())
+        std::stable_sort(
+            ordered.begin(), ordered.end(),
+            [](const EeTrackTransformEvent& a, const EeTrackTransformEvent& b)
             {
-                next.push_back(FloorTrack{item.floor, {}});
-                found = std::prev(next.end());
-            }
-            found->events.push_back(item);
-        }
+                if (a.floor != b.floor)
+                    return a.floor < b.floor;
+                return a.start_time < b.start_time;
+            });
 
-        for (FloorTrack& track : next)
+        std::vector<FloorTrack> next;
+        next.reserve(ordered.size());
+        for (const EeTrackTransformEvent& item : ordered)
         {
-            std::stable_sort(
-                track.events.begin(), track.events.end(),
-                [](const EeTrackTransformEvent& a, const EeTrackTransformEvent& b)
-                {
-                    return a.start_time < b.start_time;
-                });
+            if (next.empty() || next.back().floor != item.floor)
+                next.push_back(FloorTrack{item.floor, {}});
+            next.back().events.push_back(item);
         }
-        std::sort(
-            next.begin(), next.end(),
-            [](const FloorTrack& a, const FloorTrack& b) { return a.floor < b.floor; });
 
         std::lock_guard lock(mutex_);
         tracks_ = std::move(next);
