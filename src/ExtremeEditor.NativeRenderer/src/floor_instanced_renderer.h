@@ -87,6 +87,10 @@ private:
         float color_g;
         float color_b;
         float color_a;
+        float scale_x;
+        float scale_y;
+        float opacity;
+        float padding;
     };
 
     struct InstanceRange
