@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 6u
+#define EE_RENDERER_API_VERSION 7u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -26,6 +26,7 @@
 #define EE_INPUT_MODIFIER_WINDOWS 0x8u
 #define EE_CAMERA_TARGET_PLAYER_X 0x1u
 #define EE_CAMERA_TARGET_PLAYER_Y 0x2u
+#define EE_CAMERA_REFERENCE_TILE 0x4u
 #define EE_CAMERA_APPLY_X 0x100u
 #define EE_CAMERA_APPLY_Y 0x200u
 #define EE_CAMERA_APPLY_ROTATION 0x400u
@@ -122,6 +123,7 @@ typedef struct EeAbiInfo
     uint32_t clock_size;
     uint32_t diagnostics_size;
     uint32_t track_transform_event_size;
+    uint32_t camera_event_size;
 } EeAbiInfo;
 
 typedef struct EeRendererCreateInfo
@@ -191,6 +193,8 @@ typedef struct EeCameraEvent
     float target_zoom;
     uint32_t flags;
     uint32_t ease;
+    int32_t reference_floor;
+    uint32_t reference_flags;
 } EeCameraEvent;
 
 typedef struct EeTrackTransformEvent
