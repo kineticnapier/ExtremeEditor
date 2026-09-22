@@ -129,19 +129,33 @@ public partial class MainWindow
                                   after.Kind == LevelActionKind.SetSpeed;
         bool trackVisualChanged = IsTrackVisualEvent(before.EventType) ||
                                   IsTrackVisualEvent(after.EventType);
+        bool trackTransformChanged = IsTrackTransformEvent(before.EventType) ||
+                                     IsTrackTransformEvent(after.EventType);
 
         if (speedVisualChanged)
             RecomputeSpeedRatios();
 
-        if (timingChanged || cameraChanged)
+        if (timingChanged || cameraChanged || trackTransformChanged)
         {
             if (timingChanged || _timingMap is null)
                 _timingMap = FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
-        if (speedVisualChanged || trackVisualChanged)
+        // PositionTrack changes the static floor snapshot. MoveTrack itself only
+        // changes the playback timeline, but rebuilding the snapshot here is cheap
+        // enough for editor property commits and keeps transitions between the two
+        // event types correct when the user edits eventType/raw JSON.
+        if (speedVisualChanged || trackVisualChanged || trackTransformChanged)
             NativeViewport.SetLevel(_level);
+
+        // SetLevel resets the native transform runtime, so upload the timeline once
+        // more after it whenever a track-transform property was edited.
+        if (trackTransformChanged)
+        {
+            _timingMap ??= FlatTimingMapBuilder.Build(_level);
+            NativeViewport.SetPlaybackTimeline(_timingMap);
+        }
 
         if (hitSoundChanged)
         {
@@ -190,6 +204,9 @@ public partial class MainWindow
 
     private static bool IsTrackVisualEvent(string eventType) =>
         eventType is "ColorTrack" or "RecolorTrack";
+
+    private static bool IsTrackTransformEvent(string eventType) =>
+        eventType is "PositionTrack" or "MoveTrack";
 
     private static bool IsCameraEvent(string eventType) =>
         string.Equals(eventType, "MoveCamera", StringComparison.Ordinal);
