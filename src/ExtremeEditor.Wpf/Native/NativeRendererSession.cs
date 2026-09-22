@@ -300,6 +300,7 @@ internal sealed class NativeRendererSession : IDisposable
             flags |= NativeRendererNative.PlaybackFlagPlaying;
 
         NativeRendererNative.SetPlaybackAnchor(_renderer, chartTime, chartRate, flags);
+        NativeRendererNative.SetTrackPlaybackAnchor(_renderer, chartTime, chartRate, flags);
     }
 
     internal void SetFollowPlayer(bool enabled)
