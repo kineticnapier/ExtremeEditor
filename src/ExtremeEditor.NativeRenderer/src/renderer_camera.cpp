@@ -137,26 +137,15 @@ float EvaluateAxis(
     float player,
     bool x_axis) noexcept
 {
+    (void)scene;
     const float start = x_axis ? item.start_x : item.start_y;
     float target = x_axis ? item.target_x : item.target_y;
 
-    if ((item.reference_flags & EE_CAMERA_REFERENCE_TILE) != 0u &&
-        scene != nullptr &&
-        item.reference_floor >= 0 &&
-        static_cast<std::size_t>(item.reference_floor) < scene->floors.size())
-    {
-        const EeFloor& floor = scene->floors[static_cast<std::size_t>(item.reference_floor)];
-        const float base = x_axis ? floor.x : floor.y;
-        target += base;
-    }
-    else
-    {
-        const std::uint32_t player_flag = x_axis
-            ? EE_CAMERA_TARGET_PLAYER_X
-            : EE_CAMERA_TARGET_PLAYER_Y;
-        if ((item.flags & player_flag) != 0u)
-            target += player;
-    }
+    const std::uint32_t player_flag = x_axis
+        ? EE_CAMERA_TARGET_PLAYER_X
+        : EE_CAMERA_TARGET_PLAYER_Y;
+    if ((item.flags & player_flag) != 0u)
+        target += player;
 
     return Lerp(start, target, EventProgress(item, chart_time));
 }
