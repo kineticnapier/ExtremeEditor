@@ -139,15 +139,15 @@ float EvaluateAxis(
 {
     (void)scene;
     const float start = x_axis ? item.start_x : item.start_y;
-    float target = x_axis ? item.target_x : item.target_y;
+    const float target = x_axis ? item.target_x : item.target_y;
+    const float value = Lerp(start, target, EventProgress(item, chart_time));
 
     const std::uint32_t player_flag = x_axis
         ? EE_CAMERA_TARGET_PLAYER_X
         : EE_CAMERA_TARGET_PLAYER_Y;
-    if ((item.flags & player_flag) != 0u)
-        target += player;
-
-    return Lerp(start, target, EventProgress(item, chart_time));
+    return (item.flags & player_flag) != 0u
+        ? player + value
+        : value;
 }
 
 float EvaluateScalar(
