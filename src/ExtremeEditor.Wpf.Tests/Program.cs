@@ -14,6 +14,18 @@ internal static class Program
     {
         try
         {
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CameraRuntimeTileReferenceRegression.Run();
+                CameraTileMoveTrackFreezeRegression.Run();
+                CameraPlayerDoubleRelativeRegression.Run();
+                Console.WriteLine("PASS: camera-only regressions are valid.");
+                return 0;
+            }
+
             VerifyFloorGeometryIsCachedAndFrozen();
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
@@ -100,7 +112,7 @@ internal static class Program
                 throw new InvalidOperationException("GetCachedBitmap must return BitmapSource for a valid PNG.");
 
             if (!ReferenceEquals(first, second))
-                throw new InvalidOperationException("Repeated icon requests must reuse the cached BitmapSource instance.");
+                throw new InvalidOperationException("Repeated icon bitmap requests must reuse the cached BitmapSource instance.");
 
             if (!bitmap.IsFrozen)
                 throw new InvalidOperationException("Cached icon BitmapSource must be frozen before reuse.");
