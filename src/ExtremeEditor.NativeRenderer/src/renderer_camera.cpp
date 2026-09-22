@@ -157,8 +157,6 @@ float EvaluateAxis(
             : EE_CAMERA_TARGET_PLAYER_Y;
         if ((item.flags & player_flag) != 0u)
         {
-            // Preserve the existing Player-relative behaviour. Tile references
-            // are independent and resolve from the transformed LevelScene above.
             target += player;
         }
     }
@@ -263,4 +261,5 @@ CameraVisualState CalculateCameraVisual(
     }
 
     return result;
+}
 }
