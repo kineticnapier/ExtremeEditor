@@ -88,7 +88,7 @@ void VerifyTileTargetIsFrozenWhenEventStarts()
     ExpectNear(completed.x, 110.0f, 0.0001f,
         "Completed Tile MoveCamera must end at the frozen StartEffect target X");
     ExpectNear(completed.y, 45.0f, 0.0001f,
-        "Completed Tile MoveCamera must end at the frozen StartEffect target Y");
+        "Completed Tile MoveCamera target Y must not follow later MoveTrack movement");
 }
 
 void VerifyPlayerToTileSwitchPreservesWorldStart()
@@ -142,6 +142,30 @@ void VerifyReplacementTweenStartsFromCompletedPreviousTarget()
     ExpectNear(at_replacement.x, 100.0f, 0.0001f,
         "Replacement MoveCamera must start from the completed previous target (DOKill true)");
 }
+
+void VerifyPlayerTweenStaysInMovingPlayerFrame()
+{
+    // Keylimit's later section contains long Player-relative MoveCamera tweens.
+    // In ADOFAI the camera offset tween lives in the Player reference frame, so
+    // player motion translates BOTH endpoints. Blending from a fixed world-space
+    // start makes the camera resist/argue against the player until the tween ends.
+    EeCameraEvent item{};
+    item.start_time = 0.0;
+    item.duration_seconds = 10.0;
+    item.start_x = 0.0f;   // Player-relative offset at StartEffect.
+    item.target_x = 10.0f; // Player-relative target offset.
+    item.flags = EE_CAMERA_APPLY_X | EE_CAMERA_TARGET_PLAYER_X;
+    item.ease = EE_CAMERA_EASE_LINEAR;
+
+    const std::vector<EeCameraEvent> events{item};
+
+    // Halfway through the offset tween the smoothed Player pivot has moved to X=120.
+    // Expected world camera: 120 + lerp(0, 10, 0.5) = 125.
+    const ee::CameraVisualState halfway = ee::CalculateCameraVisual(
+        nullptr, &events, MakePlayback(120.0f, 0.0f), 5.0);
+    ExpectNear(halfway.x, 125.0f, 0.0001f,
+        "RED: Player MoveCamera must tween its offset inside the moving Player frame");
+}
 }
 
 int main()
@@ -149,6 +173,7 @@ int main()
     VerifyTileTargetIsFrozenWhenEventStarts();
     VerifyPlayerToTileSwitchPreservesWorldStart();
     VerifyReplacementTweenStartsFromCompletedPreviousTarget();
+    VerifyPlayerTweenStaysInMovingPlayerFrame();
     std::cout << "PASS: ADOFAI camera rig compatibility regressions are valid.\n";
     return 0;
 }
