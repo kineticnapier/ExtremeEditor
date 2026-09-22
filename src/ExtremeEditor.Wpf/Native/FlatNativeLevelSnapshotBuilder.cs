@@ -41,6 +41,7 @@ internal static class FlatNativeLevelSnapshotBuilder
         NativeFloor[] floors = geometrySnapshot.Floors;
         double[] angles = level.Angles;
         NativeTrackVisual[] trackVisuals = TrackVisualResolver.Resolve(level);
+        StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
 
         var watch = Stopwatch.StartNew();
         var iconAssets = new List<NativeIconAsset>();
@@ -113,6 +114,27 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.IconAngle = resolved.AngleRadians;
         }
 
+        // PositionTrack is a persistent floor-state transform, not a runtime
+        // MoveTrack tween. Bake it into the native scene so culling, icons,
+        // selection, camera-follow and later MoveTrack targets all share the same
+        // starting state.
+        int transformCount = Math.Min(floors.Length, staticTransforms.Length);
+        for (int floor = 0; floor < transformCount; floor++)
+        {
+            StaticTrackTransform transform = staticTransforms[floor];
+            ref NativeFloor target = ref floors[floor];
+            target.X = transform.X;
+            target.Y = transform.Y;
+            target.EntryAngle += transform.Rotation;
+            if (target.IconId != NativeFloor.NoIcon)
+                target.IconAngle += transform.Rotation;
+            target.TransformScaleX = transform.ScaleX;
+            target.TransformScaleY = transform.ScaleY;
+            target.TransformOpacity = transform.Opacity;
+            target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
+                (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
+        }
+
         // Track visual state has its own ABI fields now; icon flags stay icon-only.
         int trackVisualCount = Math.Min(floors.Length, trackVisuals.Length);
         for (int floor = 0; floor < trackVisualCount; floor++)
@@ -132,16 +154,18 @@ internal static class FlatNativeLevelSnapshotBuilder
         TimeSpan iconTime = watch.Elapsed;
 
         watch.Restart();
+        (float boundsLeft, float boundsTop, float boundsRight, float boundsBottom) =
+            CalculateTransformBounds(floors, geometrySnapshot);
         var snapshot = new NativeLevelSnapshot
         {
             Floors = floors,
             Geometries = geometrySnapshot.Geometries,
             Points = geometrySnapshot.Points,
             IconAssets = iconAssets.ToArray(),
-            BoundsLeft = geometrySnapshot.BoundsLeft,
-            BoundsTop = geometrySnapshot.BoundsTop,
-            BoundsRight = geometrySnapshot.BoundsRight,
-            BoundsBottom = geometrySnapshot.BoundsBottom
+            BoundsLeft = boundsLeft,
+            BoundsTop = boundsTop,
+            BoundsRight = boundsRight,
+            BoundsBottom = boundsBottom
         };
         watch.Stop();
 
@@ -155,6 +179,35 @@ internal static class FlatNativeLevelSnapshotBuilder
                 snapshot.Geometries.Length,
                 snapshot.IconAssets.Length,
                 validActionFloorCount));
+    }
+
+    private static (float Left, float Top, float Right, float Bottom) CalculateTransformBounds(
+        NativeFloor[] floors,
+        NativeLevelSnapshot fallback)
+    {
+        if (floors.Length == 0)
+            return (fallback.BoundsLeft, fallback.BoundsTop, fallback.BoundsRight, fallback.BoundsBottom);
+
+        float left = float.PositiveInfinity;
+        float top = float.PositiveInfinity;
+        float right = float.NegativeInfinity;
+        float bottom = float.NegativeInfinity;
+        foreach (NativeFloor floor in floors)
+        {
+            float sx = (floor.TrackTransformFlags & NativeFloor.TransformFlagEnabled) != 0u
+                ? Math.Max(0.01f, Math.Abs(floor.TransformScaleX))
+                : 1f;
+            float sy = (floor.TrackTransformFlags & NativeFloor.TransformFlagEnabled) != 0u
+                ? Math.Max(0.01f, Math.Abs(floor.TransformScaleY))
+                : 1f;
+            float marginX = 1.0f * sx;
+            float marginY = 1.0f * sy;
+            left = Math.Min(left, floor.X - marginX);
+            right = Math.Max(right, floor.X + marginX);
+            top = Math.Min(top, floor.Y - marginY);
+            bottom = Math.Max(bottom, floor.Y + marginY);
+        }
+        return (left, top, right, bottom);
     }
 
     private static bool TryResolveIcon(
