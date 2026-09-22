@@ -39,6 +39,11 @@ void D2DBackend::QueryVisibleFloorsCamera(
     float camera_rotation,
     RenderFrameStats& stats) noexcept
 {
+    // MoveTrack mutates only the affected floor transforms and reindexes floors
+    // when they cross a spatial cell. Do it immediately before culling so moving
+    // floors do not disappear just because their original cell is off-screen.
+    const_cast<LevelScene&>(scene).UpdateTrackTransforms();
+
     zoom = std::clamp(zoom, 0.05f, 400.0f);
     const float view_half_width = static_cast<float>(width_) * 0.5f / zoom;
     const float view_half_height = static_cast<float>(height_) * 0.5f / zoom;
@@ -91,11 +96,14 @@ void D2DBackend::DrawSceneOverlaysCamera(
                     floor.x, floor.y, camera_x, camera_y, zoom, camera_rotation, width_, height_);
                 const float fc = std::cos(floor.entry_angle);
                 const float fs = std::sin(floor.entry_angle);
+                const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
+                const float sx = transformed ? floor.transform_scale_x : 1.0f;
+                const float sy = transformed ? floor.transform_scale_y : 1.0f;
                 d2d_context_->SetTransform(D2D1::Matrix3x2F(
-                    zoom * (cc * fc + cs * fs),
-                    zoom * (cs * fc - cc * fs),
-                    zoom * (-cc * fs + cs * fc),
-                    zoom * (-cs * fs - cc * fc),
+                    zoom * sx * (cc * fc + cs * fs),
+                    zoom * sx * (cs * fc - cc * fs),
+                    zoom * sy * (-cc * fs + cs * fc),
+                    zoom * sy * (-cs * fs - cc * fc),
                     center.x,
                     center.y));
                 d2d_context_->DrawGeometry(
