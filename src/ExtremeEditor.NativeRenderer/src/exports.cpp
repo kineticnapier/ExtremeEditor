@@ -21,6 +21,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->clock_size = sizeof(EePlaybackTiming);
     info->diagnostics_size = sizeof(EeRendererDiagnostics);
     info->track_transform_event_size = sizeof(EeTrackTransformEvent);
+    info->camera_event_size = sizeof(EeCameraEvent);
     return EE_OK;
 }
 
