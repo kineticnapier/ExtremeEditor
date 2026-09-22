@@ -32,10 +32,10 @@ internal static class WpfPlaybackSetupBuilder
         watch.Stop();
         TimeSpan resolveSongTime = watch.Elapsed;
 
-        // MainWindow synchronously loads/pre-renders audio immediately after this
-        // setup returns. Start native CPU preparation now so snapshot/timeline
-        // building runs in parallel with that expensive audio phase.
-        NativeLoadPreparationCache.Start(level, timingMap);
+        // Editor-visible native geometry is on the initial critical path. Give it
+        // the worker pool first; playback timeline/audio preparation starts only
+        // after the editor-ready state has been published.
+        _ = NativeLoadPreparationCache.StartLevel(level);
 
         return new WpfPlaybackSetup(
             timingMap,
