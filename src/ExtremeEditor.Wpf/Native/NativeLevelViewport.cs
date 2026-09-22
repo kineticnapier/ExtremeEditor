@@ -45,7 +45,7 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
     internal NativeEditorActionRequest Request { get; }
 }
 
-public sealed class NativeLevelViewport : HwndHost
+public sealed partial class NativeLevelViewport : HwndHost
 {
     // Native playback originally used a fixed 56 px/world baseline. That is
     // exactly ADOFAI's orthographic camera only for a 560 px-high viewport:
