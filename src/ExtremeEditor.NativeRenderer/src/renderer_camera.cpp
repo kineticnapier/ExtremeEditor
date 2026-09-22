@@ -136,18 +136,17 @@ float EvaluateAxis(
     float player,
     bool x_axis) noexcept
 {
-    float start = x_axis ? item.start_x : item.start_y;
+    const float start = x_axis ? item.start_x : item.start_y;
     float target = x_axis ? item.target_x : item.target_y;
     const std::uint32_t player_flag = x_axis
         ? EE_CAMERA_TARGET_PLAYER_X
         : EE_CAMERA_TARGET_PLAYER_Y;
     if ((item.flags & player_flag) != 0u)
     {
-        // Player-relative MoveCamera tweens live under ADOFAI's smooth follow
-        // pivot. Both endpoints therefore move with the pivot; only adding the
-        // player position to the target leaves the start frozen in world space
-        // and causes large drifts whenever the route/MoveTrack is moving.
-        start += player;
+        // Managed camera events store a Player-relative tween's start in world
+        // space and its target as a local offset. Only the target follows the
+        // smooth player pivot; adding the pivot to start as well double-counts
+        // the player position and produces a large camera displacement.
         target += player;
     }
     return Lerp(start, target, EventProgress(item, chart_time));
