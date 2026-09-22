@@ -11,11 +11,11 @@ internal static class LoadPreparationCoordinator
         ArgumentNullException.ThrowIfNull(prepareTimeline);
         ArgumentNullException.ThrowIfNull(prepareSnapshot);
 
-        // RED: intentionally sequential. GREEN will start all three operations
-        // before awaiting any of them.
-        TAudio audio = await prepareAudio();
-        TTimeline timeline = await prepareTimeline();
-        TSnapshot snapshot = await prepareSnapshot();
-        return (audio, timeline, snapshot);
+        Task<TAudio> audioTask = prepareAudio();
+        Task<TTimeline> timelineTask = prepareTimeline();
+        Task<TSnapshot> snapshotTask = prepareSnapshot();
+
+        await Task.WhenAll(audioTask, timelineTask, snapshotTask);
+        return (await audioTask, await timelineTask, await snapshotTask);
     }
 }
