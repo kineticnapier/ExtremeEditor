@@ -32,6 +32,8 @@ void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexce
     std::lock_guard lock(mutex_);
     base_floors_ = floors;
     tracks_.clear();
+    active_track_indices_.clear();
+    next_track_index_ = 0;
     active_ = false;
     playing_ = false;
     has_last_update_chart_time_ = false;
@@ -74,8 +76,17 @@ bool TrackTransformRuntime::SetTimeline(
         for (const EeTrackTransformEvent& item : ordered)
         {
             if (next.empty() || next.back().floor != item.floor)
-                next.push_back(FloorTrack{item.floor, {}});
-            next.back().events.push_back(item);
+                next.push_back(FloorTrack{item.floor, {}, item.start_time});
+
+            FloorTrack& track = next.back();
+            track.events.push_back(item);
+            const double duration = std::isfinite(item.duration_seconds)
+                ? std::max(0.0, item.duration_seconds)
+                : 0.0;
+            const double end_time = std::isfinite(item.start_time)
+                ? item.start_time + duration
+                : 0.0;
+            track.end_time = std::max(track.end_time, end_time);
         }
 
         std::stable_sort(
@@ -89,6 +100,9 @@ bool TrackTransformRuntime::SetTimeline(
 
         std::lock_guard lock(mutex_);
         tracks_ = std::move(next);
+        active_track_indices_.clear();
+        active_track_indices_.reserve(tracks_.size());
+        next_track_index_ = 0;
         has_last_update_chart_time_ = false;
         last_update_chart_time_ = 0.0;
         return true;
@@ -128,6 +142,9 @@ void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells
         ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
         floors[floor] = base;
     }
+
+    active_track_indices_.clear();
+    next_track_index_ = 0;
     has_last_update_chart_time_ = false;
 }
 
@@ -139,116 +156,185 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
 
     if (!active_ || tracks_.empty())
     {
-        for (const FloorTrack& track : tracks_)
+        if (has_last_update_chart_time_)
         {
-            if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
-                continue;
-            const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
-            const EeFloor& old = floors[floor];
-            const EeFloor& base = base_floors_[floor];
-            ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
-            floors[floor] = base;
+            for (const FloorTrack& track : tracks_)
+            {
+                if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+                    continue;
+                const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
+                const EeFloor& old = floors[floor];
+                const EeFloor& base = base_floors_[floor];
+                ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+                floors[floor] = base;
+            }
         }
+
+        active_track_indices_.clear();
+        next_track_index_ = 0;
         has_last_update_chart_time_ = false;
         return;
     }
 
     const double chart_time = CurrentChartTime();
-    const bool rewound = has_last_update_chart_time_ && chart_time < last_update_chart_time_;
-
-    for (const FloorTrack& track : tracks_)
+    if (!has_last_update_chart_time_ || chart_time < last_update_chart_time_)
     {
-        if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+        RebuildRuntimeState(chart_time, floors, cells);
+        last_update_chart_time_ = chart_time;
+        has_last_update_chart_time_ = true;
+        return;
+    }
+
+    // Only tracks that were still live on the previous frame need continuous
+    // evaluation. Once a track reaches its final event end time, apply its
+    // clamped final value once and remove it from this active list.
+    std::size_t write = 0;
+    for (std::size_t read = 0; read < active_track_indices_.size(); ++read)
+    {
+        const std::size_t track_index = active_track_indices_[read];
+        if (track_index >= tracks_.size())
             continue;
 
-        const bool started = !track.events.empty() && track.events.front().start_time <= chart_time;
-        if (!started)
-        {
-            if (!rewound)
-                break;
+        const FloorTrack& track = tracks_[track_index];
+        ResolveTrackAtTime(track, chart_time, floors, cells);
+        if (track.end_time > chart_time)
+            active_track_indices_[write++] = track_index;
+    }
+    active_track_indices_.resize(write);
 
-            const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
-            const EeFloor old = floors[floor_index];
-            const EeFloor& base = base_floors_[floor_index];
-            ReindexFloor(floor_index, old.x, old.y, base.x, base.y, cells);
-            floors[floor_index] = base;
-            continue;
-        }
+    // tracks_ is ordered by first event start. Admit only tracks that became
+    // reachable since the previous frame; all later tracks remain untouched.
+    while (next_track_index_ < tracks_.size())
+    {
+        const FloorTrack& track = tracks_[next_track_index_];
+        const double start_time = track.events.empty() ? 0.0 : track.events.front().start_time;
+        if (start_time > chart_time)
+            break;
 
-        const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
-        const EeFloor& base = base_floors_[floor_index];
-        const EeFloor old = floors[floor_index];
-        EeFloor resolved = base;
-
-        const auto upper = std::upper_bound(
-            track.events.begin(), track.events.end(), chart_time,
-            [](double value, const EeTrackTransformEvent& item)
-            {
-                return value < item.start_time;
-            });
-
-        const EeTrackTransformEvent* x_event = nullptr;
-        const EeTrackTransformEvent* y_event = nullptr;
-        const EeTrackTransformEvent* rotation_event = nullptr;
-        const EeTrackTransformEvent* scale_x_event = nullptr;
-        const EeTrackTransformEvent* scale_y_event = nullptr;
-        const EeTrackTransformEvent* opacity_event = nullptr;
-
-        auto it = upper;
-        while (it != track.events.begin() &&
-               (x_event == nullptr || y_event == nullptr || rotation_event == nullptr ||
-                scale_x_event == nullptr || scale_y_event == nullptr || opacity_event == nullptr))
-        {
-            --it;
-            const EeTrackTransformEvent& item = *it;
-            if (x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_X) != 0u) x_event = &item;
-            if (y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_Y) != 0u) y_event = &item;
-            if (rotation_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_ROTATION) != 0u) rotation_event = &item;
-            if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u) scale_x_event = &item;
-            if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u) scale_y_event = &item;
-            if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u) opacity_event = &item;
-        }
-
-        if (x_event != nullptr)
-            resolved.x = Evaluate(x_event->start_x, x_event->target_x, *x_event, chart_time);
-        if (y_event != nullptr)
-            resolved.y = Evaluate(y_event->start_y, y_event->target_y, *y_event, chart_time);
-        if (rotation_event != nullptr)
-        {
-            const float rotation_offset = Evaluate(
-                rotation_event->start_rotation,
-                rotation_event->target_rotation,
-                *rotation_event,
-                chart_time);
-            resolved.entry_angle = base.entry_angle + rotation_offset;
-            resolved.icon_angle = base.icon_angle + rotation_offset;
-        }
-        if (scale_x_event != nullptr)
-            resolved.transform_scale_x = Evaluate(
-                scale_x_event->start_scale_x,
-                scale_x_event->target_scale_x,
-                *scale_x_event,
-                chart_time);
-        if (scale_y_event != nullptr)
-            resolved.transform_scale_y = Evaluate(
-                scale_y_event->start_scale_y,
-                scale_y_event->target_scale_y,
-                *scale_y_event,
-                chart_time);
-        if (opacity_event != nullptr)
-            resolved.transform_opacity = Evaluate(
-                opacity_event->start_opacity,
-                opacity_event->target_opacity,
-                *opacity_event,
-                chart_time);
-
-        resolved.track_transform_flags |= EE_TRACK_TRANSFORM_ENABLED;
-        ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells);
-        floors[floor_index] = resolved;
+        ResolveTrackAtTime(track, chart_time, floors, cells);
+        if (track.end_time > chart_time)
+            active_track_indices_.push_back(next_track_index_);
+        ++next_track_index_;
     }
 
     last_update_chart_time_ = chart_time;
     has_last_update_chart_time_ = true;
+}
+
+void TrackTransformRuntime::ResolveTrackAtTime(
+    const FloorTrack& track,
+    double chart_time,
+    std::vector<EeFloor>& floors,
+    CellMap& cells) noexcept
+{
+    if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+        return;
+
+    const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
+    const EeFloor& base = base_floors_[floor_index];
+    const EeFloor old = floors[floor_index];
+    EeFloor resolved = base;
+
+    const auto upper = std::upper_bound(
+        track.events.begin(), track.events.end(), chart_time,
+        [](double value, const EeTrackTransformEvent& item)
+        {
+            return value < item.start_time;
+        });
+
+    const EeTrackTransformEvent* x_event = nullptr;
+    const EeTrackTransformEvent* y_event = nullptr;
+    const EeTrackTransformEvent* rotation_event = nullptr;
+    const EeTrackTransformEvent* scale_x_event = nullptr;
+    const EeTrackTransformEvent* scale_y_event = nullptr;
+    const EeTrackTransformEvent* opacity_event = nullptr;
+
+    auto it = upper;
+    while (it != track.events.begin() &&
+           (x_event == nullptr || y_event == nullptr || rotation_event == nullptr ||
+            scale_x_event == nullptr || scale_y_event == nullptr || opacity_event == nullptr))
+    {
+        --it;
+        const EeTrackTransformEvent& item = *it;
+        if (x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_X) != 0u) x_event = &item;
+        if (y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_Y) != 0u) y_event = &item;
+        if (rotation_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_ROTATION) != 0u) rotation_event = &item;
+        if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u) scale_x_event = &item;
+        if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u) scale_y_event = &item;
+        if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u) opacity_event = &item;
+    }
+
+    if (x_event != nullptr)
+        resolved.x = Evaluate(x_event->start_x, x_event->target_x, *x_event, chart_time);
+    if (y_event != nullptr)
+        resolved.y = Evaluate(y_event->start_y, y_event->target_y, *y_event, chart_time);
+    if (rotation_event != nullptr)
+    {
+        const float rotation_offset = Evaluate(
+            rotation_event->start_rotation,
+            rotation_event->target_rotation,
+            *rotation_event,
+            chart_time);
+        resolved.entry_angle = base.entry_angle + rotation_offset;
+        resolved.icon_angle = base.icon_angle + rotation_offset;
+    }
+    if (scale_x_event != nullptr)
+        resolved.transform_scale_x = Evaluate(
+            scale_x_event->start_scale_x,
+            scale_x_event->target_scale_x,
+            *scale_x_event,
+            chart_time);
+    if (scale_y_event != nullptr)
+        resolved.transform_scale_y = Evaluate(
+            scale_y_event->start_scale_y,
+            scale_y_event->target_scale_y,
+            *scale_y_event,
+            chart_time);
+    if (opacity_event != nullptr)
+        resolved.transform_opacity = Evaluate(
+            opacity_event->start_opacity,
+            opacity_event->target_opacity,
+            *opacity_event,
+            chart_time);
+
+    resolved.track_transform_flags |= EE_TRACK_TRANSFORM_ENABLED;
+    ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells);
+    floors[floor_index] = resolved;
+}
+
+void TrackTransformRuntime::RebuildRuntimeState(
+    double chart_time,
+    std::vector<EeFloor>& floors,
+    CellMap& cells) noexcept
+{
+    // Seeking/rewinding is allowed to be O(total tracks): restore the immutable
+    // base first, then reconstruct exactly the tracks that have begun by the
+    // requested chart time. Normal forward frames never take this path.
+    for (const FloorTrack& track : tracks_)
+    {
+        if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
+            continue;
+        const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
+        const EeFloor old = floors[floor];
+        const EeFloor& base = base_floors_[floor];
+        ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+        floors[floor] = base;
+    }
+
+    active_track_indices_.clear();
+    next_track_index_ = 0;
+    while (next_track_index_ < tracks_.size())
+    {
+        const FloorTrack& track = tracks_[next_track_index_];
+        const double start_time = track.events.empty() ? 0.0 : track.events.front().start_time;
+        if (start_time > chart_time)
+            break;
+
+        ResolveTrackAtTime(track, chart_time, floors, cells);
+        if (track.end_time > chart_time)
+            active_track_indices_.push_back(next_track_index_);
+        ++next_track_index_;
+    }
 }
 
 double TrackTransformRuntime::CurrentChartTime() const noexcept
