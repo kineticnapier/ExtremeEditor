@@ -728,6 +728,14 @@ void Renderer::RenderLoop() noexcept
             if (playback_active && playback_playing)
                 chart_time += std::chrono::duration<double>(now - anchor_steady).count() * chart_rate;
 
+            // MoveTrack owns its own anchor/rate clock, but the resolved floor
+            // transforms still have to be advanced every native render frame.
+            // Do this before deriving the planet pose/camera target so all three
+            // consumers (track drawing, planets, Follow Player) see the same
+            // transformed floor positions for this frame.
+            if (scene != nullptr)
+                scene->UpdateTrackTransforms();
+
             PlaybackVisualState playback;
             if (playback_active)
                 playback = CalculatePlaybackVisual(scene.get(), playback_timings.get(), chart_time);
