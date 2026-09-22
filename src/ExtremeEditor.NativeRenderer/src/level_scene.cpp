@@ -96,6 +96,11 @@ bool LevelScene::SetTrackTransformTimeline(
 {
     std::lock_guard lock(transform_mutex_);
     track_transforms_.Restore(floors, cells);
+    has_track_playback_anchor_ = false;
+    track_playback_anchor_playing_ = false;
+    track_playback_anchor_chart_time_ = 0.0;
+    track_playback_anchor_rate_ = 1.0;
+    track_playback_anchor_steady_ = {};
     return track_transforms_.SetTimeline(events, event_count);
 }
 
@@ -105,8 +110,45 @@ void LevelScene::SetTrackPlaybackAnchor(
     std::uint32_t flags) noexcept
 {
     std::lock_guard lock(transform_mutex_);
-    track_transforms_.SetPlaybackAnchor(chart_time, chart_rate, flags);
-    track_transforms_.Update(floors, cells);
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool active = (flags & EE_PLAYBACK_FLAG_ACTIVE) != 0u;
+    const bool playing = active && (flags & EE_PLAYBACK_FLAG_PLAYING) != 0u;
+    const double safe_rate = std::isfinite(chart_rate) && chart_rate > 0.0 ? chart_rate : 1.0;
+    double safe_chart_time = std::isfinite(chart_time) ? chart_time : 0.0;
+
+    if (active && has_track_playback_anchor_)
+    {
+        double previous_clock_now = track_playback_anchor_chart_time_;
+        if (track_playback_anchor_playing_)
+        {
+            previous_clock_now += std::chrono::duration<double>(
+                now - track_playback_anchor_steady_).count() * track_playback_anchor_rate_;
+        }
+
+        const double regression = previous_clock_now - safe_chart_time;
+        if (regression > 0.0 && regression <= PlaybackAnchorJitterToleranceSeconds)
+            safe_chart_time = previous_clock_now;
+    }
+
+    // Anchor updates come from the UI/audio clock, but transform resolution is
+    // owned exclusively by the native render thread. Keeping this setter cheap
+    // prevents the UI and render thread from competing for transform_mutex_.
+    track_transforms_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
+
+    if (active)
+    {
+        has_track_playback_anchor_ = true;
+        track_playback_anchor_playing_ = playing;
+        track_playback_anchor_chart_time_ = safe_chart_time;
+        track_playback_anchor_rate_ = safe_rate;
+        track_playback_anchor_steady_ = now;
+    }
+    else
+    {
+        has_track_playback_anchor_ = false;
+        track_playback_anchor_playing_ = false;
+    }
 }
 
 void LevelScene::UpdateTrackTransforms() noexcept
