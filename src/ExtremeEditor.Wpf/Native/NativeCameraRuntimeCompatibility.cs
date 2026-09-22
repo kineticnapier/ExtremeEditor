@@ -14,10 +14,12 @@ internal static class NativeCameraRuntimeCompatibility
 
     /// <summary>
     /// Matches the camera rig details that depend on runtime scene state when the
-    /// source MoveCamera starts. Player events are converted into the smooth-follow
-    /// pivot representation used by the native renderer. Tile events capture the
-    /// floor transform once at StartEffect time, matching ffxCameraPlus; they do not
-    /// follow later MoveTrack motion while the camera tween is already running.
+    /// source MoveCamera starts. Tile events capture the floor transform once at
+    /// StartEffect time, matching ffxCameraPlus; they do not follow later MoveTrack
+    /// motion while the camera tween is already running.
+    ///
+    /// Player starts are already emitted in world space by
+    /// FaithfulNativeCameraTimelineBuilder and must not be converted a second time.
     /// </summary>
     internal static void MakePlayerStartsRelative(
         LevelDocument level,
@@ -29,7 +31,6 @@ internal static class NativeCameraRuntimeCompatibility
         ArgumentNullException.ThrowIfNull(events);
 
         FreezeTileTargetsAtStart(level, timingMap, events);
-        MakePlayerReferencesRelative(level, timingMap, events);
     }
 
     private static void FreezeTileTargetsAtStart(
@@ -141,30 +142,6 @@ internal static class NativeCameraRuntimeCompatibility
                 item.TargetX += dx;
             if ((item.Flags & NativeCameraEvent.FlagApplyY) != 0u)
                 item.TargetY += dy;
-        }
-    }
-
-    private static void MakePlayerReferencesRelative(
-        LevelDocument level,
-        TimingMap timingMap,
-        NativeCameraEvent[] events)
-    {
-        for (int i = 0; i < events.Length; i++)
-        {
-            ref NativeCameraEvent item = ref events[i];
-            if (item.StartTime < InitialEventCutoff)
-                continue;
-
-            uint playerFlags = item.Flags &
-                (NativeCameraEvent.FlagTargetPlayerX | NativeCameraEvent.FlagTargetPlayerY);
-            if (playerFlags == 0u)
-                continue;
-
-            var pose = timingMap.GetPose(level, item.StartTime);
-            if ((playerFlags & NativeCameraEvent.FlagTargetPlayerX) != 0u)
-                item.StartX -= pose.StationaryPlanet.X;
-            if ((playerFlags & NativeCameraEvent.FlagTargetPlayerY) != 0u)
-                item.StartY -= pose.StationaryPlanet.Y;
         }
     }
 
