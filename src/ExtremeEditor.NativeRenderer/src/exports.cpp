@@ -20,6 +20,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->floor_size = sizeof(EeFloor);
     info->clock_size = sizeof(EePlaybackTiming);
     info->diagnostics_size = sizeof(EeRendererDiagnostics);
+    info->track_transform_event_size = sizeof(EeTrackTransformEvent);
     return EE_OK;
 }
 
@@ -210,6 +211,19 @@ EeResult ee_renderer_set_camera_timeline(
         : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_set_track_transform_timeline(
+    EeRendererHandle renderer,
+    const EeTrackTransformEvent* events,
+    uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0 && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetTrackTransformTimeline(events, event_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
 void ee_renderer_set_playback_anchor(
     EeRendererHandle renderer,
     double chart_time,
@@ -218,6 +232,16 @@ void ee_renderer_set_playback_anchor(
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->SetPlaybackAnchor(chart_time, chart_rate, flags);
+}
+
+void ee_renderer_set_track_playback_anchor(
+    EeRendererHandle renderer,
+    double chart_time,
+    double chart_rate,
+    uint32_t flags)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetTrackPlaybackAnchor(chart_time, chart_rate, flags);
 }
 
 void ee_renderer_set_follow_player(EeRendererHandle renderer, int32_t enabled)
