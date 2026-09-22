@@ -25,6 +25,8 @@ struct LevelScene
         float bounds_right,
         float bounds_bottom);
 
+    static const LevelScene* CurrentRuntimeScene() noexcept;
+
     void Query(float left, float top, float right, float bottom, std::vector<std::uint32_t>& output) const;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
@@ -42,6 +44,7 @@ struct LevelScene
 
 private:
     static constexpr float CellSize = 32.0f;
+    static thread_local const LevelScene* current_runtime_scene_;
 
     void RebuildCells() noexcept;
     static int FastFloor(float value) noexcept;
