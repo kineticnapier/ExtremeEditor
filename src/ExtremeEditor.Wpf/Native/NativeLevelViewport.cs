@@ -47,6 +47,13 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 
 public sealed class NativeLevelViewport : HwndHost
 {
+    // Native playback originally used a fixed 56 px/world baseline. That is
+    // exactly ADOFAI's orthographic camera only for a 560 px-high viewport:
+    // orthographicSize = 5 * zoomSize, so px/world = H / (10 * zoomSize).
+    // Keep the native ABI untouched and compensate its zoom multiplier against
+    // this reference height before upload.
+    private const float PlaybackReferenceHeight = 560f;
+
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
         "FloorSelectionRequested",
         RoutingStrategy.Bubble,
@@ -308,12 +315,31 @@ public sealed class NativeLevelViewport : HwndHost
         if (_session is null)
             return;
 
-        _session.SetCameraTimeline(_cameraTimeline);
+        uint viewportHeight = ToPixelExtent(ActualHeight);
+        float zoomScale = PlaybackReferenceHeight / Math.Max(1f, viewportHeight);
+        if (_cameraTimeline.Length == 0 || Math.Abs(zoomScale - 1f) < 0.000001f)
+        {
+            _session.SetCameraTimeline(_cameraTimeline);
+            return;
+        }
+
+        var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
+        for (int i = 0; i < _cameraTimeline.Length; i++)
+        {
+            adjusted[i] = _cameraTimeline[i];
+            adjusted[i].StartZoom *= zoomScale;
+            adjusted[i].TargetZoom *= zoomScale;
+        }
+        _session.SetCameraTimeline(adjusted);
     }
 
     private void ResizeNativeChild()
     {
         _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
+        // Playback zoom depends on viewport height in the original orthographic
+        // camera, so a resize must update the zoom factor even though the level
+        // and MoveCamera timeline itself did not change.
+        UploadPendingCameraTimeline();
     }
 
     private static ModifierKeys ToModifierKeys(uint nativeModifiers)
