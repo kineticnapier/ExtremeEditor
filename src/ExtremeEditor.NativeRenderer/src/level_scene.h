@@ -1,9 +1,11 @@
 #pragma once
 
 #include "extreme_editor_renderer.h"
+#include "track_transform_runtime.h"
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -24,6 +26,9 @@ struct LevelScene
         float bounds_bottom);
 
     void Query(float left, float top, float right, float bottom, std::vector<std::uint32_t>& output) const;
+    bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
+    void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
+    void UpdateTrackTransforms() noexcept;
 
     std::vector<EeFloor> floors;
     std::vector<EeGeometry> geometries;
@@ -38,7 +43,11 @@ struct LevelScene
 private:
     static constexpr float CellSize = 32.0f;
 
+    void RebuildCells() noexcept;
     static int FastFloor(float value) noexcept;
     static std::int64_t Key(int x, int y) noexcept;
+
+    TrackTransformRuntime track_transforms_;
+    mutable std::mutex transform_mutex_;
 };
 }
