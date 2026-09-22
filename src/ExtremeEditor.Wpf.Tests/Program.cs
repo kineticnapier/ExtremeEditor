@@ -130,7 +130,7 @@ internal static class Program
                 throw new InvalidOperationException("Repeated icon bitmap requests must reuse the cached BitmapSource instance.");
 
             if (!bitmap.IsFrozen)
-                throw new InvalidOperationException("Cached StreamGeometry must be frozen before reuse.");
+                throw new InvalidOperationException("Cached BitmapSource must be frozen before reuse.");
         }
         finally
         {
