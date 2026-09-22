@@ -37,46 +37,54 @@ internal sealed class PreparedAudioLoad : IDisposable
             HitSoundsEnabled = hitSoundsEnabled
         };
 
-        var watch = Stopwatch.StartNew();
-        player.ConfigureHitSounds(
-            level,
-            playback.TimingMap,
-            playback.HitSoundTimeline);
-        watch.Stop();
-        TimeSpan configureTime = watch.Elapsed;
+        try
+        {
+            var watch = Stopwatch.StartNew();
+            player.ConfigureHitSounds(
+                level,
+                playback.TimingMap,
+                playback.HitSoundTimeline);
+            watch.Stop();
+            TimeSpan configureTime = watch.Elapsed;
 
-        string state;
-        TimeSpan loadTime = TimeSpan.Zero;
-        string? songPath = playback.SongPath;
-        if (songPath is null)
-        {
-            state = "audio unavailable";
-        }
-        else if (!File.Exists(songPath))
-        {
-            state = $"audio missing: {Path.GetFileName(songPath)}";
-        }
-        else
-        {
-            watch.Restart();
-            try
+            string state;
+            TimeSpan loadTime = TimeSpan.Zero;
+            string? songPath = playback.SongPath;
+            if (songPath is null)
             {
-                player.Load(songPath);
-                state = $"audio {Path.GetFileName(songPath)}";
+                state = "audio unavailable";
             }
-            catch (Exception ex)
+            else if (!File.Exists(songPath))
             {
-                player.Unload();
-                state = $"audio load failed: {ex.Message}";
+                state = $"audio missing: {Path.GetFileName(songPath)}";
             }
-            finally
+            else
             {
-                watch.Stop();
-                loadTime = watch.Elapsed;
+                watch.Restart();
+                try
+                {
+                    player.Load(songPath);
+                    state = $"audio {Path.GetFileName(songPath)}";
+                }
+                catch (Exception ex)
+                {
+                    player.Unload();
+                    state = $"audio load failed: {ex.Message}";
+                }
+                finally
+                {
+                    watch.Stop();
+                    loadTime = watch.Elapsed;
+                }
             }
-        }
 
-        return new PreparedAudioLoad(player, state, configureTime, loadTime);
+            return new PreparedAudioLoad(player, state, configureTime, loadTime);
+        }
+        catch
+        {
+            player.Dispose();
+            throw;
+        }
     }
 
     public void Dispose() => Player.Dispose();
