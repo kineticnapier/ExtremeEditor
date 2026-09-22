@@ -25,6 +25,7 @@ internal static class WpfLevelLoader
         LoadResult loaded;
         TrackVisualSourceBundle trackVisuals;
         TrackTransformSourceData trackTransforms;
+        ScaleRadiusSourceData scaleRadius;
         CameraSourceData cameraEvents;
         try
         {
@@ -36,6 +37,7 @@ internal static class WpfLevelLoader
             // pathological charts never need a full actions DOM during load.
             trackVisuals = TrackVisualSourceReader.Load(path, cancellationToken);
             trackTransforms = TrackTransformSourceReader.Load(path, cancellationToken);
+            scaleRadius = ScaleRadiusSourceReader.Load(path, cancellationToken);
             cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                 CameraSourceReader.Load(path, cancellationToken));
         }
@@ -53,6 +55,7 @@ internal static class WpfLevelLoader
                 loaded.Document.SourcePath = path;
                 trackVisuals = TrackVisualSourceReader.Load(normalizedPath, cancellationToken);
                 trackTransforms = TrackTransformSourceReader.Load(normalizedPath, cancellationToken);
+                scaleRadius = ScaleRadiusSourceReader.Load(normalizedPath, cancellationToken);
                 cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
                     CameraSourceReader.Load(normalizedPath, cancellationToken));
             }
@@ -77,7 +80,13 @@ internal static class WpfLevelLoader
         TrackColorMetadataCache.Attach(loaded.Document, trackVisuals.Legacy);
         TrackVisualMetadataCache.Attach(loaded.Document, trackVisuals.Visual);
         TrackTransformMetadataCache.Attach(loaded.Document, trackTransforms);
+        ScaleRadiusMetadataCache.Attach(loaded.Document, scaleRadius);
         CameraMetadataCache.Attach(loaded.Document, cameraEvents);
+
+        // ScaleRadius changes floor-to-floor radius, so it has to run before the
+        // spatial index and before PositionTrack/MoveTrack resolve against base
+        // floor coordinates.
+        ScaleRadiusResolver.ApplyGeometry(loaded.Document);
 
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);
