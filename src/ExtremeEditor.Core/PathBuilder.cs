@@ -35,11 +35,13 @@ public static class PathBuilder
                 ? entryAngle
                 : (-angle + 90.0) * Math.PI / 180.0;
 
-            // ScaleRadius belongs to the current floor and affects the outgoing
-            // radius to the next floor. Stock uses prevFloor.radiusScale when it
-            // places that next floor, so the scale for edge i -> i+1 is index i.
-            float radiusScale = i < radiusScales.Length && float.IsFinite(radiusScales[i])
-                ? radiusScales[i]
+            // ScaleRadius is stored on the destination floor in the stock game.
+            // When placing floor i+1, ApplyEventsToFloors has already assigned
+            // that floor's radiusScale, so edge i -> i+1 uses index i+1.
+            int destinationFloor = i + 1;
+            float radiusScale = destinationFloor < radiusScales.Length &&
+                                float.IsFinite(radiusScales[destinationFloor])
+                ? radiusScales[destinationFloor]
                 : 1.0f;
             float step = DefaultLongTileSize * radiusScale;
 
