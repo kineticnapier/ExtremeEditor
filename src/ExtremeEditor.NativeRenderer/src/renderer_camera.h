@@ -25,10 +25,6 @@ struct PlaybackCameraZoom
 
 inline float operator*(float /* editor_zoom */, PlaybackCameraZoom camera_zoom) noexcept
 {
-    // Native floor geometry is authored in a world scale where ADOFAI's stock
-    // playback framing corresponds to roughly 56 px/world at camera zoom 100.
-    // Keep MoveCamera zoom inverse (200 => half the pixels/world), but do not
-    // inherit the editor's 28 px/world navigation baseline.
     constexpr float PlaybackBaseZoom = 56.0f;
     const float safe_multiplier = camera_zoom.multiplier > 0.0001f
         ? camera_zoom.multiplier
@@ -47,6 +43,11 @@ struct CameraVisualState
 
 CameraVisualState CalculateCameraVisual(
     const LevelScene* scene,
+    const std::vector<EeCameraEvent>* events,
+    const PlaybackVisualState& playback,
+    double chart_time) noexcept;
+
+CameraVisualState CalculateCameraVisual(
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
     double chart_time) noexcept;
