@@ -63,4 +63,28 @@ target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINM
 target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
+add_executable(camera_runtime_reference_tests
+    tests/camera_runtime_reference_tests.cpp
+    src/renderer_camera.cpp
+)
+
+target_compile_features(camera_runtime_reference_tests PRIVATE cxx_std_20)
+target_compile_definitions(camera_runtime_reference_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(camera_runtime_reference_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(camera_runtime_reference_tests PRIVATE
+    user32
+    d3d11
+    d3dcompiler
+    dxgi
+    d2d1
+    dwrite
+    windowscodecs
+    ole32
+)
+
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
+add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
