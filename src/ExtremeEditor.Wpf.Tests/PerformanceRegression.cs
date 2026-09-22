@@ -183,18 +183,12 @@ internal static class PerformanceRegression
             "RasterChunkRequestsQueued",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("LevelViewport.RasterChunkRequestsQueued is missing.");
-        PropertyInfo selectedFloorProperty = typeof(LevelViewport).GetProperty(
-            "SelectedFloor",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("LevelViewport.SelectedFloor is missing.");
-        MethodInfo setter = selectedFloorProperty.GetSetMethod(nonPublic: true)
-            ?? throw new InvalidOperationException("LevelViewport.SelectedFloor setter is missing.");
 
         int before = requestCountProperty.GetValue(viewport) is int value
             ? value
             : throw new InvalidOperationException("RasterChunkRequestsQueued must be an int.");
 
-        setter.Invoke(viewport, [1]);
+        viewport.SetSelection([1], 1);
 
         int after = requestCountProperty.GetValue(viewport) is int updated
             ? updated
