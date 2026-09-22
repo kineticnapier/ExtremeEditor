@@ -9,6 +9,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/native_window.cpp
     src/renderer.cpp
     src/renderer_camera.cpp
+    src/renderer_camera_runtime_context.cpp
     src/renderer_track.cpp
     src/renderer_editor.cpp
     src/renderer_diagnostics.cpp
