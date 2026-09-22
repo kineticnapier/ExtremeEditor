@@ -64,6 +64,16 @@ internal static class NativeLevelViewportProfilingExtensions
         ArgumentNullException.ThrowIfNull(viewport);
         ArgumentNullException.ThrowIfNull(level);
 
+        if (NativeLoadPreparationCache.TryGetLevel(
+                level,
+                out Task<PreparedNativeLevel>? preparation) &&
+            preparation is not null)
+        {
+            return viewport.SetPreparedLevelProfiled(
+                level,
+                preparation.GetAwaiter().GetResult());
+        }
+
         viewport.SetLevel(level);
         return ReadLevelMetrics(viewport);
     }
@@ -74,6 +84,15 @@ internal static class NativeLevelViewportProfilingExtensions
     {
         ArgumentNullException.ThrowIfNull(viewport);
         ArgumentNullException.ThrowIfNull(timingMap);
+
+        if (NativeLoadPreparationCache.TryGetPlayback(
+                timingMap,
+                out Task<PreparedNativePlayback>? preparation) &&
+            preparation is not null)
+        {
+            return viewport.SetPreparedPlaybackTimelineProfiled(
+                preparation.GetAwaiter().GetResult());
+        }
 
         viewport.SetPlaybackTimeline(timingMap);
         NativePlaybackTimelineUploadMetrics metrics = viewport.LastPlaybackTimelineUploadMetrics;
