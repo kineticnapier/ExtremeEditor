@@ -14,6 +14,7 @@ namespace ee
 namespace
 {
 constexpr float PlanetDistance = 1.5f;
+constexpr double Pi = 3.14159265358979323846;
 
 void UpdateAtomicMax(std::atomic<double>& target, double value) noexcept
 {
@@ -91,6 +92,149 @@ PlaybackVisualState CalculatePlaybackVisual(
     result.stationary_is_red = (floor & 1u) == 0u;
     return result;
 }
+
+double CalculateFollowDuration(
+    const std::vector<EePlaybackTiming>* timings,
+    std::size_t floor) noexcept
+{
+    if (timings == nullptr || floor >= timings->size())
+        return 0.0;
+
+    const EePlaybackTiming& timing = (*timings)[floor];
+    const double rotation_duration = std::max(
+        0.0,
+        timing.exit_time - timing.entry_time - timing.pause_seconds);
+    const double moved = std::abs(static_cast<double>(timing.angle_moved));
+    if (rotation_duration > 1e-9 && moved > 1e-6)
+    {
+        // ADOFAI's normal follow camera uses camspeed = 2 beats. The playback
+        // timing already contains SetSpeed/pitch-adjusted seconds, while
+        // angle_moved tells us how many beats this floor consumed.
+        const double beat_seconds = rotation_duration * Pi / moved;
+        return std::max(0.0, beat_seconds * 2.0);
+    }
+
+    // Midspins normally do not move the camera target. Keep a sensible fallback
+    // for unusual zero-angle floors so a changed target still glides rather than
+    // snapping.
+    if (floor + 1 < timings->size())
+    {
+        const double interval = (*timings)[floor + 1].entry_time - timing.entry_time;
+        if (interval > 1e-9)
+            return interval * 2.0;
+    }
+    return 0.0;
+}
+
+struct FollowCameraState
+{
+    bool initialized = false;
+    std::int32_t floor = -1;
+    float x = 0.0f;
+    float y = 0.0f;
+    float from_x = 0.0f;
+    float from_y = 0.0f;
+    float to_x = 0.0f;
+    float to_y = 0.0f;
+    double start_time = 0.0;
+    double duration = 0.0;
+    double last_chart_time = 0.0;
+    std::uint64_t scene_version = 0;
+
+    void Reset() noexcept
+    {
+        initialized = false;
+        floor = -1;
+        x = 0.0f;
+        y = 0.0f;
+        from_x = 0.0f;
+        from_y = 0.0f;
+        to_x = 0.0f;
+        to_y = 0.0f;
+        start_time = 0.0;
+        duration = 0.0;
+        last_chart_time = 0.0;
+        scene_version = 0;
+    }
+
+    void Evaluate(double chart_time) noexcept
+    {
+        const double progress = duration <= 1e-9
+            ? 1.0
+            : std::clamp((chart_time - start_time) / duration, 0.0, 1.0);
+        const float t = static_cast<float>(progress);
+        x = from_x + (to_x - from_x) * t;
+        y = from_y + (to_y - from_y) * t;
+    }
+
+    void InitializeAt(
+        const PlaybackVisualState& playback,
+        double chart_time,
+        std::uint64_t version) noexcept
+    {
+        initialized = true;
+        floor = playback.floor;
+        x = playback.stationary_x;
+        y = playback.stationary_y;
+        from_x = x;
+        from_y = y;
+        to_x = x;
+        to_y = y;
+        start_time = chart_time;
+        duration = 0.0;
+        last_chart_time = chart_time;
+        scene_version = version;
+    }
+
+    void Update(
+        const LevelScene* scene,
+        const std::vector<EePlaybackTiming>* timings,
+        const PlaybackVisualState& playback,
+        double chart_time,
+        std::uint64_t version) noexcept
+    {
+        if (!playback.active || scene == nullptr || timings == nullptr || timings->empty())
+        {
+            Reset();
+            return;
+        }
+
+        const bool rewound = initialized && chart_time + 1e-7 < last_chart_time;
+        const bool changed_scene = initialized && scene_version != version;
+        const bool moved_backwards = initialized && playback.floor < floor;
+        if (!initialized || rewound || changed_scene || moved_backwards)
+        {
+            InitializeAt(playback, chart_time, version);
+            return;
+        }
+
+        const std::int32_t target_floor = playback.floor;
+        if (target_floor > floor)
+        {
+            for (std::int32_t next_floor = floor + 1; next_floor <= target_floor; ++next_floor)
+            {
+                const std::size_t index = static_cast<std::size_t>(next_floor);
+                if (index >= scene->floors.size() || index >= timings->size())
+                    break;
+
+                const double transition_time = (*timings)[index].entry_time;
+                Evaluate(transition_time);
+
+                from_x = x;
+                from_y = y;
+                to_x = scene->floors[index].x;
+                to_y = scene->floors[index].y;
+                start_time = transition_time;
+                duration = CalculateFollowDuration(timings, index);
+                floor = next_floor;
+            }
+        }
+
+        Evaluate(chart_time);
+        last_chart_time = chart_time;
+        scene_version = version;
+    }
+};
 }
 
 Renderer::~Renderer()
@@ -508,6 +652,7 @@ void Renderer::RenderLoop() noexcept
     }
 
     const auto start = std::chrono::steady_clock::now();
+    FollowCameraState follow_camera;
 
     while (!stop_requested_.load(std::memory_order_acquire))
     {
@@ -574,8 +719,23 @@ void Renderer::RenderLoop() noexcept
             float render_camera_rotation = 0.0f;
             if (follow_player && playback.active)
             {
+                follow_camera.Update(
+                    scene.get(),
+                    playback_timings.get(),
+                    playback,
+                    chart_time,
+                    scene_version);
+
+                // ADOFAI has a separate smooth follow layer below MoveCamera.
+                // Feed the smoothed player pivot into the existing camera event
+                // evaluator so Player-relative events inherit the same glide while
+                // Tile/Global camera events remain absolute.
+                PlaybackVisualState camera_playback = playback;
+                camera_playback.stationary_x = follow_camera.x;
+                camera_playback.stationary_y = follow_camera.y;
+
                 CameraVisualState camera_visual = CalculateCameraVisual(
-                    camera_events.get(), playback, chart_time);
+                    camera_events.get(), camera_playback, chart_time);
                 if (camera_visual.active)
                 {
                     render_camera_x = camera_visual.x;
@@ -588,8 +748,8 @@ void Renderer::RenderLoop() noexcept
                 }
                 else
                 {
-                    render_camera_x = playback.stationary_x;
-                    render_camera_y = playback.stationary_y;
+                    render_camera_x = follow_camera.x;
+                    render_camera_y = follow_camera.y;
                 }
 
                 std::lock_guard lock(scene_mutex_);
@@ -598,6 +758,10 @@ void Renderer::RenderLoop() noexcept
                     camera_x_ = render_camera_x;
                     camera_y_ = render_camera_y;
                 }
+            }
+            else
+            {
+                follow_camera.Reset();
             }
 
             const auto render_started = std::chrono::steady_clock::now();
