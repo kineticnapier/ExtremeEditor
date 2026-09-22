@@ -36,6 +36,7 @@ public:
     void SetEditorActionCallback(EeEditorActionCallback callback, void* user_data) noexcept;
     bool SetPlaybackTimeline(const EePlaybackTiming* timings, std::uint32_t timing_count) noexcept;
     bool SetCameraTimeline(const EeCameraEvent* events, std::uint32_t event_count) noexcept;
+    bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetFollowPlayer(bool enabled) noexcept;
     void SetFollowPlayerChangedCallback(EeFollowPlayerChangedCallback callback, void* user_data) noexcept;
