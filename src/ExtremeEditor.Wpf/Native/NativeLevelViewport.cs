@@ -155,6 +155,7 @@ public sealed class NativeLevelViewport : HwndHost
         else
         {
             _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
+            NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
             StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
             _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
                 _level,
