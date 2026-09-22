@@ -30,6 +30,12 @@ internal static class WpfPlaybackSetupBuilder
         watch.Restart();
         string? songPath = level.ResolveSongPath();
         watch.Stop();
+        TimeSpan resolveSongTime = watch.Elapsed;
+
+        // MainWindow synchronously loads/pre-renders audio immediately after this
+        // setup returns. Start native CPU preparation now so snapshot/timeline
+        // building runs in parallel with that expensive audio phase.
+        NativeLoadPreparationCache.Start(level, timingMap);
 
         return new WpfPlaybackSetup(
             timingMap,
@@ -37,6 +43,6 @@ internal static class WpfPlaybackSetupBuilder
             songPath,
             timingMapTime,
             hitSoundTimelineTime,
-            watch.Elapsed);
+            resolveSongTime);
     }
 }
