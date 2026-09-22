@@ -1,24 +1,24 @@
 #include "track_transform_runtime.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
 
-int main()
+namespace
 {
-    constexpr std::uint32_t FloorCount = 12000u;
-    constexpr double MaxMilliseconds = 1000.0;
-
-    std::vector<EeFloor> floors(FloorCount);
-    for (std::uint32_t i = 0; i < FloorCount; ++i)
+double Measure(std::uint32_t floor_count)
+{
+    std::vector<EeFloor> floors(floor_count);
+    for (std::uint32_t i = 0; i < floor_count; ++i)
     {
         floors[i].x = static_cast<float>(i);
         floors[i].y = 0.0f;
     }
 
-    std::vector<EeTrackTransformEvent> events(FloorCount);
-    for (std::uint32_t i = 0; i < FloorCount; ++i)
+    std::vector<EeTrackTransformEvent> events(floor_count);
+    for (std::uint32_t i = 0; i < floor_count; ++i)
     {
         EeTrackTransformEvent item{};
         item.floor = static_cast<std::int32_t>(i);
@@ -36,25 +36,44 @@ int main()
     const auto started = std::chrono::steady_clock::now();
     const bool ok = runtime.SetTimeline(events.data(), static_cast<std::uint32_t>(events.size()));
     const auto finished = std::chrono::steady_clock::now();
-    const double elapsed_ms = std::chrono::duration<double, std::milli>(finished - started).count();
 
     if (!ok)
     {
         std::cerr << "FAIL: track-transform timeline setup rejected valid input.\n";
-        return 1;
+        std::exit(1);
     }
 
-    std::cout << "track-transform SetTimeline " << FloorCount
-              << " unique floors: " << elapsed_ms << " ms\n";
+    return std::chrono::duration<double, std::milli>(finished - started).count();
+}
+}
 
-    if (elapsed_ms > MaxMilliseconds)
+int main()
+{
+    constexpr std::uint32_t SmallFloorCount = 6000u;
+    constexpr std::uint32_t LargeFloorCount = 24000u;
+    constexpr double MaxScaleRatio = 8.0;
+
+    // Warm up code/data paths before measuring the scaling ratio.
+    (void)Measure(1000u);
+
+    const double small_ms = Measure(SmallFloorCount);
+    const double large_ms = Measure(LargeFloorCount);
+    const double ratio = large_ms / std::max(0.001, small_ms);
+
+    std::cout << "track-transform SetTimeline " << SmallFloorCount
+              << " floors: " << small_ms << " ms\n";
+    std::cout << "track-transform SetTimeline " << LargeFloorCount
+              << " floors: " << large_ms << " ms\n";
+    std::cout << "scale ratio for 4x input: " << ratio << "x\n";
+
+    if (ratio > MaxScaleRatio)
     {
         std::cerr
-            << "FAIL: RED: TrackTransformRuntime::SetTimeline must not linearly scan all existing floor tracks for every event. "
-            << "elapsed=" << elapsed_ms << "ms limit=" << MaxMilliseconds << "ms\n";
+            << "FAIL: RED: TrackTransformRuntime::SetTimeline scales quadratically when unique floor count grows. "
+            << "4x input took " << ratio << "x time; limit=" << MaxScaleRatio << "x.\n";
         return 1;
     }
 
-    std::cout << "PASS: track-transform timeline grouping scales for large levels.\n";
+    std::cout << "PASS: track-transform timeline grouping does not show quadratic scaling.\n";
     return 0;
 }
