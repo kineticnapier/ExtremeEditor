@@ -44,6 +44,60 @@ internal static class FlatNativeLevelSnapshotBuilder
         StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
         NativeTileDimensions[] tileDimensions = TileDimensionsResolver.Resolve(level);
 
+        // TileDimensions changes FloorMesh's own length/width inputs. It cannot be
+        // represented by a simple XY transform at corners: stretching the finished
+        // 90-degree polygon would swap length/width on its outgoing arm. Keep the
+        // common 100% geometry shared, and create extra cached geometry only for
+        // distinct non-default dimension pairs actually present in the chart.
+        var sizedGeometries = geometrySnapshot.Geometries.ToList();
+        var sizedPoints = geometrySnapshot.Points.ToList();
+        var sizedGeometryIds = new Dictionary<SizedGeometryKey, uint>();
+        int dimensionCount = Math.Min(floors.Length, tileDimensions.Length);
+        for (int floor = 0; floor < dimensionCount; floor++)
+        {
+            NativeTileDimensions dimensions = tileDimensions[floor];
+            if (Math.Abs(dimensions.Length - 1f) < 0.000001f &&
+                Math.Abs(dimensions.Width - 1f) < 0.000001f)
+                continue;
+
+            ref NativeFloor target = ref floors[floor];
+            var key = new SizedGeometryKey(
+                target.GeometryId,
+                (int)MathF.Round(dimensions.Length * 100_000f),
+                (int)MathF.Round(dimensions.Width * 100_000f));
+            if (!sizedGeometryIds.TryGetValue(key, out uint geometryId))
+            {
+                bool midSpin = floor < angles.Length && Math.Abs(angles[floor] - 999.0) < 0.000001;
+                float entryAngle = target.EntryAngle;
+                float exitAngle = GetExitAngle(floor, angles, entryAngle);
+                float delta = Mod(exitAngle - entryAngle, TwoPi);
+                FloorGeometry source = AdoFaiFloorGeometryBuilder.Get(
+                    0f,
+                    delta,
+                    midSpin,
+                    dimensions.Length,
+                    dimensions.Width);
+
+                geometryId = checked((uint)sizedGeometries.Count);
+                uint pointOffset = checked((uint)sizedPoints.Count);
+                foreach (System.Numerics.Vector2 point in source.Main)
+                {
+                    sizedPoints.Add(new NativePoint
+                    {
+                        X = point.X,
+                        Y = point.Y
+                    });
+                }
+                sizedGeometries.Add(new NativeGeometry
+                {
+                    PointOffset = pointOffset,
+                    PointCount = checked((uint)source.Main.Length)
+                });
+                sizedGeometryIds.Add(key, geometryId);
+            }
+            target.GeometryId = geometryId;
+        }
+
         var watch = Stopwatch.StartNew();
         var iconAssets = new List<NativeIconAsset>();
         var floorIconCache = new Dictionary<string, FloorIconAsset?>(StringComparer.OrdinalIgnoreCase);
@@ -116,25 +170,21 @@ internal static class FlatNativeLevelSnapshotBuilder
         }
 
         // PositionTrack is a persistent floor-state transform, not a runtime
-        // MoveTrack tween. TileDimensions is another persistent floor state, but
-        // unlike PositionTrack scale it stretches the floor mesh independently on
-        // its local length/width axes. Compose both into the existing native scale
-        // channels so culling, selection and MoveTrack all see the same shape.
+        // MoveTrack tween. TileDimensions is already baked into the floor mesh
+        // above, so transform scale remains available exclusively for PositionTrack
+        // and MoveTrack and composes naturally with the shaped geometry.
         int transformCount = Math.Min(floors.Length, staticTransforms.Length);
         for (int floor = 0; floor < transformCount; floor++)
         {
             StaticTrackTransform transform = staticTransforms[floor];
-            NativeTileDimensions dimensions = (uint)floor < (uint)tileDimensions.Length
-                ? tileDimensions[floor]
-                : new NativeTileDimensions(1f, 1f);
             ref NativeFloor target = ref floors[floor];
             target.X = transform.X;
             target.Y = transform.Y;
             target.EntryAngle += transform.Rotation;
             if (target.IconId != NativeFloor.NoIcon)
                 target.IconAngle += transform.Rotation;
-            target.TransformScaleX = transform.ScaleX * dimensions.Length;
-            target.TransformScaleY = transform.ScaleY * dimensions.Width;
+            target.TransformScaleX = transform.ScaleX;
+            target.TransformScaleY = transform.ScaleY;
             target.TransformOpacity = transform.Opacity;
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
@@ -160,12 +210,12 @@ internal static class FlatNativeLevelSnapshotBuilder
 
         watch.Restart();
         (float boundsLeft, float boundsTop, float boundsRight, float boundsBottom) =
-            CalculateTransformBounds(floors, geometrySnapshot);
+            CalculateTransformBounds(floors, tileDimensions, geometrySnapshot);
         var snapshot = new NativeLevelSnapshot
         {
             Floors = floors,
-            Geometries = geometrySnapshot.Geometries,
-            Points = geometrySnapshot.Points,
+            Geometries = sizedGeometries.ToArray(),
+            Points = sizedPoints.ToArray(),
             IconAssets = iconAssets.ToArray(),
             BoundsLeft = boundsLeft,
             BoundsTop = boundsTop,
@@ -188,6 +238,7 @@ internal static class FlatNativeLevelSnapshotBuilder
 
     private static (float Left, float Top, float Right, float Bottom) CalculateTransformBounds(
         NativeFloor[] floors,
+        NativeTileDimensions[] dimensions,
         NativeLevelSnapshot fallback)
     {
         if (floors.Length == 0)
@@ -197,20 +248,24 @@ internal static class FlatNativeLevelSnapshotBuilder
         float top = float.PositiveInfinity;
         float right = float.NegativeInfinity;
         float bottom = float.NegativeInfinity;
-        foreach (NativeFloor floor in floors)
+        for (int i = 0; i < floors.Length; i++)
         {
+            NativeFloor floor = floors[i];
             float sx = (floor.TrackTransformFlags & NativeFloor.TransformFlagEnabled) != 0u
                 ? Math.Max(0.01f, Math.Abs(floor.TransformScaleX))
                 : 1f;
             float sy = (floor.TrackTransformFlags & NativeFloor.TransformFlagEnabled) != 0u
                 ? Math.Max(0.01f, Math.Abs(floor.TransformScaleY))
                 : 1f;
-            float marginX = 1.0f * sx;
-            float marginY = 1.0f * sy;
-            left = Math.Min(left, floor.X - marginX);
-            right = Math.Max(right, floor.X + marginX);
-            top = Math.Min(top, floor.Y - marginY);
-            bottom = Math.Max(bottom, floor.Y + marginY);
+            NativeTileDimensions dimension = (uint)i < (uint)dimensions.Length
+                ? dimensions[i]
+                : new NativeTileDimensions(1f, 1f);
+            float dimensionRadius = Math.Max(0.5f, Math.Max(dimension.Length, dimension.Width));
+            float margin = 1.25f * dimensionRadius * Math.Max(sx, sy);
+            left = Math.Min(left, floor.X - margin);
+            right = Math.Max(right, floor.X + margin);
+            top = Math.Min(top, floor.Y - margin);
+            bottom = Math.Max(bottom, floor.Y + margin);
         }
         return (left, top, right, bottom);
     }
@@ -428,6 +483,7 @@ internal static class FlatNativeLevelSnapshotBuilder
         return result < 0f ? result + modulus : result;
     }
 
+    private readonly record struct SizedGeometryKey(uint BaseGeometryId, int Length, int Width);
     private readonly record struct FloorIconAsset(uint IconId);
     private readonly record struct ResolvedIcon(
         uint IconId,
