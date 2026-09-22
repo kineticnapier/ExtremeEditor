@@ -11,6 +11,7 @@ internal struct NativeAbiInfo
     public uint ClockSize;
     public uint DiagnosticsSize;
     public uint TrackTransformEventSize;
+    public uint CameraEventSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -84,6 +85,7 @@ internal struct NativeCameraEvent
 {
     public const uint FlagTargetPlayerX = 1u;
     public const uint FlagTargetPlayerY = 2u;
+    public const uint FlagReferenceTile = 4u;
     public const uint FlagApplyX = 0x100u;
     public const uint FlagApplyY = 0x200u;
     public const uint FlagApplyRotation = 0x400u;
@@ -134,6 +136,8 @@ internal struct NativeCameraEvent
     public float TargetZoom;
     public uint Flags;
     public uint Ease;
+    public int ReferenceFloor;
+    public uint ReferenceFlags;
 }
 
 [StructLayout(LayoutKind.Sequential)]
