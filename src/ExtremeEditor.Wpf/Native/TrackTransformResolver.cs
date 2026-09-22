@@ -513,16 +513,18 @@ internal static class TrackTransformSourceReader
 
         private static bool TryReadInt(ref Utf8JsonReader reader, out int value)
         {
-            if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out value))
-                return true;
+            value = default;
+            if (reader.TokenType == JsonTokenType.Number)
+                return reader.TryGetInt32(out value);
             return reader.TokenType == JsonTokenType.String &&
                    int.TryParse(reader.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
         }
 
         private static bool TryReadDouble(ref Utf8JsonReader reader, out double value)
         {
-            if (reader.TokenType == JsonTokenType.Number && reader.TryGetDouble(out value))
-                return true;
+            value = default;
+            if (reader.TokenType == JsonTokenType.Number)
+                return reader.TryGetDouble(out value);
             return reader.TokenType == JsonTokenType.String &&
                    double.TryParse(reader.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
