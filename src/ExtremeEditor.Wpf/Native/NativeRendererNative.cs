@@ -108,6 +108,12 @@ internal static class NativeRendererNative
         nint events,
         uint eventCount);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_track_transform_timeline", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetTrackTransformTimeline(
+        nint renderer,
+        nint events,
+        uint eventCount);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_anchor", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetPlaybackAnchor(
         nint renderer,
