@@ -12,7 +12,7 @@ namespace ExtremeEditor.Wpf;
 
 public partial class MainWindow : Window
 {
-    private readonly AudioPlayer _audio = new();
+    private AudioPlayer _audio = new();
     private readonly DispatcherTimer _playbackTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(16)
@@ -22,6 +22,9 @@ public partial class MainWindow : Window
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
     private bool _isLoading;
+    private bool _playbackPreparationPending;
+    private bool _isClosed;
+    private int _loadGeneration;
 
     // ADOFAI's editor can preview a chart even before a song file is assigned.
     // Keep a chart-time transport alongside the real audio transport so editor
@@ -93,6 +96,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _isClosed = true;
+        _loadGeneration++;
         _playbackTimer.Stop();
         _editorPlaybackRefreshTimer?.Stop();
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
@@ -127,9 +132,12 @@ public partial class MainWindow : Window
 
     private async Task LoadLevelAsync(string path)
     {
+        int generation = ++_loadGeneration;
+        bool editorReady = false;
         try
         {
             _isLoading = true;
+            _playbackPreparationPending = false;
             _editorPlaybackRefreshTimer?.Stop();
             _editorPlaybackRefreshPending = false;
             _editorPlaybackRefreshDocument = null;
@@ -147,9 +155,6 @@ public partial class MainWindow : Window
                 $"path={loaded.Metrics.BuildPath.TotalMilliseconds:N1}ms " +
                 $"managedIndex={loaded.IndexTime.TotalMilliseconds:N1}ms");
 
-            // Timing and hit-sound setup are pure CPU work. Keep them off the UI
-            // thread as well so a multi-million-floor chart stays responsive while
-            // its playback model is prepared.
             WpfPlaybackSetup playback = await Task.Run(
                 () => WpfPlaybackSetupBuilder.Build(loaded.Document));
             Console.WriteLine(
@@ -162,20 +167,106 @@ public partial class MainWindow : Window
             _audio.Unload();
             TimeSpan audioUnload = phase.Elapsed;
 
-            phase.Restart();
-            _audio.ConfigureHitSounds(
-                loaded.Document,
-                playback.TimingMap,
-                playback.HitSoundTimeline);
-            TimeSpan audioConfigure = phase.Elapsed;
+            _level = loaded.Document;
+            _timingMap = playback.TimingMap;
+            _hitSoundTimeline = playback.HitSoundTimeline;
 
             phase.Restart();
-            string audioState = LoadSong(playback.SongPath);
-            TimeSpan audioLoad = phase.Elapsed;
+            Viewport.SetLevel(loaded.Document, loaded.Index);
+            TimeSpan wpfSetLevel = phase.Elapsed;
+
+            Task<Native.PreparedNativeLevel> nativeLevelTask =
+                NativeLoadPreparationCache.TryGetLevel(
+                    loaded.Document,
+                    out Task<Native.PreparedNativeLevel>? cachedLevelTask) &&
+                cachedLevelTask is not null
+                    ? cachedLevelTask
+                    : NativeLoadPreparationCache.StartLevel(loaded.Document);
+            Native.PreparedNativeLevel preparedNativeLevel = await nativeLevelTask;
+
+            if (generation != _loadGeneration || _isClosed)
+                return;
+
+            NativeLevelLoadMetrics nativeMetrics =
+                NativeViewport.SetPreparedLevelProfiled(loaded.Document, preparedNativeLevel);
+            Viewport.SetSelection([0], 0);
+            NativeViewport.SetSelection([0], 0);
+
+            TimeSpan editorReadyTime = totalWatch.Elapsed;
+            editorReady = true;
+            _isLoading = false;
+            _playbackPreparationPending = true;
+            Mouse.OverrideCursor = null;
+            CommandManager.InvalidateRequerySuggested();
+
+            Console.WriteLine(
+                $"[load] editor-ready floors={loaded.Document.FloorCount:N0} " +
+                $"actions={loaded.Document.ActionCount:N0} " +
+                $"wpfSetLevel={wpfSetLevel.TotalMilliseconds:N1}ms " +
+                $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
+                $"nativeUpload={nativeMetrics.Upload.TotalMilliseconds:N1}ms " +
+                $"total={editorReadyTime.TotalMilliseconds:N1}ms");
+
+            StatusText.Text =
+                $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
+                $"actions {loaded.Document.ActionCount:N0} | " +
+                $"editor ready {editorReadyTime.TotalMilliseconds:N1} ms | playback preparing…";
+            UpdatePlaybackDisplay();
+
+            Task<Native.PreparedNativePlayback> nativePlaybackTask =
+                NativeLoadPreparationCache.StartPlayback(loaded.Document, playback.TimingMap);
+            bool hitSoundsEnabled = HitSoundsToggle.IsChecked == true;
+            Task<PreparedAudioLoad> audioPrepareTask = Task.Run(
+                () => PreparedAudioLoad.Prepare(loaded.Document, playback, hitSoundsEnabled));
+
+            PreparedAudioLoad preparedAudio;
+            Native.PreparedNativePlayback preparedNativePlayback;
+            try
+            {
+                await Task.WhenAll(audioPrepareTask, nativePlaybackTask);
+                preparedAudio = await audioPrepareTask;
+                preparedNativePlayback = await nativePlaybackTask;
+            }
+            catch (Exception ex)
+            {
+                if (generation == _loadGeneration && !_isClosed)
+                {
+                    _playbackPreparationPending = false;
+                    CommandManager.InvalidateRequerySuggested();
+                    Console.WriteLine(
+                        $"[load] playback-failed total={totalWatch.Elapsed.TotalMilliseconds:N1}ms " +
+                        $"exception={ex.GetType().Name} message={ex.Message}");
+                    StatusText.Text =
+                        $"{Path.GetFileName(path)} | editor ready {editorReadyTime.TotalMilliseconds:N1} ms | " +
+                        $"playback preparation failed: {ex.Message}";
+                }
+                return;
+            }
+
+            if (generation != _loadGeneration ||
+                _isClosed ||
+                !ReferenceEquals(_level, loaded.Document) ||
+                !ReferenceEquals(_timingMap, playback.TimingMap))
+            {
+                preparedAudio.Dispose();
+                return;
+            }
+
+            NativePlaybackLoadMetrics nativePlaybackMetrics =
+                NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+
+            preparedAudio.Player.HitSoundsEnabled = HitSoundsToggle.IsChecked == true;
+            AudioPlayer previousAudio = _audio;
+            _audio = preparedAudio.Player;
+            previousAudio.Dispose();
+
+            _playbackPreparationPending = false;
+            CommandManager.InvalidateRequerySuggested();
+
             Console.WriteLine(
                 $"[load] audio unload={audioUnload.TotalMilliseconds:N1}ms " +
-                $"configure={audioConfigure.TotalMilliseconds:N1}ms " +
-                $"load={audioLoad.TotalMilliseconds:N1}ms");
+                $"configure={preparedAudio.ConfigureTime.TotalMilliseconds:N1}ms " +
+                $"load={preparedAudio.LoadTime.TotalMilliseconds:N1}ms");
             if (_audio.IsLoaded)
             {
                 AudioLoadMetrics audioMetrics = _audio.LastLoadMetrics;
@@ -190,51 +281,37 @@ public partial class MainWindow : Window
                     $"chunks={audioMetrics.RenderedChunkCount:N0}");
             }
 
-            _level = loaded.Document;
-            _timingMap = playback.TimingMap;
-            _hitSoundTimeline = playback.HitSoundTimeline;
-
-            phase.Restart();
-            Viewport.SetLevel(loaded.Document, loaded.Index);
-            TimeSpan wpfSetLevel = phase.Elapsed;
-
-            NativeLevelLoadMetrics nativeMetrics = NativeViewport.SetLevelProfiled(loaded.Document);
-            NativePlaybackLoadMetrics nativePlaybackMetrics = NativeViewport.SetPlaybackTimelineProfiled(playback.TimingMap);
-            Viewport.SetSelection([0], 0);
-            NativeViewport.SetSelection([0], 0);
+            TimeSpan playbackReadyTime = totalWatch.Elapsed;
             Console.WriteLine(
-                $"[load] viewport wpfSetLevel={wpfSetLevel.TotalMilliseconds:N1}ms " +
-                $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
-                $"nativeUpload={nativeMetrics.Upload.TotalMilliseconds:N1}ms " +
-                $"nativeTimelineBuild={nativePlaybackMetrics.TimelineBuild.TotalMilliseconds:N1}ms " +
-                $"nativeTimelineUpload={nativePlaybackMetrics.Upload.TotalMilliseconds:N1}ms");
-
-            totalWatch.Stop();
-            Console.WriteLine(
-                $"[load] done floors={loaded.Document.FloorCount:N0} " +
-                $"actions={loaded.Document.ActionCount:N0} total={totalWatch.Elapsed.TotalMilliseconds:N1}ms");
+                $"[load] playback-ready nativeTimelineBuild={nativePlaybackMetrics.TimelineBuild.TotalMilliseconds:N1}ms " +
+                $"nativeTimelineUpload={nativePlaybackMetrics.Upload.TotalMilliseconds:N1}ms " +
+                $"total={playbackReadyTime.TotalMilliseconds:N1}ms");
 
             StatusText.Text =
                 $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
                 $"actions {loaded.Document.ActionCount:N0} | " +
-                $"read {loaded.Metrics.Read.TotalMilliseconds:N1} ms | " +
-                $"parse {loaded.Metrics.Parse.TotalMilliseconds:N1} ms | " +
-                $"path {loaded.Metrics.BuildPath.TotalMilliseconds:N1} ms | " +
-                $"index {loaded.IndexTime.TotalMilliseconds:N1} ms | " +
-                $"total {totalWatch.Elapsed.TotalMilliseconds:N1} ms | {audioState}";
-
+                $"editor {editorReadyTime.TotalMilliseconds:N1} ms | " +
+                $"playback {playbackReadyTime.TotalMilliseconds:N1} ms | {preparedAudio.State}";
             UpdatePlaybackDisplay();
         }
         catch (Exception ex)
         {
+            if (generation != _loadGeneration || _isClosed)
+                return;
+
             MessageBox.Show(this, ex.ToString(), "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            StatusText.Text = "Open failed";
+            StatusText.Text = editorReady ? "Playback preparation failed" : "Open failed";
         }
         finally
         {
-            _isLoading = false;
-            Mouse.OverrideCursor = null;
-            CommandManager.InvalidateRequerySuggested();
+            if (generation == _loadGeneration && !_isClosed)
+            {
+                _isLoading = false;
+                if (!editorReady)
+                    _playbackPreparationPending = false;
+                Mouse.OverrideCursor = null;
+                CommandManager.InvalidateRequerySuggested();
+            }
         }
     }
 
@@ -272,7 +349,8 @@ public partial class MainWindow : Window
 
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = _level is not null &&
+        e.CanExecute = !_playbackPreparationPending &&
+                       _level is not null &&
                        (_timingMap is not null || _editorPlaybackRefreshPending);
         e.Handled = true;
     }
