@@ -19,56 +19,41 @@ void ExpectNear(float actual, float expected, float epsilon, const char* message
     std::exit(1);
 }
 
-EeCameraEvent MakeTileEvent()
+ee::PlaybackVisualState MakePlayback(float player_x = 0.0f, float player_y = 0.0f)
+{
+    ee::PlaybackVisualState playback{};
+    playback.active = true;
+    playback.stationary_x = player_x;
+    playback.stationary_y = player_y;
+    return playback;
+}
+
+EeCameraEvent MakeFrozenTileEvent()
 {
     EeCameraEvent item{};
     item.start_time = 0.0;
     item.duration_seconds = 10.0;
-    item.start_x = 30.0f;   // World camera position when the tween starts.
+
+    // ffxCameraPlus captures camParent.position when StartEffect runs.
+    item.start_x = 30.0f;
     item.start_y = 40.0f;
-    item.target_x = 10.0f;  // Tile-local MoveCamera offset.
-    item.target_y = -5.0f;
+
+    // relativeTo=Tile resolves floor.transform.position once at StartEffect.
+    // Tile=(100,50), MoveCamera.position=(10,-5) => frozen world target=(110,45).
+    item.target_x = 110.0f;
+    item.target_y = 45.0f;
+
     item.flags = EE_CAMERA_APPLY_X | EE_CAMERA_APPLY_Y;
     item.ease = EE_CAMERA_EASE_LINEAR;
+
+    // Keep the metadata populated so this regression catches any evaluator that
+    // incorrectly re-resolves the Tile reference every render frame.
     item.reference_floor = 0;
     item.reference_flags = EE_CAMERA_REFERENCE_TILE;
     return item;
 }
 
-ee::PlaybackVisualState MakePlayback()
-{
-    ee::PlaybackVisualState playback{};
-    playback.active = true;
-    playback.stationary_x = 0.0f;
-    playback.stationary_y = 0.0f;
-    return playback;
-}
-
-void VerifyTileTweenStartRemainsWorldFixed()
-{
-    ee::LevelScene scene;
-    EeFloor floor{};
-    floor.x = 200.0f;
-    floor.y = 80.0f;
-    scene.floors.push_back(floor);
-
-    const std::vector<EeCameraEvent> events{MakeTileEvent()};
-    const ee::CameraVisualState result = ee::CalculateCameraVisual(
-        &scene,
-        &events,
-        MakePlayback(),
-        0.0);
-
-    // RED: moving the reference tile must not translate the tween's already
-    // captured world-space start. Current implementation adds the runtime Tile
-    // position to both start and target, producing (230, 120) here.
-    ExpectNear(result.x, 30.0f, 0.0001f,
-        "Tile camera tween start must stay in captured world space");
-    ExpectNear(result.y, 40.0f, 0.0001f,
-        "Tile camera tween start Y must stay in captured world space");
-}
-
-void VerifyOnlyTargetTracksRuntimeTileDuringTween()
+void VerifyTileTargetIsFrozenWhenEventStarts()
 {
     ee::LevelScene scene;
     EeFloor floor{};
@@ -76,52 +61,94 @@ void VerifyOnlyTargetTracksRuntimeTileDuringTween()
     floor.y = 50.0f;
     scene.floors.push_back(floor);
 
-    const std::vector<EeCameraEvent> events{MakeTileEvent()};
+    const std::vector<EeCameraEvent> events{MakeFrozenTileEvent()};
     const ee::PlaybackVisualState playback = MakePlayback();
 
-    const ee::CameraVisualState first = ee::CalculateCameraVisual(
-        &scene,
-        &events,
-        playback,
-        5.0);
+    const ee::CameraVisualState before_move = ee::CalculateCameraVisual(
+        &scene, &events, playback, 5.0);
+    ExpectNear(before_move.x, 70.0f, 0.0001f,
+        "ADOFAI Tile camera midpoint must use the world target captured at StartEffect");
+    ExpectNear(before_move.y, 42.5f, 0.0001f,
+        "ADOFAI Tile camera midpoint Y must use the captured world target");
 
-    // StartWorld=(30,40), TargetWorld=(110,45), t=0.5.
-    ExpectNear(first.x, 70.0f, 0.0001f,
-        "Tile camera midpoint must interpolate from fixed world start to runtime target");
-    ExpectNear(first.y, 42.5f, 0.0001f,
-        "Tile camera midpoint Y must interpolate from fixed world start to runtime target");
-
+    // MoveTrack may move the floor after StartEffect, but ffxCameraPlus does not
+    // re-read floor.transform.position for the already-running MoveCamera tween.
     scene.floors[0].x = 200.0f;
     scene.floors[0].y = 80.0f;
 
-    const ee::CameraVisualState moved = ee::CalculateCameraVisual(
-        &scene,
-        &events,
-        playback,
-        5.0);
-
-    // Same captured start, but runtime target becomes (210,75).
-    ExpectNear(moved.x, 120.0f, 0.0001f,
-        "Only the Tile-relative target may move when MoveTrack changes the reference floor");
-    ExpectNear(moved.y, 57.5f, 0.0001f,
-        "Only the Tile-relative target Y may move when MoveTrack changes the reference floor");
+    const ee::CameraVisualState after_move = ee::CalculateCameraVisual(
+        &scene, &events, playback, 5.0);
+    ExpectNear(after_move.x, 70.0f, 0.0001f,
+        "Running Tile MoveCamera target must not follow later MoveTrack movement");
+    ExpectNear(after_move.y, 42.5f, 0.0001f,
+        "Running Tile MoveCamera target Y must not follow later MoveTrack movement");
 
     const ee::CameraVisualState completed = ee::CalculateCameraVisual(
-        &scene,
-        &events,
-        playback,
-        10.0);
-    ExpectNear(completed.x, 210.0f, 0.0001f,
-        "Completed Tile camera target must equal runtime Tile X plus MoveCamera offset");
-    ExpectNear(completed.y, 75.0f, 0.0001f,
-        "Completed Tile camera target must equal runtime Tile Y plus MoveCamera offset");
+        &scene, &events, playback, 10.0);
+    ExpectNear(completed.x, 110.0f, 0.0001f,
+        "Completed Tile MoveCamera must end at the frozen StartEffect target X");
+    ExpectNear(completed.y, 45.0f, 0.0001f,
+        "Completed Tile MoveCamera must end at the frozen StartEffect target Y");
+}
+
+void VerifyPlayerToTileSwitchPreservesWorldStart()
+{
+    ee::LevelScene scene;
+    EeFloor floor{};
+    floor.x = 500.0f;
+    floor.y = 600.0f;
+    scene.floors.push_back(floor);
+
+    EeCameraEvent item = MakeFrozenTileEvent();
+    item.start_x = 321.0f;
+    item.start_y = 123.0f;
+    const std::vector<EeCameraEvent> events{item};
+
+    // ffxCameraPlus copies cam.transform.position to camParent.position before
+    // SetToFreeMode(). Neither the current player pivot nor the Tile transform may
+    // translate that captured world-space start.
+    const ee::CameraVisualState result = ee::CalculateCameraVisual(
+        &scene, &events, MakePlayback(900.0f, 700.0f), 0.0);
+    ExpectNear(result.x, 321.0f, 0.0001f,
+        "Player-to-Tile transition must preserve the captured world camera X");
+    ExpectNear(result.y, 123.0f, 0.0001f,
+        "Player-to-Tile transition must preserve the captured world camera Y");
+}
+
+void VerifyReplacementTweenStartsFromCompletedPreviousTarget()
+{
+    // DOTween DOKill(true) completes the previous channel before the replacement
+    // tween is created. The second event therefore starts at the previous target,
+    // not at the previous tween's halfway visual position.
+    EeCameraEvent first{};
+    first.start_time = 0.0;
+    first.duration_seconds = 10.0;
+    first.start_x = 0.0f;
+    first.target_x = 100.0f;
+    first.flags = EE_CAMERA_APPLY_X;
+    first.ease = EE_CAMERA_EASE_LINEAR;
+
+    EeCameraEvent second{};
+    second.start_time = 5.0;
+    second.duration_seconds = 10.0;
+    second.start_x = 100.0f;
+    second.target_x = 200.0f;
+    second.flags = EE_CAMERA_APPLY_X;
+    second.ease = EE_CAMERA_EASE_LINEAR;
+
+    const std::vector<EeCameraEvent> events{first, second};
+    const ee::CameraVisualState at_replacement = ee::CalculateCameraVisual(
+        nullptr, &events, MakePlayback(), 5.0);
+    ExpectNear(at_replacement.x, 100.0f, 0.0001f,
+        "Replacement MoveCamera must start from the completed previous target (DOKill true)");
 }
 }
 
 int main()
 {
-    VerifyTileTweenStartRemainsWorldFixed();
-    VerifyOnlyTargetTracksRuntimeTileDuringTween();
-    std::cout << "PASS: camera runtime Tile reference regressions are valid.\n";
+    VerifyTileTargetIsFrozenWhenEventStarts();
+    VerifyPlayerToTileSwitchPreservesWorldStart();
+    VerifyReplacementTweenStartsFromCompletedPreviousTarget();
+    std::cout << "PASS: ADOFAI camera rig compatibility regressions are valid.\n";
     return 0;
 }
