@@ -160,6 +160,11 @@ public sealed class NativeLevelViewport : HwndHost
                 _level,
                 timingMap,
                 staticTransforms);
+            // MoveTrack scale is expressed in the floor transform channel while
+            // TileDimensions is a persistent local mesh scale. The native ABI has
+            // one XY scale pair, so compose TileDimensions into scale tweens before
+            // upload; MoveTrack events without scale keep the baked snapshot size.
+            TileDimensionsResolver.ApplyToMoveTimeline(_level, _trackTransformTimeline);
         }
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
