@@ -1,4 +1,5 @@
 using System.IO;
+using System.Numerics;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
 using ExtremeEditor.Wpf.Native;
@@ -78,15 +79,8 @@ internal static class CameraPlayerDoubleRelativeRegression
 
             NativeCameraEvent firstBefore = events[firstPlayerIndex];
             NativeCameraEvent secondBefore = events[secondPlayerIndex];
-            PlaybackPose firstPose = timing.GetPose(level, firstBefore.StartTime);
-            PlaybackPose secondPose = timing.GetPose(level, secondBefore.StartTime);
-
-            if (Math.Abs(firstPose.StationaryPlanet.X) <= 0.0001f &&
-                Math.Abs(firstPose.StationaryPlanet.Y) <= 0.0001f)
-            {
-                throw new InvalidOperationException(
-                    "RED setup: Player pivot must be non-zero so world-to-local conversion is observable.");
-            }
+            Vector2 firstPivot = FollowCameraPivotSampler.Evaluate(level, timing, firstBefore.StartTime);
+            Vector2 secondPivot = FollowCameraPivotSampler.Evaluate(level, timing, secondBefore.StartTime);
 
             NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(level, timing, events);
 
@@ -97,12 +91,12 @@ internal static class CameraPlayerDoubleRelativeRegression
                 "Global -> Player",
                 firstBefore,
                 firstAfter,
-                firstPose);
+                firstPivot);
             AssertConvertedExactlyOnce(
                 "Player -> Player",
                 secondBefore,
                 secondAfter,
-                secondPose);
+                secondPivot);
         }
         finally
         {
@@ -115,27 +109,27 @@ internal static class CameraPlayerDoubleRelativeRegression
         string transition,
         NativeCameraEvent before,
         NativeCameraEvent after,
-        PlaybackPose pose)
+        Vector2 smoothPivot)
     {
-        float expectedX = before.StartX - pose.StationaryPlanet.X;
-        float expectedY = before.StartY - pose.StationaryPlanet.Y;
+        float expectedX = before.StartX - smoothPivot.X;
+        float expectedY = before.StartY - smoothPivot.Y;
 
         if (Math.Abs(after.StartX - expectedX) > 0.0001f ||
             Math.Abs(after.StartY - expectedY) > 0.0001f)
         {
             throw new InvalidOperationException(
-                $"RED: {transition} Player MoveCamera start must be converted from StartEffect-time world space to Player-local exactly once. " +
+                $"RED: {transition} Player MoveCamera start must be converted from StartEffect-time world space to smooth-follow Player-local exactly once. " +
                 $"Before=({before.StartX},{before.StartY}), After=({after.StartX},{after.StartY}), " +
-                $"Expected=({expectedX},{expectedY}), Player=({pose.StationaryPlanet.X},{pose.StationaryPlanet.Y}).");
+                $"Expected=({expectedX},{expectedY}), SmoothPlayer=({smoothPivot.X},{smoothPivot.Y}).");
         }
 
-        float reconstructedWorldX = after.StartX + pose.StationaryPlanet.X;
-        float reconstructedWorldY = after.StartY + pose.StationaryPlanet.Y;
+        float reconstructedWorldX = after.StartX + smoothPivot.X;
+        float reconstructedWorldY = after.StartY + smoothPivot.Y;
         if (Math.Abs(reconstructedWorldX - before.StartX) > 0.0001f ||
             Math.Abs(reconstructedWorldY - before.StartY) > 0.0001f)
         {
             throw new InvalidOperationException(
-                $"RED: {transition} Player-local start must reconstruct the original world camera at StartEffect.");
+                $"RED: {transition} smooth Player-local start must reconstruct the original world camera at StartEffect.");
         }
     }
 }
