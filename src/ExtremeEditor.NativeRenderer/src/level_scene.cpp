@@ -6,6 +6,8 @@
 
 namespace ee
 {
+thread_local const LevelScene* LevelScene::current_runtime_scene_ = nullptr;
+
 std::shared_ptr<LevelScene> LevelScene::Create(
     const EeFloor* floor_data,
     std::uint32_t floor_count,
@@ -48,6 +50,11 @@ std::shared_ptr<LevelScene> LevelScene::Create(
     scene->RebuildCells();
     scene->track_transforms_.ResetBase(scene->floors);
     return scene;
+}
+
+const LevelScene* LevelScene::CurrentRuntimeScene() noexcept
+{
+    return current_runtime_scene_;
 }
 
 void LevelScene::Query(
@@ -104,6 +111,7 @@ void LevelScene::SetTrackPlaybackAnchor(
 
 void LevelScene::UpdateTrackTransforms() noexcept
 {
+    current_runtime_scene_ = this;
     std::lock_guard lock(transform_mutex_);
     track_transforms_.Update(floors, cells);
 }
