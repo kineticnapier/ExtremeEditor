@@ -9,8 +9,9 @@ internal static class NativeCameraRuntimeCompatibility
     /// <summary>
     /// Converts builder Player starts from StartEffect-time world coordinates into
     /// the Player-local coordinates expected by the native camera ABI. Targets are
-    /// already Player-local. The synthetic initial event is already local and must
-    /// not be rebased.
+    /// already Player-local. Rebase against the same 2-beat smooth-follow pivot the
+    /// native renderer adds back at runtime, not the raw stationary planet.
+    /// The synthetic initial event is already local and must not be rebased.
     /// </summary>
     internal static void MakePlayerStartsRelative(
         LevelDocument level,
@@ -31,11 +32,11 @@ internal static class NativeCameraRuntimeCompatibility
             if (playerFlags == 0u)
                 continue;
 
-            PlaybackPose pose = timingMap.GetPose(level, item.StartTime);
+            var pivot = FollowCameraPivotSampler.Evaluate(level, timingMap, item.StartTime);
             if ((playerFlags & NativeCameraEvent.FlagTargetPlayerX) != 0u)
-                item.StartX -= pose.StationaryPlanet.X;
+                item.StartX -= pivot.X;
             if ((playerFlags & NativeCameraEvent.FlagTargetPlayerY) != 0u)
-                item.StartY -= pose.StationaryPlanet.Y;
+                item.StartY -= pivot.Y;
         }
     }
 }
