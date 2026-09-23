@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -47,6 +48,7 @@ public:
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
     TrackTransformUpdateMetrics Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
+    bool EvaluateVisualForFloor(std::uint32_t floor, EeFloor& value) noexcept;
     TrackTransformActiveClassification ActiveClassification() const noexcept;
 
 private:
@@ -55,9 +57,13 @@ private:
         std::int32_t floor = -1;
         std::vector<EeTrackTransformEvent> events;
         double end_time = 0.0;
+        std::uint32_t combined_flags = 0u;
+        bool has_position = false;
+        bool has_visual = false;
     };
 
     static constexpr float CellSize = 32.0f;
+    static constexpr std::size_t NoTrack = std::numeric_limits<std::size_t>::max();
 
     double CurrentChartTime() const noexcept;
     void ResolveTrackAtTime(
@@ -87,6 +93,7 @@ private:
     mutable std::mutex mutex_;
     std::vector<EeFloor> base_floors_;
     std::vector<FloorTrack> tracks_;
+    std::vector<std::size_t> visual_track_by_floor_;
     std::vector<std::size_t> active_track_indices_;
     std::size_t next_track_index_ = 0;
     bool active_ = false;
@@ -102,12 +109,6 @@ inline TrackTransformActiveClassification TrackTransformRuntime::ActiveClassific
 {
     std::lock_guard lock(mutex_);
     TrackTransformActiveClassification result{};
-    constexpr std::uint32_t position_mask = EE_TRACK_TRANSFORM_X | EE_TRACK_TRANSFORM_Y;
-    constexpr std::uint32_t visual_mask =
-        EE_TRACK_TRANSFORM_ROTATION |
-        EE_TRACK_TRANSFORM_SCALE_X |
-        EE_TRACK_TRANSFORM_SCALE_Y |
-        EE_TRACK_TRANSFORM_OPACITY;
 
     for (const std::size_t track_index : active_track_indices_)
     {
@@ -115,13 +116,9 @@ inline TrackTransformActiveClassification TrackTransformRuntime::ActiveClassific
             continue;
 
         const FloorTrack& track = tracks_[track_index];
-        std::uint32_t combined_flags = 0u;
-        for (const EeTrackTransformEvent& item : track.events)
-            combined_flags |= item.flags;
-
-        if ((combined_flags & position_mask) != 0u)
+        if (track.has_position)
             ++result.position_count;
-        else if ((combined_flags & visual_mask) != 0u)
+        else if (track.has_visual)
             ++result.visual_only_count;
 
         if (track.events.size() == 1u)
