@@ -9,26 +9,31 @@ internal static class BootstrapProgram
 
     public static async Task<int> Main(string[] args)
     {
-        if (args.Any(static arg => arg is "-h" or "--help") ||
-            HasOption(args, "--classdata"))
-        {
+        if (args.Any(static arg => arg is "-h" or "--help"))
             return Program.Main(args);
+
+        string[] effectiveArgs = args;
+        if (!HasOption(args, "--classdata"))
+        {
+            try
+            {
+                string classDataPath = await EnsureClassDataAsync();
+                Console.WriteLine($"[index] classdata-cache={classDataPath}");
+                effectiveArgs = [.. args, "--classdata", classDataPath];
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[index] classdata auto-download failed: {ex.GetType().Name}: {ex.Message}");
+                Console.Error.WriteLine(
+                    "[index] continuing without classdata; pass --classdata <classdata.tpk> to override manually.");
+            }
         }
 
-        try
-        {
-            string classDataPath = await EnsureClassDataAsync();
-            Console.WriteLine($"[index] classdata-cache={classDataPath}");
-            return Program.Main([.. args, "--classdata", classDataPath]);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"[index] classdata auto-download failed: {ex.GetType().Name}: {ex.Message}");
-            Console.Error.WriteLine(
-                "[index] continuing without classdata; pass --classdata <classdata.tpk> to override manually.");
-            return Program.Main(args);
-        }
+        if (InspectCommand.HasInspectOption(effectiveArgs))
+            return InspectCommand.Run(effectiveArgs);
+
+        return Program.Main(effectiveArgs);
     }
 
     private static bool HasOption(string[] args, string option)
