@@ -32,7 +32,8 @@ internal static class DenseMixSafetyRegression
             level,
             timing,
             timeline,
-            clips);
+            clips,
+            totalFrames: 2_000);
 
         provider.Seek(sampleRate);
         var buffer = new float[2];
@@ -65,7 +66,13 @@ internal static class DenseMixSafetyRegression
                 0.375f, 0.375f
             ], 0.0)
         };
-        var hitSounds = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        var hitSounds = new SampleAccurateHitSoundProvider(
+            format,
+            level,
+            timing,
+            timeline,
+            clips,
+            totalFrames: 2);
         var song = new ConstantSampleProvider(format, 0.75f);
         var provider = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames: 2);
         var buffer = new float[4];
