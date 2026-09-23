@@ -255,7 +255,13 @@ static LevelDocument CreateLevel(
     Angles = new double[Math.Max(0, floors - 1)],
     Positions = new Vector2[floors],
     ActionCount = actions?.Values.Sum(value => value.Length) ?? 0,
-    ActionTypeCounts = new Dictionary<string, int>(),
+    ActionTypeCounts = actions is null
+        ? new Dictionary<string, int>()
+        : new Dictionary<string, int>
+        {
+            ["SetHitsound"] = actions.Values.SelectMany(value => value)
+                .Count(action => action.Kind == LevelActionKind.SetHitsound)
+        },
     ActionsByFloor = actions ?? new Dictionary<int, LevelAction[]>(),
     InitialBpm = 100,
     SongFilename = null,
