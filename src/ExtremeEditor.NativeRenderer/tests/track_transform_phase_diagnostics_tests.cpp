@@ -30,6 +30,12 @@ int main()
         "double apply_ms",
         "double spatial_remove_ms",
         "double spatial_insert_ms",
+        "std::uint64_t total_track_count",
+        "std::uint64_t active_track_count",
+        "std::uint64_t admitted_count",
+        "std::uint64_t finished_count",
+        "std::uint64_t event_scan_count",
+        "std::uint64_t max_event_scan_count",
         "TrackTransformUpdateMetrics Update("
     };
 
