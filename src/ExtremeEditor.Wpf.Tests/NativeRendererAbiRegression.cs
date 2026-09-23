@@ -16,7 +16,7 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 10u)
+        if (version != 11u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
 
         Type diagnostics = assembly.GetType("ExtremeEditor.Wpf.Native.NativeRendererDiagnostics")
