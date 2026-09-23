@@ -167,8 +167,17 @@ void LevelScene::UpdateTrackTransforms() noexcept
 
 TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept
 {
-    std::lock_guard lock(transform_metrics_mutex_);
-    return last_track_transform_metrics_;
+    TrackTransformUpdateMetrics metrics{};
+    {
+        std::lock_guard lock(transform_metrics_mutex_);
+        metrics = last_track_transform_metrics_;
+    }
+
+    const TrackTransformActiveClassification classification = track_transforms_.ActiveClassification();
+    metrics.active_position_count = classification.position_count;
+    metrics.active_visual_only_count = classification.visual_only_count;
+    metrics.active_single_event_count = classification.single_event_count;
+    return metrics;
 }
 
 void LevelScene::RebuildCells() noexcept
