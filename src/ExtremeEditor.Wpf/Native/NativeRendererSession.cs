@@ -19,7 +19,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 10;
+    private const uint ExpectedApiVersion = 11;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
