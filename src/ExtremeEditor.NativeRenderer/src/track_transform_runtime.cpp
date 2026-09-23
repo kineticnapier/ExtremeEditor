@@ -25,6 +25,13 @@ double OutBounce(double t) noexcept
     t -= 2.625 / d1;
     return n1 * t * t + 0.984375;
 }
+
+double ElapsedMilliseconds(
+    std::chrono::steady_clock::time_point start,
+    std::chrono::steady_clock::time_point end) noexcept
+{
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
 }
 
 void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexcept
@@ -148,11 +155,21 @@ void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells
     has_last_update_chart_time_ = false;
 }
 
-void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept
+TrackTransformUpdateMetrics TrackTransformRuntime::Update(
+    std::vector<EeFloor>& floors,
+    CellMap& cells) noexcept
 {
+    TrackTransformUpdateMetrics metrics{};
+    const auto total_started = std::chrono::steady_clock::now();
+    const auto finish = [&metrics, total_started]() noexcept
+    {
+        metrics.total_ms = ElapsedMilliseconds(total_started, std::chrono::steady_clock::now());
+        return metrics;
+    };
+
     std::lock_guard lock(mutex_);
     if (base_floors_.size() != floors.size())
-        return;
+        return finish();
 
     if (!active_ || tracks_.empty())
     {
@@ -163,31 +180,33 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
                 if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
                     continue;
                 const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
-                const EeFloor& old = floors[floor];
+                const EeFloor old = floors[floor];
                 const EeFloor& base = base_floors_[floor];
-                ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+                ReindexFloor(floor, old.x, old.y, base.x, base.y, cells, &metrics);
+                const auto apply_started = std::chrono::steady_clock::now();
                 floors[floor] = base;
+                metrics.apply_ms += ElapsedMilliseconds(apply_started, std::chrono::steady_clock::now());
             }
         }
 
         active_track_indices_.clear();
         next_track_index_ = 0;
         has_last_update_chart_time_ = false;
-        return;
+        return finish();
     }
 
+    const auto clock_started = std::chrono::steady_clock::now();
     const double chart_time = CurrentChartTime();
+    metrics.clock_ms += ElapsedMilliseconds(clock_started, std::chrono::steady_clock::now());
+
     if (!has_last_update_chart_time_ || chart_time < last_update_chart_time_)
     {
-        RebuildRuntimeState(chart_time, floors, cells);
+        RebuildRuntimeState(chart_time, floors, cells, &metrics);
         last_update_chart_time_ = chart_time;
         has_last_update_chart_time_ = true;
-        return;
+        return finish();
     }
 
-    // Only tracks that were still live on the previous frame need continuous
-    // evaluation. Once a track reaches its final event end time, apply its
-    // clamped final value once and remove it from this active list.
     std::size_t write = 0;
     for (std::size_t read = 0; read < active_track_indices_.size(); ++read)
     {
@@ -196,14 +215,12 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
             continue;
 
         const FloorTrack& track = tracks_[track_index];
-        ResolveTrackAtTime(track, chart_time, floors, cells);
+        ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
         if (track.end_time > chart_time)
             active_track_indices_[write++] = track_index;
     }
     active_track_indices_.resize(write);
 
-    // tracks_ is ordered by first event start. Admit only tracks that became
-    // reachable since the previous frame; all later tracks remain untouched.
     while (next_track_index_ < tracks_.size())
     {
         const FloorTrack& track = tracks_[next_track_index_];
@@ -211,7 +228,7 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
         if (start_time > chart_time)
             break;
 
-        ResolveTrackAtTime(track, chart_time, floors, cells);
+        ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
         ++next_track_index_;
@@ -219,13 +236,15 @@ void TrackTransformRuntime::Update(std::vector<EeFloor>& floors, CellMap& cells)
 
     last_update_chart_time_ = chart_time;
     has_last_update_chart_time_ = true;
+    return finish();
 }
 
 void TrackTransformRuntime::ResolveTrackAtTime(
     const FloorTrack& track,
     double chart_time,
     std::vector<EeFloor>& floors,
-    CellMap& cells) noexcept
+    CellMap& cells,
+    TrackTransformUpdateMetrics* metrics) noexcept
 {
     if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
         return;
@@ -235,6 +254,7 @@ void TrackTransformRuntime::ResolveTrackAtTime(
     const EeFloor old = floors[floor_index];
     EeFloor resolved = base;
 
+    const auto evaluate_started = std::chrono::steady_clock::now();
     const auto upper = std::upper_bound(
         track.events.begin(), track.events.end(), chart_time,
         [](double value, const EeTrackTransformEvent& item)
@@ -296,20 +316,28 @@ void TrackTransformRuntime::ResolveTrackAtTime(
             opacity_event->target_opacity,
             *opacity_event,
             chart_time);
+    if (metrics != nullptr)
+        metrics->evaluate_ms += ElapsedMilliseconds(evaluate_started, std::chrono::steady_clock::now());
 
+    const auto apply_started = std::chrono::steady_clock::now();
     resolved.track_transform_flags |= EE_TRACK_TRANSFORM_ENABLED;
-    ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells);
+    if (metrics != nullptr)
+        metrics->apply_ms += ElapsedMilliseconds(apply_started, std::chrono::steady_clock::now());
+
+    ReindexFloor(floor_index, old.x, old.y, resolved.x, resolved.y, cells, metrics);
+
+    const auto store_started = std::chrono::steady_clock::now();
     floors[floor_index] = resolved;
+    if (metrics != nullptr)
+        metrics->apply_ms += ElapsedMilliseconds(store_started, std::chrono::steady_clock::now());
 }
 
 void TrackTransformRuntime::RebuildRuntimeState(
     double chart_time,
     std::vector<EeFloor>& floors,
-    CellMap& cells) noexcept
+    CellMap& cells,
+    TrackTransformUpdateMetrics* metrics) noexcept
 {
-    // Seeking/rewinding is allowed to be O(total tracks): restore the immutable
-    // base first, then reconstruct exactly the tracks that have begun by the
-    // requested chart time. Normal forward frames never take this path.
     for (const FloorTrack& track : tracks_)
     {
         if (track.floor < 0 || static_cast<std::size_t>(track.floor) >= floors.size())
@@ -317,8 +345,11 @@ void TrackTransformRuntime::RebuildRuntimeState(
         const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
         const EeFloor old = floors[floor];
         const EeFloor& base = base_floors_[floor];
-        ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
+        ReindexFloor(floor, old.x, old.y, base.x, base.y, cells, metrics);
+        const auto apply_started = std::chrono::steady_clock::now();
         floors[floor] = base;
+        if (metrics != nullptr)
+            metrics->apply_ms += ElapsedMilliseconds(apply_started, std::chrono::steady_clock::now());
     }
 
     active_track_indices_.clear();
@@ -330,7 +361,7 @@ void TrackTransformRuntime::RebuildRuntimeState(
         if (start_time > chart_time)
             break;
 
-        ResolveTrackAtTime(track, chart_time, floors, cells);
+        ResolveTrackAtTime(track, chart_time, floors, cells, metrics);
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
         ++next_track_index_;
@@ -382,13 +413,15 @@ void TrackTransformRuntime::ReindexFloor(
     float old_y,
     float new_x,
     float new_y,
-    CellMap& cells) noexcept
+    CellMap& cells,
+    TrackTransformUpdateMetrics* metrics) noexcept
 {
     const std::int64_t old_key = CellKey(old_x, old_y);
     const std::int64_t new_key = CellKey(new_x, new_y);
     if (old_key == new_key)
         return;
 
+    const auto remove_started = std::chrono::steady_clock::now();
     const auto old_found = cells.find(old_key);
     if (old_found != cells.end())
     {
@@ -397,7 +430,13 @@ void TrackTransformRuntime::ReindexFloor(
         if (values.empty())
             cells.erase(old_found);
     }
+    if (metrics != nullptr)
+        metrics->spatial_remove_ms += ElapsedMilliseconds(remove_started, std::chrono::steady_clock::now());
+
+    const auto insert_started = std::chrono::steady_clock::now();
     cells[new_key].push_back(floor);
+    if (metrics != nullptr)
+        metrics->spatial_insert_ms += ElapsedMilliseconds(insert_started, std::chrono::steady_clock::now());
 }
 
 float TrackTransformRuntime::ApplyEase(std::uint32_t ease, double t) noexcept
