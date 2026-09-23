@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ExtremeEditor.AssetExtractor;
 
 namespace ExtremeEditor.AssetExtractor.Tests;
@@ -49,11 +52,9 @@ internal static class Program
 
             VerifyDirectory(hitSoundResult.OutputDirectory, hitSoundOutput);
             VerifyCanonicalWave(hitSoundResult.KickPath, "sndKick.wav");
-            if (hitSoundResult.HitSoundCount < 1)
-                throw new InvalidOperationException(
-                    $"Expected at least one directly extracted hitsound, got {hitSoundResult.HitSoundCount}.");
+            VerifyHitSoundSet(gameRoot, hitSoundResult);
 
-            Console.WriteLine("PASS: ADOFAI floor textures, representative floor icons, and sndKick were extracted directly into canonical files.");
+            Console.WriteLine("PASS: ADOFAI floor textures, representative floor icons, and the HitSound-enum audio set were extracted directly into canonical files.");
             return 0;
         }
         catch (Exception ex)
@@ -75,6 +76,77 @@ internal static class Program
                 }
             }
         }
+    }
+
+    private static void VerifyHitSoundSet(string gameRoot, HitSoundExtractionResult result)
+    {
+        HashSet<string> allowedFileNames = ReadHitSoundEnumNames(gameRoot)
+            .Select(name => $"snd{name}.wav")
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (allowedFileNames.Count < 2)
+            throw new InvalidDataException(
+                $"Expected the game HitSound enum to contain multiple values, got {allowedFileNames.Count}.");
+
+        string[] waves = Directory.GetFiles(result.OutputDirectory, "*.wav", SearchOption.TopDirectoryOnly);
+        if (waves.Length <= 1)
+            throw new InvalidOperationException(
+                $"Expected multiple HitSound-enum WAV files, got {waves.Length}. sndKick-only extraction is not sufficient.");
+
+        if (result.HitSoundCount != waves.Length)
+            throw new InvalidOperationException(
+                $"HitSoundCount mismatch: result={result.HitSoundCount}, files={waves.Length}.");
+
+        foreach (string wave in waves)
+        {
+            string fileName = Path.GetFileName(wave);
+            if (!allowedFileNames.Contains(fileName))
+                throw new InvalidOperationException(
+                    $"Extractor emitted non-HitSound AudioClip '{fileName}'. Output must be derived from the game's HitSound enum.");
+
+            VerifyCanonicalWave(wave, fileName);
+        }
+    }
+
+    private static IReadOnlyList<string> ReadHitSoundEnumNames(string gameRoot)
+    {
+        string assemblyPath = Path.Combine(
+            gameRoot,
+            "A Dance of Fire and Ice_Data",
+            "Managed",
+            "Assembly-CSharp.dll");
+        if (!File.Exists(assemblyPath))
+            throw new FileNotFoundException("Assembly-CSharp.dll was not found.", assemblyPath);
+
+        using FileStream stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader metadata = peReader.GetMetadataReader();
+
+        foreach (TypeDefinitionHandle typeHandle in metadata.TypeDefinitions)
+        {
+            TypeDefinition type = metadata.GetTypeDefinition(typeHandle);
+            if (!string.Equals(metadata.GetString(type.Name), "HitSound", StringComparison.Ordinal))
+                continue;
+
+            var names = new List<string>();
+            foreach (FieldDefinitionHandle fieldHandle in type.GetFields())
+            {
+                FieldDefinition field = metadata.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                    continue;
+
+                string name = metadata.GetString(field.Name);
+                if (!string.Equals(name, "value__", StringComparison.Ordinal))
+                    names.Add(name);
+            }
+
+            if (names.Count == 0)
+                throw new InvalidDataException("HitSound type was found but contained no enum literals.");
+
+            return names;
+        }
+
+        throw new InvalidDataException("HitSound enum was not found in Assembly-CSharp.dll.");
     }
 
     private static string ResolveGameRoot(string[] args)
