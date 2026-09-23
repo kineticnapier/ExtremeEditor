@@ -1,10 +1,30 @@
 #include "d2d_backend.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <mutex>
 
 namespace ee
 {
+namespace
+{
+std::mutex latest_render_stats_mutex;
+RenderFrameStats latest_render_stats;
+
+void PublishRenderFrameStats(const RenderFrameStats& stats) noexcept
+{
+    std::lock_guard lock(latest_render_stats_mutex);
+    latest_render_stats = stats;
+}
+}
+
+RenderFrameStats GetLatestRenderFrameStats() noexcept
+{
+    std::lock_guard lock(latest_render_stats_mutex);
+    return latest_render_stats;
+}
+
 HRESULT D2DBackend::RenderFrame(
     double seconds,
     const LevelScene* scene,
@@ -47,15 +67,28 @@ HRESULT D2DBackend::RenderFrame(
     RenderFrameStats stats{};
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_ ||
         !render_target_view_ || !depth_stencil_view_)
+    {
+        PublishRenderFrameStats(stats);
         return E_FAIL;
+    }
 
+    const auto setup_started = std::chrono::steady_clock::now();
     if (!SyncSceneGeometry(scene, scene_version))
+    {
+        PublishRenderFrameStats(stats);
         return E_FAIL;
+    }
     if (scene != nullptr && !floor_renderer_.SyncGeometry(*scene, scene_version))
+    {
+        PublishRenderFrameStats(stats);
         return E_FAIL;
+    }
     SyncIconAssets(icon_assets_version);
     if (!icon_renderer_.SyncAssets(icon_assets, icon_assets_version))
+    {
+        PublishRenderFrameStats(stats);
         return E_FAIL;
+    }
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -80,17 +113,31 @@ HRESULT D2DBackend::RenderFrame(
             1.0f);
         ++stats.draw_calls;
     }
+    const auto setup_finished = std::chrono::steady_clock::now();
+    stats.draw_setup_ms = std::chrono::duration<double, std::milli>(
+        setup_finished - setup_started).count();
 
+    const auto first_end_draw_started = std::chrono::steady_clock::now();
     HRESULT hr = EndD2DDraw();
+    const auto first_end_draw_finished = std::chrono::steady_clock::now();
+    stats.end_draw_ms += std::chrono::duration<double, std::milli>(
+        first_end_draw_finished - first_end_draw_started).count();
     if (hr == S_FALSE)
+    {
+        PublishRenderFrameStats(stats);
         return S_OK;
+    }
     if (FAILED(hr))
+    {
+        PublishRenderFrameStats(stats);
         return hr;
+    }
 
     if (scene != nullptr)
     {
         QueryVisibleFloorsCamera(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
 
+        const auto floor_started = std::chrono::steady_clock::now();
         InstancedFloorDrawStats floor_stats;
         if (!floor_renderer_.DrawCamera(
                 d3d_context_.Get(),
@@ -105,11 +152,17 @@ HRESULT D2DBackend::RenderFrame(
                 width_,
                 height_,
                 floor_stats))
+        {
+            PublishRenderFrameStats(stats);
             return E_FAIL;
-
+        }
+        const auto floor_finished = std::chrono::steady_clock::now();
+        stats.floor_ms = std::chrono::duration<double, std::milli>(
+            floor_finished - floor_started).count();
         stats.floor_draws = floor_stats.floor_instances;
         stats.draw_calls += floor_stats.draw_calls;
 
+        const auto icon_started = std::chrono::steady_clock::now();
         InstancedIconDrawStats icon_stats;
         if (!icon_renderer_.DrawCamera(
                 d3d_context_.Get(),
@@ -124,12 +177,18 @@ HRESULT D2DBackend::RenderFrame(
                 width_,
                 height_,
                 icon_stats))
+        {
+            PublishRenderFrameStats(stats);
             return E_FAIL;
-
+        }
+        const auto icon_finished = std::chrono::steady_clock::now();
+        stats.icon_ms = std::chrono::duration<double, std::milli>(
+            icon_finished - icon_started).count();
         stats.icon_draws = icon_stats.icon_instances;
         stats.draw_calls += icon_stats.draw_calls;
     }
 
+    const auto overlay_started = std::chrono::steady_clock::now();
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -171,13 +230,32 @@ HRESULT D2DBackend::RenderFrame(
         std::max(1.0f, static_cast<float>(height_) - 0.5f));
     d2d_context_->DrawRectangle(border, border_brush_.Get(), 1.0f);
     ++stats.draw_calls;
+    const auto overlay_finished = std::chrono::steady_clock::now();
+    stats.overlay_ms = std::chrono::duration<double, std::milli>(
+        overlay_finished - overlay_started).count();
 
+    const auto second_end_draw_started = std::chrono::steady_clock::now();
     hr = EndD2DDraw();
+    const auto second_end_draw_finished = std::chrono::steady_clock::now();
+    stats.end_draw_ms += std::chrono::duration<double, std::milli>(
+        second_end_draw_finished - second_end_draw_started).count();
     if (hr == S_FALSE)
+    {
+        PublishRenderFrameStats(stats);
         return S_OK;
+    }
     if (FAILED(hr))
+    {
+        PublishRenderFrameStats(stats);
         return hr;
+    }
 
-    return swap_chain_->Present(1, 0);
+    const auto present_started = std::chrono::steady_clock::now();
+    hr = swap_chain_->Present(1, 0);
+    const auto present_finished = std::chrono::steady_clock::now();
+    stats.present_ms = std::chrono::duration<double, std::milli>(
+        present_finished - present_started).count();
+    PublishRenderFrameStats(stats);
+    return hr;
 }
 }
