@@ -33,6 +33,9 @@ internal static class BootstrapProgram
             }
         }
 
+        if (MonoInspectCommand.HasOption(effectiveArgs))
+            return MonoInspectCommand.Run(effectiveArgs);
+
         if (ComponentInspectCommand.HasOption(effectiveArgs))
             return ComponentInspectCommand.Run(effectiveArgs);
 
