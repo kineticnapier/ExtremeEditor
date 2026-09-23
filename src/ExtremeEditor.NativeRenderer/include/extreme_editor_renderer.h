@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 10u
+#define EE_RENDERER_API_VERSION 11u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -251,6 +251,9 @@ typedef struct EeRendererDiagnostics
     uint32_t track_finished_count;
     uint64_t track_event_scan_count;
     uint64_t track_max_event_scan_count;
+    uint32_t track_active_position_count;
+    uint32_t track_active_visual_only_count;
+    uint32_t track_active_single_event_count;
 } EeRendererDiagnostics;
 
 EE_RENDERER_API uint32_t ee_renderer_get_api_version(void);
