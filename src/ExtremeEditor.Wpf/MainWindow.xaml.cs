@@ -112,6 +112,12 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
+        if (!ConfirmDiscardCurrentChanges())
+        {
+            e.Handled = true;
+            return;
+        }
+
         var dialog = new OpenFileDialog
         {
             Filter = "ADOFAI levels (*.adofai)|*.adofai|All files (*.*)|*.*",
