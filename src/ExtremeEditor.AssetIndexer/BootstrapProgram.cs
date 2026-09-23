@@ -18,6 +18,9 @@ internal static class BootstrapProgram
         if (PeekResourceCommand.HasPeekOption(args))
             return PeekResourceCommand.Run(args);
 
+        if (DecompileTypeCommand.HasOption(args))
+            return DecompileTypeCommand.Run(args);
+
         string[] effectiveArgs = args;
         if (!HasOption(args, "--classdata"))
         {
