@@ -17,8 +17,7 @@ public static class AdoFaiFloorTextureExtractor
     [
         ("_TileTex", "tile.png"),
         ("_PerlinTex", "perlin.png"),
-        ("_MainTex", "ramp.png"),
-        ("_IconTex", "glow.png")
+        ("_MainTex", "ramp.png")
     ];
 
     public static FloorTextureExtractionResult Extract(string gameRoot, string outputDirectory)
@@ -64,6 +63,15 @@ public static class AdoFaiFloorTextureExtractor
                 ExtractTexture(manager, instance, pathId, destination, propertyName);
                 written[fileName] = destination;
             }
+
+            AssetFileInfo glowInfo = FindNamedAsset(
+                manager,
+                instance,
+                AssetClassID.Texture2D,
+                "light_white");
+            string glowDestination = Path.Combine(output, "glow.png");
+            ExtractTexture(manager, instance, glowInfo.PathId, glowDestination, "light_white");
+            written["glow.png"] = glowDestination;
 
             return new FloorTextureExtractionResult(
                 output,
