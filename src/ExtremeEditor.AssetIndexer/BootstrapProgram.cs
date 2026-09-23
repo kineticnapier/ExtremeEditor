@@ -12,6 +12,9 @@ internal static class BootstrapProgram
         if (args.Any(static arg => arg is "-h" or "--help"))
             return Program.Main(args);
 
+        if (IlInspectCommand.HasOption(args))
+            return IlInspectCommand.Run(args);
+
         if (PeekResourceCommand.HasPeekOption(args))
             return PeekResourceCommand.Run(args);
 
