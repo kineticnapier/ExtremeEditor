@@ -30,9 +30,11 @@ public sealed class AudioPlayer : IDisposable
     private const double HitSoundOnlyEndPaddingSeconds = 0.05;
 
     private readonly HitSoundLibrary _hitSoundLibrary = new();
+    private readonly AudioPcmPrerenderLifecycle _hitSoundPrerender = new();
     private WaveOutEvent? _output;
     private WaveStream? _reader;
     private UnifiedAudioSampleProvider? _graph;
+    private SampleAccurateHitSoundProvider? _hitSoundProvider;
     private LevelDocument? _level;
     private TimingMap? _timingMap;
     private HitSoundTimeline? _hitSoundTimeline;
@@ -247,6 +249,7 @@ public sealed class AudioPlayer : IDisposable
         _output.Stop();
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.Zero;
+        RestartHitSoundPrerender(0);
         _graph.Seek(0);
         ResetClock(0.0);
     }
@@ -262,6 +265,7 @@ public sealed class AudioPlayer : IDisposable
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(seconds, _outputFormat.SampleRate);
+        RestartHitSoundPrerender(frame);
         _graph.Seek(frame);
         ResetClock(seconds);
 
@@ -277,12 +281,15 @@ public sealed class AudioPlayer : IDisposable
     public void Dispose()
     {
         DisposePlayback();
+        _hitSoundPrerender.Dispose();
         GC.SuppressFinalize(this);
     }
 
     private BuildGraphMetrics BuildGraph()
     {
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        CancelHitSoundPrerender();
+        _hitSoundProvider = null;
 
         ISampleProvider song;
         if (_reader is not null)
@@ -337,6 +344,18 @@ public sealed class AudioPlayer : IDisposable
                     _hitSoundTimeline,
                     clips,
                     totalFrames);
+
+                _hitSoundProvider = hitSounds;
+                long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
+                long cacheBudgetBytes = AudioPcmCachePolicy.CalculateAutoBudgetBytes(availableMemoryBytes);
+                log?.Write("audio_player.hitsound_pcm_cache",
+                    $"available_bytes={availableMemoryBytes} budget_bytes={cacheBudgetBytes} " +
+                    $"prime_frames={AudioPcmCachePolicy.CalculateInitialPrimeFrames(_outputFormat.SampleRate)}");
+                _hitSoundPrerender.Start(
+                    hitSounds,
+                    _outputFormat.SampleRate,
+                    0,
+                    availableMemoryBytes);
                 renderMetrics = hitSounds.Metrics;
             }
         }
@@ -410,6 +429,8 @@ public sealed class AudioPlayer : IDisposable
 
         TimeSpan position = Position;
         PlaybackState state = _output?.PlaybackState ?? PlaybackState.Stopped;
+        CancelHitSoundPrerender();
+        _hitSoundProvider = null;
         _output?.Stop();
         _output?.Dispose();
         _output = null;
@@ -419,8 +440,10 @@ public sealed class AudioPlayer : IDisposable
 
         _ = BuildGraph();
         double restoredSeconds = Math.Clamp(position.TotalSeconds, 0.0, _transportDurationSeconds);
-        _graph!.Seek(SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-            restoredSeconds, _outputFormat!.SampleRate));
+        long restoredFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+            restoredSeconds, _outputFormat!.SampleRate);
+        RestartHitSoundPrerender(restoredFrame);
+        _graph!.Seek(restoredFrame);
         ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
@@ -430,6 +453,19 @@ public sealed class AudioPlayer : IDisposable
             _output!.Play();
             _output.Pause();
         }
+    }
+
+    private void RestartHitSoundPrerender(long startFrame)
+    {
+        if (_hitSoundProvider is null)
+            return;
+
+        _hitSoundPrerender.Restart(startFrame);
+    }
+
+    private void CancelHitSoundPrerender()
+    {
+        _hitSoundPrerender.Cancel();
     }
 
     private void ResetClock(double audioSeconds)
@@ -454,6 +490,8 @@ public sealed class AudioPlayer : IDisposable
     private void DisposePlayback()
     {
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        CancelHitSoundPrerender();
+        _hitSoundProvider = null;
         using (log?.Measure("audio_player.output_stop", $"has_output={_output is not null}"))
             _output?.Stop();
         using (log?.Measure("audio_player.output_dispose", $"has_output={_output is not null}"))
