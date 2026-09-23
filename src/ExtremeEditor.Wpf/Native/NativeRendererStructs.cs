@@ -203,6 +203,9 @@ internal struct NativeRendererDiagnostics
     public uint TrackFinishedCount;
     public ulong TrackEventScanCount;
     public ulong TrackMaxEventScanCount;
+    public uint TrackActivePositionCount;
+    public uint TrackActiveVisualOnlyCount;
+    public uint TrackActiveSingleEventCount;
 }
 
 internal sealed record NativeIconAsset(
