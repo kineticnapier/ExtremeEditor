@@ -187,6 +187,12 @@ internal struct NativeRendererDiagnostics
     public double OverlayMilliseconds;
     public double EndDrawMilliseconds;
     public double PresentMilliseconds;
+    public double TrackTotalMilliseconds;
+    public double TrackClockMilliseconds;
+    public double TrackEvaluateMilliseconds;
+    public double TrackApplyMilliseconds;
+    public double TrackSpatialRemoveMilliseconds;
+    public double TrackSpatialInsertMilliseconds;
     public uint VisibleCandidates;
     public uint FloorDraws;
     public uint IconDraws;
