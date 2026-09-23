@@ -7,6 +7,14 @@ namespace ee
 {
 namespace
 {
+constexpr std::uint32_t PositionMask = EE_TRACK_TRANSFORM_X | EE_TRACK_TRANSFORM_Y;
+constexpr std::uint32_t VisualMask =
+    EE_TRACK_TRANSFORM_ROTATION |
+    EE_TRACK_TRANSFORM_SCALE_X |
+    EE_TRACK_TRANSFORM_SCALE_Y |
+    EE_TRACK_TRANSFORM_OPACITY;
+constexpr std::uint32_t TransformMask = PositionMask | VisualMask;
+
 double OutBounce(double t) noexcept
 {
     constexpr double n1 = 7.5625;
@@ -39,6 +47,7 @@ void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexce
     std::lock_guard lock(mutex_);
     base_floors_ = floors;
     tracks_.clear();
+    visual_track_by_floor_.clear();
     active_track_indices_.clear();
     next_track_index_ = 0;
     active_ = false;
@@ -87,6 +96,10 @@ bool TrackTransformRuntime::SetTimeline(
 
             FloorTrack& track = next.back();
             track.events.push_back(item);
+            track.combined_flags |= item.flags & TransformMask;
+            track.has_position = (track.combined_flags & PositionMask) != 0u;
+            track.has_visual = (track.combined_flags & VisualMask) != 0u;
+
             const double duration = std::isfinite(item.duration_seconds)
                 ? std::max(0.0, item.duration_seconds)
                 : 0.0;
@@ -105,8 +118,20 @@ bool TrackTransformRuntime::SetTimeline(
                 return a_start < b_start;
             });
 
+        std::vector<std::size_t> visual_lookup(base_floors_.size(), NoTrack);
+        for (std::size_t i = 0; i < next.size(); ++i)
+        {
+            const FloorTrack& track = next[i];
+            if (!track.has_position && track.has_visual && track.floor >= 0 &&
+                static_cast<std::size_t>(track.floor) < visual_lookup.size())
+            {
+                visual_lookup[static_cast<std::size_t>(track.floor)] = i;
+            }
+        }
+
         std::lock_guard lock(mutex_);
         tracks_ = std::move(next);
+        visual_track_by_floor_ = std::move(visual_lookup);
         active_track_indices_.clear();
         active_track_indices_.reserve(tracks_.size());
         next_track_index_ = 0;
@@ -220,7 +245,9 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
             continue;
 
         const FloorTrack& track = tracks_[track_index];
-        ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
+        if (track.has_position)
+            ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
+
         if (track.end_time > chart_time)
             active_track_indices_[write++] = track_index;
         else
@@ -236,7 +263,9 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
             break;
 
         ++metrics.admitted_count;
-        ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
+        if (track.has_position)
+            ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
+
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
         else
@@ -249,6 +278,107 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
     last_update_chart_time_ = chart_time;
     has_last_update_chart_time_ = true;
     return finish();
+}
+
+bool TrackTransformRuntime::EvaluateVisualForFloor(
+    std::uint32_t floor,
+    EeFloor& value) noexcept
+{
+    std::lock_guard lock(mutex_);
+    if (!active_ || floor >= base_floors_.size() || floor >= visual_track_by_floor_.size())
+        return false;
+
+    const std::size_t track_index = visual_track_by_floor_[floor];
+    if (track_index == NoTrack || track_index >= tracks_.size())
+        return false;
+
+    const FloorTrack& track = tracks_[track_index];
+    if (track.has_position || !track.has_visual || track.events.empty())
+        return false;
+
+    const EeFloor& base = base_floors_[floor];
+    value.entry_angle = base.entry_angle;
+    value.icon_angle = base.icon_angle;
+    value.transform_scale_x = base.transform_scale_x;
+    value.transform_scale_y = base.transform_scale_y;
+    value.transform_opacity = base.transform_opacity;
+    value.track_transform_flags = base.track_transform_flags;
+
+    const double chart_time = CurrentChartTime();
+    const auto upper = std::upper_bound(
+        track.events.begin(), track.events.end(), chart_time,
+        [](double current, const EeTrackTransformEvent& item)
+        {
+            return current < item.start_time;
+        });
+    if (upper == track.events.begin())
+        return true;
+
+    const std::uint32_t needed_flags = track.combined_flags & VisualMask;
+    std::uint32_t found_flags = 0u;
+    const EeTrackTransformEvent* rotation_event = nullptr;
+    const EeTrackTransformEvent* scale_x_event = nullptr;
+    const EeTrackTransformEvent* scale_y_event = nullptr;
+    const EeTrackTransformEvent* opacity_event = nullptr;
+
+    auto it = upper;
+    while (it != track.events.begin() && found_flags != needed_flags)
+    {
+        --it;
+        const EeTrackTransformEvent& item = *it;
+        if (rotation_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_ROTATION) != 0u)
+        {
+            rotation_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_ROTATION;
+        }
+        if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u)
+        {
+            scale_x_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_SCALE_X;
+        }
+        if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u)
+        {
+            scale_y_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_SCALE_Y;
+        }
+        if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u)
+        {
+            opacity_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_OPACITY;
+        }
+    }
+
+    if (rotation_event != nullptr)
+    {
+        const float rotation_offset = Evaluate(
+            rotation_event->start_rotation,
+            rotation_event->target_rotation,
+            *rotation_event,
+            chart_time);
+        value.entry_angle = base.entry_angle + rotation_offset;
+        value.icon_angle = base.icon_angle + rotation_offset;
+    }
+    if (scale_x_event != nullptr)
+        value.transform_scale_x = Evaluate(
+            scale_x_event->start_scale_x,
+            scale_x_event->target_scale_x,
+            *scale_x_event,
+            chart_time);
+    if (scale_y_event != nullptr)
+        value.transform_scale_y = Evaluate(
+            scale_y_event->start_scale_y,
+            scale_y_event->target_scale_y,
+            *scale_y_event,
+            chart_time);
+    if (opacity_event != nullptr)
+        value.transform_opacity = Evaluate(
+            opacity_event->start_opacity,
+            opacity_event->target_opacity,
+            *opacity_event,
+            chart_time);
+
+    value.track_transform_flags |= EE_TRACK_TRANSFORM_ENABLED;
+    return true;
 }
 
 void TrackTransformRuntime::ResolveTrackAtTime(
@@ -281,21 +411,45 @@ void TrackTransformRuntime::ResolveTrackAtTime(
     const EeTrackTransformEvent* scale_y_event = nullptr;
     const EeTrackTransformEvent* opacity_event = nullptr;
 
+    const std::uint32_t needed_flags = track.combined_flags & TransformMask;
+    std::uint32_t found_flags = 0u;
     std::uint64_t scan_count = 0;
     auto it = upper;
-    while (it != track.events.begin() &&
-           (x_event == nullptr || y_event == nullptr || rotation_event == nullptr ||
-            scale_x_event == nullptr || scale_y_event == nullptr || opacity_event == nullptr))
+    while (it != track.events.begin() && found_flags != needed_flags)
     {
         --it;
         ++scan_count;
         const EeTrackTransformEvent& item = *it;
-        if (x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_X) != 0u) x_event = &item;
-        if (y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_Y) != 0u) y_event = &item;
-        if (rotation_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_ROTATION) != 0u) rotation_event = &item;
-        if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u) scale_x_event = &item;
-        if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u) scale_y_event = &item;
-        if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u) opacity_event = &item;
+        if (x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_X) != 0u)
+        {
+            x_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_X;
+        }
+        if (y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_Y) != 0u)
+        {
+            y_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_Y;
+        }
+        if (rotation_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_ROTATION) != 0u)
+        {
+            rotation_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_ROTATION;
+        }
+        if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u)
+        {
+            scale_x_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_SCALE_X;
+        }
+        if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u)
+        {
+            scale_y_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_SCALE_Y;
+        }
+        if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u)
+        {
+            opacity_event = &item;
+            found_flags |= EE_TRACK_TRANSFORM_OPACITY;
+        }
     }
     if (metrics != nullptr)
     {
@@ -382,7 +536,9 @@ void TrackTransformRuntime::RebuildRuntimeState(
 
         if (metrics != nullptr)
             ++metrics->admitted_count;
-        ResolveTrackAtTime(track, chart_time, floors, cells, metrics);
+        if (track.has_position)
+            ResolveTrackAtTime(track, chart_time, floors, cells, metrics);
+
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
         else if (metrics != nullptr)
