@@ -11,6 +11,16 @@
 
 namespace ee
 {
+struct TrackTransformUpdateMetrics
+{
+    double total_ms = 0.0;
+    double clock_ms = 0.0;
+    double evaluate_ms = 0.0;
+    double apply_ms = 0.0;
+    double spatial_remove_ms = 0.0;
+    double spatial_insert_ms = 0.0;
+};
+
 class TrackTransformRuntime
 {
 public:
@@ -20,7 +30,7 @@ public:
     bool SetTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
-    void Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
+    TrackTransformUpdateMetrics Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
 
 private:
     struct FloorTrack
@@ -37,11 +47,13 @@ private:
         const FloorTrack& track,
         double chart_time,
         std::vector<EeFloor>& floors,
-        CellMap& cells) noexcept;
+        CellMap& cells,
+        TrackTransformUpdateMetrics* metrics) noexcept;
     void RebuildRuntimeState(
         double chart_time,
         std::vector<EeFloor>& floors,
-        CellMap& cells) noexcept;
+        CellMap& cells,
+        TrackTransformUpdateMetrics* metrics) noexcept;
     static float ApplyEase(std::uint32_t ease, double progress) noexcept;
     static float Evaluate(float start, float target, const EeTrackTransformEvent& item, double chart_time) noexcept;
     static int FastFloor(float value) noexcept;
@@ -52,7 +64,8 @@ private:
         float old_y,
         float new_x,
         float new_y,
-        CellMap& cells) noexcept;
+        CellMap& cells,
+        TrackTransformUpdateMetrics* metrics = nullptr) noexcept;
 
     mutable std::mutex mutex_;
     std::vector<EeFloor> base_floors_;
