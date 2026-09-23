@@ -95,6 +95,15 @@ target_compile_definitions(camera_cull_transform_purity_tests PRIVATE
     EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
+add_executable(track_transform_phase_diagnostics_tests
+    tests/track_transform_phase_diagnostics_tests.cpp
+)
+
+target_compile_features(track_transform_phase_diagnostics_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_transform_phase_diagnostics_tests PRIVATE
+    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 add_executable(track_transform_timeline_scaling_tests
     tests/track_transform_timeline_scaling_tests.cpp
     src/track_transform_runtime.cpp
@@ -147,6 +156,7 @@ target_include_directories(track_transform_anchor_jitter_scaling_tests PRIVATE
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
+add_test(NAME track_transform_phase_diagnostics_tests COMMAND track_transform_phase_diagnostics_tests)
 add_test(NAME track_transform_timeline_scaling_tests COMMAND track_transform_timeline_scaling_tests)
 add_test(NAME track_transform_update_scaling_tests COMMAND track_transform_update_scaling_tests)
 add_test(NAME track_transform_finished_scaling_tests COMMAND track_transform_finished_scaling_tests)
