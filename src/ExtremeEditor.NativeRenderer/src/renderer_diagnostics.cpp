@@ -27,6 +27,15 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
 
     const RenderFrameStats render_stats = GetLatestRenderFrameStats();
 
+    std::shared_ptr<LevelScene> scene;
+    {
+        std::lock_guard lock(scene_mutex_);
+        scene = scene_;
+    }
+    const TrackTransformUpdateMetrics track_metrics = scene != nullptr
+        ? scene->TrackTransformMetrics()
+        : TrackTransformUpdateMetrics{};
+
     diagnostics.reserved = 0u;
     diagnostics.fps = fps;
     diagnostics.frame_ms = frame_ms;
@@ -42,6 +51,12 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     diagnostics.overlay_ms = render_stats.overlay_ms;
     diagnostics.end_draw_ms = render_stats.end_draw_ms;
     diagnostics.present_ms = render_stats.present_ms;
+    diagnostics.track_total_ms = track_metrics.total_ms;
+    diagnostics.track_clock_ms = track_metrics.clock_ms;
+    diagnostics.track_evaluate_ms = track_metrics.evaluate_ms;
+    diagnostics.track_apply_ms = track_metrics.apply_ms;
+    diagnostics.track_spatial_remove_ms = track_metrics.spatial_remove_ms;
+    diagnostics.track_spatial_insert_ms = track_metrics.spatial_insert_ms;
     diagnostics.visible_candidates = render_stats.visible_candidates;
     diagnostics.floor_draws = render_stats.floor_draws;
     diagnostics.icon_draws = render_stats.icon_draws;
