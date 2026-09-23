@@ -25,6 +25,16 @@ struct TrackTransformUpdateMetrics
     std::uint32_t finished_count = 0;
     std::uint64_t event_scan_count = 0;
     std::uint64_t max_event_scan_count = 0;
+    std::uint32_t active_position_count = 0;
+    std::uint32_t active_visual_only_count = 0;
+    std::uint32_t active_single_event_count = 0;
+};
+
+struct TrackTransformActiveClassification
+{
+    std::uint32_t position_count = 0;
+    std::uint32_t visual_only_count = 0;
+    std::uint32_t single_event_count = 0;
 };
 
 class TrackTransformRuntime
@@ -37,6 +47,7 @@ public:
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
     TrackTransformUpdateMetrics Update(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
+    TrackTransformActiveClassification ActiveClassification() const noexcept;
 
 private:
     struct FloorTrack
@@ -86,4 +97,37 @@ private:
     double chart_rate_ = 1.0;
     std::chrono::steady_clock::time_point anchor_steady_{};
 };
+
+inline TrackTransformActiveClassification TrackTransformRuntime::ActiveClassification() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    TrackTransformActiveClassification result{};
+    constexpr std::uint32_t position_mask = EE_TRACK_TRANSFORM_X | EE_TRACK_TRANSFORM_Y;
+    constexpr std::uint32_t visual_mask =
+        EE_TRACK_TRANSFORM_ROTATION |
+        EE_TRACK_TRANSFORM_SCALE_X |
+        EE_TRACK_TRANSFORM_SCALE_Y |
+        EE_TRACK_TRANSFORM_OPACITY;
+
+    for (const std::size_t track_index : active_track_indices_)
+    {
+        if (track_index >= tracks_.size())
+            continue;
+
+        const FloorTrack& track = tracks_[track_index];
+        std::uint32_t combined_flags = 0u;
+        for (const EeTrackTransformEvent& item : track.events)
+            combined_flags |= item.flags;
+
+        if ((combined_flags & position_mask) != 0u)
+            ++result.position_count;
+        else if ((combined_flags & visual_mask) != 0u)
+            ++result.visual_only_count;
+
+        if (track.events.size() == 1u)
+            ++result.single_event_count;
+    }
+
+    return result;
+}
 }
