@@ -165,6 +165,18 @@ void LevelScene::UpdateTrackTransforms() noexcept
     }
 }
 
+void LevelScene::EvaluateVisibleTrackVisuals(
+    const std::vector<std::uint32_t>& visible_floors) noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    for (const std::uint32_t floor : visible_floors)
+    {
+        if (floor >= floors.size())
+            continue;
+        track_transforms_.EvaluateVisualForFloor(floor, floors[floor]);
+    }
+}
+
 TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept
 {
     TrackTransformUpdateMetrics metrics{};
