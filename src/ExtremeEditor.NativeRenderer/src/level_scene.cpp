@@ -131,9 +131,6 @@ void LevelScene::SetTrackPlaybackAnchor(
             safe_chart_time = previous_clock_now;
     }
 
-    // Anchor updates come from the UI/audio clock, but transform resolution is
-    // owned exclusively by the native render thread. Keeping this setter cheap
-    // prevents the UI and render thread from competing for transform_mutex_.
     track_transforms_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
 
     if (active)
@@ -154,8 +151,21 @@ void LevelScene::SetTrackPlaybackAnchor(
 void LevelScene::UpdateTrackTransforms() noexcept
 {
     current_runtime_scene_ = this;
-    std::lock_guard lock(transform_mutex_);
-    track_transforms_.Update(floors, cells);
+    TrackTransformUpdateMetrics metrics{};
+    {
+        std::lock_guard lock(transform_mutex_);
+        metrics = track_transforms_.Update(floors, cells);
+    }
+    {
+        std::lock_guard lock(transform_metrics_mutex_);
+        last_track_transform_metrics_ = metrics;
+    }
+}
+
+TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept
+{
+    std::lock_guard lock(transform_metrics_mutex_);
+    return last_track_transform_metrics_;
 }
 
 void LevelScene::RebuildCells() noexcept
