@@ -2,5 +2,5 @@ namespace ExtremeEditor.Core;
 
 public static class EditorVersion
 {
-    public const string Current = "0.0.267-prototype";
+    public const string Current = "0.0.268-prototype";
 }
