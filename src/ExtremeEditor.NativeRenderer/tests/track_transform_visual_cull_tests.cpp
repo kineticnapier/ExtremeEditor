@@ -49,9 +49,8 @@ std::string FunctionBody(const std::string& source, const std::string& signature
 int main()
 {
     const std::string scene_header = ReadSource("/src/level_scene.h");
-    const std::string backend = ReadSource("/src/d2d_backend.cpp");
-    const std::string camera_backend = ReadSource("/src/d2d_backend_camera.cpp");
-    if (scene_header.empty() || backend.empty() || camera_backend.empty())
+    const std::string scene = ReadSource("/src/level_scene.cpp");
+    if (scene_header.empty() || scene.empty())
         return 2;
 
     bool failed = false;
@@ -64,25 +63,28 @@ int main()
         failed = true;
     }
 
-    const std::string query = FunctionBody(
-        backend,
-        "void D2DBackend::QueryVisibleFloors(");
-    if (query.empty() || query.find("AppendVisualTransformCandidates(") == std::string::npos)
+    if (scene_header.find("visual_transform_cells_") == std::string::npos)
     {
         std::cerr
-            << "RED: QueryVisibleFloors must supplement center-based spatial culling "
-            << "with visual-transform candidates.\n";
+            << "RED: conservative visual culling must use a dedicated spatial index "
+            << "instead of scanning every visual-only track each frame.\n";
         failed = true;
     }
 
-    const std::string camera_query = FunctionBody(
-        camera_backend,
-        "void D2DBackend::QueryVisibleFloorsCamera(");
-    if (camera_query.empty() || camera_query.find("AppendVisualTransformCandidates(") == std::string::npos)
+    const std::string query = FunctionBody(scene, "void LevelScene::Query(");
+    if (query.empty() || query.find("AppendVisualTransformCandidates(") == std::string::npos)
     {
         std::cerr
-            << "RED: QueryVisibleFloorsCamera must supplement center-based spatial culling "
-            << "with visual-transform candidates.\n";
+            << "RED: LevelScene::Query must supplement center-based spatial culling "
+            << "with conservative visual-transform candidates.\n";
+        failed = true;
+    }
+
+    const std::string timeline = FunctionBody(scene, "bool LevelScene::SetTrackTransformTimeline(");
+    if (timeline.empty() || timeline.find("RebuildVisualTransformCullIndex(") == std::string::npos)
+    {
+        std::cerr
+            << "RED: visual-transform cull bounds must be rebuilt when the timeline changes.\n";
         failed = true;
     }
 
