@@ -64,30 +64,39 @@ void LevelScene::Query(
     float bottom,
     std::vector<std::uint32_t>& output) const
 {
-    std::lock_guard lock(transform_mutex_);
     output.clear();
-
-    const int min_x = FastFloor(left / CellSize);
-    const int max_x = FastFloor(right / CellSize);
-    const int min_y = FastFloor(top / CellSize);
-    const int max_y = FastFloor(bottom / CellSize);
-
-    const std::int64_t cells_wide = static_cast<std::int64_t>(max_x) - min_x + 1;
-    const std::int64_t cells_high = static_cast<std::int64_t>(max_y) - min_y + 1;
-    if (cells_wide <= 0 || cells_high <= 0 || cells_wide * cells_high > 2000000)
-        return;
-
-    for (int y = min_y; y <= max_y; ++y)
     {
-        for (int x = min_x; x <= max_x; ++x)
-        {
-            const auto found = cells.find(Key(x, y));
-            if (found == cells.end())
-                continue;
+        std::lock_guard lock(transform_mutex_);
 
-            output.insert(output.end(), found->second.begin(), found->second.end());
+        const int min_x = FastFloor(left / CellSize);
+        const int max_x = FastFloor(right / CellSize);
+        const int min_y = FastFloor(top / CellSize);
+        const int max_y = FastFloor(bottom / CellSize);
+
+        const std::int64_t cells_wide = static_cast<std::int64_t>(max_x) - min_x + 1;
+        const std::int64_t cells_high = static_cast<std::int64_t>(max_y) - min_y + 1;
+        if (cells_wide > 0 && cells_high > 0 && cells_wide * cells_high <= 2000000)
+        {
+            for (int y = min_y; y <= max_y; ++y)
+            {
+                for (int x = min_x; x <= max_x; ++x)
+                {
+                    const auto found = cells.find(Key(x, y));
+                    if (found == cells.end())
+                        continue;
+
+                    output.insert(output.end(), found->second.begin(), found->second.end());
+                }
+            }
         }
     }
+
+    // Center-based spatial culling is insufficient for a lazy visual-only scale:
+    // the floor center can remain outside the viewport while its transformed
+    // geometry reaches into it. Supplement with the conservative scale index.
+    AppendVisualTransformCandidates(left, top, right, bottom, output);
+    std::sort(output.begin(), output.end());
+    output.erase(std::unique(output.begin(), output.end()), output.end());
 }
 
 void LevelScene::AppendVisualTransformCandidates(
