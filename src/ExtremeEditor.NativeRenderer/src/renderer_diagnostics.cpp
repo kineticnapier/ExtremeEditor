@@ -61,6 +61,12 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     diagnostics.floor_draws = render_stats.floor_draws;
     diagnostics.icon_draws = render_stats.icon_draws;
     diagnostics.draw_calls = render_stats.draw_calls;
+    diagnostics.track_total_count = track_metrics.total_track_count;
+    diagnostics.track_active_count = track_metrics.active_track_count;
+    diagnostics.track_admitted_count = track_metrics.admitted_count;
+    diagnostics.track_finished_count = track_metrics.finished_count;
+    diagnostics.track_event_scan_count = track_metrics.event_scan_count;
+    diagnostics.track_max_event_scan_count = track_metrics.max_event_scan_count;
     return true;
 }
 }
