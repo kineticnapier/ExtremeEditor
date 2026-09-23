@@ -168,6 +168,8 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
     };
 
     std::lock_guard lock(mutex_);
+    metrics.total_track_count = static_cast<std::uint32_t>(
+        std::min<std::size_t>(tracks_.size(), UINT32_MAX));
     if (base_floors_.size() != floors.size())
         return finish();
 
@@ -192,6 +194,7 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
         active_track_indices_.clear();
         next_track_index_ = 0;
         has_last_update_chart_time_ = false;
+        metrics.active_track_count = 0;
         return finish();
     }
 
@@ -204,6 +207,8 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
         RebuildRuntimeState(chart_time, floors, cells, &metrics);
         last_update_chart_time_ = chart_time;
         has_last_update_chart_time_ = true;
+        metrics.active_track_count = static_cast<std::uint32_t>(
+            std::min<std::size_t>(active_track_indices_.size(), UINT32_MAX));
         return finish();
     }
 
@@ -218,6 +223,8 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
         ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
         if (track.end_time > chart_time)
             active_track_indices_[write++] = track_index;
+        else
+            ++metrics.finished_count;
     }
     active_track_indices_.resize(write);
 
@@ -228,12 +235,17 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
         if (start_time > chart_time)
             break;
 
+        ++metrics.admitted_count;
         ResolveTrackAtTime(track, chart_time, floors, cells, &metrics);
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
+        else
+            ++metrics.finished_count;
         ++next_track_index_;
     }
 
+    metrics.active_track_count = static_cast<std::uint32_t>(
+        std::min<std::size_t>(active_track_indices_.size(), UINT32_MAX));
     last_update_chart_time_ = chart_time;
     has_last_update_chart_time_ = true;
     return finish();
@@ -269,12 +281,14 @@ void TrackTransformRuntime::ResolveTrackAtTime(
     const EeTrackTransformEvent* scale_y_event = nullptr;
     const EeTrackTransformEvent* opacity_event = nullptr;
 
+    std::uint64_t scan_count = 0;
     auto it = upper;
     while (it != track.events.begin() &&
            (x_event == nullptr || y_event == nullptr || rotation_event == nullptr ||
             scale_x_event == nullptr || scale_y_event == nullptr || opacity_event == nullptr))
     {
         --it;
+        ++scan_count;
         const EeTrackTransformEvent& item = *it;
         if (x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_X) != 0u) x_event = &item;
         if (y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_Y) != 0u) y_event = &item;
@@ -282,6 +296,11 @@ void TrackTransformRuntime::ResolveTrackAtTime(
         if (scale_x_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_X) != 0u) scale_x_event = &item;
         if (scale_y_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_SCALE_Y) != 0u) scale_y_event = &item;
         if (opacity_event == nullptr && (item.flags & EE_TRACK_TRANSFORM_OPACITY) != 0u) opacity_event = &item;
+    }
+    if (metrics != nullptr)
+    {
+        metrics->event_scan_count += scan_count;
+        metrics->max_event_scan_count = std::max(metrics->max_event_scan_count, scan_count);
     }
 
     if (x_event != nullptr)
@@ -361,10 +380,19 @@ void TrackTransformRuntime::RebuildRuntimeState(
         if (start_time > chart_time)
             break;
 
+        if (metrics != nullptr)
+            ++metrics->admitted_count;
         ResolveTrackAtTime(track, chart_time, floors, cells, metrics);
         if (track.end_time > chart_time)
             active_track_indices_.push_back(next_track_index_);
+        else if (metrics != nullptr)
+            ++metrics->finished_count;
         ++next_track_index_;
+    }
+    if (metrics != nullptr)
+    {
+        metrics->active_track_count = static_cast<std::uint32_t>(
+            std::min<std::size_t>(active_track_indices_.size(), UINT32_MAX));
     }
 }
 
