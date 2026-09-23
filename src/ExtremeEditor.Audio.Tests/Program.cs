@@ -11,6 +11,7 @@ RunClockChecks();
 RunProviderChecks();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
+RunProgressiveConstructionRegression();
 RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
@@ -66,6 +67,7 @@ static void RunClockChecks()
 static void RunProviderChecks()
 {
     const int sampleRate = 48_000;
+    const long totalFrames = sampleRate * 2L;
     LevelDocument level = CreateLevel(4);
     var floors = new[]
     {
@@ -83,7 +85,7 @@ static void RunProviderChecks()
     };
     WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
 
-    var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+    var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames);
     provider.Seek(47_990);
     var buffer = new float[200];
     provider.Read(buffer, 0, buffer.Length);
@@ -92,7 +94,7 @@ static void RunProviderChecks()
     Near(0.5, buffer[34 * 2], "floor 2 exact sample overlap");
     Near(0.75, buffer[58 * 2], "floor 3 exact sample overlap");
 
-    provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+    provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames);
     provider.Seek(47_990);
     var firstChunk = new float[80]; // ends at frame 48030
     var secondChunk = new float[80];
@@ -100,7 +102,7 @@ static void RunProviderChecks()
     provider.Read(secondChunk, 0, secondChunk.Length);
     Near(0.5, secondChunk[0], "tail crosses provider chunk boundary");
 
-    provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+    provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames);
     provider.Seek(48_010);
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
@@ -146,7 +148,7 @@ static void RunOffsetOrderingRegression()
         ["B"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 8).ToArray(), 0.002)
     };
     var provider = new SampleAccurateHitSoundProvider(
-        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips);
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips, 2_000);
 
     // Floor 1 starts at frame 1000, but floor 2's larger offset moves it back
     // to frame 999. A break based on floor 1's clip-specific start loses floor 2.
@@ -173,7 +175,7 @@ static void RunNegativeStartTailRegression()
         ["Negative"] = new RenderedHitSound(pcm, 0.003)
     };
     var provider = new SampleAccurateHitSoundProvider(
-        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips);
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timing, timeline, clips, 1_000);
 
     // The clip starts at frame -2. Frames 0..2 must use source frames 2..4.
     var buffer = new float[6];
@@ -181,6 +183,42 @@ static void RunNegativeStartTailRegression()
     Near(0.3, buffer[0], "negative start skips pre-zero prefix");
     Near(0.4, buffer[2], "negative start keeps tail frame 1");
     Near(0.5, buffer[4], "negative start keeps tail frame 2");
+}
+
+static void RunProgressiveConstructionRegression()
+{
+    const int sampleRate = 1_000;
+    const int hitCount = 64;
+    const double hitSpacingSeconds = 5.0; // > one 4096-frame renderer chunk
+
+    var timings = new FloorTiming[hitCount + 1];
+    timings[0] = Floor(0, 0.0);
+    for (int floor = 1; floor < timings.Length; floor++)
+        timings[floor] = Floor(floor, floor * hitSpacingSeconds);
+
+    LevelDocument level = CreateLevel(timings.Length);
+    var timingMap = new TimingMap(timings);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
+    };
+    long totalFrames = checked((long)((hitCount + 1) * hitSpacingSeconds * sampleRate));
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level,
+        timingMap,
+        timeline,
+        clips,
+        totalFrames);
+
+    if (provider.Metrics.RenderedChunkCount != 0)
+    {
+        throw new InvalidOperationException(
+            $"RED: provider construction must build schedule/work metadata only; " +
+            $"it eagerly rendered {provider.Metrics.RenderedChunkCount} PCM chunks.");
+    }
 }
 
 static void RunMillionFloorScanBenchmark()
@@ -196,7 +234,7 @@ static void RunMillionFloorScanBenchmark()
     HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
     var provider = new SampleAccurateHitSoundProvider(
         WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2), level, timingMap, timeline,
-        new Dictionary<string, RenderedHitSound>());
+        new Dictionary<string, RenderedHitSound>(), floorCount + 8192L);
     var buffer = new float[8192];
     var watch = Stopwatch.StartNew();
     while (provider.PositionFrames <= floorCount)
@@ -242,9 +280,9 @@ static LevelDocument WithSettings(LevelDocument source, double offsetMillisecond
     InitialBpm = initialBpm,
     SongFilename = source.SongFilename,
     OffsetMilliseconds = offsetMilliseconds,
-    PitchPercent = pitchPercent,
-    CountdownTicks = countdownTicks,
-    SeparateCountdownTime = separateCountdownTime,
+    PitchPercent = source.PitchPercent,
+    CountdownTicks = source.CountdownTicks,
+    SeparateCountdownTime = source.SeparateCountdownTime,
     DefaultHitSound = source.DefaultHitSound,
     HitSoundVolumePercent = source.HitSoundVolumePercent,
     Bounds = source.Bounds
