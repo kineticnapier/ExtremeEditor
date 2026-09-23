@@ -29,6 +29,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private TimeSpan _renderChunksElapsed;
+    private long _cachedPcmBytes;
     private long _positionFrames;
 
     public SampleAccurateHitSoundProvider(
@@ -67,6 +68,15 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     public WaveFormat WaveFormat { get; }
     internal long PositionFrames => _positionFrames;
+
+    internal long CachedPcmBytes
+    {
+        get
+        {
+            lock (_cacheLock)
+                return _cachedPcmBytes;
+        }
+    }
 
     internal HitSoundRenderMetrics Metrics
     {
@@ -124,6 +134,39 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long lastChunk = (start + length - 1) / ChunkFrames;
         for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
             _ = EnsureChunk(chunkIndex);
+    }
+
+    /// <summary>
+    /// Renders future chunks as fast as possible without allowing background PCM
+    /// additions to push the shared RAM cache past the supplied byte budget.
+    /// Already cached chunks cost nothing, and silent sentinels consume no PCM
+    /// budget. Foreground Read remains authoritative and may render a cache miss
+    /// synchronously even when a background budget has been exhausted.
+    /// </summary>
+    internal Task PrerenderAheadAsync(
+        long startFrame,
+        long cacheBudgetBytes,
+        CancellationToken cancellationToken)
+    {
+        if (_totalFrames <= 0 || cacheBudgetBytes <= 0)
+            return Task.CompletedTask;
+
+        long start = Math.Clamp(startFrame, 0, _totalFrames);
+        if (start >= _totalFrames)
+            return Task.CompletedTask;
+
+        long firstChunk = start / ChunkFrames;
+        long lastChunk = (_totalFrames - 1) / ChunkFrames;
+
+        return Task.Run(() =>
+        {
+            for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                    break;
+            }
+        }, cancellationToken);
     }
 
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
@@ -230,14 +273,41 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             if (_renderedChunks.TryGetValue(chunkIndex, out float[]? existing))
                 return existing;
 
-            var watch = Stopwatch.StartNew();
-            float[] rendered = RenderChunk(chunkIndex);
-            watch.Stop();
-            _renderChunksElapsed += watch.Elapsed;
+            float[] rendered = RenderChunkMeasured(chunkIndex);
             _renderedChunks.Add(chunkIndex, rendered);
+            _cachedPcmBytes += GetPcmBytes(rendered);
             return rendered;
         }
     }
+
+    private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes)
+    {
+        lock (_cacheLock)
+        {
+            if (_renderedChunks.ContainsKey(chunkIndex))
+                return true;
+
+            float[] rendered = RenderChunkMeasured(chunkIndex);
+            long renderedBytes = GetPcmBytes(rendered);
+            if (renderedBytes > cacheBudgetBytes - _cachedPcmBytes)
+                return false;
+
+            _renderedChunks.Add(chunkIndex, rendered);
+            _cachedPcmBytes += renderedBytes;
+            return true;
+        }
+    }
+
+    private float[] RenderChunkMeasured(long chunkIndex)
+    {
+        var watch = Stopwatch.StartNew();
+        float[] rendered = RenderChunk(chunkIndex);
+        watch.Stop();
+        _renderChunksElapsed += watch.Elapsed;
+        return rendered;
+    }
+
+    private static long GetPcmBytes(float[] chunk) => checked(chunk.LongLength * sizeof(float));
 
     private float[] RenderChunk(long chunkIndex)
     {
