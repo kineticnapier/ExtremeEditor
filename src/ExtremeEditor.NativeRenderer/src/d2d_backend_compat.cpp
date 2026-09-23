@@ -137,6 +137,16 @@ HRESULT D2DBackend::RenderFrame(
     {
         QueryVisibleFloorsCamera(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
 
+        // RenderFrame receives a const view of the shared scene, but runtime track
+        // transforms are mutable render state. Position transforms were already
+        // advanced by Renderer::RenderLoop; only visual-only transforms for the
+        // culled candidates are materialized here.
+        const auto visual_update_started = std::chrono::steady_clock::now();
+        const_cast<LevelScene*>(scene)->EvaluateVisibleTrackVisuals(visible_candidates_);
+        const auto visual_update_finished = std::chrono::steady_clock::now();
+        stats.update_ms = std::chrono::duration<double, std::milli>(
+            visual_update_finished - visual_update_started).count();
+
         const auto floor_started = std::chrono::steady_clock::now();
         InstancedFloorDrawStats floor_stats;
         if (!floor_renderer_.DrawCamera(
