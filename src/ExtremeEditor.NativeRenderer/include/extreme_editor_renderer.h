@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 8u
+#define EE_RENDERER_API_VERSION 9u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -235,6 +235,12 @@ typedef struct EeRendererDiagnostics
     double overlay_ms;
     double end_draw_ms;
     double present_ms;
+    double track_total_ms;
+    double track_clock_ms;
+    double track_evaluate_ms;
+    double track_apply_ms;
+    double track_spatial_remove_ms;
+    double track_spatial_insert_ms;
     uint32_t visible_candidates;
     uint32_t floor_draws;
     uint32_t icon_draws;
