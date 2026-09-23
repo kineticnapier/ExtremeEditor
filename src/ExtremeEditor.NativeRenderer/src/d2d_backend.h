@@ -35,11 +35,20 @@ struct PlaybackVisualState
 struct RenderFrameStats
 {
     double cull_ms = 0.0;
+    double update_ms = 0.0;
+    double draw_setup_ms = 0.0;
+    double floor_ms = 0.0;
+    double icon_ms = 0.0;
+    double overlay_ms = 0.0;
+    double end_draw_ms = 0.0;
+    double present_ms = 0.0;
     std::uint32_t visible_candidates = 0;
     std::uint32_t floor_draws = 0;
     std::uint32_t icon_draws = 0;
     std::uint32_t draw_calls = 0;
 };
+
+RenderFrameStats GetLatestRenderFrameStats() noexcept;
 
 class D2DBackend
 {
