@@ -151,11 +151,14 @@ void LevelScene::SetTrackPlaybackAnchor(
 void LevelScene::UpdateTrackTransforms() noexcept
 {
     current_runtime_scene_ = this;
+    const auto total_started = std::chrono::steady_clock::now();
     TrackTransformUpdateMetrics metrics{};
     {
         std::lock_guard lock(transform_mutex_);
         metrics = track_transforms_.Update(floors, cells);
     }
+    metrics.total_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - total_started).count();
     {
         std::lock_guard lock(transform_metrics_mutex_);
         last_track_transform_metrics_ = metrics;
