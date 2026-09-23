@@ -280,9 +280,9 @@ static LevelDocument WithSettings(LevelDocument source, double offsetMillisecond
     InitialBpm = initialBpm,
     SongFilename = source.SongFilename,
     OffsetMilliseconds = offsetMilliseconds,
-    PitchPercent = source.PitchPercent,
-    CountdownTicks = source.CountdownTicks,
-    SeparateCountdownTime = source.SeparateCountdownTime,
+    PitchPercent = pitchPercent,
+    CountdownTicks = countdownTicks,
+    SeparateCountdownTime = separateCountdownTime,
     DefaultHitSound = source.DefaultHitSound,
     HitSoundVolumePercent = source.HitSoundVolumePercent,
     Bounds = source.Bounds
