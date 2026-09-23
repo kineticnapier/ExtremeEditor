@@ -33,7 +33,7 @@ internal static class RealtimeAudioDiagnosticsRegression
             ["Kick"] = new RenderedHitSound([1f, 1f, 1f, 1f], 0.0)
         };
 
-        var hits = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        var hits = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames: 4);
         var song = new ZeroSampleProvider(format);
         var graph = new UnifiedAudioSampleProvider(song, hits, totalFrames: 4);
 
@@ -92,7 +92,7 @@ internal static class RealtimeAudioDiagnosticsRegression
             ["Kick"] = new RenderedHitSound([1f, 1f, 1f, 1f], 0.0)
         };
 
-        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames: 1_000);
         Type providerType = typeof(SampleAccurateHitSoundProvider);
         FieldInfo scheduleField = providerType.GetField(
             "_scheduledHits",
@@ -136,7 +136,7 @@ internal static class RealtimeAudioDiagnosticsRegression
             ["Kick"] = new RenderedHitSound([1f, 1f, 0.5f, 0.5f], 0.0)
         };
 
-        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips);
+        var provider = new SampleAccurateHitSoundProvider(format, level, timing, timeline, clips, totalFrames: 1_000);
         Type providerType = typeof(SampleAccurateHitSoundProvider);
 
         FieldInfo renderedChunksField = providerType.GetField(
