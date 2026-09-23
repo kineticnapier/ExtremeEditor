@@ -32,6 +32,7 @@ struct LevelScene
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void UpdateTrackTransforms() noexcept;
+    TrackTransformUpdateMetrics TrackTransformMetrics() const noexcept;
 
     std::vector<EeFloor> floors;
     std::vector<EeGeometry> geometries;
@@ -54,6 +55,8 @@ private:
 
     TrackTransformRuntime track_transforms_;
     mutable std::mutex transform_mutex_;
+    mutable std::mutex transform_metrics_mutex_;
+    TrackTransformUpdateMetrics last_track_transform_metrics_{};
     bool has_track_playback_anchor_ = false;
     bool track_playback_anchor_playing_ = false;
     double track_playback_anchor_chart_time_ = 0.0;
