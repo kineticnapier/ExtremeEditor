@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>ExtremeEditor.AssetIndexer</AssemblyName>
     <RootNamespace>ExtremeEditor.AssetIndexer</RootNamespace>
+    <StartupObject>ExtremeEditor.AssetIndexer.BootstrapProgram</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
