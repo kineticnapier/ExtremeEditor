@@ -5,6 +5,8 @@ namespace ExtremeEditor.AssetExtractor.Tests;
 internal static class Program
 {
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    private static readonly byte[] RiffSignature = [(byte)'R', (byte)'I', (byte)'F', (byte)'F'];
+    private static readonly byte[] WaveSignature = [(byte)'W', (byte)'A', (byte)'V', (byte)'E'];
 
     public static int Main(string[] args)
     {
@@ -41,7 +43,17 @@ internal static class Program
                 throw new InvalidOperationException(
                     $"Expected at least four directly extracted floor icons, got {iconResult.FloorIconCount}.");
 
-            Console.WriteLine("PASS: ADOFAI floor textures and representative floor icons were extracted directly into canonical PNG files.");
+            string hitSoundOutput = Path.Combine(outputDirectory, "hitsounds");
+            HitSoundExtractionResult hitSoundResult =
+                AdoFaiHitSoundExtractor.Extract(gameRoot, hitSoundOutput);
+
+            VerifyDirectory(hitSoundResult.OutputDirectory, hitSoundOutput);
+            VerifyCanonicalWave(hitSoundResult.KickPath, "sndKick.wav");
+            if (hitSoundResult.HitSoundCount < 1)
+                throw new InvalidOperationException(
+                    $"Expected at least one directly extracted hitsound, got {hitSoundResult.HitSoundCount}.");
+
+            Console.WriteLine("PASS: ADOFAI floor textures, representative floor icons, and sndKick were extracted directly into canonical files.");
             return 0;
         }
         catch (Exception ex)
@@ -136,5 +148,27 @@ internal static class Program
         int read = stream.Read(actual);
         if (read != PngSignature.Length || !actual.SequenceEqual(PngSignature))
             throw new InvalidDataException($"Extracted file is not a PNG: {path}");
+    }
+
+    private static void VerifyCanonicalWave(string path, string expectedFileName)
+    {
+        if (!string.Equals(Path.GetFileName(path), expectedFileName, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Expected canonical file name {expectedFileName}, got {Path.GetFileName(path)}.");
+
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Expected extracted WAV is missing: {path}", path);
+
+        using FileStream stream = File.OpenRead(path);
+        if (stream.Length <= 44)
+            throw new InvalidDataException($"Extracted WAV is unexpectedly small: {path}");
+
+        Span<byte> header = stackalloc byte[12];
+        int read = stream.Read(header);
+        if (read != header.Length ||
+            !header[..4].SequenceEqual(RiffSignature) ||
+            !header.Slice(8, 4).SequenceEqual(WaveSignature))
+        {
+            throw new InvalidDataException($"Extracted file is not a RIFF/WAVE file: {path}");
+        }
     }
 }
