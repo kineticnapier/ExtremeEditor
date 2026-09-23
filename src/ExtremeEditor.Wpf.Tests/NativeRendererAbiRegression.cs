@@ -16,7 +16,7 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 8u)
+        if (version != 9u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
 
         Type diagnostics = assembly.GetType("ExtremeEditor.Wpf.Native.NativeRendererDiagnostics")
@@ -30,7 +30,13 @@ internal static class NativeRendererAbiRegression
             "IconMilliseconds",
             "OverlayMilliseconds",
             "EndDrawMilliseconds",
-            "PresentMilliseconds"
+            "PresentMilliseconds",
+            "TrackTotalMilliseconds",
+            "TrackClockMilliseconds",
+            "TrackEvaluateMilliseconds",
+            "TrackApplyMilliseconds",
+            "TrackSpatialRemoveMilliseconds",
+            "TrackSpatialInsertMilliseconds"
         ];
 
         string[] missing = requiredPhaseFields
