@@ -197,6 +197,12 @@ internal struct NativeRendererDiagnostics
     public uint FloorDraws;
     public uint IconDraws;
     public uint DrawCalls;
+    public uint TrackTotalCount;
+    public uint TrackActiveCount;
+    public uint TrackAdmittedCount;
+    public uint TrackFinishedCount;
+    public ulong TrackEventScanCount;
+    public ulong TrackMaxEventScanCount;
 }
 
 internal sealed record NativeIconAsset(
