@@ -180,6 +180,13 @@ internal struct NativeRendererDiagnostics
     public double MaxFrameMilliseconds;
     public double RenderMilliseconds;
     public double CullMilliseconds;
+    public double UpdateMilliseconds;
+    public double DrawSetupMilliseconds;
+    public double FloorMilliseconds;
+    public double IconMilliseconds;
+    public double OverlayMilliseconds;
+    public double EndDrawMilliseconds;
+    public double PresentMilliseconds;
     public uint VisibleCandidates;
     public uint FloorDraws;
     public uint IconDraws;
