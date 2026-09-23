@@ -30,7 +30,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly long _maxClipFrames;
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
-    private TimeSpan _renderChunksElapsed;
+    private long _renderChunksElapsedTicks;
     private long _cachedPcmBytes;
     private long _cacheBudgetBytes = long.MaxValue;
     private long _positionFrames;
@@ -89,7 +89,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             {
                 return new HitSoundRenderMetrics(
                     _buildSchedule,
-                    _renderChunksElapsed,
+                    TimeSpan.FromTicks(Volatile.Read(ref _renderChunksElapsedTicks)),
                     _sourceHitCount,
                     _scheduledHits.Count,
                     _renderedChunks.Count);
@@ -286,20 +286,32 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 TouchCacheEntry(chunkIndex);
                 return existing;
             }
+        }
 
-            float[] rendered = RenderChunkMeasured(chunkIndex);
-            long renderedBytes = GetPcmBytes(rendered);
+        float[] rendered = RenderChunkMeasured(chunkIndex);
+        long renderedBytes = GetPcmBytes(rendered);
+
+        lock (_cacheLock)
+        {
+            // Foreground and background may render the same missing chunk at once.
+            // Keep the first inserted copy and discard the duplicate result.
+            if (_renderedChunks.TryGetValue(chunkIndex, out float[]? existing))
+            {
+                TouchCacheEntry(chunkIndex);
+                return existing;
+            }
+
             if (renderedBytes <= _cacheBudgetBytes)
             {
                 EvictLeastRecentlyUsedUntilFits(renderedBytes);
                 AddCacheEntry(chunkIndex, rendered, renderedBytes);
             }
-
-            // If one chunk is larger than the entire budget, return it directly to
-            // the foreground caller without retaining it. Playback stays correct
-            // and the hard cache bound is still respected.
-            return rendered;
         }
+
+        // If one chunk is larger than the entire budget, return it directly to
+        // the foreground caller without retaining it. Playback stays correct and
+        // the hard cache bound is still respected.
+        return rendered;
     }
 
     private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes)
@@ -311,9 +323,22 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 TouchCacheEntry(chunkIndex);
                 return true;
             }
+        }
 
-            float[] rendered = RenderChunkMeasured(chunkIndex);
-            long renderedBytes = GetPcmBytes(rendered);
+        float[] rendered = RenderChunkMeasured(chunkIndex);
+        long renderedBytes = GetPcmBytes(rendered);
+
+        lock (_cacheLock)
+        {
+            // A foreground request may have populated this chunk while background
+            // rendering was in progress. Reuse that copy rather than inserting a
+            // duplicate or charging the budget twice.
+            if (_renderedChunks.ContainsKey(chunkIndex))
+            {
+                TouchCacheEntry(chunkIndex);
+                return true;
+            }
+
             long effectiveBudget = Math.Min(_cacheBudgetBytes, Math.Max(0, cacheBudgetBytes));
             if (renderedBytes > effectiveBudget - Math.Min(_cachedPcmBytes, effectiveBudget))
                 return false;
@@ -361,7 +386,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         var watch = Stopwatch.StartNew();
         float[] rendered = RenderChunk(chunkIndex);
         watch.Stop();
-        _renderChunksElapsed += watch.Elapsed;
+        Interlocked.Add(ref _renderChunksElapsedTicks, watch.Elapsed.Ticks);
         return rendered;
     }
 
