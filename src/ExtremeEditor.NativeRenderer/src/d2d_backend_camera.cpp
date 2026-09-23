@@ -42,7 +42,11 @@ void D2DBackend::QueryVisibleFloorsCamera(
     // MoveTrack mutates only the affected floor transforms and reindexes floors
     // when they cross a spatial cell. Do it immediately before culling so moving
     // floors do not disappear just because their original cell is off-screen.
+    const auto update_started = std::chrono::steady_clock::now();
     const_cast<LevelScene&>(scene).UpdateTrackTransforms();
+    const auto update_finished = std::chrono::steady_clock::now();
+    stats.update_ms = std::chrono::duration<double, std::milli>(
+        update_finished - update_started).count();
 
     zoom = std::clamp(zoom, 0.05f, 400.0f);
     const float view_half_width = static_cast<float>(width_) * 0.5f / zoom;
