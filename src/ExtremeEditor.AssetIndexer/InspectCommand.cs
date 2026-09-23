@@ -232,7 +232,7 @@ internal static class InspectCommand
                         target = RequireValue(args, ref i, arg);
                         break;
                     default:
-                        if (arg.StartsWith('-', StringComparison.Ordinal))
+                        if (arg.StartsWith("-", StringComparison.Ordinal))
                             throw new ArgumentException($"Unknown inspect option: {arg}");
                         if (gameRoot is not null)
                             throw new ArgumentException($"Unexpected positional argument: {arg}");
