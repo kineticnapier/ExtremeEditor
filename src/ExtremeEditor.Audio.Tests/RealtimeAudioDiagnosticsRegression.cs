@@ -14,7 +14,7 @@ internal static class RealtimeAudioDiagnosticsRegression
         VerifyRuntimeHitSoundBypass();
         VerifyAudioPlayerExposesRuntimeHitSoundBypass();
         VerifyProviderPrecomputesHitSchedule();
-        VerifyProviderPrerendersHitSoundPcm();
+        VerifyProviderCachesHitSoundPcmOnDemand();
     }
 
     private static void VerifyRuntimeHitSoundBypass()
@@ -120,7 +120,7 @@ internal static class RealtimeAudioDiagnosticsRegression
         }
     }
 
-    private static void VerifyProviderPrerendersHitSoundPcm()
+    private static void VerifyProviderCachesHitSoundPcmOnDemand()
     {
         const int sampleRate = 1_000;
         WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
@@ -145,13 +145,30 @@ internal static class RealtimeAudioDiagnosticsRegression
             ?? throw new InvalidOperationException(
                 "SampleAccurateHitSoundProvider._renderedChunks does not exist yet.");
 
-        if (renderedChunksField.GetValue(provider) is null)
-            throw new InvalidOperationException("Prerendered hitsound PCM chunks must be built in the constructor.");
+        object cache = renderedChunksField.GetValue(provider)
+            ?? throw new InvalidOperationException("Progressive hitsound PCM cache must be initialized in the constructor.");
+        PropertyInfo countProperty = cache.GetType().GetProperty("Count")
+            ?? throw new InvalidOperationException("Progressive hitsound PCM cache must expose Count.");
+
+        int before = (int)(countProperty.GetValue(cache) ?? -1);
+        if (before != 0)
+            throw new InvalidOperationException($"Provider construction must not eagerly render PCM chunks; actual cache count {before}.");
+
+        provider.Seek(250);
+        var buffer = new float[4];
+        provider.Read(buffer, 0, buffer.Length);
+
+        int after = (int)(countProperty.GetValue(cache) ?? -1);
+        if (after <= 0)
+            throw new InvalidOperationException("Reading an uncached range must render and retain the required PCM chunk.");
+        if (Math.Abs(buffer[0] - 1f) > 0.0001f || Math.Abs(buffer[2] - 0.5f) > 0.0001f)
+            throw new InvalidOperationException(
+                $"On-demand cached PCM changed sample-accurate output: actual {buffer[0]}, {buffer[2]}.");
 
         if (providerType.GetField("_activeVoices", BindingFlags.Instance | BindingFlags.NonPublic) is not null)
         {
             throw new InvalidOperationException(
-                "Realtime provider must not retain an active-voice mixer after hitsound PCM is prerendered.");
+                "Realtime provider must not retain an active-voice mixer; cache misses render independent PCM chunks.");
         }
     }
 
