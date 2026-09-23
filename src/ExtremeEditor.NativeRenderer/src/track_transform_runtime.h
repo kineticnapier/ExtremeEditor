@@ -19,6 +19,12 @@ struct TrackTransformUpdateMetrics
     double apply_ms = 0.0;
     double spatial_remove_ms = 0.0;
     double spatial_insert_ms = 0.0;
+    std::uint32_t total_track_count = 0;
+    std::uint32_t active_track_count = 0;
+    std::uint32_t admitted_count = 0;
+    std::uint32_t finished_count = 0;
+    std::uint64_t event_scan_count = 0;
+    std::uint64_t max_event_scan_count = 0;
 };
 
 class TrackTransformRuntime
