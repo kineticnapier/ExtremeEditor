@@ -70,6 +70,9 @@ public partial class MainWindow
                 $"trackApply={diagnostics.TrackApplyMilliseconds:F2}ms " +
                 $"trackRm={diagnostics.TrackSpatialRemoveMilliseconds:F2}ms " +
                 $"trackIns={diagnostics.TrackSpatialInsertMilliseconds:F2}ms " +
+                $"trackCount={diagnostics.TrackTotalCount} active={diagnostics.TrackActiveCount} " +
+                $"admit={diagnostics.TrackAdmittedCount} finish={diagnostics.TrackFinishedCount} " +
+                $"eventScans={diagnostics.TrackEventScanCount} maxScan={diagnostics.TrackMaxEventScanCount} " +
                 $"cand={diagnostics.VisibleCandidates} floors={diagnostics.FloorDraws} " +
                 $"icons={diagnostics.IconDraws} calls={diagnostics.DrawCalls}";
         }
