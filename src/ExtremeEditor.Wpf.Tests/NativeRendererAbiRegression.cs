@@ -42,7 +42,10 @@ internal static class NativeRendererAbiRegression
             "TrackAdmittedCount",
             "TrackFinishedCount",
             "TrackEventScanCount",
-            "TrackMaxEventScanCount"
+            "TrackMaxEventScanCount",
+            "TrackActivePositionCount",
+            "TrackActiveVisualOnlyCount",
+            "TrackActiveSingleEventCount"
         ];
 
         string[] missing = requiredPhaseFields
