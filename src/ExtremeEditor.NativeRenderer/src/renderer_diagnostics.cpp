@@ -67,6 +67,9 @@ bool Renderer::GetDiagnostics(EeRendererDiagnostics& diagnostics) noexcept
     diagnostics.track_finished_count = track_metrics.finished_count;
     diagnostics.track_event_scan_count = track_metrics.event_scan_count;
     diagnostics.track_max_event_scan_count = track_metrics.max_event_scan_count;
+    diagnostics.track_active_position_count = track_metrics.active_position_count;
+    diagnostics.track_active_visual_only_count = track_metrics.active_visual_only_count;
+    diagnostics.track_active_single_event_count = track_metrics.active_single_event_count;
     return true;
 }
 }
