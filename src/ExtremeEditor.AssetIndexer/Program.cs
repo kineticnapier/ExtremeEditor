@@ -146,7 +146,7 @@ internal static class Program
             output.Flush();
             manager.UnloadAll(true);
 
-            Console.WriteLine($"[index] done entries={stats.Entries} named={stats.NamedEntries} matches={stats.Matches} nameErrors={stats.NameErrors} fileErrors={stats.FileErrors}");
+            Console.WriteLine($"[index] done entries={stats.Entries} named={stats.NamedEntries} matches={stats.Matches} nameErrors={stats.NameErrors} fileErrors={stats.FileErrors} classdataErrors={stats.ClassDatabaseErrors}");
             Console.WriteLine($"[index] jsonl={Path.GetFullPath(outputPath)}");
             if (!hasClassData && stats.NameErrors > 0)
                 Console.WriteLine("[index] Some names could not be decoded. Re-run with --classdata <classdata.tpk> if the target files have stripped type trees.");
@@ -425,7 +425,7 @@ internal static class Program
                         includeBundles = false;
                         break;
                     default:
-                        if (arg.StartsWith('-', StringComparison.Ordinal))
+                        if (arg.StartsWith("-", StringComparison.Ordinal))
                             throw new ArgumentException($"Unknown option: {arg}");
                         if (gameRoot is not null)
                             throw new ArgumentException($"Unexpected positional argument: {arg}");
