@@ -36,6 +36,9 @@ int main()
         "std::uint64_t finished_count",
         "std::uint64_t event_scan_count",
         "std::uint64_t max_event_scan_count",
+        "std::uint64_t active_position_count",
+        "std::uint64_t active_visual_only_count",
+        "std::uint64_t active_single_event_count",
         "TrackTransformUpdateMetrics Update("
     };
 
