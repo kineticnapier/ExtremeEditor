@@ -64,6 +64,12 @@ public partial class MainWindow
                 $"cull={diagnostics.CullMilliseconds:F3}ms floorsMs={diagnostics.FloorMilliseconds:F2}ms " +
                 $"iconsMs={diagnostics.IconMilliseconds:F2}ms overlay={diagnostics.OverlayMilliseconds:F2}ms " +
                 $"endDraw={diagnostics.EndDrawMilliseconds:F2}ms present={diagnostics.PresentMilliseconds:F2}ms " +
+                $"trackTotal={diagnostics.TrackTotalMilliseconds:F2}ms " +
+                $"trackClock={diagnostics.TrackClockMilliseconds:F3}ms " +
+                $"trackEval={diagnostics.TrackEvaluateMilliseconds:F2}ms " +
+                $"trackApply={diagnostics.TrackApplyMilliseconds:F2}ms " +
+                $"trackRm={diagnostics.TrackSpatialRemoveMilliseconds:F2}ms " +
+                $"trackIns={diagnostics.TrackSpatialInsertMilliseconds:F2}ms " +
                 $"cand={diagnostics.VisibleCandidates} floors={diagnostics.FloorDraws} " +
                 $"icons={diagnostics.IconDraws} calls={diagnostics.DrawCalls}";
         }
