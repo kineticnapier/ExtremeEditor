@@ -15,7 +15,7 @@ internal readonly record struct HitSoundRenderMetrics(
 /// <summary>
 /// Serves a sample-accurate hit-sound PCM layer on the same absolute sample clock
 /// as the song. Construction precomputes only the compact hit schedule; PCM chunks
-/// are rendered into a reusable RAM cache only when primed or first requested.
+/// are rendered into a reusable bounded RAM cache only when primed or requested.
 /// </summary>
 internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 {
@@ -23,6 +23,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private readonly List<ScheduledHit> _scheduledHits;
     private readonly Dictionary<long, float[]> _renderedChunks = [];
+    private readonly LinkedList<long> _cacheLru = [];
+    private readonly Dictionary<long, LinkedListNode<long>> _cacheLruNodes = [];
     private readonly object _cacheLock = new();
     private readonly long _totalFrames;
     private readonly long _maxClipFrames;
@@ -30,6 +32,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly int _sourceHitCount;
     private TimeSpan _renderChunksElapsed;
     private long _cachedPcmBytes;
+    private long _cacheBudgetBytes = long.MaxValue;
     private long _positionFrames;
 
     public SampleAccurateHitSoundProvider(
@@ -114,6 +117,15 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         _positionFrames = Math.Max(0, positionFrames);
     }
 
+    internal void SetCacheBudgetBytes(long cacheBudgetBytes)
+    {
+        lock (_cacheLock)
+        {
+            _cacheBudgetBytes = Math.Max(0, cacheBudgetBytes);
+            EvictLeastRecentlyUsedUntilFits(0);
+        }
+    }
+
     /// <summary>
     /// Ensures the requested range is already in the RAM cache. AudioPlayer uses
     /// this before WaveOut starts so the first device callback never pays the
@@ -139,9 +151,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     /// <summary>
     /// Renders future chunks as fast as possible without allowing background PCM
     /// additions to push the shared RAM cache past the supplied byte budget.
-    /// Already cached chunks cost nothing, and silent sentinels consume no PCM
-    /// budget. Foreground Read remains authoritative and may render a cache miss
-    /// synchronously even when a background budget has been exhausted.
+    /// Background work deliberately does not evict foreground/LRU data just to
+    /// make room for speculative future chunks.
     /// </summary>
     internal Task PrerenderAheadAsync(
         long startFrame,
@@ -271,11 +282,22 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         lock (_cacheLock)
         {
             if (_renderedChunks.TryGetValue(chunkIndex, out float[]? existing))
+            {
+                TouchCacheEntry(chunkIndex);
                 return existing;
+            }
 
             float[] rendered = RenderChunkMeasured(chunkIndex);
-            _renderedChunks.Add(chunkIndex, rendered);
-            _cachedPcmBytes += GetPcmBytes(rendered);
+            long renderedBytes = GetPcmBytes(rendered);
+            if (renderedBytes <= _cacheBudgetBytes)
+            {
+                EvictLeastRecentlyUsedUntilFits(renderedBytes);
+                AddCacheEntry(chunkIndex, rendered, renderedBytes);
+            }
+
+            // If one chunk is larger than the entire budget, return it directly to
+            // the foreground caller without retaining it. Playback stays correct
+            // and the hard cache bound is still respected.
             return rendered;
         }
     }
@@ -285,16 +307,52 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         lock (_cacheLock)
         {
             if (_renderedChunks.ContainsKey(chunkIndex))
+            {
+                TouchCacheEntry(chunkIndex);
                 return true;
+            }
 
             float[] rendered = RenderChunkMeasured(chunkIndex);
             long renderedBytes = GetPcmBytes(rendered);
-            if (renderedBytes > cacheBudgetBytes - _cachedPcmBytes)
+            long effectiveBudget = Math.Min(_cacheBudgetBytes, Math.Max(0, cacheBudgetBytes));
+            if (renderedBytes > effectiveBudget - Math.Min(_cachedPcmBytes, effectiveBudget))
                 return false;
 
-            _renderedChunks.Add(chunkIndex, rendered);
-            _cachedPcmBytes += renderedBytes;
+            AddCacheEntry(chunkIndex, rendered, renderedBytes);
             return true;
+        }
+    }
+
+    private void AddCacheEntry(long chunkIndex, float[] rendered, long renderedBytes)
+    {
+        _renderedChunks.Add(chunkIndex, rendered);
+        _cachedPcmBytes += renderedBytes;
+        LinkedListNode<long> node = _cacheLru.AddLast(chunkIndex);
+        _cacheLruNodes.Add(chunkIndex, node);
+    }
+
+    private void TouchCacheEntry(long chunkIndex)
+    {
+        if (!_cacheLruNodes.TryGetValue(chunkIndex, out LinkedListNode<long>? node) ||
+            ReferenceEquals(node, _cacheLru.Last))
+        {
+            return;
+        }
+
+        _cacheLru.Remove(node);
+        _cacheLru.AddLast(node);
+    }
+
+    private void EvictLeastRecentlyUsedUntilFits(long incomingBytes)
+    {
+        while (_cacheLru.First is LinkedListNode<long> node &&
+               _cachedPcmBytes > _cacheBudgetBytes - Math.Min(incomingBytes, _cacheBudgetBytes))
+        {
+            long chunkIndex = node.Value;
+            _cacheLru.RemoveFirst();
+            _cacheLruNodes.Remove(chunkIndex);
+            if (_renderedChunks.Remove(chunkIndex, out float[]? removed))
+                _cachedPcmBytes -= GetPcmBytes(removed);
         }
     }
 
