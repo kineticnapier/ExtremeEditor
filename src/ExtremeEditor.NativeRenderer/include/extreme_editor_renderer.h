@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 7u
+#define EE_RENDERER_API_VERSION 8u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -228,6 +228,13 @@ typedef struct EeRendererDiagnostics
     double max_frame_ms;
     double render_ms;
     double cull_ms;
+    double update_ms;
+    double draw_setup_ms;
+    double floor_ms;
+    double icon_ms;
+    double overlay_ms;
+    double end_draw_ms;
+    double present_ms;
     uint32_t visible_candidates;
     uint32_t floor_draws;
     uint32_t icon_draws;
