@@ -60,8 +60,12 @@ public partial class MainWindow
             return
                 $"native fps={diagnostics.Fps:F1} frame={diagnostics.FrameMilliseconds:F2}ms " +
                 $"max={diagnostics.MaxFrameMilliseconds:F2}ms render={diagnostics.RenderMilliseconds:F2}ms " +
-                $"cull={diagnostics.CullMilliseconds:F3}ms cand={diagnostics.VisibleCandidates} " +
-                $"floors={diagnostics.FloorDraws} icons={diagnostics.IconDraws} calls={diagnostics.DrawCalls}";
+                $"update={diagnostics.UpdateMilliseconds:F2}ms setup={diagnostics.DrawSetupMilliseconds:F2}ms " +
+                $"cull={diagnostics.CullMilliseconds:F3}ms floorsMs={diagnostics.FloorMilliseconds:F2}ms " +
+                $"iconsMs={diagnostics.IconMilliseconds:F2}ms overlay={diagnostics.OverlayMilliseconds:F2}ms " +
+                $"endDraw={diagnostics.EndDrawMilliseconds:F2}ms present={diagnostics.PresentMilliseconds:F2}ms " +
+                $"cand={diagnostics.VisibleCandidates} floors={diagnostics.FloorDraws} " +
+                $"icons={diagnostics.IconDraws} calls={diagnostics.DrawCalls}";
         }
     }
 
