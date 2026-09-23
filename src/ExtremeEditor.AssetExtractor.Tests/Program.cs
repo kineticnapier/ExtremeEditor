@@ -16,15 +16,32 @@ internal static class Program
                 Path.GetTempPath(),
                 $"ExtremeEditor-AssetExtractor-{Guid.NewGuid():N}");
 
-            FloorTextureExtractionResult result =
+            FloorTextureExtractionResult floorResult =
                 AdoFaiFloorTextureExtractor.Extract(gameRoot, outputDirectory);
 
-            VerifyCanonicalPng(result.TilePath, "tile.png");
-            VerifyCanonicalPng(result.PerlinPath, "perlin.png");
-            VerifyCanonicalPng(result.RampPath, "ramp.png");
-            VerifyCanonicalPng(result.GlowPath, "glow.png");
+            VerifyCanonicalPng(floorResult.TilePath, "tile.png");
+            VerifyCanonicalPng(floorResult.PerlinPath, "perlin.png");
+            VerifyCanonicalPng(floorResult.RampPath, "ramp.png");
+            VerifyCanonicalPng(floorResult.GlowPath, "glow.png");
 
-            Console.WriteLine("PASS: ADOFAI floor textures were extracted directly into canonical PNG files.");
+            string iconOutput = Path.Combine(outputDirectory, "icons");
+            IconExtractionResult iconResult =
+                AdoFaiIconExtractor.Extract(gameRoot, iconOutput);
+
+            VerifyDirectory(iconResult.FloorDirectory, Path.Combine(iconOutput, "floors"));
+            VerifyDirectory(iconResult.OutlineDirectory, Path.Combine(iconOutput, "outlines"));
+            VerifyDirectory(iconResult.EventDirectory, Path.Combine(iconOutput, "events"));
+
+            VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "SwirlRed.png"), "SwirlRed.png");
+            VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "SwirlBlue.png"), "SwirlBlue.png");
+            VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Rabbit.png"), "Rabbit.png");
+            VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Snail.png"), "Snail.png");
+
+            if (iconResult.FloorIconCount < 4)
+                throw new InvalidOperationException(
+                    $"Expected at least four directly extracted floor icons, got {iconResult.FloorIconCount}.");
+
+            Console.WriteLine("PASS: ADOFAI floor textures and representative floor icons were extracted directly into canonical PNG files.");
             return 0;
         }
         catch (Exception ex)
@@ -89,6 +106,18 @@ internal static class Program
         string data = Path.Combine(root, "A Dance of Fire and Ice_Data");
         return File.Exists(Path.Combine(data, "resources.assets")) &&
                File.Exists(Path.Combine(data, "resources.assets.resS"));
+    }
+
+    private static void VerifyDirectory(string actual, string expected)
+    {
+        if (!string.Equals(
+                Path.GetFullPath(actual).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(expected).TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Expected canonical directory {expected}, got {actual}.");
+        }
     }
 
     private static void VerifyCanonicalPng(string path, string expectedFileName)
