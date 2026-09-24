@@ -327,7 +327,7 @@ public partial class MainWindow
 
     private bool TryAddNumberedEvent(int digit)
     {
-        if (_level is null || Viewport.SelectedFloor < 0)
+        if (_level is null || _selection.PrimaryFloor < 0)
             return false;
 
         EventCategoryDefinition category = EventCategories[_eventCategoryIndex];
@@ -352,7 +352,7 @@ public partial class MainWindow
 
     private void OpenEventPicker(object sender, RoutedEventArgs e)
     {
-        if (_level is null || Viewport.SelectedFloor < 0)
+        if (_level is null || _selection.PrimaryFloor < 0)
             return;
 
         var dialog = new EventPickerWindow(EventCatalog)
@@ -384,11 +384,11 @@ public partial class MainWindow
         }
 
         EditorSession? editor = EnsureEditorSession();
-        int primary = Viewport.SelectedFloor;
+        int primary = _selection.PrimaryFloor;
         if (editor is null || primary < 0)
             return false;
 
-        int[] selection = Viewport.SelectedFloors.ToArray();
+        int[] selection = _selection.SelectedFloors.ToArray();
         editor.AddAction(primary, eventType);
         RefreshEditorAfterMutation(primary, selection);
 
