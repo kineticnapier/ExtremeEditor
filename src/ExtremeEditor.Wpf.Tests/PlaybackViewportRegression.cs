@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -169,25 +170,32 @@ internal static class PlaybackViewportRegression
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException("MainWindow.FollowPlayerToggle does not exist yet.");
             FieldInfo viewportField = windowType.GetField(
-                "Viewport",
+                "NativeViewport",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("MainWindow.Viewport field is missing.");
+                ?? throw new InvalidOperationException("MainWindow.NativeViewport field is missing.");
 
             if (followField.GetValue(window) is not ToggleButton toggle)
                 throw new InvalidOperationException("FollowPlayerToggle must be a ToggleButton.");
-            if (viewportField.GetValue(window) is not LevelViewport viewport)
-                throw new InvalidOperationException("MainWindow.Viewport must be a LevelViewport.");
+            if (viewportField.GetValue(window) is not NativeLevelViewport viewport)
+                throw new InvalidOperationException("MainWindow.NativeViewport must be a NativeLevelViewport.");
             if (!toggle.IsEnabled)
                 throw new InvalidOperationException("Follow Player toggle must be enabled.");
 
             toggle.IsChecked = false;
             toggle.IsChecked = true;
             if (!viewport.FollowPlayer)
-                throw new InvalidOperationException("Follow Player toggle must update the viewport follow state.");
+                throw new InvalidOperationException("Follow Player toggle must update the native viewport follow state.");
 
-            viewport.FollowPlayer = false;
+            MethodInfo nativeFollowChanged = typeof(NativeLevelViewport).GetMethod(
+                "NativeFollowPlayerChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("NativeLevelViewport.NativeFollowPlayerChanged is missing.");
+            nativeFollowChanged.Invoke(viewport, [false]);
+
+            if (viewport.FollowPlayer)
+                throw new InvalidOperationException("Native follow callback must update the native viewport follow state.");
             if (toggle.IsChecked != false)
-                throw new InvalidOperationException("Viewport follow changes must update the Follow Player toggle.");
+                throw new InvalidOperationException("Native viewport follow changes must update the Follow Player toggle.");
         }
         finally
         {
