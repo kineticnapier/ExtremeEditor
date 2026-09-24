@@ -17,7 +17,7 @@ internal sealed class WpfFloorRenderer
     private static readonly SolidColorBrush EdgeBrush = CreateBrush(24, 22, 18, 105);
     private static readonly SolidColorBrush SelectedBrush = CreateBrush(255, 210, 80);
 
-    private readonly Brush _mainBrush;
+    private Brush _mainBrush;
     private Pen _edgePen = CreatePen(EdgeBrush, 0.022);
     private Pen _selectedPen = CreatePen(SelectedBrush, 0.08);
     private float _preparedZoom = -1f;
@@ -29,6 +29,11 @@ internal sealed class WpfFloorRenderer
 
     public bool HasImportedAssets => !ReferenceEquals(_mainBrush, FallbackBrush);
     public string AssetSummary => HasImportedAssets ? "tile asset" : "fallback material";
+
+    public void ReloadAssets()
+    {
+        _mainBrush = LoadTileBrush() ?? FallbackBrush;
+    }
 
     public void BeginFrame(float zoom)
     {
