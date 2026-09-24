@@ -24,7 +24,6 @@ public partial class MainWindow
 
         _editorFeaturesInitialized = true;
         InitializeEditorCommandBindings();
-        Viewport.SelectionChanged += ViewportSelectionChanged;
         EnsureEditorSession();
         RefreshInspector();
     }
@@ -140,29 +139,22 @@ public partial class MainWindow
         return result == MessageBoxResult.Yes;
     }
 
-    private void ViewportSelectionChanged(object? sender, EventArgs e)
-    {
-        EnsureEditorSession();
-        RefreshInspector();
-        CommandManager.InvalidateRequerySuggested();
-    }
-
     private void MainWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is TextBox or PasswordBox)
             return;
-        if (_level is null || Viewport.SelectedFloor < 0)
+        if (_level is null || _selection.PrimaryFloor < 0)
             return;
 
         if (e.Key == Key.Delete)
         {
-            if (Viewport.SelectedFloors.Count > 0)
+            if (_selection.SelectedFloors.Count > 0)
                 EditorCommands.Delete.Execute(null, this);
             e.Handled = true;
             return;
         }
 
-        int target = Viewport.SelectedFloor;
+        int target = _selection.PrimaryFloor;
         switch (e.Key)
         {
             case Key.Left:
@@ -181,7 +173,7 @@ public partial class MainWindow
                 return;
         }
 
-        Viewport.MoveSelection(target, (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+        _selection.MoveSelection(target, (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
         e.Handled = true;
     }
 
@@ -244,7 +236,7 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int primary = Viewport.SelectedFloor;
+        int primary = _selection.PrimaryFloor;
         editor.Undo();
         RefreshEditorAfterMutation(primary);
         e.Handled = true;
@@ -255,7 +247,7 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int primary = Viewport.SelectedFloor;
+        int primary = _selection.PrimaryFloor;
         editor.Redo();
         RefreshEditorAfterMutation(primary);
         e.Handled = true;
@@ -264,8 +256,8 @@ public partial class MainWindow
     private void ExecuteCopy(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        editor?.CopyFloors(Viewport.SelectedFloors);
-        StatusText.Text = $"Copied {Viewport.SelectedFloors.Count:N0} floor(s)";
+        editor?.CopyFloors(_selection.SelectedFloors);
+        StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
         CommandManager.InvalidateRequerySuggested();
         e.Handled = true;
     }
@@ -275,8 +267,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int target = Math.Max(0, Viewport.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-        editor.CutFloors(Viewport.SelectedFloors);
+        int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
+        editor.CutFloors(_selection.SelectedFloors);
         RefreshEditorAfterMutation(target);
         e.Handled = true;
     }
@@ -284,10 +276,10 @@ public partial class MainWindow
     private void ExecutePaste(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        if (editor is null || Viewport.SelectedFloor < 0)
+        if (editor is null || _selection.PrimaryFloor < 0)
             return;
-        int newFloor = Viewport.SelectedFloor + 1;
-        editor.PasteFloors(Viewport.SelectedFloor);
+        int newFloor = _selection.PrimaryFloor + 1;
+        editor.PasteFloors(_selection.PrimaryFloor);
         RefreshEditorAfterMutation(newFloor);
         e.Handled = true;
     }
@@ -297,8 +289,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int target = Math.Max(0, Viewport.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-        editor.DeleteFloors(Viewport.SelectedFloors);
+        int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
+        editor.DeleteFloors(_selection.SelectedFloors);
         RefreshEditorAfterMutation(target);
         e.Handled = true;
     }
@@ -306,13 +298,13 @@ public partial class MainWindow
     private void ExecuteInsertAngle(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        if (editor is null || Viewport.SelectedFloor < 0)
+        if (editor is null || _selection.PrimaryFloor < 0)
             return;
         double? angle = InputDialog.AskDouble(this, "Insert floor", "Absolute ADOFAI angle in degrees:", 0.0);
         if (angle is null)
             return;
-        int newFloor = Viewport.SelectedFloor + 1;
-        editor.InsertAngle(Viewport.SelectedFloor, angle.Value);
+        int newFloor = _selection.PrimaryFloor + 1;
+        editor.InsertAngle(_selection.PrimaryFloor, angle.Value);
         RefreshEditorAfterMutation(newFloor);
         e.Handled = true;
     }
@@ -320,10 +312,10 @@ public partial class MainWindow
     private void ExecuteInsertMidspin(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        if (editor is null || Viewport.SelectedFloor < 0)
+        if (editor is null || _selection.PrimaryFloor < 0)
             return;
-        int newFloor = Viewport.SelectedFloor + 1;
-        editor.InsertMidspin(Viewport.SelectedFloor);
+        int newFloor = _selection.PrimaryFloor + 1;
+        editor.InsertMidspin(_selection.PrimaryFloor);
         RefreshEditorAfterMutation(newFloor);
         e.Handled = true;
     }
@@ -331,10 +323,10 @@ public partial class MainWindow
     private void ExecuteInsertFullTurn(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        if (editor is null || Viewport.SelectedFloor < 0)
+        if (editor is null || _selection.PrimaryFloor < 0)
             return;
-        int newFloor = Viewport.SelectedFloor + 1;
-        editor.InsertFullTurn(Viewport.SelectedFloor);
+        int newFloor = _selection.PrimaryFloor + 1;
+        editor.InsertFullTurn(_selection.PrimaryFloor);
         RefreshEditorAfterMutation(newFloor);
         e.Handled = true;
     }
@@ -344,8 +336,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int[] selection = Viewport.SelectedFloors.ToArray();
-        int primary = Viewport.SelectedFloor;
+        int[] selection = _selection.SelectedFloors.ToArray();
+        int primary = _selection.PrimaryFloor;
         editor.Rotate(selection, degrees);
         RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
@@ -356,8 +348,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int[] selection = Viewport.SelectedFloors.ToArray();
-        int primary = Viewport.SelectedFloor;
+        int[] selection = _selection.SelectedFloors.ToArray();
+        int primary = _selection.PrimaryFloor;
         editor.FlipHorizontal(selection);
         RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
@@ -368,8 +360,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int[] selection = Viewport.SelectedFloors.ToArray();
-        int primary = Viewport.SelectedFloor;
+        int[] selection = _selection.SelectedFloors.ToArray();
+        int primary = _selection.PrimaryFloor;
         editor.FlipVertical(selection);
         RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
@@ -378,13 +370,13 @@ public partial class MainWindow
     private void ExecuteAddEvent(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        if (editor is null || Viewport.SelectedFloor < 0)
+        if (editor is null || _selection.PrimaryFloor < 0)
             return;
         string? type = InputDialog.Ask(this, "Add event", "eventType:", "Twirl");
         if (string.IsNullOrWhiteSpace(type))
             return;
-        int[] selection = Viewport.SelectedFloors.ToArray();
-        int primary = Viewport.SelectedFloor;
+        int[] selection = _selection.SelectedFloors.ToArray();
+        int primary = _selection.PrimaryFloor;
         editor.AddAction(primary, type);
         RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
@@ -397,8 +389,8 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
-        int[] selection = Viewport.SelectedFloors.ToArray();
-        int primary = Viewport.SelectedFloor;
+        int[] selection = _selection.SelectedFloors.ToArray();
+        int primary = _selection.PrimaryFloor;
         editor.DeleteAction(item.Action);
         RefreshEditorAfterMutation(primary, selection);
         e.Handled = true;
@@ -419,7 +411,7 @@ public partial class MainWindow
             LevelAction updated = ParseEditedAction(obj, item.Action);
             updated.PropertyOverrides = (JsonObject)obj.DeepClone();
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
-            int[] selection = Viewport.SelectedFloors.ToArray();
+            int[] selection = _selection.SelectedFloors.ToArray();
             editor.ReplaceAction(item.Action, updated);
             RefreshEditorAfterMutation(updated.Floor, selection);
         }
@@ -455,15 +447,14 @@ public partial class MainWindow
         selection = selection.Select(floor => Math.Clamp(floor, 0, maxFloor)).Distinct().ToArray();
         int primary = Math.Clamp(preferredPrimary, 0, maxFloor);
 
-        var index = new SpatialGridIndex(_level.Positions);
-        Viewport.SetLevel(_level, index, preserveView: true);
-        Viewport.SetSelection(selection, primary);
+        NativeViewport.SetLevel(_level);
+        _selection.SetFloorCount(_level.FloorCount);
+        _selection.SetSelection(selection, primary);
 
         WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
         _timingMap = playback.TimingMap;
         _hitSoundTimeline = playback.HitSoundTimeline;
         _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
-        NativeViewport.SetLevel(_level);
         NativeViewport.SetPlaybackTimeline(_timingMap);
 
         RefreshInspector();
@@ -474,8 +465,8 @@ public partial class MainWindow
     private void RefreshInspector()
     {
         EditorSession? editor = EnsureEditorSession();
-        int primary = Viewport.SelectedFloor;
-        int count = Viewport.SelectedFloors.Count;
+        int primary = _selection.PrimaryFloor;
+        int count = _selection.SelectedFloors.Count;
         SelectionSummaryText.Text = primary < 0
             ? "No floor selected"
             : count <= 1
@@ -577,19 +568,19 @@ public partial class MainWindow
 
     private void CanExecuteFloorSelection(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = !_isLoading && EnsureEditorSession() is not null && Viewport.SelectedFloors.Count > 0;
+        e.CanExecute = !_isLoading && EnsureEditorSession() is not null && _selection.SelectedFloors.Count > 0;
         e.Handled = true;
     }
 
     private void CanExecutePrimarySelection(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = !_isLoading && EnsureEditorSession() is not null && Viewport.SelectedFloor >= 0;
+        e.CanExecute = !_isLoading && EnsureEditorSession() is not null && _selection.PrimaryFloor >= 0;
         e.Handled = true;
     }
 
     private void CanExecutePaste(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true && Viewport.SelectedFloor >= 0;
+        e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true && _selection.PrimaryFloor >= 0;
         e.Handled = true;
     }
 
