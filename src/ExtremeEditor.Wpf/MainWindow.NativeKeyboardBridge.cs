@@ -20,6 +20,7 @@ public partial class MainWindow
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        InitializeSharedSelectionState();
         ComponentDispatcher.ThreadPreprocessMessage += NativeThreadPreprocessMessage;
         Closed += (_, _) => ComponentDispatcher.ThreadPreprocessMessage -= NativeThreadPreprocessMessage;
     }
