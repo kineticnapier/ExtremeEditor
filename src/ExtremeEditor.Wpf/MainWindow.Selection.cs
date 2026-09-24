@@ -1,3 +1,5 @@
+using System.Windows.Input;
+
 namespace ExtremeEditor.Wpf;
 
 public partial class MainWindow
