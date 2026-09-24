@@ -45,10 +45,10 @@ public partial class MainWindow
         // not accidentally fall through to Space/P/navigation/etc. while ` is held.
         if (backQuote)
         {
-            if (!control && !alt && !windows && _level is not null && Viewport.SelectedFloor >= 0)
+            if (!control && !alt && !windows && _level is not null && _selection.PrimaryFloor >= 0)
             {
                 EditorSession? chordEditor = EnsureEditorSession();
-                int chordPrimary = Viewport.SelectedFloor;
+                int chordPrimary = _selection.PrimaryFloor;
                 if (chordEditor is not null)
                 {
                     if (key == Key.Tab)
@@ -109,15 +109,12 @@ public partial class MainWindow
         // ExtremeEditor does not currently have that panel.
         if (!control && !shift && !alt && !windows && key == Key.Escape)
         {
-            Viewport.SetSelection([]);
-            NativeViewport.SetSelection([], -1);
-            RefreshInspector();
-            CommandManager.InvalidateRequerySuggested();
+            _selection.SetSelection([]);
             e.Handled = true;
             return;
         }
 
-        int primary = Viewport.SelectedFloor;
+        int primary = _selection.PrimaryFloor;
         if (primary < 0)
             return;
 
@@ -139,16 +136,16 @@ public partial class MainWindow
             switch (key)
             {
                 case Key.C:
-                    editor.CopyFloors(Viewport.SelectedFloors);
-                    StatusText.Text = $"Copied {Viewport.SelectedFloors.Count:N0} floor(s)";
+                    editor.CopyFloors(_selection.SelectedFloors);
+                    StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
                     CommandManager.InvalidateRequerySuggested();
                     e.Handled = true;
                     return;
 
                 case Key.X:
                 {
-                    int target = Math.Max(0, Viewport.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-                    editor.CutFloors(Viewport.SelectedFloors);
+                    int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
+                    editor.CutFloors(_selection.SelectedFloors);
                     RefreshAfterAdoFaiMutation(target);
                     e.Handled = true;
                     return;
@@ -205,7 +202,7 @@ public partial class MainWindow
         // Transform shortcuts from scnEditor.RegisterKeybinds.
         if (!alt && !windows && control)
         {
-            int[] selection = Viewport.SelectedFloors.ToArray();
+            int[] selection = _selection.SelectedFloors.ToArray();
             if (!shift && key == Key.L)
             {
                 editor.FlipHorizontal(selection);
@@ -308,7 +305,7 @@ public partial class MainWindow
 
     private bool TryHandleAdoFaiNavigation(Key key, bool control, bool shift)
     {
-        if (_level is null || Viewport.SelectedFloor < 0)
+        if (_level is null || _selection.PrimaryFloor < 0)
             return false;
 
         int target;
@@ -325,14 +322,14 @@ public partial class MainWindow
         }
         else if (key == Key.Left)
         {
-            target = control ? 0 : Math.Max(0, Viewport.SelectedFloor - 1);
+            target = control ? 0 : Math.Max(0, _selection.PrimaryFloor - 1);
             extend = shift;
         }
         else if (key == Key.Right)
         {
             target = control
                 ? Math.Max(0, _level.FloorCount - 1)
-                : Math.Min(_level.FloorCount - 1, Viewport.SelectedFloor + 1);
+                : Math.Min(_level.FloorCount - 1, _selection.PrimaryFloor + 1);
             extend = shift;
         }
         else
@@ -340,8 +337,7 @@ public partial class MainWindow
             return false;
         }
 
-        Viewport.MoveSelection(target, extend);
-        NativeViewport.SetSelection(Viewport.SelectedFloors, Viewport.SelectedFloor);
+        _selection.MoveSelection(target, extend);
         return true;
     }
 
@@ -354,7 +350,7 @@ public partial class MainWindow
         if (shift || (key != Key.Back && key != Key.Delete))
             return false;
 
-        int[] selected = Viewport.SelectedFloors.OrderBy(floor => floor).ToArray();
+        int[] selected = _selection.SelectedFloors.OrderBy(floor => floor).ToArray();
         if (selected.Length == 0)
             return true;
 
@@ -416,7 +412,7 @@ public partial class MainWindow
 
     private void ApplyAdoFaiDirection(EditorSession editor, int primary, double direction)
     {
-        if (_level is null || Viewport.SelectedFloors.Count != 1)
+        if (_level is null || _selection.SelectedFloors.Count != 1)
             return;
 
         direction = NormalizeAdoFaiAngle(direction);
