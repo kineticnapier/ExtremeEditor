@@ -65,32 +65,24 @@ public partial class MainWindow : Window
             ExecuteStop,
             CanExecutePlayback));
 
-        FloorPreviewToggle.Checked += FloorPreviewChanged;
-        FloorPreviewToggle.Unchecked += FloorPreviewChanged;
-        Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
-
         FollowPlayerToggle.Checked += FollowPlayerToggleChanged;
         FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
-        Viewport.FollowPlayerChanged += ViewportFollowPlayerChanged;
         NativeViewport.FollowPlayerChanged += NativeViewportFollowPlayerChanged;
-        Viewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
         NativeViewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
-        NativeViewport.SelectedFloorChanged += NativeViewportSelectedFloorChanged;
 
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
         // Startup should behave like an editor, not a renderer stress test.
         LevelDocument level = LevelDocument.CreateSynthetic(2);
-        var index = new SpatialGridIndex(level.Positions);
         _level = level;
-        Viewport.SetLevel(level, index);
         NativeViewport.SetLevel(level);
         NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
-        Viewport.SetSelection([0], 0);
-        NativeViewport.SetSelection([0], 0);
+        _selection.SetFloorCount(level.FloorCount);
+        _selection.SetSelection([0], 0);
+        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
 
-        StatusText.Text = $"WPF floor/icon viewport | {EditorVersion.Current} | new 2-floor level | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
+        StatusText.Text = $"Native viewport | {EditorVersion.Current} | new 2-floor level";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
     }
 
@@ -101,10 +93,7 @@ public partial class MainWindow : Window
         _playbackTimer.Stop();
         _editorPlaybackRefreshTimer?.Stop();
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
-        Viewport.FollowPlayerChanged -= ViewportFollowPlayerChanged;
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
-        NativeViewport.SelectedFloorChanged -= NativeViewportSelectedFloorChanged;
-        Viewport.ShutdownRasterWorker();
         _audio.Dispose();
         _playbackDiagnosticLogger.Dispose();
         base.OnClosed(e);
@@ -177,10 +166,6 @@ public partial class MainWindow : Window
             _timingMap = playback.TimingMap;
             _hitSoundTimeline = playback.HitSoundTimeline;
 
-            phase.Restart();
-            Viewport.SetLevel(loaded.Document, loaded.Index);
-            TimeSpan wpfSetLevel = phase.Elapsed;
-
             Task<Native.PreparedNativeLevel> nativeLevelTask =
                 NativeLoadPreparationCache.TryGetLevel(
                     loaded.Document,
@@ -195,8 +180,9 @@ public partial class MainWindow : Window
 
             NativeLevelLoadMetrics nativeMetrics =
                 NativeViewport.SetPreparedLevelProfiled(loaded.Document, preparedNativeLevel);
-            Viewport.SetSelection([0], 0);
-            NativeViewport.SetSelection([0], 0);
+            _selection.SetFloorCount(loaded.Document.FloorCount);
+            _selection.SetSelection([0], 0);
+            NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
 
             TimeSpan editorReadyTime = totalWatch.Elapsed;
             editorReady = true;
@@ -208,7 +194,6 @@ public partial class MainWindow : Window
             Console.WriteLine(
                 $"[load] editor-ready floors={loaded.Document.FloorCount:N0} " +
                 $"actions={loaded.Document.ActionCount:N0} " +
-                $"wpfSetLevel={wpfSetLevel.TotalMilliseconds:N1}ms " +
                 $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
                 $"nativeUpload={nativeMetrics.Upload.TotalMilliseconds:N1}ms " +
                 $"total={editorReadyTime.TotalMilliseconds:N1}ms");
@@ -383,9 +368,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_audio.IsStopped && Viewport.SelectedFloor >= 0)
+        if (_audio.IsStopped && _selection.PrimaryFloor >= 0)
         {
-            double chartTime = _timingMap.GetEntryTime(Viewport.SelectedFloor);
+            double chartTime = _timingMap.GetEntryTime(_selection.PrimaryFloor);
             double audioTime = PlaybackClock.ChartToAudioTime(_level, chartTime);
             _audio.Seek(TimeSpan.FromSeconds(Math.Max(0.0, audioTime)));
         }
@@ -407,8 +392,8 @@ public partial class MainWindow : Window
         double chartRate = EditorChartRate;
         if (!_silentPlaybackActive)
         {
-            _silentPlaybackChartTime = Viewport.SelectedFloor >= 0
-                ? _timingMap.GetEntryTime(Viewport.SelectedFloor)
+            _silentPlaybackChartTime = _selection.PrimaryFloor >= 0
+                ? _timingMap.GetEntryTime(_selection.PrimaryFloor)
                 : 0.0;
             _silentPlaybackChartTime = Math.Clamp(_silentPlaybackChartTime, 0.0, _timingMap.Duration);
             _silentPlaybackActive = true;
@@ -425,8 +410,8 @@ public partial class MainWindow : Window
         {
             if (_silentPlaybackChartTime >= _timingMap.Duration)
             {
-                _silentPlaybackChartTime = Viewport.SelectedFloor >= 0
-                    ? _timingMap.GetEntryTime(Viewport.SelectedFloor)
+                _silentPlaybackChartTime = _selection.PrimaryFloor >= 0
+                    ? _timingMap.GetEntryTime(_selection.PrimaryFloor)
                     : 0.0;
             }
             _silentPlaybackTimestamp = Stopwatch.GetTimestamp();
@@ -469,7 +454,6 @@ public partial class MainWindow : Window
     {
         _audio.Stop();
         ClearSilentPlaybackState();
-        Viewport.SetPlaybackPose(null);
         NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
         PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -483,7 +467,6 @@ public partial class MainWindow : Window
         {
             if (_level is null || _timingMap is null)
             {
-                Viewport.SetPlaybackPose(null);
                 NativeViewport.ClearPlayback();
                 if (ShouldRefreshPlaybackDiagnostics(started))
                     PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -499,13 +482,6 @@ public partial class MainWindow : Window
 
             double audioSeconds = _audio.Position.TotalSeconds;
             double chartTime = PlaybackClock.AudioToChartTime(_level, audioSeconds);
-            WpfPlaybackPresenter.Update(
-                Viewport,
-                _level,
-                _timingMap,
-                audioSeconds,
-                _audio.IsStopped);
-
             double chartRate = EditorChartRate;
             NativeViewport.SetPlaybackState(
                 chartTime,
@@ -534,7 +510,6 @@ public partial class MainWindow : Window
     {
         if (_level is null || _timingMap is null || !_silentPlaybackActive)
         {
-            Viewport.SetPlaybackPose(null);
             NativeViewport.ClearPlayback();
             if (ShouldRefreshPlaybackDiagnostics(sampleStarted))
                 PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
@@ -550,8 +525,6 @@ public partial class MainWindow : Window
         }
 
         chartTime = Math.Clamp(chartTime, 0.0, _timingMap.Duration);
-        PlaybackPose pose = _timingMap.GetPose(_level, chartTime);
-        Viewport.SetPlaybackFrame(_timingMap, chartTime, pose);
         NativeViewport.SetPlaybackState(
             chartTime,
             EditorChartRate,
@@ -569,7 +542,6 @@ public partial class MainWindow : Window
 
     private void ExecuteFrame(object sender, ExecutedRoutedEventArgs e)
     {
-        Viewport.FrameAll();
         NativeViewport.FrameAll();
         e.Handled = true;
     }
@@ -580,45 +552,13 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void FloorPreviewChanged(object sender, RoutedEventArgs e)
-    {
-        Viewport.UseFloorPreview = FloorPreviewToggle.IsChecked == true;
-    }
-
     private void FollowPlayerToggleChanged(object sender, RoutedEventArgs e)
     {
-        bool enabled = FollowPlayerToggle.IsChecked == true;
-        Viewport.FollowPlayer = enabled;
-        NativeViewport.FollowPlayer = enabled;
-    }
-
-    private void ViewportFollowPlayerChanged(object? sender, EventArgs e)
-    {
-        bool enabled = Viewport.FollowPlayer;
-        FollowPlayerToggle.IsChecked = enabled;
-        NativeViewport.FollowPlayer = enabled;
+        NativeViewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
     }
 
     private void NativeViewportFollowPlayerChanged(bool enabled)
     {
-        NativeViewport.FollowPlayer = enabled;
-        Viewport.FollowPlayer = enabled;
         FollowPlayerToggle.IsChecked = enabled;
-    }
-
-    private void NativeViewportSelectedFloorChanged(int floor)
-    {
-        Viewport.SetSelectedFloorFromExternal(floor);
-    }
-
-    private void NativeViewportToggleChanged(object sender, RoutedEventArgs e)
-    {
-        bool useNative = NativeViewportToggle.IsChecked == true;
-        NativeViewport.Visibility = useNative ? Visibility.Visible : Visibility.Collapsed;
-        Viewport.Visibility = useNative ? Visibility.Collapsed : Visibility.Visible;
-
-        StatusText.Text = useNative
-            ? $"Native Direct2D/D3D11 playback viewport | {EditorVersion.Current} | independent native render thread"
-            : $"WPF viewport | {EditorVersion.Current}";
     }
 }
