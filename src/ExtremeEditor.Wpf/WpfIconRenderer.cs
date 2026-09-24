@@ -14,15 +14,23 @@ internal sealed class WpfIconRenderer
 
     public WpfIconRenderer()
     {
-        EventIconCount = CountPngs(IconAssetCache.EventDirectory);
-        FloorIconCount = CountPngs(IconAssetCache.FloorDirectory);
+        ReloadAssets();
     }
 
-    public int EventIconCount { get; }
-    public int FloorIconCount { get; }
+    public int EventIconCount { get; private set; }
+    public int FloorIconCount { get; private set; }
     public string Summary => EventIconCount == 0 && FloorIconCount == 0
         ? "icons none"
         : $"icons {EventIconCount} event / {FloorIconCount} floor";
+
+    public void ReloadAssets()
+    {
+        lock (BitmapCacheLock)
+            BitmapCache.Clear();
+
+        EventIconCount = CountPngs(IconAssetCache.EventDirectory);
+        FloorIconCount = CountPngs(IconAssetCache.FloorDirectory);
+    }
 
     public bool DrawEvent(DrawingContext drawingContext, string eventType, Point center, float zoom)
     {
