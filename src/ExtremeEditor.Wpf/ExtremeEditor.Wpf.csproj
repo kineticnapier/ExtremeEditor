@@ -6,6 +6,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <NativeRendererBuildDir>$(MSBuildThisFileDirectory)..\..\build\native-renderer</NativeRendererBuildDir>
     <NativeRendererDll>$(NativeRendererBuildDir)\$(Configuration)\ExtremeEditor.NativeRenderer.dll</NativeRendererDll>
+    <AssetExtractorProject>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\ExtremeEditor.AssetExtractor.csproj</AssetExtractorProject>
+    <AssetExtractorOutputDir>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\bin\$(Configuration)\net8.0\</AssetExtractorOutputDir>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
@@ -19,6 +21,17 @@
           CopyToPublishDirectory="PreserveNewest"
           Visible="false" />
   </ItemGroup>
+  <Target Name="BuildAssetExtractor" BeforeTargets="CoreCompile">
+    <MSBuild Projects="$(AssetExtractorProject)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+    <ItemGroup>
+      <_AssetExtractorFiles Include="$(AssetExtractorOutputDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AssetExtractorFiles)"
+          DestinationFiles="@(_AssetExtractorFiles->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
   <Target Name="BuildNativeRenderer" BeforeTargets="CoreCompile">
     <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer&quot; -B &quot;$(NativeRendererBuildDir)&quot; -A x64" />
     <Exec Command="cmake --build &quot;$(NativeRendererBuildDir)&quot; --config $(Configuration)" />
