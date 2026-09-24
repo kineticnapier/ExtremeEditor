@@ -12,10 +12,10 @@ internal static class PlaybackDiagnosticsRegression
         RequireProperty(type, "PlaybackUiRollingMilliseconds", typeof(double));
         RequireProperty(type, "PlaybackUiMaxMilliseconds", typeof(double));
         RequireProperty(type, "PlaybackDiagnosticsSnapshot", typeof(string));
-        VerifySnapshotIncludesTemporalFields();
+        VerifySnapshotIncludesNativeFields();
     }
 
-    private static void VerifySnapshotIncludesTemporalFields()
+    private static void VerifySnapshotIncludesNativeFields()
     {
         var window = new MainWindow();
         try
@@ -23,12 +23,12 @@ internal static class PlaybackDiagnosticsRegression
             string snapshot = window.PlaybackDiagnosticsSnapshot;
             string[] required =
             [
-                "temporal=",
-                "visibleFloors=",
-                "visibleIcons=",
-                "visibleActions=",
-                "temporalDraw=",
-                "mode="
+                "playback-ui fps=",
+                "rolling=",
+                "max=",
+                "tickMaxGap=",
+                "renderMaxGap=",
+                "native="
             ];
 
             foreach (string token in required)
