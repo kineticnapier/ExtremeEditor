@@ -4,7 +4,7 @@
 
 **Goal:** Add a minimal WPF application shell beside the existing WinForms app without changing existing editor behavior.
 
-**Architecture:** Add `src/ExtremeEditor.Wpf` as a separate `net8.0-windows` WPF executable. Keep `ExtremeEditor.App` untouched. The WPF shell references the existing Core, Audio, and Rendering projects, uses `EditorVersion.Current` for its title, and contains only an editor-surface placeholder in this slice.
+**Architecture:** Add `src/ExtremeEditor.Wpf` as a separate `net8.0-windows` WPF executable. Keep the then-existing legacy WinForms host untouched. The WPF shell references the existing Core, Audio, and Rendering projects, uses `EditorVersion.Current` for its title, and contains only an editor-surface placeholder in this slice. The legacy host referenced by this historical plan was removed in roadmap #7.
 
 **Tech Stack:** .NET 8, WPF, XAML, C#
 
@@ -76,7 +76,7 @@ Expected: all existing Core regression tests pass.
 Run:
 
 ```powershell
-dotnet build src\ExtremeEditor.App\ExtremeEditor.App.csproj -c Release
+# Historical WinForms verification step removed with the legacy host in roadmap #7.
 ```
 
 Expected: exit code 0.

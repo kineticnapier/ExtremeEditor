@@ -22,7 +22,7 @@ Intermediate repository shape:
 
 ```text
 src/
-  ExtremeEditor.App/        # existing WinForms app, kept working
+  legacy WinForms host/     # historical migration source; removed in roadmap #7
   ExtremeEditor.Wpf/        # new WPF app under migration
   ExtremeEditor.Core/
   ExtremeEditor.Audio/

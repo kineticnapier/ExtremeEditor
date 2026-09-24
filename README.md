@@ -26,7 +26,7 @@ The first target is the 200k-angle / 200k-SetSpeed class of level. Event editing
 ## Run
 
 ```powershell
-dotnet run --project src/ExtremeEditor.App
+dotnet run --project src/ExtremeEditor.Wpf
 ```
 
 or:
@@ -58,7 +58,7 @@ The benchmark reports JSON parse, path construction, spatial-index construction 
 
 ## Architecture
 
-`ExtremeEditor.Core` has no UI or game dependency. `ExtremeEditor.Rendering` owns floor-preview geometry, the local asset cache and the current GDI+ preview backend. `ExtremeEditor.App` is the WinForms host. The rendering boundary is intentionally separate so a batched GPU backend can replace GDI+ without rewriting the level model, parser or spatial index.
+`ExtremeEditor.Core` has no UI or game dependency. `ExtremeEditor.Wpf` is the sole production application host and embeds `NativeLevelViewport`, backed by the C++ `ExtremeEditor.NativeRenderer`. `ExtremeEditor.Rendering` retains shared floor geometry and asset-cache code, including comparison/regression rendering support. The rendering boundary remains separate from the level model, parser and spatial index.
 
 `ExtremeEditor.Audio` owns one streaming audio graph and one output device for the song and hit sounds. Hit sounds are converted from floor entry times to absolute sample frames and mixed during each provider read; the graph keeps only a sparse state timeline, a floor cursor, and currently audible PCM tails rather than materializing one audio object or a whole-song PCM buffer per floor.
 
@@ -81,7 +81,7 @@ directory. Diagnostics are disabled by default.
 
 ```powershell
 $env:EXTREMEEDITOR_DIAGNOSTICS = "$PWD\first-load.log"
-dotnet run -c Release --project src/ExtremeEditor.App -- "C:\path\to\level.adofai"
+dotnet run -c Release --project src/ExtremeEditor.Wpf -- "C:\path\to\level.adofai"
 ```
 
 Long `ReadAll` operations emit a heartbeat every 250 ms with iteration and

@@ -66,7 +66,7 @@ Run:
 ```powershell
 dotnet build src\ExtremeEditor.Wpf\ExtremeEditor.Wpf.csproj -c Release
 dotnet run -c Release --project src\ExtremeEditor.Core.Tests
-dotnet build src\ExtremeEditor.App\ExtremeEditor.App.csproj -c Release
+# Historical WinForms verification step removed with the legacy host in roadmap #7.
 dotnet run --project src\ExtremeEditor.Wpf
 ```
 

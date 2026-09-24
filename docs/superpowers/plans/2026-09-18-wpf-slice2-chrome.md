@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Continue on `feature/wpf-migration`.
-- Keep `ExtremeEditor.App` unchanged.
+- Keep the then-existing legacy WinForms host unchanged. (It was removed in roadmap #7.)
 - Do not introduce WinForms interop or `WindowsFormsHost`.
 - Do not implement file loading, viewport logic, playback, editing, saving, imports, or benchmarking yet.
 - Actions without migrated implementations must be visibly disabled.
@@ -53,5 +53,5 @@
 - [ ] Change `EditorVersion.Current` to `0.0.52-prototype`.
 - [ ] Run `dotnet build src\ExtremeEditor.Wpf\ExtremeEditor.Wpf.csproj -c Release`.
 - [ ] Run `dotnet run -c Release --project src\ExtremeEditor.Core.Tests`.
-- [ ] Run `dotnet build src\ExtremeEditor.App\ExtremeEditor.App.csproj -c Release`.
+- [ ] Run the legacy WinForms build check. (Historical step removed in roadmap #7.)
 - [ ] Launch `dotnet run --project src\ExtremeEditor.Wpf` and verify the toolbar, disabled actions, center placeholder, and status bar render correctly.
