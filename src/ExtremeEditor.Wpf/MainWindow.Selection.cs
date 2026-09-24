@@ -6,12 +6,7 @@ public partial class MainWindow
 
     private void InitializeSharedSelectionState()
     {
-        int[] previousSelection = Viewport.SelectedFloors.ToArray();
-        int previousPrimary = Viewport.SelectedFloor;
-
         _selection.SetFloorCount(_level?.FloorCount ?? 0);
-        _selection.SetSelection(previousSelection, previousPrimary);
-        Viewport.SelectionState = _selection;
         _selection.Changed += SharedSelectionChanged;
 
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
@@ -20,5 +15,8 @@ public partial class MainWindow
     private void SharedSelectionChanged(object? sender, EventArgs e)
     {
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+        EnsureEditorSession();
+        RefreshInspector();
+        CommandManager.InvalidateRequerySuggested();
     }
 }
