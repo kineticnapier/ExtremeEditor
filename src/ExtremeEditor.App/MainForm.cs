@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
-using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.App;
 
@@ -21,8 +20,6 @@ public sealed partial class MainForm : Form
     private readonly ToolStripButton _rotateLeft = new("-15°");
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
-    private readonly ToolStripButton _importAssets = new("Import Probe Assets");
-    private readonly ToolStripButton _importIcons = new("Import Icon Catalog");
     private readonly ToolStripButton _importHitsounds = new("Import Hitsounds");
     private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
@@ -42,7 +39,7 @@ public sealed partial class MainForm : Form
         tools.Items.AddRange([_open, _frame,
             new ToolStripSeparator(), _play, _stop, _follow, _playTime,
             new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
-            new ToolStripSeparator(), _importAssets, _importIcons, _importHitsounds, _floorPreview,
+            new ToolStripSeparator(), _importHitsounds, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
         InitializeTimingProbeUi(tools);
 
@@ -61,8 +58,6 @@ public sealed partial class MainForm : Form
         _rotateLeft.Click += (_, _) => RotateSelected(-15);
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
-        _importAssets.Click += (_, _) => ImportProbeAssets();
-        _importIcons.Click += (_, _) => ImportIconCatalog();
         _importHitsounds.Click += (_, _) => ImportHitSounds();
         _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
@@ -341,55 +336,6 @@ public sealed partial class MainForm : Form
 
         index = ~index - 1;
         return index >= 0 ? _setSpeedFloors[index] : -1;
-    }
-
-    private void ImportProbeAssets()
-    {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "Select an EditorQoL Asset Probe *-assets folder",
-            UseDescriptionForTitle = true
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        try
-        {
-            AssetImportResult result = AssetCache.ImportProbeFolder(dialog.SelectedPath);
-            _canvas.ReloadFloorAssets();
-            string missing = result.MissingAssets.Count == 0
-                ? "complete"
-                : "missing " + string.Join(", ", result.MissingAssets);
-            _status.Text = $"Imported {result.ImportedCount} floor assets -> {result.CacheDirectory} | {missing}";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.ToString(), "Asset import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void ImportIconCatalog()
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Filter = "EditorQoL icon catalog ZIP (*-icon-catalog-assets.zip)|*-icon-catalog-assets.zip|ZIP files (*.zip)|*.zip|All files (*.*)|*.*",
-            Title = "Import EditorQoL Icon Catalog"
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        try
-        {
-            IconImportResult result = IconAssetCache.ImportCatalog(dialog.FileName);
-            _canvas.ReloadIconAssets();
-            _status.Text =
-                $"Imported icon catalog: {result.EventIcons} event / {result.FloorIcons} floor / " +
-                $"{result.OutlineIcons} outline -> {result.CacheDirectory}";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.ToString(), "Icon import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
     }
 
     private void ImportHitSounds()
