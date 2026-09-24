@@ -183,6 +183,8 @@ public partial class MainWindow : Window
             _selection.SetFloorCount(loaded.Document.FloorCount);
             _selection.SetSelection([0], 0);
             NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+            EnsureEditorSession();
+            RefreshInspector();
 
             TimeSpan editorReadyTime = totalWatch.Elapsed;
             editorReady = true;
