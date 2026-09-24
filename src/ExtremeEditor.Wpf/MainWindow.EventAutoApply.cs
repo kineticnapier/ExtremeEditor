@@ -139,11 +139,7 @@ public partial class MainWindow
             RecomputeSpeedRatios();
 
         if (scaleRadiusChanged)
-        {
             ScaleRadiusResolver.ApplyGeometry(_level);
-            var index = new SpatialGridIndex(_level.Positions);
-            Viewport.SetLevel(_level, index, preserveView: true);
-        }
 
         if (timingChanged || cameraChanged || trackTransformChanged)
         {
