@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using AssetsTools.NET;
 using AssetsTools.NET.Extra;
@@ -21,14 +24,19 @@ public static class AdoFaiHitSoundExtractor
         string root = Path.GetFullPath(gameRoot.Trim('"'));
         string dataDirectory = Path.Combine(root, "A Dance of Fire and Ice_Data");
         string resourcesPath = Path.Combine(dataDirectory, "resources.assets");
+        string assemblyPath = Path.Combine(dataDirectory, "Managed", "Assembly-CSharp.dll");
         if (!File.Exists(resourcesPath))
             throw new DirectoryNotFoundException($"ADOFAI resources.assets was not found: {resourcesPath}");
+        if (!File.Exists(assemblyPath))
+            throw new FileNotFoundException("ADOFAI Assembly-CSharp.dll was not found.", assemblyPath);
 
         string output = Path.GetFullPath(outputDirectory.Trim('"'));
         Directory.CreateDirectory(output);
 
+        IReadOnlyList<string> hitSoundNames = ReadHitSoundEnumNames(assemblyPath);
         string classDataPath = ClassDataCache.Resolve();
         Console.WriteLine($"[extract] classdata={classDataPath}");
+        Console.WriteLine($"[extract] HitSound enum values={hitSoundNames.Count}");
 
         var manager = new AssetsManager();
         try
@@ -37,64 +45,52 @@ public static class AdoFaiHitSoundExtractor
             AssetsFileInstance instance = manager.LoadAssetsFile(resourcesPath, false);
             manager.LoadClassDatabaseFromPackage(instance.file.Metadata.UnityVersion);
 
-            AssetFileInfo clipInfo = FindNamedAsset(
+            Dictionary<string, AssetFileInfo> clipsByName = FindNamedAssets(
                 manager,
                 instance,
-                AssetClassID.AudioClip,
-                "sndKick");
-            AssetTypeValueField clip = manager.GetBaseField(instance, clipInfo);
-            AssetTypeValueField resource = clip["m_Resource"];
-            if (resource.IsDummy)
-                throw new InvalidDataException("sndKick m_Resource could not be decoded.");
+                AssetClassID.AudioClip);
 
-            string source = resource["m_Source"].AsString;
-            ulong offset = ReadUnsigned(resource["m_Offset"], "m_Offset");
-            ulong size = ReadUnsigned(resource["m_Size"], "m_Size");
-            if (size == 0)
-                throw new InvalidDataException("sndKick resource size is zero.");
-            if (size > int.MaxValue)
-                throw new InvalidDataException($"sndKick resource is unexpectedly large: {size} bytes.");
+            int exported = 0;
+            int missing = 0;
+            var failures = new List<string>();
 
-            string resourcePath = ResolveResourcePath(dataDirectory, source);
-            byte[] fsb = ReadResourceRange(resourcePath, offset, checked((int)size));
-            if (fsb.Length < 4 || fsb[0] != (byte)'F' || fsb[1] != (byte)'S' || fsb[2] != (byte)'B' || fsb[3] != (byte)'5')
-                throw new InvalidDataException(
-                    $"sndKick resource payload is not FSB5: {Path.GetFileName(resourcePath)} offset={offset} size={size}.");
-
-            var bank = FsbLoader.LoadFsbFromByteArray(fsb);
-            if (bank.Samples.Count == 0)
-                throw new InvalidDataException("sndKick FSB5 contains no samples.");
-
-            var sample = bank.Samples[0];
-            if (!sample.RebuildAsStandardFileFormat(out byte[]? rebuilt, out string? extension) ||
-                rebuilt is null || rebuilt.Length == 0 || string.IsNullOrWhiteSpace(extension))
+            foreach (string hitSoundName in hitSoundNames)
             {
-                throw new NotSupportedException(
-                    $"sndKick FSB5 codec {bank.Header.AudioType} could not be rebuilt by Fmod5Sharp.");
+                if (string.Equals(hitSoundName, "None", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string clipName = "snd" + hitSoundName;
+                if (!clipsByName.TryGetValue(clipName, out AssetFileInfo? clipInfo))
+                {
+                    Console.WriteLine($"[extract] {hitSoundName}: missing AudioClip {clipName}");
+                    missing++;
+                    continue;
+                }
+
+                try
+                {
+                    ExtractClip(manager, instance, clipInfo, dataDirectory, output, clipName);
+                    exported++;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{hitSoundName}: {ex.GetType().Name}: {ex.Message}");
+                    Console.WriteLine($"[extract] {hitSoundName}: FAILED: {ex.GetType().Name}: {ex.Message}");
+                }
             }
 
-            string destination = Path.Combine(output, "sndKick.wav");
-            if (string.Equals(extension, "wav", StringComparison.OrdinalIgnoreCase))
-            {
-                File.WriteAllBytes(destination, rebuilt);
-            }
-            else if (string.Equals(extension, "ogg", StringComparison.OrdinalIgnoreCase))
-            {
-                ConvertVorbisToPcm16Wave(rebuilt, destination);
-            }
-            else
-            {
-                throw new NotSupportedException(
-                    $"sndKick FSB5 codec {bank.Header.AudioType} rebuilt as unsupported format '{extension}'.");
-            }
+            string kickPath = Path.Combine(output, "sndKick.wav");
+            if (!File.Exists(kickPath))
+                throw new InvalidDataException("HitSound extraction did not produce sndKick.wav.");
+            if (exported == 0)
+                throw new InvalidDataException("No HitSound-enum AudioClips were extracted.");
 
-            string compression = clip["m_CompressionFormat"].IsDummy
-                ? "<unknown>"
-                : clip["m_CompressionFormat"].AsInt.ToString();
             Console.WriteLine(
-                $"[extract] sndKick pathId={clipInfo.PathId} resource={Path.GetFileName(resourcePath)} offset={offset} size={size} compression={compression} fsbType={bank.Header.AudioType} channels={sample.Metadata.Channels} frequency={sample.Metadata.Frequency} -> {Path.GetFileName(destination)}");
+                $"[extract] hitsounds exported={exported} missing={missing} failed={failures.Count}");
+            if (failures.Count > 0)
+                Console.WriteLine($"[extract] hitsound failures: {string.Join(" | ", failures)}");
 
-            return new HitSoundExtractionResult(output, destination, 1);
+            return new HitSoundExtractionResult(output, kickPath, exported);
         }
         finally
         {
@@ -102,27 +98,142 @@ public static class AdoFaiHitSoundExtractor
         }
     }
 
-    private static AssetFileInfo FindNamedAsset(
+    private static IReadOnlyList<string> ReadHitSoundEnumNames(string assemblyPath)
+    {
+        using FileStream stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        if (!peReader.HasMetadata)
+            throw new InvalidDataException("Assembly-CSharp.dll does not contain CLR metadata.");
+
+        MetadataReader metadata = peReader.GetMetadataReader();
+        foreach (TypeDefinitionHandle typeHandle in metadata.TypeDefinitions)
+        {
+            TypeDefinition type = metadata.GetTypeDefinition(typeHandle);
+            if (!string.Equals(metadata.GetString(type.Name), "HitSound", StringComparison.Ordinal))
+                continue;
+            if (!IsEnumType(metadata, type))
+                continue;
+
+            var names = new List<string>();
+            foreach (FieldDefinitionHandle fieldHandle in type.GetFields())
+            {
+                FieldDefinition field = metadata.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                    continue;
+
+                string name = metadata.GetString(field.Name);
+                if (!string.Equals(name, "value__", StringComparison.Ordinal))
+                    names.Add(name);
+            }
+
+            if (names.Count == 0)
+                throw new InvalidDataException("HitSound enum was found but contained no literals.");
+
+            return names;
+        }
+
+        throw new InvalidDataException("HitSound enum was not found in Assembly-CSharp.dll.");
+    }
+
+    private static bool IsEnumType(MetadataReader metadata, TypeDefinition type)
+    {
+        EntityHandle baseType = type.BaseType;
+        if (baseType.Kind == HandleKind.TypeReference)
+        {
+            TypeReference reference = metadata.GetTypeReference((TypeReferenceHandle)baseType);
+            return string.Equals(metadata.GetString(reference.Namespace), "System", StringComparison.Ordinal) &&
+                   string.Equals(metadata.GetString(reference.Name), "Enum", StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
+    private static Dictionary<string, AssetFileInfo> FindNamedAssets(
         AssetsManager manager,
         AssetsFileInstance instance,
-        AssetClassID classId,
-        string name)
+        AssetClassID classId)
     {
+        var result = new Dictionary<string, AssetFileInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (AssetFileInfo info in instance.file.GetAssetsOfType(classId))
         {
             AssetTypeValueField root = manager.GetBaseField(instance, info);
             AssetTypeValueField nameField = root["m_Name"];
-            if (!nameField.IsDummy && string.Equals(nameField.AsString, name, StringComparison.Ordinal))
-                return info;
+            if (nameField.IsDummy || string.IsNullOrWhiteSpace(nameField.AsString))
+                continue;
+
+            result.TryAdd(nameField.AsString, info);
         }
 
-        throw new InvalidDataException($"{classId} named '{name}' was not found in resources.assets.");
+        return result;
     }
 
-    private static string ResolveResourcePath(string dataDirectory, string source)
+    private static void ExtractClip(
+        AssetsManager manager,
+        AssetsFileInstance instance,
+        AssetFileInfo clipInfo,
+        string dataDirectory,
+        string outputDirectory,
+        string clipName)
+    {
+        AssetTypeValueField clip = manager.GetBaseField(instance, clipInfo);
+        AssetTypeValueField resource = clip["m_Resource"];
+        if (resource.IsDummy)
+            throw new InvalidDataException($"{clipName} m_Resource could not be decoded.");
+
+        string source = resource["m_Source"].AsString;
+        ulong offset = ReadUnsigned(resource["m_Offset"], "m_Offset", clipName);
+        ulong size = ReadUnsigned(resource["m_Size"], "m_Size", clipName);
+        if (size == 0)
+            throw new InvalidDataException($"{clipName} resource size is zero.");
+        if (size > int.MaxValue)
+            throw new InvalidDataException($"{clipName} resource is unexpectedly large: {size} bytes.");
+
+        string resourcePath = ResolveResourcePath(dataDirectory, source, clipName);
+        byte[] fsb = ReadResourceRange(resourcePath, offset, checked((int)size), clipName);
+        if (fsb.Length < 4 || fsb[0] != (byte)'F' || fsb[1] != (byte)'S' || fsb[2] != (byte)'B' || fsb[3] != (byte)'5')
+        {
+            throw new InvalidDataException(
+                $"{clipName} resource payload is not FSB5: {Path.GetFileName(resourcePath)} offset={offset} size={size}.");
+        }
+
+        var bank = FsbLoader.LoadFsbFromByteArray(fsb);
+        if (bank.Samples.Count == 0)
+            throw new InvalidDataException($"{clipName} FSB5 contains no samples.");
+
+        var sample = bank.Samples[0];
+        if (!sample.RebuildAsStandardFileFormat(out byte[]? rebuilt, out string? extension) ||
+            rebuilt is null || rebuilt.Length == 0 || string.IsNullOrWhiteSpace(extension))
+        {
+            throw new NotSupportedException(
+                $"{clipName} FSB5 codec {bank.Header.AudioType} could not be rebuilt by Fmod5Sharp.");
+        }
+
+        string destination = Path.Combine(outputDirectory, clipName + ".wav");
+        if (string.Equals(extension, "wav", StringComparison.OrdinalIgnoreCase))
+        {
+            File.WriteAllBytes(destination, rebuilt);
+        }
+        else if (string.Equals(extension, "ogg", StringComparison.OrdinalIgnoreCase))
+        {
+            ConvertVorbisToPcm16Wave(rebuilt, destination);
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"{clipName} FSB5 codec {bank.Header.AudioType} rebuilt as unsupported format '{extension}'.");
+        }
+
+        string compression = clip["m_CompressionFormat"].IsDummy
+            ? "<unknown>"
+            : clip["m_CompressionFormat"].AsInt.ToString();
+        Console.WriteLine(
+            $"[extract] {clipName} pathId={clipInfo.PathId} resource={Path.GetFileName(resourcePath)} offset={offset} size={size} compression={compression} fsbType={bank.Header.AudioType} channels={sample.Metadata.Channels} frequency={sample.Metadata.Frequency} -> {Path.GetFileName(destination)}");
+    }
+
+    private static string ResolveResourcePath(string dataDirectory, string source, string clipName)
     {
         if (string.IsNullOrWhiteSpace(source))
-            throw new InvalidDataException("sndKick m_Resource.m_Source is empty.");
+            throw new InvalidDataException($"{clipName} m_Resource.m_Source is empty.");
 
         string normalized = source.Replace('/', Path.DirectorySeparatorChar);
         string candidate = Path.IsPathRooted(normalized)
@@ -135,15 +246,17 @@ public static class AdoFaiHitSoundExtractor
         if (File.Exists(fileNameCandidate))
             return fileNameCandidate;
 
-        throw new FileNotFoundException("sndKick resource file was not found.", candidate);
+        throw new FileNotFoundException($"{clipName} resource file was not found.", candidate);
     }
 
-    private static byte[] ReadResourceRange(string path, ulong offset, int size)
+    private static byte[] ReadResourceRange(string path, ulong offset, int size, string clipName)
     {
         using FileStream stream = File.OpenRead(path);
         if (offset > (ulong)stream.Length || offset + (ulong)size > (ulong)stream.Length)
+        {
             throw new InvalidDataException(
-                $"sndKick resource range is outside {Path.GetFileName(path)}: offset={offset} size={size} length={stream.Length}.");
+                $"{clipName} resource range is outside {Path.GetFileName(path)}: offset={offset} size={size} length={stream.Length}.");
+        }
 
         stream.Position = checked((long)offset);
         byte[] data = new byte[size];
@@ -151,10 +264,10 @@ public static class AdoFaiHitSoundExtractor
         return data;
     }
 
-    private static ulong ReadUnsigned(AssetTypeValueField field, string fieldName)
+    private static ulong ReadUnsigned(AssetTypeValueField field, string fieldName, string clipName)
     {
         if (field.IsDummy)
-            throw new InvalidDataException($"sndKick {fieldName} could not be decoded.");
+            throw new InvalidDataException($"{clipName} {fieldName} could not be decoded.");
 
         return field.TemplateField.ValueType switch
         {
@@ -163,7 +276,7 @@ public static class AdoFaiHitSoundExtractor
             AssetValueType.UInt32 => field.AsUInt,
             AssetValueType.Int32 => checked((ulong)field.AsInt),
             _ => throw new InvalidDataException(
-                $"sndKick {fieldName} has unsupported serialized type {field.TemplateField.ValueType}.")
+                $"{clipName} {fieldName} has unsupported serialized type {field.TemplateField.ValueType}.")
         };
     }
 
@@ -174,8 +287,10 @@ public static class AdoFaiHitSoundExtractor
         int channels = reader.Channels;
         int sampleRate = reader.SampleRate;
         if (channels <= 0 || sampleRate <= 0)
+        {
             throw new InvalidDataException(
                 $"Decoded Vorbis metadata is invalid: channels={channels}, sampleRate={sampleRate}.");
+        }
 
         using var pcm = new MemoryStream();
         using (var writer = new BinaryWriter(pcm, Encoding.ASCII, leaveOpen: true))
