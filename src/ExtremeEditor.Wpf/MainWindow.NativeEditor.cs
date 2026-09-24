@@ -27,8 +27,7 @@ public partial class MainWindow
         if (sender is not MainWindow window)
             return;
 
-        window.Viewport.SetSelectedFloorFromExternal(e.Floor, e.Modifiers);
-        window.NativeViewport.SetSelection(window.Viewport.SelectedFloors, window.Viewport.SelectedFloor);
+        window._selection.SelectFloor(e.Floor, e.Modifiers);
         e.Handled = true;
     }
 
@@ -47,14 +46,11 @@ public partial class MainWindow
         if (editor is null || _level is null || (uint)request.Floor >= (uint)_level.FloorCount)
             return;
 
-        if (!Viewport.SelectedFloors.Contains(request.Floor))
-        {
-            Viewport.SetSelectedFloorFromExternal(request.Floor);
-            NativeViewport.SetSelection(Viewport.SelectedFloors, Viewport.SelectedFloor);
-        }
+        if (!_selection.SelectedFloors.Contains(request.Floor))
+            _selection.SelectFloor(request.Floor);
 
-        int[] selection = Viewport.SelectedFloors.Count > 0
-            ? Viewport.SelectedFloors.ToArray()
+        int[] selection = _selection.SelectedFloors.Count > 0
+            ? _selection.SelectedFloors.ToArray()
             : [request.Floor];
         int primary = request.Floor;
 
@@ -100,7 +96,5 @@ public partial class MainWindow
             default:
                 return;
         }
-
-        NativeViewport.SetSelection(Viewport.SelectedFloors, Viewport.SelectedFloor);
     }
 }
