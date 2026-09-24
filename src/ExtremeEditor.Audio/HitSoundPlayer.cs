@@ -4,45 +4,11 @@ using NAudio.Wave.SampleProviders;
 
 namespace ExtremeEditor.Audio;
 
-public sealed record HitSoundImportResult(int ImportedClips, string CacheDirectory, bool HasManifest);
-
 public static class HitSoundAssetCache
 {
     public static string CacheDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ExtremeEditor", "AssetCache", "hitsounds");
-
-    public static HitSoundImportResult ImportProbeFolder(string sourceDirectory)
-    {
-        if (!Directory.Exists(sourceDirectory))
-            throw new DirectoryNotFoundException(sourceDirectory);
-
-        string[] wavFiles = Directory.GetFiles(sourceDirectory, "*.wav", SearchOption.TopDirectoryOnly);
-        if (wavFiles.Length == 0)
-            throw new InvalidDataException("No WAV files were found in the selected hit-sound probe folder.");
-
-        Directory.CreateDirectory(CacheDirectory);
-        foreach (string old in Directory.GetFiles(CacheDirectory, "*.wav", SearchOption.TopDirectoryOnly))
-            File.Delete(old);
-
-        int imported = 0;
-        foreach (string source in wavFiles)
-        {
-            string destination = Path.Combine(CacheDirectory, Path.GetFileName(source));
-            File.Copy(source, destination, overwrite: true);
-            imported++;
-        }
-
-        string sourceManifest = Path.Combine(sourceDirectory, "hitsounds.tsv");
-        string destinationManifest = Path.Combine(CacheDirectory, "hitsounds.tsv");
-        bool hasManifest = File.Exists(sourceManifest);
-        if (hasManifest)
-            File.Copy(sourceManifest, destinationManifest, overwrite: true);
-        else if (File.Exists(destinationManifest))
-            File.Delete(destinationManifest);
-
-        return new HitSoundImportResult(imported, CacheDirectory, hasManifest);
-    }
 }
 
 /// <summary>
