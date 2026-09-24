@@ -47,9 +47,8 @@ public partial class MainWindow
 
             if (result.ExitCode == 0 && result.CacheStatus.IsReady)
             {
-                Viewport.ReloadAssets();
-                StatusText.Text =
-                    $"Assets ready | ADOFAI {result.CacheStatus.GameVersion} | {Viewport.FloorAssetSummary} | {Viewport.IconAssetSummary}";
+                NativeViewport.ReloadAssets();
+                StatusText.Text = $"Assets ready | ADOFAI {result.CacheStatus.GameVersion}";
             }
             else
             {
