@@ -83,9 +83,6 @@ public sealed partial class NativeLevelViewport : HwndHost
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
-    // Retained for compatibility with the earlier single-selection bridge. New
-    // editor code uses the routed event above so modifier keys survive HWND input.
-    public event Action<int>? SelectedFloorChanged;
     public event Action<bool>? FollowPlayerChanged;
 
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
@@ -117,6 +114,12 @@ public sealed partial class NativeLevelViewport : HwndHost
             _cameraTimeline = [];
             _trackTransformTimeline = [];
         }
+        LastLevelUploadMetrics = UploadPendingLevel();
+    }
+
+    public void ReloadAssets()
+    {
+        _snapshot = null;
         LastLevelUploadMetrics = UploadPendingLevel();
     }
 
