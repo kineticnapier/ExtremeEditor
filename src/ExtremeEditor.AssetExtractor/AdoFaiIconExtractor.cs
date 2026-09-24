@@ -26,7 +26,7 @@ public static class AdoFaiIconExtractor
         ("tile_snail_light_new0", "Snail.png")
     ];
 
-    private readonly record struct ResourceRef(int FileId, long PathId);
+    private sealed record ResourceAsset(AssetsFileInstance Instance, AssetFileInfo Info);
 
     public static IconExtractionResult Extract(string gameRoot, string outputDirectory)
     {
@@ -37,9 +37,12 @@ public static class AdoFaiIconExtractor
         string dataDirectory = Path.Combine(root, "A Dance of Fire and Ice_Data");
         string managedDirectory = Path.Combine(dataDirectory, "Managed");
         string resourcesPath = Path.Combine(dataDirectory, "resources.assets");
+        string globalManagersPath = Path.Combine(dataDirectory, "globalgamemanagers");
         string assemblyPath = Path.Combine(managedDirectory, "Assembly-CSharp.dll");
         if (!File.Exists(resourcesPath))
             throw new DirectoryNotFoundException($"ADOFAI resources.assets was not found: {resourcesPath}");
+        if (!File.Exists(globalManagersPath))
+            throw new FileNotFoundException("ADOFAI globalgamemanagers was not found.", globalManagersPath);
         if (!File.Exists(assemblyPath))
             throw new FileNotFoundException("Assembly-CSharp.dll was not found.", assemblyPath);
         if (!Directory.Exists(managedDirectory))
@@ -70,6 +73,8 @@ public static class AdoFaiIconExtractor
             manager.LoadClassPackage(classDataPath);
             AssetsFileInstance instance = manager.LoadAssetsFile(resourcesPath, true);
             manager.LoadClassDatabaseFromPackage(instance.file.Metadata.UnityVersion);
+            AssetsFileInstance globalManagers = manager.LoadAssetsFile(globalManagersPath, true);
+            manager.LoadClassDatabaseFromPackage(globalManagers.file.Metadata.UnityVersion);
 
             foreach ((string spriteName, string canonicalName) in RepresentativeFloorIcons)
             {
@@ -89,10 +94,9 @@ public static class AdoFaiIconExtractor
                 floorDirectory,
                 outlineDirectory);
 
-            Dictionary<string, ResourceRef> resourceMap = ReadResourceMap(manager, instance);
+            Dictionary<string, ResourceAsset> resourceMap = ReadResourceMap(manager, globalManagers);
             int eventFound = ExtractResourceEnumIcons(
                 manager,
-                instance,
                 assemblyPath,
                 resourceMap,
                 "LevelEventType",
@@ -100,7 +104,6 @@ public static class AdoFaiIconExtractor
                 eventDirectory);
             int categoryFound = ExtractResourceEnumIcons(
                 manager,
-                instance,
                 assemblyPath,
                 resourceMap,
                 "LevelEventCategory",
@@ -171,18 +174,25 @@ public static class AdoFaiIconExtractor
         foreach (AssetTypeValueField field in bestRoot.Children)
         {
             string fieldName = field.FieldName;
-            if (!IsFloorSpriteField(fieldName) || !TryReadPPtr(field, out ResourceRef spriteRef) || spriteRef.PathId == 0)
+            if (!IsFloorSpriteField(fieldName))
                 continue;
-            if (spriteRef.FileId != 0)
+
+            AssetExternal spriteExternal;
+            try
             {
-                Console.WriteLine($"[icons] {fieldName}: external sprite fileId={spriteRef.FileId} skipped");
+                spriteExternal = manager.GetExtAsset(instance, field, onlyGetInfo: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[icons] {fieldName}: sprite reference resolve failed: {ex.GetType().Name}: {ex.Message}");
                 continue;
             }
 
-            AssetFileInfo? spriteInfo = instance.file.GetAssetInfo(spriteRef.PathId);
-            if (spriteInfo is null || (AssetClassID)spriteInfo.TypeId != AssetClassID.Sprite)
+            if (spriteExternal.file is null || spriteExternal.info is null)
+                continue;
+            if ((AssetClassID)spriteExternal.info.TypeId != AssetClassID.Sprite)
             {
-                Console.WriteLine($"[icons] {fieldName}: sprite pathId={spriteRef.PathId} missing or not Sprite");
+                Console.WriteLine($"[icons] {fieldName}: resolved asset is not Sprite ({(AssetClassID)spriteExternal.info.TypeId})");
                 continue;
             }
 
@@ -214,7 +224,7 @@ public static class AdoFaiIconExtractor
             string destination = Path.Combine(destinationDirectory, SafeName(canonicalName) + ".png");
             try
             {
-                ExtractSprite(manager, instance, spriteInfo, destination);
+                ExtractSprite(manager, spriteExternal.file, spriteExternal.info, destination);
             }
             catch (Exception ex)
             {
@@ -223,49 +233,60 @@ public static class AdoFaiIconExtractor
         }
     }
 
-    private static Dictionary<string, ResourceRef> ReadResourceMap(
+    private static Dictionary<string, ResourceAsset> ReadResourceMap(
         AssetsManager manager,
-        AssetsFileInstance instance)
+        AssetsFileInstance globalManagers)
     {
-        var result = new Dictionary<string, ResourceRef>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, ResourceAsset>(StringComparer.OrdinalIgnoreCase);
 
-        // Unity class id 147 = ResourceManager. Using the numeric id keeps this
-        // independent of enum naming differences between AssetsTools.NET versions.
-        foreach (AssetFileInfo info in instance.file.GetAssetsOfType((AssetClassID)147))
+        // Unity serializes the Resources path table in the ResourceManager object in
+        // globalgamemanagers. Its PPtrs usually point into resources.assets.
+        foreach (AssetFileInfo info in globalManagers.file.GetAssetsOfType((AssetClassID)147))
         {
-            AssetTypeValueField root = manager.GetBaseField(instance, info);
-            CollectResourceEntries(root, result);
+            AssetTypeValueField root = manager.GetBaseField(globalManagers, info);
+            AssetTypeValueField container = root["m_Container.Array"];
+            if (container.IsDummy)
+            {
+                Console.WriteLine($"[icons] ResourceManager pathId={info.PathId}: m_Container.Array missing");
+                continue;
+            }
+
+            foreach (AssetTypeValueField entry in container.Children)
+            {
+                AssetTypeValueField first = entry["first"];
+                AssetTypeValueField second = entry["second"];
+                if (first.IsDummy || second.IsDummy || first.TemplateField.ValueType != AssetValueType.String)
+                    continue;
+
+                string key = NormalizeResourcePath(first.AsString);
+                if (key.Length == 0)
+                    continue;
+
+                try
+                {
+                    AssetExternal external = manager.GetExtAsset(globalManagers, second, onlyGetInfo: true);
+                    if (external.file is null || external.info is null)
+                    {
+                        Console.WriteLine($"[icons] ResourceManager: unresolved resource {key}");
+                        continue;
+                    }
+
+                    result[key] = new ResourceAsset(external.file, external.info);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[icons] ResourceManager: failed to resolve {key}: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
         }
 
         return result;
     }
 
-    private static void CollectResourceEntries(
-        AssetTypeValueField field,
-        Dictionary<string, ResourceRef> result)
-    {
-        AssetTypeValueField first = field["first"];
-        AssetTypeValueField second = field["second"];
-        if (!first.IsDummy &&
-            !second.IsDummy &&
-            first.TemplateField.ValueType == AssetValueType.String &&
-            TryReadPPtr(second, out ResourceRef reference) &&
-            reference.PathId != 0)
-        {
-            string key = NormalizeResourcePath(first.AsString);
-            if (key.Length > 0)
-                result[key] = reference;
-        }
-
-        foreach (AssetTypeValueField child in field.Children)
-            CollectResourceEntries(child, result);
-    }
-
     private static int ExtractResourceEnumIcons(
         AssetsManager manager,
-        AssetsFileInstance instance,
         string assemblyPath,
-        Dictionary<string, ResourceRef> resourceMap,
+        Dictionary<string, ResourceAsset> resourceMap,
         string enumTypeName,
         string resourcePrefix,
         string destinationDirectory)
@@ -276,30 +297,24 @@ public static class AdoFaiIconExtractor
         foreach (string enumName in enumNames)
         {
             string resourcePath = NormalizeResourcePath(resourcePrefix + enumName);
-            if (!TryFindResource(resourceMap, resourcePath, out ResourceRef spriteRef))
+            if (!TryFindResource(resourceMap, resourcePath, out ResourceAsset? spriteAsset))
             {
                 Console.WriteLine($"[icons] {enumTypeName}.{enumName}: resource mapping missing ({resourcePath})");
                 continue;
             }
 
             mapped++;
-            if (spriteRef.FileId != 0)
+            if ((AssetClassID)spriteAsset.Info.TypeId != AssetClassID.Sprite)
             {
-                Console.WriteLine($"[icons] {enumTypeName}.{enumName}: external sprite fileId={spriteRef.FileId} skipped");
-                continue;
-            }
-
-            AssetFileInfo? spriteInfo = instance.file.GetAssetInfo(spriteRef.PathId);
-            if (spriteInfo is null || (AssetClassID)spriteInfo.TypeId != AssetClassID.Sprite)
-            {
-                Console.WriteLine($"[icons] {enumTypeName}.{enumName}: pathId={spriteRef.PathId} is missing or not Sprite");
+                Console.WriteLine(
+                    $"[icons] {enumTypeName}.{enumName}: resource is {(AssetClassID)spriteAsset.Info.TypeId}, not Sprite");
                 continue;
             }
 
             string destination = Path.Combine(destinationDirectory, SafeName(enumName) + ".png");
             try
             {
-                ExtractSprite(manager, instance, spriteInfo, destination);
+                ExtractSprite(manager, spriteAsset.Instance, spriteAsset.Info, destination);
             }
             catch (Exception ex)
             {
@@ -311,24 +326,24 @@ public static class AdoFaiIconExtractor
     }
 
     private static bool TryFindResource(
-        Dictionary<string, ResourceRef> resourceMap,
+        Dictionary<string, ResourceAsset> resourceMap,
         string requested,
-        out ResourceRef reference)
+        out ResourceAsset? resource)
     {
-        if (resourceMap.TryGetValue(requested, out reference))
+        if (resourceMap.TryGetValue(requested, out resource))
             return true;
 
         string suffix = "/" + requested;
-        foreach ((string key, ResourceRef value) in resourceMap)
+        foreach ((string key, ResourceAsset value) in resourceMap)
         {
             if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
             {
-                reference = value;
+                resource = value;
                 return true;
             }
         }
 
-        reference = default;
+        resource = null;
         return false;
     }
 
@@ -380,20 +395,6 @@ public static class AdoFaiIconExtractor
         throw new InvalidDataException($"{typeName} enum was not found in Assembly-CSharp.dll.");
     }
 
-    private static bool TryReadPPtr(AssetTypeValueField field, out ResourceRef reference)
-    {
-        AssetTypeValueField fileIdField = field["m_FileID"];
-        AssetTypeValueField pathIdField = field["m_PathID"];
-        if (fileIdField.IsDummy || pathIdField.IsDummy)
-        {
-            reference = default;
-            return false;
-        }
-
-        reference = new ResourceRef(fileIdField.AsInt, pathIdField.AsLong);
-        return true;
-    }
-
     private static bool IsFloorSpriteField(string name)
         => name.StartsWith("sprIcon", StringComparison.Ordinal) ||
            name.StartsWith("sprOutline", StringComparison.Ordinal) ||
@@ -441,25 +442,25 @@ public static class AdoFaiIconExtractor
         if (textureRef.IsDummy)
             throw new InvalidDataException($"Sprite '{spriteName}' has no m_RD.texture reference.");
 
-        int fileId = textureRef["m_FileID"].AsInt;
-        long texturePathId = textureRef["m_PathID"].AsLong;
-        if (fileId != 0)
-            throw new InvalidDataException(
-                $"Sprite '{spriteName}' texture points to external fileId={fileId}; this extractor currently expects resources.assets-local textures.");
-        if (texturePathId == 0)
-            throw new InvalidDataException($"Sprite '{spriteName}' has a null texture reference.");
+        AssetExternal textureExternal;
+        try
+        {
+            textureExternal = manager.GetExtAsset(instance, textureRef, onlyGetInfo: true);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException($"Texture reference for sprite '{spriteName}' could not be resolved.", ex);
+        }
 
-        AssetFileInfo? textureInfo = instance.file.GetAssetInfo(texturePathId);
-        if (textureInfo is null)
+        if (textureExternal.file is null || textureExternal.info is null)
+            throw new InvalidDataException($"Sprite '{spriteName}' has a null or unresolved texture reference.");
+        if ((AssetClassID)textureExternal.info.TypeId != AssetClassID.Texture2D)
             throw new InvalidDataException(
-                $"Texture for sprite '{spriteName}' was not found: pathId={texturePathId}.");
-        if ((AssetClassID)textureInfo.TypeId != AssetClassID.Texture2D)
-            throw new InvalidDataException(
-                $"Sprite '{spriteName}' references non-Texture2D pathId={texturePathId}, type={(AssetClassID)textureInfo.TypeId}.");
+                $"Sprite '{spriteName}' references non-Texture2D pathId={textureExternal.info.PathId}, type={(AssetClassID)textureExternal.info.TypeId}.");
 
-        AssetTypeValueField textureRoot = manager.GetBaseField(instance, textureInfo);
+        AssetTypeValueField textureRoot = manager.GetBaseField(textureExternal.file, textureExternal.info);
         TextureFile texture = TextureFile.ReadTextureFile(textureRoot);
-        byte[] encoded = texture.FillPictureData(instance)
+        byte[] encoded = texture.FillPictureData(textureExternal.file)
             ?? throw new InvalidDataException(
                 $"Texture data for sprite '{spriteName}' could not be read from {texture.m_StreamData.path}.");
         if (encoded.Length == 0)
@@ -494,7 +495,7 @@ public static class AdoFaiIconExtractor
             flipVertically: true);
 
         Console.WriteLine(
-            $"[icons] sprite={spriteName} pathId={spriteInfo.PathId} texture={texture.m_Name} texturePathId={texturePathId} crop={x},{y} {width}x{height} -> {Path.GetFileName(destination)}");
+            $"[icons] sprite={spriteName} pathId={spriteInfo.PathId} texture={texture.m_Name} texturePathId={textureExternal.info.PathId} crop={x},{y} {width}x{height} -> {Path.GetFileName(destination)}");
     }
 
     private static int ClampRound(float value, int min, int max)
