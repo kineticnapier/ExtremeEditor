@@ -9,6 +9,7 @@
         MinHeight="650"
         WindowStartupLocation="CenterScreen"
         Background="#14161A"
+        Loaded="AssetSetupWindowLoaded"
         PreviewKeyDown="AdoFaiPreviewKeyDown">
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{x:Static local:EditorCommands.Open}" />
@@ -106,8 +107,31 @@
                               Unchecked="NativeViewportToggleChanged" />
             </ToolBar>
 
+            <ToolBar Band="1"
+                     Background="#1A1D22"
+                     Foreground="#DCDCE6">
+                <TextBlock Text="ADOFAI:"
+                           Margin="8,0,4,0"
+                           VerticalAlignment="Center" />
+                <TextBlock x:Name="AdoFaiPathText"
+                           Text="Detecting…"
+                           Width="520"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"
+                           FontFamily="Consolas"
+                           FontSize="11" />
+                <Button x:Name="BrowseAdoFaiButton"
+                        Content="Browse…"
+                        Click="BrowseAdoFaiClick"
+                        Margin="6,0,0,0" />
+                <Button x:Name="SetupAssetsButton"
+                        Content="Setup Assets"
+                        Click="SetupAssetsClick"
+                        Margin="6,0,0,0" />
+            </ToolBar>
+
             <ToolBar x:Name="PlaybackDiagnosticsBar"
-                     Band="1"
+                     Band="2"
                      Background="#1A1D22"
                      Foreground="#DCDCE6">
                 <TextBlock x:Name="PlaybackDiagnosticsText"
