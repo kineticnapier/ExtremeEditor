@@ -197,7 +197,7 @@ public sealed partial class LevelViewport
 
     private void DrawSelectedFloorOverlay(DrawingContext drawingContext)
     {
-        if (_level is null || _selectedFloors.Count == 0)
+        if (_level is null || _selectionState.SelectedFloors.Count == 0)
             return;
 
         Vector2[] positions = _level.Positions;
@@ -205,7 +205,7 @@ public sealed partial class LevelViewport
         if (meshPreview)
             _floorRenderer.BeginFrame(_zoom);
 
-        foreach (int floor in _selectedFloors)
+        foreach (int floor in _selectionState.SelectedFloors)
         {
             if ((uint)floor >= (uint)positions.Length)
                 continue;
