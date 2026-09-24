@@ -23,7 +23,6 @@ public partial class MainWindow
     private long _lastPlaybackUiTimestamp;
     private long _lastPlaybackRenderTimestamp;
     private long _lastPlaybackDiagnosticsUiTimestamp;
-    private int _lastLoggedLateAdmissionCount;
     private bool _playbackUiHasSample;
 
     public double PlaybackUiRollingMilliseconds => _playbackUiRollingMilliseconds;
@@ -36,18 +35,7 @@ public partial class MainWindow
 
     public string PlaybackDiagnosticsSnapshot =>
         $"playback-ui fps={PlaybackUiFps:F1} rolling={PlaybackUiRollingMilliseconds:F2}ms max={PlaybackUiMaxMilliseconds:F2}ms " +
-        $"tickMaxGap={PlaybackTickMaxGapMilliseconds:F1}ms renderMaxGap={PlaybackRenderMaxGapMilliseconds:F1}ms " +
-        $"temporal={Viewport.TemporalPlaybackCandidateCount} " +
-        $"retained={Viewport.TemporalPlaybackRetainedFloorCount} " +
-        $"visibleFloors={Viewport.TemporalPlaybackVisibleFloorCount} " +
-        $"visibleIcons={Viewport.TemporalPlaybackVisibleIconCount} " +
-        $"visibleActions={Viewport.TemporalPlaybackVisibleActionFloorCount} " +
-        $"lateAdmissions={Viewport.TemporalPlaybackLateAdmissionCount} " +
-        $"temporalDraw={Viewport.TemporalPlaybackDrawMilliseconds:F2}ms " +
-        $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")} " +
-        $"chunks req={Viewport.RasterChunkRequestsQueued} done={Viewport.RasterChunkBuildsCompleted} " +
-        $"ready={Viewport.RasterReadyChunkCount} pending={Viewport.RasterPendingChunkCount} canceled={Viewport.RasterChunksCanceled} " +
-        $"missing={Viewport.RasterVisibleMissingChunkCount} syncDense={Viewport.PlaybackSynchronousRasterBuildCount} | " +
+        $"tickMaxGap={PlaybackTickMaxGapMilliseconds:F1}ms renderMaxGap={PlaybackRenderMaxGapMilliseconds:F1}ms | " +
         NativeDiagnosticsSnapshot;
 
     private string NativeDiagnosticsSnapshot
@@ -154,14 +142,9 @@ public partial class MainWindow
 
     private void LogPlaybackAnomalies(double chartTime)
     {
-        int lateAdmissions = Viewport.TemporalPlaybackLateAdmissionCount;
-        if (lateAdmissions < _lastLoggedLateAdmissionCount)
-            _lastLoggedLateAdmissionCount = lateAdmissions;
-
-        int lateDelta = lateAdmissions - _lastLoggedLateAdmissionCount;
         bool hasTickStall = _pendingTickStallMilliseconds >= PlaybackGapLogThresholdMilliseconds;
         bool hasRenderStall = _pendingRenderStallMilliseconds >= PlaybackGapLogThresholdMilliseconds;
-        if (!hasTickStall && !hasRenderStall && lateDelta <= 0)
+        if (!hasTickStall && !hasRenderStall)
             return;
 
         _playbackDiagnosticLogger.Log(
@@ -169,15 +152,8 @@ public partial class MainWindow
             $"tickGap={_lastPlaybackTickGapMilliseconds:F1}ms renderGap={_lastPlaybackRenderGapMilliseconds:F1}ms " +
             $"tickStall={_pendingTickStallMilliseconds:F1}ms renderStall={_pendingRenderStallMilliseconds:F1}ms " +
             $"tickMaxGap={PlaybackTickMaxGapMilliseconds:F1}ms renderMaxGap={PlaybackRenderMaxGapMilliseconds:F1}ms " +
-            $"lateAdmissions={lateAdmissions} lateDelta={lateDelta} " +
-            $"temporal={Viewport.TemporalPlaybackCandidateCount} retained={Viewport.TemporalPlaybackRetainedFloorCount} " +
-            $"visibleFloors={Viewport.TemporalPlaybackVisibleFloorCount} visibleIcons={Viewport.TemporalPlaybackVisibleIconCount} " +
-            $"visibleActions={Viewport.TemporalPlaybackVisibleActionFloorCount} " +
-            $"temporalDraw={Viewport.TemporalPlaybackDrawMilliseconds:F2}ms " +
-            $"mode={(Viewport.TemporalPlaybackActive ? "temporal" : "static")} " +
             NativeDiagnosticsSnapshot);
 
-        _lastLoggedLateAdmissionCount = lateAdmissions;
         _pendingTickStallMilliseconds = 0.0;
         _pendingRenderStallMilliseconds = 0.0;
     }
@@ -196,7 +172,6 @@ public partial class MainWindow
         _lastPlaybackUiTimestamp = 0;
         _lastPlaybackRenderTimestamp = 0;
         _lastPlaybackDiagnosticsUiTimestamp = 0;
-        _lastLoggedLateAdmissionCount = Viewport.TemporalPlaybackLateAdmissionCount;
         _playbackUiHasSample = false;
     }
 
