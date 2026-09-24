@@ -98,13 +98,6 @@
                               IsChecked="True"
                               Checked="HitSoundsToggleChanged"
                               Unchecked="HitSoundsToggleChanged" />
-                <ToggleButton x:Name="FloorPreviewToggle"
-                              Content="Floor Preview"
-                              IsChecked="True" />
-                <ToggleButton x:Name="NativeViewportToggle"
-                              Content="Native Viewport"
-                              Checked="NativeViewportToggleChanged"
-                              Unchecked="NativeViewportToggleChanged" />
             </ToolBar>
 
             <ToolBar Band="1"
@@ -152,11 +145,8 @@
                 <ColumnDefinition Width="330" />
             </Grid.ColumnDefinitions>
 
-            <Grid Grid.Column="0">
-                <local:LevelViewport x:Name="Viewport" />
-                <native:NativeLevelViewport x:Name="NativeViewport"
-                                            Visibility="Collapsed" />
-            </Grid>
+            <native:NativeLevelViewport x:Name="NativeViewport"
+                                        Grid.Column="0" />
 
             <Border Grid.Column="1"
                     Background="#1A1D22"
