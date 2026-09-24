@@ -80,7 +80,7 @@ internal static class PlaybackStallDiagnosticsRegression
         try
         {
             string snapshot = window.PlaybackDiagnosticsSnapshot;
-            foreach (string token in new[] { "tickMaxGap=", "renderMaxGap=", "lateAdmissions=" })
+            foreach (string token in new[] { "tickMaxGap=", "renderMaxGap=", "native=" })
             {
                 if (!snapshot.Contains(token, StringComparison.Ordinal))
                     throw new InvalidOperationException(
