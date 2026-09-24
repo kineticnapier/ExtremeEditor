@@ -20,7 +20,6 @@ public sealed partial class MainForm : Form
     private readonly ToolStripButton _rotateLeft = new("-15°");
     private readonly ToolStripButton _rotateRight = new("+15°");
     private readonly ToolStripButton _saveAs = new("Save As");
-    private readonly ToolStripButton _importHitsounds = new("Import Hitsounds");
     private readonly ToolStripButton _floorPreview = new("Floor Preview") { CheckOnClick = true, Checked = true };
     private readonly ToolStripButton _benchmark = new("Benchmark viewport");
 
@@ -38,8 +37,7 @@ public sealed partial class MainForm : Form
         var tools = new ToolStrip();
         tools.Items.AddRange([_open, _frame,
             new ToolStripSeparator(), _play, _stop, _follow, _playTime,
-            new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs,
-            new ToolStripSeparator(), _importHitsounds, _floorPreview,
+            new ToolStripSeparator(), _rotateLeft, _rotateRight, _saveAs, _floorPreview,
             new ToolStripSeparator(), _benchmark]);
         InitializeTimingProbeUi(tools);
 
@@ -58,7 +56,6 @@ public sealed partial class MainForm : Form
         _rotateLeft.Click += (_, _) => RotateSelected(-15);
         _rotateRight.Click += (_, _) => RotateSelected(15);
         _saveAs.Click += (_, _) => SaveAs();
-        _importHitsounds.Click += (_, _) => ImportHitSounds();
         _floorPreview.CheckedChanged += (_, _) => _canvas.UseFloorPreview = _floorPreview.Checked;
         _benchmark.Click += (_, _) => BenchmarkViewport();
         _canvas.DiagnosticsChanged += UpdateRenderStatus;
@@ -336,30 +333,6 @@ public sealed partial class MainForm : Form
 
         index = ~index - 1;
         return index >= 0 ? _setSpeedFloors[index] : -1;
-    }
-
-    private void ImportHitSounds()
-    {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "Select an EditorQoL *-hitsounds-assets folder",
-            UseDescriptionForTitle = true
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        try
-        {
-            HitSoundImportResult result = HitSoundAssetCache.ImportProbeFolder(dialog.SelectedPath);
-            _audio.ReloadHitSoundAssets();
-            _status.Text =
-                $"Imported {result.ImportedClips} hit sounds -> {result.CacheDirectory} | " +
-                (result.HasManifest ? "timing offsets loaded" : "no timing manifest");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, ex.ToString(), "Hit-sound import failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
     }
 
     private void RotateSelected(double delta)
