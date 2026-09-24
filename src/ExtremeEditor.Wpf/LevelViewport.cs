@@ -26,7 +26,7 @@ public sealed partial class LevelViewport : FrameworkElement
     private readonly List<int> _candidates = new(4096);
     private readonly WpfFloorRenderer _floorRenderer = new();
     private readonly WpfIconRenderer _iconRenderer = new();
-    private readonly SortedSet<int> _selectedFloors = [];
+    private EditorSelectionState _selectionState = new(0);
     private LevelDocument? _level;
     private SpatialGridIndex? _index;
     private bool[] _floorIsCcw = [];
@@ -35,12 +35,30 @@ public sealed partial class LevelViewport : FrameworkElement
     private float _zoom = 28f;
     private bool _panning;
     private Point _lastMouse;
-    private int _selectedFloor = -1;
-    private int _selectionAnchor = -1;
     private bool _useFloorPreview = true;
 
-    public int SelectedFloor => _selectedFloor;
-    public IReadOnlyCollection<int> SelectedFloors => _selectedFloors;
+    public EditorSelectionState SelectionState
+    {
+        get => _selectionState;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (ReferenceEquals(_selectionState, value))
+                return;
+
+            _selectionState.Changed -= SelectionStateChanged;
+            _selectionState = value;
+            _selectionState.Changed += SelectionStateChanged;
+            if (_level is not null)
+                _selectionState.SetFloorCount(_level.FloorCount);
+
+            RenderPlaybackVisual();
+            InvalidateVisual();
+        }
+    }
+
+    public int SelectedFloor => _selectionState.PrimaryFloor;
+    public IReadOnlyCollection<int> SelectedFloors => _selectionState.SelectedFloors;
     public event EventHandler? SelectionChanged;
 
     public bool UseFloorPreview
@@ -69,6 +87,7 @@ public sealed partial class LevelViewport : FrameworkElement
     {
         Focusable = true;
         ClipToBounds = true;
+        _selectionState.Changed += SelectionStateChanged;
         AddVisualChild(_sceneRoot);
         AddVisualChild(_playbackFloorVisual);
         AddVisualChild(_playbackVisual);
@@ -81,22 +100,9 @@ public sealed partial class LevelViewport : FrameworkElement
 
         _level = level;
         _index = index;
+        _selectionState.SetFloorCount(level.FloorCount);
         if (!preserveView)
-        {
-            _selectedFloors.Clear();
-            _selectedFloor = -1;
-            _selectionAnchor = -1;
-        }
-        else
-        {
-            int[] invalid = _selectedFloors.Where(floor => (uint)floor >= (uint)level.FloorCount).ToArray();
-            foreach (int floor in invalid)
-                _selectedFloors.Remove(floor);
-            if ((uint)_selectedFloor >= (uint)level.FloorCount)
-                _selectedFloor = _selectedFloors.Count > 0 ? _selectedFloors.Max : -1;
-            if ((uint)_selectionAnchor >= (uint)level.FloorCount)
-                _selectionAnchor = _selectedFloor;
-        }
+            _selectionState.SetSelection([], -1);
         RebuildFloorDirectionState();
 
         if (!preserveView)
@@ -113,83 +119,22 @@ public sealed partial class LevelViewport : FrameworkElement
 
     public void SetSelection(IEnumerable<int> floors, int primaryFloor = -1)
     {
-        _selectedFloors.Clear();
-        if (_level is not null)
-        {
-            foreach (int floor in floors)
-            {
-                if ((uint)floor < (uint)_level.FloorCount)
-                    _selectedFloors.Add(floor);
-            }
-        }
-
-        if (_selectedFloors.Count == 0)
-        {
-            _selectedFloor = -1;
-            _selectionAnchor = -1;
-        }
-        else
-        {
-            _selectedFloor = _selectedFloors.Contains(primaryFloor) ? primaryFloor : _selectedFloors.Max;
-            _selectionAnchor = _selectedFloor;
-        }
-
-        SelectionChanged?.Invoke(this, EventArgs.Empty);
-        RenderPlaybackVisual();
-        InvalidateVisual();
+        _selectionState.SetSelection(floors, primaryFloor);
     }
 
     public void SelectFloor(int floor, ModifierKeys modifiers = ModifierKeys.None)
     {
-        if (_level is null || (uint)floor >= (uint)_level.FloorCount)
-        {
-            SetSelection([]);
-            return;
-        }
-
-        bool extend = (modifiers & ModifierKeys.Shift) != 0;
-        bool toggle = (modifiers & ModifierKeys.Control) != 0;
-
-        if (extend && _selectionAnchor >= 0)
-        {
-            int first = Math.Min(_selectionAnchor, floor);
-            int last = Math.Max(_selectionAnchor, floor);
-            if (!toggle)
-                _selectedFloors.Clear();
-            for (int i = first; i <= last; i++)
-                _selectedFloors.Add(i);
-            _selectedFloor = floor;
-        }
-        else if (toggle)
-        {
-            if (!_selectedFloors.Add(floor))
-                _selectedFloors.Remove(floor);
-            _selectedFloor = _selectedFloors.Contains(floor)
-                ? floor
-                : _selectedFloors.Count > 0 ? _selectedFloors.Max : -1;
-            _selectionAnchor = _selectedFloor;
-        }
-        else
-        {
-            _selectedFloors.Clear();
-            _selectedFloors.Add(floor);
-            _selectedFloor = floor;
-            _selectionAnchor = floor;
-        }
-
-        SelectionChanged?.Invoke(this, EventArgs.Empty);
-        RenderPlaybackVisual();
-        InvalidateVisual();
+        _selectionState.SelectFloor(floor, modifiers);
     }
 
     public void MoveSelection(int floor, bool extend)
     {
-        SelectFloor(floor, extend ? ModifierKeys.Shift : ModifierKeys.None);
+        _selectionState.MoveSelection(floor, extend);
     }
 
     public void SetSelectedFloorFromExternal(int floor, ModifierKeys modifiers = ModifierKeys.None)
     {
-        SelectFloor(floor, modifiers);
+        _selectionState.SelectFloor(floor, modifiers);
     }
 
     public void FrameAll()
@@ -339,5 +284,12 @@ public sealed partial class LevelViewport : FrameworkElement
         _panning = false;
         Cursor = Cursors.Arrow;
         base.OnLostMouseCapture(e);
+    }
+
+    private void SelectionStateChanged(object? sender, EventArgs e)
+    {
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        RenderPlaybackVisual();
+        InvalidateVisual();
     }
 }
