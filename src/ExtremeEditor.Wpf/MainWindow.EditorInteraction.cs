@@ -22,10 +22,7 @@ public partial class MainWindow
         if (_silentPlaybackActive || _audio.IsPlaying || !_audio.IsStopped)
             StopPlayback();
         else
-        {
-            Viewport.SetPlaybackPose(null);
             NativeViewport.ClearPlayback();
-        }
 
         int maxFloor = Math.Max(0, _level.FloorCount - 1);
         int[] selection = (preferredSelection?.ToArray() ?? [preferredPrimary])
@@ -36,11 +33,9 @@ public partial class MainWindow
 
         // Geometry/selection are the interactive path. Keep these synchronous so the
         // newly-created floor appears immediately, but defer playback model rebuilds.
-        var index = new SpatialGridIndex(_level.Positions);
-        Viewport.SetLevel(_level, index, preserveView: true);
-        Viewport.SetSelection(selection, primary);
         NativeViewport.SetLevel(_level);
-        NativeViewport.SetSelection(selection, primary);
+        _selection.SetFloorCount(_level.FloorCount);
+        _selection.SetSelection(selection, primary);
 
         // Old timing must never be consumed together with the edited document.
         _timingMap = null;
