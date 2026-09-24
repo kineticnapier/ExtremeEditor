@@ -41,10 +41,7 @@ internal static class Program
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "SwirlBlue.png"), "SwirlBlue.png");
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Rabbit.png"), "Rabbit.png");
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Snail.png"), "Snail.png");
-
-            if (iconResult.FloorIconCount < 4)
-                throw new InvalidOperationException(
-                    $"Expected at least four directly extracted floor icons, got {iconResult.FloorIconCount}.");
+            VerifyIconCatalog(gameRoot, iconResult, iconOutput);
 
             string hitSoundOutput = Path.Combine(outputDirectory, "hitsounds");
             HitSoundExtractionResult hitSoundResult =
@@ -54,7 +51,7 @@ internal static class Program
             VerifyCanonicalWave(hitSoundResult.KickPath, "sndKick.wav");
             VerifyHitSoundSet(gameRoot, hitSoundResult);
 
-            Console.WriteLine("PASS: ADOFAI floor textures, representative floor icons, and the HitSound-enum audio set were extracted directly into canonical files.");
+            Console.WriteLine("PASS: ADOFAI floor textures, full icon catalog, and the HitSound-enum audio set were extracted directly into canonical files.");
             return 0;
         }
         catch (Exception ex)
@@ -78,9 +75,67 @@ internal static class Program
         }
     }
 
+    private static void VerifyIconCatalog(string gameRoot, IconExtractionResult result, string iconOutput)
+    {
+        string categoryDirectory = Path.Combine(iconOutput, "categories");
+        if (!Directory.Exists(categoryDirectory))
+            throw new InvalidOperationException(
+                $"Expected full icon catalog category directory: {categoryDirectory}");
+
+        string[] floorPngs = Directory.GetFiles(result.FloorDirectory, "*.png", SearchOption.TopDirectoryOnly);
+        string[] outlinePngs = Directory.GetFiles(result.OutlineDirectory, "*.png", SearchOption.TopDirectoryOnly);
+        string[] eventPngs = Directory.GetFiles(result.EventDirectory, "*.png", SearchOption.TopDirectoryOnly);
+        string[] categoryPngs = Directory.GetFiles(categoryDirectory, "*.png", SearchOption.TopDirectoryOnly);
+
+        if (floorPngs.Length <= 4)
+            throw new InvalidOperationException(
+                $"Expected more than the four representative floor icons, got {floorPngs.Length}.");
+        if (outlinePngs.Length == 0)
+            throw new InvalidOperationException("Expected directly extracted floor outline icons, got 0.");
+        if (eventPngs.Length == 0)
+            throw new InvalidOperationException("Expected directly extracted LevelEventType icons, got 0.");
+        if (categoryPngs.Length == 0)
+            throw new InvalidOperationException("Expected directly extracted LevelEventCategory icons, got 0.");
+
+        if (result.FloorIconCount != floorPngs.Length)
+            throw new InvalidOperationException(
+                $"FloorIconCount mismatch: result={result.FloorIconCount}, files={floorPngs.Length}.");
+        if (result.OutlineIconCount != outlinePngs.Length)
+            throw new InvalidOperationException(
+                $"OutlineIconCount mismatch: result={result.OutlineIconCount}, files={outlinePngs.Length}.");
+        if (result.EventIconCount != eventPngs.Length)
+            throw new InvalidOperationException(
+                $"EventIconCount mismatch: result={result.EventIconCount}, files={eventPngs.Length}.");
+
+        VerifyEnumNamedPngs(gameRoot, "LevelEventType", eventPngs);
+        VerifyEnumNamedPngs(gameRoot, "LevelEventCategory", categoryPngs);
+
+        foreach (string path in floorPngs)
+            VerifyCanonicalPng(path, Path.GetFileName(path));
+        foreach (string path in outlinePngs)
+            VerifyCanonicalPng(path, Path.GetFileName(path));
+    }
+
+    private static void VerifyEnumNamedPngs(string gameRoot, string enumTypeName, IEnumerable<string> paths)
+    {
+        HashSet<string> allowedFileNames = ReadEnumNames(gameRoot, enumTypeName)
+            .Select(name => $"{name}.png")
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (string path in paths)
+        {
+            string fileName = Path.GetFileName(path);
+            if (!allowedFileNames.Contains(fileName))
+                throw new InvalidOperationException(
+                    $"Extractor emitted '{fileName}' outside the game's {enumTypeName} enum.");
+            VerifyCanonicalPng(path, fileName);
+        }
+    }
+
     private static void VerifyHitSoundSet(string gameRoot, HitSoundExtractionResult result)
     {
-        HashSet<string> allowedFileNames = ReadHitSoundEnumNames(gameRoot)
+        HashSet<string> allowedFileNames = ReadEnumNames(gameRoot, "HitSound")
+            .Where(name => !string.Equals(name, "None", StringComparison.OrdinalIgnoreCase))
             .Select(name => $"snd{name}.wav")
             .ToHashSet(StringComparer.Ordinal);
 
@@ -108,7 +163,7 @@ internal static class Program
         }
     }
 
-    private static IReadOnlyList<string> ReadHitSoundEnumNames(string gameRoot)
+    private static IReadOnlyList<string> ReadEnumNames(string gameRoot, string typeName)
     {
         string assemblyPath = Path.Combine(
             gameRoot,
@@ -125,7 +180,7 @@ internal static class Program
         foreach (TypeDefinitionHandle typeHandle in metadata.TypeDefinitions)
         {
             TypeDefinition type = metadata.GetTypeDefinition(typeHandle);
-            if (!string.Equals(metadata.GetString(type.Name), "HitSound", StringComparison.Ordinal))
+            if (!string.Equals(metadata.GetString(type.Name), typeName, StringComparison.Ordinal))
                 continue;
 
             var names = new List<string>();
@@ -141,12 +196,12 @@ internal static class Program
             }
 
             if (names.Count == 0)
-                throw new InvalidDataException("HitSound type was found but contained no enum literals.");
+                throw new InvalidDataException($"{typeName} was found but contained no enum literals.");
 
             return names;
         }
 
-        throw new InvalidDataException("HitSound enum was not found in Assembly-CSharp.dll.");
+        throw new InvalidDataException($"{typeName} enum was not found in Assembly-CSharp.dll.");
     }
 
     private static string ResolveGameRoot(string[] args)
