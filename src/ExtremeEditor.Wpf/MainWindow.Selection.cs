@@ -4,10 +4,8 @@ public partial class MainWindow
 {
     private readonly EditorSelectionState _selection = new(0);
 
-    protected override void OnSourceInitialized(EventArgs e)
+    private void InitializeSharedSelectionState()
     {
-        base.OnSourceInitialized(e);
-
         int[] previousSelection = Viewport.SelectedFloors.ToArray();
         int previousPrimary = Viewport.SelectedFloor;
 
