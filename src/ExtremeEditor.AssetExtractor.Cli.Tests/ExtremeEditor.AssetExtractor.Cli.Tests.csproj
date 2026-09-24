@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>ExtremeEditor.AssetExtractor.Cli.Tests</AssemblyName>
+    <RootNamespace>ExtremeEditor.AssetExtractor.Cli.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ExtremeEditor.AssetExtractor\ExtremeEditor.AssetExtractor.csproj" />
+  </ItemGroup>
+</Project>
