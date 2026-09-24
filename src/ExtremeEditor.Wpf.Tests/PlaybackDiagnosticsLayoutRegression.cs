@@ -22,8 +22,8 @@ internal static class PlaybackDiagnosticsLayoutRegression
             if (!ReferenceEquals(diagnosticsText.Parent, diagnosticsBar))
                 throw new InvalidOperationException("PlaybackDiagnosticsText must be hosted by the dedicated diagnostics toolbar.");
 
-            if (!window.PlaybackDiagnosticsSnapshot.Contains("retained=", StringComparison.Ordinal))
-                throw new InvalidOperationException("Playback diagnostics snapshot must include retained floor count.");
+            if (!window.PlaybackDiagnosticsSnapshot.Contains("native=", StringComparison.Ordinal))
+                throw new InvalidOperationException("Playback diagnostics snapshot must include native renderer state.");
         }
         finally
         {
