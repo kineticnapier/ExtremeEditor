@@ -25,6 +25,10 @@ public static class AssetSetupService
         "ExtremeEditor",
         "AssetCache");
 
+    public static string DefaultExtractorPath => Path.Combine(
+        AppContext.BaseDirectory,
+        "ExtremeEditor.AssetExtractor.exe");
+
     public static AssetCacheStatus InspectCache(string cacheRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheRoot);
