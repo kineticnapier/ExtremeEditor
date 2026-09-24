@@ -22,7 +22,8 @@ internal static class Program
                 AssetSetupRegression.Run();
                 AdoFaiInstallationLocatorRegression.Run();
                 AssetSetupUiRegression.Run();
-                Console.WriteLine("PASS: WPF asset setup + ADOFAI installation locator + setup UI regressions are valid.");
+                LegacyAssetImportRemovalRegression.Run();
+                Console.WriteLine("PASS: WPF asset setup + ADOFAI installation locator + setup UI + legacy import removal regressions are valid.");
                 return 0;
             }
 
@@ -53,6 +54,7 @@ internal static class Program
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();
             AssetSetupUiRegression.Run();
+            LegacyAssetImportRemovalRegression.Run();
             LoadPreparationParallelismRegression.Run();
             ProgressiveLoadReadinessRegression.Run();
             VerifyFloorGeometryIsCachedAndFrozen();
@@ -83,7 +85,7 @@ internal static class Program
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
             CameraPlayerSmoothPivotRegression.Run();
-            Console.WriteLine("PASS: WPF asset setup/ADOFAI locator/setup UI, floor geometry, icon bitmaps, level open/dirty-open guard, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
+            Console.WriteLine("PASS: WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
