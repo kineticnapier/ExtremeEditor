@@ -25,6 +25,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_ONLY_VIEWPORT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                NativeOnlyViewportRegression.Run();
+                Console.WriteLine("PASS: native-only production viewport regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_ASSET_SETUP_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -62,6 +72,7 @@ internal static class Program
             }
 
             EditorSelectionStateRegression.Run();
+            NativeOnlyViewportRegression.Run();
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();
             AssetSetupUiRegression.Run();
@@ -96,7 +107,7 @@ internal static class Program
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
             CameraPlayerSmoothPivotRegression.Run();
-            Console.WriteLine("PASS: editor selection state, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
+            Console.WriteLine("PASS: editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
