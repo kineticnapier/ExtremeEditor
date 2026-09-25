@@ -4,15 +4,69 @@
         <ResourceDictionary Source="Colors.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
+    <ControlTemplate x:Key="EditorButtonTemplate" TargetType="{x:Type Button}">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Chrome"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="3"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter x:Name="ContentHost"
+                                  ContentSource="Content"
+                                  RecognizesAccessKey="True"
+                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Border>
+            <Border x:Name="FocusRing"
+                    BorderBrush="{StaticResource ControlBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed" />
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorToggleButtonTemplate" TargetType="{x:Type ToggleButton}">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Chrome"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="3"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter x:Name="ContentHost"
+                                  ContentSource="Content"
+                                  RecognizesAccessKey="True"
+                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Border>
+            <Border x:Name="FocusRing"
+                    BorderBrush="{StaticResource ControlBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed" />
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <Style x:Key="EditorButtonStyle" TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="9,3" />
         <Setter Property="Margin" Value="2,1" />
-        <Setter Property="MinHeight" Value="27" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template" Value="{StaticResource EditorButtonTemplate}" />
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
@@ -22,34 +76,45 @@
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
-                <Setter Property="Background" Value="{StaticResource DisabledControlBrush}" />
-                <Setter Property="BorderBrush" Value="#3D444E" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
                 <Setter Property="Opacity" Value="1" />
             </Trigger>
         </Style.Triggers>
     </Style>
 
     <Style x:Key="EditorToggleButtonStyle" TargetType="{x:Type ToggleButton}">
-        <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="9,3" />
         <Setter Property="Margin" Value="2,1" />
-        <Setter Property="MinHeight" Value="27" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template" Value="{StaticResource EditorToggleButtonTemplate}" />
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
             </Trigger>
             <Trigger Property="IsChecked" Value="True">
-                <Setter Property="Background" Value="#35506F" />
-                <Setter Property="BorderBrush" Value="#6E9AC7" />
+                <Setter Property="Background" Value="{StaticResource SelectedControlBrush}" />
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsChecked" Value="True" />
+                    <Condition Property="IsMouseOver" Value="True" />
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{StaticResource ControlPressedBrush}" />
+            </MultiTrigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{StaticResource ControlPressedBrush}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
-                <Setter Property="Background" Value="{StaticResource DisabledControlBrush}" />
-                <Setter Property="BorderBrush" Value="#3D444E" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
                 <Setter Property="Opacity" Value="1" />
             </Trigger>
         </Style.Triggers>
@@ -61,20 +126,6 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Padding" Value="9,3" />
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Background" Value="{StaticResource ControlPressedBrush}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderBrush" Value="Transparent" />
-            </Trigger>
-        </Style.Triggers>
     </Style>
 
     <Style x:Key="ToolbarToggleButtonStyle"
@@ -83,21 +134,6 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Padding" Value="9,3" />
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
-            </Trigger>
-            <Trigger Property="IsChecked" Value="True">
-                <Setter Property="Background" Value="#35506F" />
-                <Setter Property="BorderBrush" Value="#6E9AC7" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderBrush" Value="Transparent" />
-            </Trigger>
-        </Style.Triggers>
     </Style>
 
     <Style x:Key="ToolbarGroupLabelStyle" TargetType="{x:Type TextBlock}">

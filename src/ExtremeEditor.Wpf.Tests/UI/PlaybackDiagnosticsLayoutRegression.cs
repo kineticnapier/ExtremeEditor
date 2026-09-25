@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -129,6 +130,8 @@ internal static class PlaybackDiagnosticsLayoutRegression
                 if (!window.Resources.Contains(resourceKey))
                     throw new InvalidOperationException($"MainWindow resource '{resourceKey}' is required for readable dark UI styling.");
             }
+
+            RequireToolbarButtonTemplates(window, toolbar);
 
             foreach (string commandName in new[]
                      {
@@ -265,6 +268,136 @@ internal static class PlaybackDiagnosticsLayoutRegression
     {
         return window.TryFindResource(key) as ControlTemplate
             ?? throw new InvalidOperationException($"Menu template resource '{key}' is missing.");
+    }
+
+    private static void RequireToolbarButtonTemplates(MainWindow window, StackPanel toolbar)
+    {
+        ControlTemplate buttonTemplate = RequireTemplate(window, "EditorButtonTemplate");
+        ControlTemplate toggleTemplate = RequireTemplate(window, "EditorToggleButtonTemplate");
+        Style buttonStyle = RequireStyle(window, "EditorButtonStyle");
+        Style toggleStyle = RequireStyle(window, "EditorToggleButtonStyle");
+        Style toolbarButtonStyle = RequireStyle(window, "ToolbarButtonStyle");
+        Style toolbarToggleStyle = RequireStyle(window, "ToolbarToggleButtonStyle");
+
+        if (!ReferenceEquals(FindSetterValue(buttonStyle, Control.TemplateProperty), buttonTemplate))
+            throw new InvalidOperationException("EditorButtonStyle must use the ExtremeEditor button template.");
+        if (!ReferenceEquals(FindSetterValue(toggleStyle, Control.TemplateProperty), toggleTemplate))
+            throw new InvalidOperationException("EditorToggleButtonStyle must use the ExtremeEditor toggle template.");
+
+        var normalButton = new Button { Style = buttonStyle };
+        normalButton.ApplyTemplate();
+        RequireTransparentChrome(normalButton, "Button normal");
+
+        var disabledButton = new Button { Style = buttonStyle, IsEnabled = false };
+        disabledButton.ApplyTemplate();
+        RequireTransparentChrome(disabledButton, "Button disabled");
+
+        var disabledToggle = new ToggleButton { Style = toggleStyle, IsEnabled = false, IsChecked = true };
+        disabledToggle.ApplyTemplate();
+        RequireTransparentChrome(disabledToggle, "ToggleButton disabled");
+
+        if (window.TryFindResource("SelectedControlBrush") is not SolidColorBrush selectedBrush)
+            throw new InvalidOperationException("SelectedControlBrush is missing.");
+        if (window.TryFindResource("ControlPressedBrush") is not SolidColorBrush pressedBrush)
+            throw new InvalidOperationException("ControlPressedBrush is missing.");
+        if (selectedBrush.Color == Color.FromRgb(0x35, 0x50, 0x6F))
+            throw new InvalidOperationException("The old bright checked surface must not be retained.");
+
+        MultiTrigger? checkedHover = toggleStyle.Triggers
+            .OfType<MultiTrigger>()
+            .FirstOrDefault(trigger =>
+                trigger.Conditions.Any(condition =>
+                    condition.Property == ToggleButton.IsCheckedProperty && Equals(condition.Value, true)) &&
+                trigger.Conditions.Any(condition =>
+                    condition.Property == UIElement.IsMouseOverProperty && Equals(condition.Value, true)));
+        if (checkedHover is null ||
+            !ReferenceEquals(
+                checkedHover.Setters.OfType<Setter>()
+                    .LastOrDefault(setter => setter.Property == Control.BackgroundProperty)?.Value,
+                pressedBrush))
+        {
+            throw new InvalidOperationException("Checked hover must retain a distinct selected feedback surface.");
+        }
+
+        var checkedToggle = new ToggleButton { Style = toggleStyle, IsChecked = true };
+        checkedToggle.ApplyTemplate();
+        if (!ReferenceEquals(checkedToggle.Background, selectedBrush) ||
+            checkedToggle.BorderThickness != new Thickness(0))
+        {
+            throw new InvalidOperationException("Checked toggles must use the subtle selected surface without border chrome.");
+        }
+
+        Button[] toolbarButtons = toolbar.Children.OfType<Button>().ToArray();
+        ToggleButton[] toolbarToggles = toolbar.Children.OfType<ToggleButton>().ToArray();
+        if (toolbarButtons.Length != 5 || toolbarToggles.Length != 2)
+            throw new InvalidOperationException("The toolbar button/toggle composition changed.");
+
+        foreach (Button button in toolbarButtons)
+        {
+            if (!ReferenceEquals(button.Style, toolbarButtonStyle) ||
+                !ReferenceEquals(button.Template, buttonTemplate))
+            {
+                throw new InvalidOperationException($"Toolbar button '{button.Content}' is missing the subtle button style.");
+            }
+            RequireResolvedChrome(button);
+        }
+
+        foreach (ToggleButton toggle in toolbarToggles)
+        {
+            if (!ReferenceEquals(toggle.Style, toolbarToggleStyle) ||
+                !ReferenceEquals(toggle.Template, toggleTemplate))
+            {
+                throw new InvalidOperationException($"Toolbar toggle '{toggle.Content}' is missing the subtle toggle style.");
+            }
+            RequireResolvedChrome(toggle);
+        }
+    }
+
+    private static Style RequireStyle(MainWindow window, string key)
+    {
+        return window.TryFindResource(key) as Style
+            ?? throw new InvalidOperationException($"Control style resource '{key}' is missing.");
+    }
+
+    private static object? FindSetterValue(Style style, DependencyProperty property)
+    {
+        Style? current = style;
+        while (current is not null)
+        {
+            Setter? setter = current.Setters
+                .OfType<Setter>()
+                .LastOrDefault(candidate => candidate.Property == property);
+            if (setter is not null)
+                return setter.Value;
+            current = current.BasedOn;
+        }
+        return null;
+    }
+
+    private static void RequireTransparentChrome(Control control, string state)
+    {
+        RequireResolvedChrome(control);
+        if (control.Background is not SolidColorBrush { Color.A: 0 } ||
+            control.BorderBrush is not SolidColorBrush { Color.A: 0 } ||
+            control.BorderThickness != new Thickness(0))
+        {
+            throw new InvalidOperationException($"{state} must be transparent and borderless.");
+        }
+    }
+
+    private static void RequireResolvedChrome(Control control)
+    {
+        foreach (DependencyProperty property in new[]
+                 {
+                     Control.BackgroundProperty,
+                     Control.ForegroundProperty,
+                     Control.BorderBrushProperty,
+                     Control.BorderThicknessProperty
+                 })
+        {
+            if (ReferenceEquals(control.GetValue(property), DependencyProperty.UnsetValue))
+                throw new InvalidOperationException($"{control.GetType().Name}.{property.Name} resolved to UnsetValue.");
+        }
     }
 
     private static void ApplyControlTemplates(DependencyObject parent)
