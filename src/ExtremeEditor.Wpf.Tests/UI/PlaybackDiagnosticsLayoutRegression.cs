@@ -213,6 +213,7 @@ internal static class PlaybackDiagnosticsLayoutRegression
             root,
             "src",
             "ExtremeEditor.Wpf",
+            "MainWindow",
             "MainWindow.AdoFaiKeybinds.cs"));
 
         foreach (string contract in new[]
