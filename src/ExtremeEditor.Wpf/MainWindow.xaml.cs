@@ -99,6 +99,21 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
+    private void ExitClick(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void AboutClick(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(
+            this,
+            $"ExtremeEditor\n{EditorVersion.Current}",
+            "About ExtremeEditor",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
         if (!ConfirmDiscardCurrentChanges())

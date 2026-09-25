@@ -34,8 +34,8 @@ public partial class MainWindow
         }
 
         _assetSetupRunning = true;
-        SetupAssetsButton.IsEnabled = false;
-        BrowseAdoFaiButton.IsEnabled = false;
+        SetupAssetsMenuItem.IsEnabled = false;
+        BrowseAdoFaiMenuItem.IsEnabled = false;
         StatusText.Text = "Extracting ADOFAI assets…";
 
         try
@@ -114,11 +114,14 @@ public partial class MainWindow
             GetDefaultSteamRoots());
 
         AssetCacheStatus cache = AssetSetupService.InspectCache(AssetSetupService.DefaultCacheRoot);
-        AdoFaiPathText.Text = _adoFaiGameRoot ?? "ADOFAI not detected — use Browse…";
-        AdoFaiPathText.ToolTip = _adoFaiGameRoot;
-        SetupAssetsButton.Content = cache.IsReady ? "Rebuild Assets" : "Setup Assets";
-        SetupAssetsButton.IsEnabled = !_assetSetupRunning;
-        BrowseAdoFaiButton.IsEnabled = !_assetSetupRunning;
+        string installationName = _adoFaiGameRoot is null
+            ? "Not detected"
+            : Path.GetFileName(_adoFaiGameRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        AdoFaiPathMenuItem.Header = $"ADOFAI: {installationName}";
+        AdoFaiPathMenuItem.ToolTip = _adoFaiGameRoot ?? "Use Browse for ADOFAI… to select the installation folder.";
+        SetupAssetsMenuItem.Header = cache.IsReady ? "Rebuild Assets" : "Setup Assets";
+        SetupAssetsMenuItem.IsEnabled = !_assetSetupRunning;
+        BrowseAdoFaiMenuItem.IsEnabled = !_assetSetupRunning;
     }
 
     private static string[] GetDefaultSteamRoots()

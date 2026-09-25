@@ -75,6 +75,71 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="ToolbarButtonStyle"
+               TargetType="{x:Type Button}"
+               BasedOn="{StaticResource EditorButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="9,3" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ToolbarToggleButtonStyle"
+               TargetType="{x:Type ToggleButton}"
+               BasedOn="{StaticResource EditorToggleButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="9,3" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="#35506F" />
+                    <Setter Property="BorderBrush" Value="#6E9AC7" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="{x:Type Menu}">
+            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Padding" Value="2,1" />
+        </Style>
+
+        <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="EditorSeparatorStyle" TargetType="{x:Type Separator}">
             <Setter Property="Background" Value="{StaticResource SeparatorBrush}" />
             <Setter Property="Foreground" Value="{StaticResource SeparatorBrush}" />
@@ -167,101 +232,134 @@
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Top"
+        <Menu x:Name="MainMenu" DockPanel.Dock="Top">
+            <MenuItem x:Name="FileMenu" Header="_File">
+                <MenuItem Header="_Open"
+                          Command="{x:Static local:EditorCommands.Open}"
+                          InputGestureText="Ctrl+O" />
+                <MenuItem Header="_Save"
+                          Command="{x:Static local:EditorCommands.Save}"
+                          InputGestureText="Ctrl+S" />
+                <MenuItem Header="Save _As"
+                          Command="{x:Static local:EditorCommands.SaveAs}"
+                          InputGestureText="Ctrl+Shift+S" />
+                <Separator />
+                <MenuItem x:Name="ExitMenuItem" Header="E_xit" Click="ExitClick" />
+            </MenuItem>
+            <MenuItem x:Name="EditMenu" Header="_Edit">
+                <MenuItem Header="_Undo"
+                          Command="{x:Static local:EditorCommands.Undo}"
+                          InputGestureText="Ctrl+Z" />
+                <MenuItem Header="_Redo"
+                          Command="{x:Static local:EditorCommands.Redo}"
+                          InputGestureText="Ctrl+Y" />
+                <Separator />
+                <MenuItem Header="Cu_t"
+                          Command="{x:Static local:EditorCommands.Cut}"
+                          InputGestureText="Ctrl+X" />
+                <MenuItem Header="_Copy"
+                          Command="{x:Static local:EditorCommands.Copy}"
+                          InputGestureText="Ctrl+C" />
+                <MenuItem Header="_Paste"
+                          Command="{x:Static local:EditorCommands.Paste}"
+                          InputGestureText="Ctrl+V" />
+                <Separator />
+                <MenuItem x:Name="TransformMenu" Header="_Transform">
+                    <MenuItem Header="_Angle…"
+                              Command="{x:Static local:EditorCommands.InsertAngle}"
+                              InputGestureText="Enter" />
+                    <MenuItem Header="Rotate -90°"
+                              Command="{x:Static local:EditorCommands.RotateLeft}"
+                              InputGestureText="Ctrl+." />
+                    <MenuItem Header="Rotate +90°"
+                              Command="{x:Static local:EditorCommands.RotateRight}"
+                              InputGestureText="Ctrl+," />
+                    <Separator />
+                    <MenuItem Header="Flip _Horizontal"
+                              Command="{x:Static local:EditorCommands.FlipHorizontal}"
+                              InputGestureText="Ctrl+L" />
+                    <MenuItem Header="Flip _Vertical"
+                              Command="{x:Static local:EditorCommands.FlipVertical}"
+                              InputGestureText="Ctrl+Shift+L" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem x:Name="ViewMenu" Header="_View">
+                <MenuItem Header="_Frame"
+                          Command="{x:Static local:EditorCommands.Frame}" />
+                <MenuItem x:Name="ViewFollowPlayerMenuItem"
+                          Header="Follow _Player"
+                          IsCheckable="True"
+                          IsChecked="{Binding IsChecked, ElementName=FollowPlayerToggle, Mode=TwoWay}" />
+                <Separator />
+                <MenuItem x:Name="DiagnosticsMenuItem"
+                          Header="Show _Diagnostics"
+                          IsCheckable="True"
+                          Checked="DiagnosticsVisibilityChanged"
+                          Unchecked="DiagnosticsVisibilityChanged" />
+            </MenuItem>
+            <MenuItem x:Name="ToolsMenu" Header="_Tools">
+                <MenuItem x:Name="AssetsMenu" Header="_Assets">
+                    <MenuItem x:Name="AdoFaiPathMenuItem"
+                              Header="ADOFAI: Detecting…"
+                              IsEnabled="False"
+                              ToolTipService.ShowOnDisabled="True" />
+                    <Separator />
+                    <MenuItem x:Name="BrowseAdoFaiMenuItem"
+                              Header="Browse for ADOFAI…"
+                              Click="BrowseAdoFaiClick" />
+                    <MenuItem x:Name="SetupAssetsMenuItem"
+                              Header="Setup Assets"
+                              Click="SetupAssetsClick" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem x:Name="HelpMenu" Header="_Help">
+                <MenuItem x:Name="AboutMenuItem" Header="_About ExtremeEditor" Click="AboutClick" />
+            </MenuItem>
+        </Menu>
+
+        <Border x:Name="ToolbarHost"
+                DockPanel.Dock="Top"
                 Background="{StaticResource ToolbarBackgroundBrush}"
                 BorderBrush="{StaticResource SeparatorBrush}"
-                BorderThickness="0,0,0,1">
-            <Grid Height="31">
-                <ToggleButton x:Name="ToolsButton"
-                              Content="Tools"
-                              HorizontalAlignment="Left"
-                              Padding="10,2"
-                              Margin="3,2" />
-                <Popup x:Name="ToolsPopup"
-                       Placement="Bottom"
-                       PlacementTarget="{Binding ElementName=ToolsButton}"
-                       IsOpen="{Binding IsChecked, ElementName=ToolsButton, Mode=TwoWay}"
-                       StaysOpen="False"
-                       AllowsTransparency="True">
-                    <Border x:Name="ToolsPopupPanel"
-                            Width="440"
-                            Background="{StaticResource ToolbarBackgroundBrush}"
-                            BorderBrush="{StaticResource ControlBorderBrush}"
-                            BorderThickness="1"
-                            Padding="10">
-                        <StackPanel>
-                            <TextBlock Text="ASSETS"
-                                       Style="{StaticResource ToolbarGroupLabelStyle}"
-                                       Margin="0,0,0,4" />
-                            <TextBlock x:Name="AdoFaiPathText"
-                                       Text="Detecting…"
-                                       Foreground="{StaticResource MutedTextBrush}"
-                                       FontFamily="Consolas"
-                                       FontSize="11"
-                                       TextTrimming="CharacterEllipsis"
-                                       ToolTip="Current ADOFAI installation"
-                                       Margin="0,0,0,7" />
-                            <WrapPanel>
-                                <Button x:Name="BrowseAdoFaiButton"
-                                        Content="Browse for ADOFAI…"
-                                        Click="BrowseAdoFaiClick" />
-                                <Button x:Name="SetupAssetsButton"
-                                        Content="Setup Assets"
-                                        Click="SetupAssetsClick" />
-                            </WrapPanel>
-                            <Separator Height="1"
-                                       Margin="0,8"
-                                       Background="{StaticResource SeparatorBrush}" />
-                            <ToggleButton x:Name="DiagnosticsMenuItem"
-                                          Content="Show Diagnostics"
-                                          HorizontalAlignment="Left"
-                                          Checked="DiagnosticsVisibilityChanged"
-                                          Unchecked="DiagnosticsVisibilityChanged" />
-                        </StackPanel>
-                    </Border>
-                </Popup>
-            </Grid>
-        </Border>
-
-        <ToolBarTray x:Name="TopToolBarTray"
-                     DockPanel.Dock="Top"
-                     Background="{StaticResource ToolbarBackgroundBrush}"
-                     IsLocked="True">
-            <ToolBar x:Name="MainToolBar"
-                     Band="0"
-                     Background="{StaticResource ToolbarBackgroundBrush}"
-                     Foreground="{StaticResource TextBrush}">
+                BorderThickness="0,0,0,1"
+                Padding="3,2">
+            <StackPanel x:Name="MainToolBar"
+                        Orientation="Horizontal">
                 <Button Content="Open"
+                        Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Open}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Button Content="Save"
+                        Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Save}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Save As"
-                        Command="{x:Static local:EditorCommands.SaveAs}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Separator />
+                <Border Width="1" Height="18" Margin="6,4" Background="{StaticResource SeparatorBrush}" />
                 <Button Content="Frame"
+                        Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Frame}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Separator />
+                <Border Width="1" Height="18" Margin="6,4" Background="{StaticResource SeparatorBrush}" />
                 <Button x:Name="PlayButton"
                         Content="Play"
+                        Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.PlayPause}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Button Content="Stop"
+                        Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Stop}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <ToggleButton x:Name="FollowPlayerToggle"
-                              Content="Follow Player"
+                              Content="Follow"
+                              Style="{StaticResource ToolbarToggleButtonStyle}"
                               IsChecked="True" />
                 <ToggleButton x:Name="HitSoundsToggle"
                               Content="Hitsounds"
+                              Style="{StaticResource ToolbarToggleButtonStyle}"
                               IsChecked="True"
                               Checked="HitSoundsToggleChanged"
                               Unchecked="HitSoundsToggleChanged" />
-            </ToolBar>
-        </ToolBarTray>
+            </StackPanel>
+        </Border>
 
         <Grid>
             <Grid.ColumnDefinitions>

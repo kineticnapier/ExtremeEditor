@@ -1,9 +1,9 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Reflection;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -23,18 +23,68 @@ internal static class PlaybackDiagnosticsLayoutRegression
             if (diagnosticsPanel.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("Detailed diagnostics must be collapsed by default.");
 
-            if (window.FindName("DiagnosticsMenuItem") is not ToggleButton diagnosticsMenuItem)
+            if (window.FindName("DiagnosticsMenuItem") is not MenuItem diagnosticsMenuItem ||
+                !diagnosticsMenuItem.IsCheckable)
             {
-                throw new InvalidOperationException("A Diagnostics toggle must expose the detailed panel.");
+                throw new InvalidOperationException("View > Show Diagnostics must expose the detailed panel.");
             }
 
-            if (window.FindName("ToolsPopup") is not Popup ||
-                window.FindName("ToolsPopupPanel") is not Border ||
-                window.FindName("AdoFaiPathText") is not TextBlock ||
-                window.FindName("BrowseAdoFaiButton") is not Button ||
-                window.FindName("SetupAssetsButton") is not Button)
+            if (window.FindName("MainMenu") is not Menu mainMenu)
+                throw new InvalidOperationException("The standard MainWindow menu bar is missing.");
+
+            MenuItem fileMenu = RequireTopLevelMenu(window, mainMenu, "FileMenu", "_File");
+            MenuItem editMenu = RequireTopLevelMenu(window, mainMenu, "EditMenu", "_Edit");
+            MenuItem viewMenu = RequireTopLevelMenu(window, mainMenu, "ViewMenu", "_View");
+            MenuItem toolsMenu = RequireTopLevelMenu(window, mainMenu, "ToolsMenu", "_Tools");
+            MenuItem helpMenu = RequireTopLevelMenu(window, mainMenu, "HelpMenu", "_Help");
+
+            RequireMenuCommand(fileMenu, EditorCommands.Open);
+            RequireMenuCommand(fileMenu, EditorCommands.Save);
+            RequireMenuCommand(fileMenu, EditorCommands.SaveAs);
+            if (window.FindName("ExitMenuItem") is not MenuItem exitItem ||
+                !ReferenceEquals(exitItem.Parent, fileMenu))
             {
-                throw new InvalidOperationException("Asset path, Browse, and Setup actions must live in the compact Tools popup.");
+                throw new InvalidOperationException("File > Exit is missing.");
+            }
+            RequireMenuCommand(editMenu, EditorCommands.Undo);
+            RequireMenuCommand(editMenu, EditorCommands.Redo);
+            RequireMenuCommand(editMenu, EditorCommands.Cut);
+            RequireMenuCommand(editMenu, EditorCommands.Copy);
+            RequireMenuCommand(editMenu, EditorCommands.Paste);
+
+            if (window.FindName("TransformMenu") is not MenuItem transformMenu ||
+                !ReferenceEquals(transformMenu.Parent, editMenu))
+            {
+                throw new InvalidOperationException("Edit > Transform submenu is missing.");
+            }
+            foreach (ICommand command in new ICommand[]
+                     {
+                         EditorCommands.InsertAngle, EditorCommands.RotateLeft, EditorCommands.RotateRight,
+                         EditorCommands.FlipHorizontal, EditorCommands.FlipVertical
+                     })
+            {
+                RequireMenuCommand(transformMenu, command);
+            }
+
+            RequireMenuCommand(viewMenu, EditorCommands.Frame);
+            if (window.FindName("ViewFollowPlayerMenuItem") is not MenuItem { IsCheckable: true } followItem ||
+                !ReferenceEquals(followItem.Parent, viewMenu))
+                throw new InvalidOperationException("View > Follow Player toggle is missing.");
+            if (!ReferenceEquals(diagnosticsMenuItem.Parent, viewMenu))
+                throw new InvalidOperationException("Show Diagnostics must live in the View menu.");
+
+            if (window.FindName("AssetsMenu") is not MenuItem assetsMenu ||
+                !ReferenceEquals(assetsMenu.Parent, toolsMenu) ||
+                window.FindName("AdoFaiPathMenuItem") is not MenuItem ||
+                window.FindName("BrowseAdoFaiMenuItem") is not MenuItem ||
+                window.FindName("SetupAssetsMenuItem") is not MenuItem)
+            {
+                throw new InvalidOperationException("Tools > Assets must retain path, Browse, and Setup actions.");
+            }
+            if (window.FindName("AboutMenuItem") is not MenuItem aboutItem ||
+                !ReferenceEquals(aboutItem.Parent, helpMenu))
+            {
+                throw new InvalidOperationException("Help > About ExtremeEditor is missing.");
             }
 
             if (window.FindName("PlaybackDiagnosticsText") is not TextBlock diagnosticsText)
@@ -52,7 +102,16 @@ internal static class PlaybackDiagnosticsLayoutRegression
             if (!window.PlaybackDiagnosticsSnapshot.Contains("native=", StringComparison.Ordinal))
                 throw new InvalidOperationException("Playback diagnostics snapshot must include native renderer state.");
 
-            ToolBar toolbar = RequireToolbar(window, "MainToolBar");
+            if (window.FindName("MainToolBar") is not StackPanel toolbar ||
+                toolbar.Orientation != Orientation.Horizontal)
+            {
+                throw new InvalidOperationException("The compact horizontal editor toolbar is missing.");
+            }
+            if (FindDescendant<ToolBar>(toolbar) is not null ||
+                window.FindName("TopToolBarTray") is not null)
+            {
+                throw new InvalidOperationException("The compact toolbar must not use WPF ToolBar gripper/overflow chrome.");
+            }
 
             foreach (string resourceKey in new[]
                      {
@@ -69,7 +128,7 @@ internal static class PlaybackDiagnosticsLayoutRegression
 
             foreach (string commandName in new[]
                      {
-                         "Open", "Save", "SaveAs", "Frame", "PlayPause", "Stop"
+                         "Open", "Save", "Frame", "PlayPause", "Stop"
                      })
             {
                 if (!ContainsCommand(toolbar, commandName))
@@ -78,7 +137,7 @@ internal static class PlaybackDiagnosticsLayoutRegression
 
             foreach (string commandName in new[]
                      {
-                         "Undo", "Redo", "Cut", "Copy", "Paste", "InsertAngle",
+                         "SaveAs", "Undo", "Redo", "Cut", "Copy", "Paste", "InsertAngle",
                          "RotateLeft", "RotateRight", "FlipHorizontal", "FlipVertical"
                      })
             {
@@ -117,15 +176,25 @@ internal static class PlaybackDiagnosticsLayoutRegression
         }
     }
 
-    private static ToolBar RequireToolbar(MainWindow window, string name)
+    private static MenuItem RequireTopLevelMenu(MainWindow window, Menu menu, string name, string header)
     {
-        if (window.FindName(name) is not ToolBar toolbar ||
-            toolbar.Parent is not ToolBarTray)
+        if (window.FindName(name) is not MenuItem item ||
+            !menu.Items.Contains(item) ||
+            !string.Equals(item.Header as string, header, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Grouped toolbar '{name}' is missing from the top ToolBarTray.");
+            throw new InvalidOperationException($"Top-level menu '{header}' is missing.");
         }
 
-        return toolbar;
+        return item;
+    }
+
+    private static void RequireMenuCommand(MenuItem parent, ICommand command)
+    {
+        if (!parent.Items.OfType<MenuItem>().Any(item => item.Command == command))
+        {
+            throw new InvalidOperationException(
+                $"Menu '{parent.Header}' is missing command '{((RoutedCommand)command).Name}'.");
+        }
     }
 
     private static void RequireKeyBinding(MainWindow window, Key key, ModifierKeys modifiers, ICommand command)
@@ -223,5 +292,23 @@ internal static class PlaybackDiagnosticsLayoutRegression
         }
 
         return false;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject parent)
+        where T : DependencyObject
+    {
+        if (parent is T match)
+            return match;
+
+        foreach (object child in LogicalTreeHelper.GetChildren(parent))
+        {
+            if (child is DependencyObject dependencyObject &&
+                FindDescendant<T>(dependencyObject) is T descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 }
