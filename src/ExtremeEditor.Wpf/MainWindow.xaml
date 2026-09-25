@@ -14,7 +14,6 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Themes/Colors.xaml" />
                 <ResourceDictionary Source="Themes/Menus.xaml" />
                 <ResourceDictionary Source="Themes/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>

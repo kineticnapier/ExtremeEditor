@@ -96,6 +96,7 @@ internal static class Program
             WinFormsHostRemovalRegression.Run();
             EditorSelectionStateRegression.Run();
             NativeOnlyViewportRegression.Run();
+            PlaybackDiagnosticsLayoutRegression.Run();
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();
             AssetSetupUiRegression.Run();
@@ -117,7 +118,6 @@ internal static class Program
             RasterSceneRebaseRegression.Run();
             PlaybackRasterPrefetchRegression.Run();
             PlaybackDiagnosticsRegression.Run();
-            PlaybackDiagnosticsLayoutRegression.Run();
             PlaybackStallDiagnosticsRegression.Run();
             PlaybackLookaheadDiagnosticsRegression.Run();
             TemporalPlaybackRenderingRegression.Run();

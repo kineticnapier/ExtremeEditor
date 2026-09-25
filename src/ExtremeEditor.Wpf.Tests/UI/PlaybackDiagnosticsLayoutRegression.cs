@@ -15,6 +15,8 @@ internal static class PlaybackDiagnosticsLayoutRegression
         var window = new MainWindow();
         try
         {
+            MaterializeStartupXaml(window);
+
             if (window.FindName("PlaybackDiagnosticsBar") is not null)
                 throw new InvalidOperationException("The always-visible playback diagnostics toolbar must be removed.");
 
@@ -186,6 +188,27 @@ internal static class PlaybackDiagnosticsLayoutRegression
         }
 
         return item;
+    }
+
+    private static void MaterializeStartupXaml(MainWindow window)
+    {
+        window.ApplyTemplate();
+        ApplyControlTemplates(window);
+        window.Measure(new Size(1500, 900));
+        window.Arrange(new Rect(0, 0, 1500, 900));
+        window.UpdateLayout();
+    }
+
+    private static void ApplyControlTemplates(DependencyObject parent)
+    {
+        if (parent is Control control)
+            control.ApplyTemplate();
+
+        foreach (object child in LogicalTreeHelper.GetChildren(parent))
+        {
+            if (child is DependencyObject dependencyObject)
+                ApplyControlTemplates(dependencyObject);
+        }
     }
 
     private static void RequireMenuCommand(MenuItem parent, ICommand command)
