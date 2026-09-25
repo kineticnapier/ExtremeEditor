@@ -1,6 +1,9 @@
 # WPF Slice 2 Editor Chrome Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical snapshot:** This completed migration slice is retained for design
+> history. Its checkboxes, branch/version instructions, commands, and WinForms
+> assumptions are not current guidance. See the repository README and
+> `docs/README.md`.
 
 **Goal:** Recreate the visible editor chrome in WPF while keeping every not-yet-migrated action explicitly disabled.
 

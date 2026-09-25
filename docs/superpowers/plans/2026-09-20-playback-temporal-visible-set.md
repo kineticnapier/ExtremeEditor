@@ -1,6 +1,9 @@
 # Playback Temporal Visible-Set Renderer Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical snapshot:** This completed WPF comparison-renderer plan is
+> retained for regression rationale. `LevelViewport` is not the production
+> renderer; checklists, versions, and commands below are archival. See the
+> repository README and `docs/README.md`.
 
 **Goal:** Replace dense active-playback raster chunk composition with a playback-time-aware direct WPF floor/icon renderer so the pathological ~997,665-floor / 2.64e6 BPM chart stays visually correct without resize resets and sustains at least 30 FPS with Follow Player enabled.
 

@@ -1,5 +1,9 @@
 # ExtremeEditor Pure WPF Migration Design
 
+> **Historical snapshot:** The migration and legacy WinForms-host removal are
+> complete. This document records the original transition design, not the current
+> architecture or roadmap. See the repository README and `docs/README.md`.
+
 ## Goal
 
 Migrate ExtremeEditor from WinForms/GDI+ to a pure WPF application while keeping the existing WinForms application usable until the WPF path reaches functional parity.

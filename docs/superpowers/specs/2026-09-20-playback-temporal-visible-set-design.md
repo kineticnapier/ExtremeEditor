@@ -1,5 +1,9 @@
 # Playback Temporal Visible-Set Renderer Design
 
+> **Historical snapshot:** This document describes the retained WPF comparison
+> and regression renderer, not the production viewport. Production uses
+> `NativeLevelViewport`. See the repository README and `docs/README.md`.
+
 ## Goal
 
 Replace dense-chart raster chunk rendering on the **active playback path** with a playback-time-aware direct WPF renderer inspired by the candidate-selection strategy observed in ADOPAC (A Dance of Python and C++).

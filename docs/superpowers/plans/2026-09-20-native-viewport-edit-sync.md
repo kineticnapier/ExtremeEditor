@@ -1,6 +1,9 @@
 # Native Viewport Edit Sync Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical snapshot:** This completed implementation plan is retained for
+> design and regression rationale. Its checklists, branch/version instructions,
+> and commands are archival rather than pending work. See the repository README
+> and `docs/README.md`.
 
 **Goal:** Add incremental C# -> native renderer synchronization for edited floor/timing ranges so small editor changes do not require retransferring a million-floor snapshot.
 

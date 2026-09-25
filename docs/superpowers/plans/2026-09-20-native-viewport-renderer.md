@@ -1,6 +1,9 @@
 # Native Viewport Renderer Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical snapshot:** This completed implementation plan is retained for
+> design and regression rationale. Production now uses the native-only viewport;
+> fallback/migration wording, checklists, versions, and commands below are
+> archival. See the repository README and `docs/README.md`.
 
 **Goal:** Replace WPF viewport drawing with a C++ native renderer hosted inside the existing WPF editor, while keeping editor state/semantics authoritative in C# and preserving the existing WPF viewport as a migration fallback.
 

@@ -1,5 +1,9 @@
 # Native Viewport Renderer Design
 
+> **Historical snapshot:** The native-only production viewport described here is
+> implemented. Migration fallback and branch wording below is archival. See the
+> repository README and `docs/README.md` for the current architecture.
+
 ## Goal
 
 Move ExtremeEditor's viewport rendering out of WPF retained-mode drawing and into a dedicated native C++ renderer while keeping the editor, data model, timing logic, audio control, undo/redo, file I/O, and general UI in C#/.NET/WPF.

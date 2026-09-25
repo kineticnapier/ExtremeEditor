@@ -1,5 +1,9 @@
 # WPF Playback Raster Prefetch Design
 
+> **Historical snapshot:** This document describes the retained WPF comparison
+> and regression renderer, not the production viewport. Production uses
+> `NativeLevelViewport`. See the repository README and `docs/README.md`.
+
 ## Goal
 
 Keep Follow Player playback visually responsive on dense charts without allowing static-scene raster work to block the WPF UI thread.

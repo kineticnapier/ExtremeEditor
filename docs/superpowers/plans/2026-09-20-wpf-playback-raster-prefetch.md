@@ -1,6 +1,9 @@
 # WPF Playback Raster Prefetch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical snapshot:** This completed WPF comparison-renderer plan is
+> retained for regression rationale. `LevelViewport` is not the production
+> renderer; checklists, versions, and commands below are archival. See the
+> repository README and `docs/README.md`.
 
 **Goal:** Keep dense Follow Player playback at or above 30 FPS by removing dense raster generation from the WPF UI playback path and replacing the single synchronous raster with asynchronously generated, prefetched world-space chunks.
 
