@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.Wpf;
 
@@ -17,40 +18,40 @@ public partial class MainWindow
 
     private static readonly EventCategoryDefinition[] EventCategories =
     [
-        new("Gameplay", "◉",
+        new("Gameplay", "Gameplay", "◉",
         [
             "SetSpeed", "Twirl", "Multitap", "Checkpoint", "SetHitsound",
             "SetPlanetRotation", "AutoPlayTiles", "Pause", "KillPlayer", "PlaySound", "ScalePlanets"
         ]),
-        new("TrackFx", "▦",
+        new("TrackFx", "TrackFx", "▦",
         [
             "ColorTrack", "AnimateTrack", "RecolorTrack", "MoveTrack", "PositionTrack",
             "TileDimensions", "SetFloorIcon"
         ]),
-        new("DecorationFx", "◆",
+        new("DecorationFx", "DecorationFx", "◆",
         [
             "AddDecoration", "AddText", "MoveDecorations", "SetText", "AddObject",
             "SetObject", "SetDefaultText", "SetParticle", "EmitParticle"
         ]),
-        new("VisualFx", "◫",
+        new("VisualFx", "VisualFx", "◫",
         [
             "CustomBackground", "Flash", "MoveCamera", "SetFilter", "SetFilterAdvanced",
             "HallOfMirrors", "ShakeScreen", "Bloom", "ScreenTile", "ScreenScroll", "SetFrameRate"
         ]),
-        new("FxModifiers", "⚙",
+        new("FxModifiers", "FxModifiers", "⚙",
         [
             "RepeatEvents", "SetConditionalEvents", "SetInputEvent"
         ]),
-        new("Jank", "+",
+        new("Jank", "Jank", "+",
         [
             "Hold", "SetHoldSound", "MultiPlanet", "ScaleMargin", "ScaleRadius",
             "FreeRoam", "FreeRoamTwirl", "FreeRoamRemove", "FreeRoamWarning", "Hide"
         ]),
-        new("Conveniences", "★",
+        new("Conveniences", "Conveniences", "★",
         [
             "EditorComment", "Bookmark", "CallMethod", "AddComponent"
         ]),
-        new("Favorites", "☆", [])
+        new("Favorites", "Favorites", "☆", [])
     ];
 
     private static readonly EventCatalogEntry[] EventCatalog = EventCategories
@@ -151,7 +152,7 @@ public partial class MainWindow
                 Height = 31,
                 Margin = new Thickness(1),
                 Padding = new Thickness(0),
-                Content = category.Glyph,
+                Content = CreateEventCategoryContent(category.AssetKey, category.Glyph),
                 FontFamily = new FontFamily("Segoe UI Symbol"),
                 FontSize = 16,
                 Foreground = PaletteText,
@@ -325,6 +326,25 @@ public partial class MainWindow
         return false;
     }
 
+    private static object CreateEventCategoryContent(string assetKey, string fallbackGlyph)
+    {
+        ImageSource? source = WpfIconRenderer.GetCachedBitmap(IconAssetCache.CategoryPath(assetKey));
+        if (source is null)
+            return fallbackGlyph;
+
+        return new Image
+        {
+            Source = source,
+            Width = 22,
+            Height = 22,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+    }
+
     private bool TryAddNumberedEvent(int digit)
     {
         if (_level is null || _selection.PrimaryFloor < 0)
@@ -399,7 +419,7 @@ public partial class MainWindow
         return true;
     }
 
-    private sealed record EventCategoryDefinition(string Name, string Glyph, string[] Events);
+    private sealed record EventCategoryDefinition(string Name, string AssetKey, string Glyph, string[] Events);
 
     private sealed record EventCatalogEntry(string Category, string EventType)
     {

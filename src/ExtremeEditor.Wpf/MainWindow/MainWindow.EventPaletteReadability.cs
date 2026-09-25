@@ -74,26 +74,11 @@ public partial class MainWindow
         return eventType.Length > 0;
     }
 
-    private static void ApplyReadableCategoryButton(Button button, string categoryName)
+    private static void ApplyReadableCategoryButton(Button button, string _)
     {
         button.Width = 36;
         button.Height = 31;
         button.Padding = new Thickness(1, 0, 1, 0);
-        button.FontFamily = new FontFamily("Segoe UI");
-        button.FontSize = 9;
-        button.FontWeight = FontWeights.SemiBold;
-        button.Content = categoryName switch
-        {
-            "Gameplay" => "Game",
-            "TrackFx" => "Track",
-            "DecorationFx" => "Deco",
-            "VisualFx" => "Visual",
-            "FxModifiers" => "Mods",
-            "Jank" => "Jank",
-            "Conveniences" => "Util",
-            "Favorites" => "Fav",
-            _ => categoryName
-        };
     }
 
     private static void ApplyReadableEventButton(

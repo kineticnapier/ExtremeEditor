@@ -15,11 +15,22 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_EVENT_CATEGORY_ICON_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                EventCategoryIconRegression.Run();
+                Console.WriteLine("PASS: event category icon regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_UI_CLEANUP_ONLY"),
                 "1",
                 StringComparison.Ordinal))
             {
                 AssetSetupUiRegression.Run();
+                EventCategoryIconRegression.Run();
                 PlaybackDiagnosticsLayoutRegression.Run();
                 NativeOnlyViewportRegression.Run();
                 Console.WriteLine("PASS: UI cleanup regressions are valid.");
@@ -96,6 +107,7 @@ internal static class Program
             WinFormsHostRemovalRegression.Run();
             EditorSelectionStateRegression.Run();
             NativeOnlyViewportRegression.Run();
+            EventCategoryIconRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();

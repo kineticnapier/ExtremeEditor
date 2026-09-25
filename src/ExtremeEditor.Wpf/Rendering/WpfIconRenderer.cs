@@ -64,7 +64,7 @@ internal sealed class WpfIconRenderer
         return true;
     }
 
-    private static BitmapSource? GetCachedBitmap(string path)
+    internal static BitmapSource? GetCachedBitmap(string path)
     {
         string fullPath;
         try
