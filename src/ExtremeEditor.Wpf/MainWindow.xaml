@@ -227,12 +227,10 @@
                      DockPanel.Dock="Top"
                      Background="{StaticResource ToolbarBackgroundBrush}"
                      IsLocked="True">
-            <ToolBar x:Name="FileHistoryToolBar"
+            <ToolBar x:Name="MainToolBar"
                      Band="0"
                      Background="{StaticResource ToolbarBackgroundBrush}"
                      Foreground="{StaticResource TextBrush}">
-                <TextBlock Text="FILE"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="Open"
                         Command="{x:Static local:EditorCommands.Open}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -243,68 +241,10 @@
                         Command="{x:Static local:EditorCommands.SaveAs}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
-                <TextBlock Text="HISTORY"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
-                <Button Content="Undo"
-                        Command="{x:Static local:EditorCommands.Undo}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Redo"
-                        Command="{x:Static local:EditorCommands.Redo}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-            </ToolBar>
-
-            <ToolBar x:Name="ClipboardViewToolBar"
-                     Band="0"
-                     Background="{StaticResource ToolbarBackgroundBrush}"
-                     Foreground="{StaticResource TextBrush}">
-                <TextBlock Text="CLIPBOARD"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
-                <Button Content="Cut"
-                        Command="{x:Static local:EditorCommands.Cut}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Copy"
-                        Command="{x:Static local:EditorCommands.Copy}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Paste"
-                        Command="{x:Static local:EditorCommands.Paste}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Separator />
-                <TextBlock Text="VIEW"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="Frame"
                         Command="{x:Static local:EditorCommands.Frame}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-            </ToolBar>
-
-            <ToolBar x:Name="TransformToolBar"
-                     Band="1"
-                     Background="{StaticResource ToolbarBackgroundBrush}"
-                     Foreground="{StaticResource TextBrush}">
-                <TextBlock Text="TRANSFORM"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
-                <Button Content="+ Angle"
-                        Command="{x:Static local:EditorCommands.InsertAngle}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="-90°"
-                        Command="{x:Static local:EditorCommands.RotateLeft}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="+90°"
-                        Command="{x:Static local:EditorCommands.RotateRight}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Flip H"
-                        Command="{x:Static local:EditorCommands.FlipHorizontal}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Flip V"
-                        Command="{x:Static local:EditorCommands.FlipVertical}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-            </ToolBar>
-
-            <ToolBar x:Name="PlaybackToolBar"
-                     Band="1"
-                     Background="{StaticResource ToolbarBackgroundBrush}"
-                     Foreground="{StaticResource TextBrush}">
-                <TextBlock Text="PLAYBACK"
-                           Style="{StaticResource ToolbarGroupLabelStyle}" />
+                <Separator />
                 <Button x:Name="PlayButton"
                         Content="Play"
                         Command="{x:Static local:EditorCommands.PlayPause}"
