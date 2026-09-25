@@ -20,8 +20,8 @@ public partial class MainWindow
     [
         new("Gameplay", "Gameplay", "◉",
         [
-            "SetSpeed", "Twirl", "Multitap", "Checkpoint", "SetHitsound",
-            "SetPlanetRotation", "AutoPlayTiles", "Pause", "KillPlayer", "PlaySound", "ScalePlanets"
+            "SetSpeed", "Twirl", "Multitap", "Checkpoint", "SetHitsound", "PlaySound",
+            "SetPlanetRotation", "KillPlayer", "Pause", "AutoPlayTiles", "ScalePlanets"
         ]),
         new("TrackFx", "TrackFx", "▦",
         [
@@ -30,8 +30,7 @@ public partial class MainWindow
         ]),
         new("DecorationFx", "DecorationFx", "◆",
         [
-            "AddDecoration", "AddText", "MoveDecorations", "SetText", "AddObject",
-            "SetObject", "SetDefaultText", "SetParticle", "EmitParticle"
+            "MoveDecorations", "SetText", "EmitParticle", "SetParticle", "SetObject", "SetDefaultText"
         ]),
         new("VisualFx", "VisualFx", "◫",
         [
@@ -42,14 +41,14 @@ public partial class MainWindow
         [
             "RepeatEvents", "SetConditionalEvents", "SetInputEvent"
         ]),
-        new("Jank", "Jank", "+",
-        [
-            "Hold", "SetHoldSound", "MultiPlanet", "ScaleMargin", "ScaleRadius",
-            "FreeRoam", "FreeRoamTwirl", "FreeRoamRemove", "FreeRoamWarning", "Hide"
-        ]),
         new("Conveniences", "Conveniences", "★",
         [
             "EditorComment", "Bookmark", "CallMethod", "AddComponent"
+        ]),
+        new("Jank", "Jank", "+",
+        [
+            "Hold", "SetHoldSound", "MultiPlanet", "FreeRoam", "FreeRoamTwirl",
+            "FreeRoamRemove", "Hide", "ScaleMargin", "ScaleRadius"
         ]),
         new("Favorites", "Favorites", "☆", [])
     ];

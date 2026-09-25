@@ -20,7 +20,8 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 EventCategoryIconRegression.Run();
-                Console.WriteLine("PASS: event category icon regression is valid.");
+                LegacyEventRoundTripRegression.Run();
+                Console.WriteLine("PASS: event palette and legacy event round-trip regressions are valid.");
                 return 0;
             }
 
@@ -108,6 +109,7 @@ internal static class Program
             EditorSelectionStateRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
+            LegacyEventRoundTripRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();

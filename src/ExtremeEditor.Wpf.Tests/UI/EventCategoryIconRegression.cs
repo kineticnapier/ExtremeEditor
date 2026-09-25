@@ -11,20 +11,49 @@ namespace ExtremeEditor.Wpf.Tests;
 
 internal static class EventCategoryIconRegression
 {
-    private static readonly (string Name, string AssetKey, string Glyph, int EventCount)[] ExpectedCategories =
+    private sealed record ExpectedCategory(string Name, string AssetKey, string Glyph, string[] Events);
+
+    private static readonly ExpectedCategory[] ExpectedCategories =
     [
-        ("Gameplay", "Gameplay", "◉", 11),
-        ("TrackFx", "TrackFx", "▦", 7),
-        ("DecorationFx", "DecorationFx", "◆", 9),
-        ("VisualFx", "VisualFx", "◫", 11),
-        ("FxModifiers", "FxModifiers", "⚙", 3),
-        ("Jank", "Jank", "+", 10),
-        ("Conveniences", "Conveniences", "★", 4),
-        ("Favorites", "Favorites", "☆", 0)
+        new("Gameplay", "Gameplay", "◉",
+        [
+            "SetSpeed", "Twirl", "Multitap", "Checkpoint", "SetHitsound", "PlaySound",
+            "SetPlanetRotation", "KillPlayer", "Pause", "AutoPlayTiles", "ScalePlanets"
+        ]),
+        new("TrackFx", "TrackFx", "▦",
+        [
+            "ColorTrack", "AnimateTrack", "RecolorTrack", "MoveTrack", "PositionTrack",
+            "TileDimensions", "SetFloorIcon"
+        ]),
+        new("DecorationFx", "DecorationFx", "◆",
+        [
+            "MoveDecorations", "SetText", "EmitParticle", "SetParticle", "SetObject", "SetDefaultText"
+        ]),
+        new("VisualFx", "VisualFx", "◫",
+        [
+            "CustomBackground", "Flash", "MoveCamera", "SetFilter", "SetFilterAdvanced",
+            "HallOfMirrors", "ShakeScreen", "Bloom", "ScreenTile", "ScreenScroll", "SetFrameRate"
+        ]),
+        new("FxModifiers", "FxModifiers", "⚙",
+        [
+            "RepeatEvents", "SetConditionalEvents", "SetInputEvent"
+        ]),
+        new("Conveniences", "Conveniences", "★",
+        [
+            "EditorComment", "Bookmark", "CallMethod", "AddComponent"
+        ]),
+        new("Jank", "Jank", "+",
+        [
+            "Hold", "SetHoldSound", "MultiPlanet", "FreeRoam", "FreeRoamTwirl",
+            "FreeRoamRemove", "Hide", "ScaleMargin", "ScaleRadius"
+        ]),
+        new("Favorites", "Favorites", "☆", [])
     ];
 
     public static void Run()
     {
+        VerifyPickerNavigationContract();
+
         Type mainWindowType = typeof(MainWindow);
         Type definitionType = mainWindowType.GetNestedType(
             "EventCategoryDefinition",
@@ -59,12 +88,30 @@ internal static class EventCategoryIconRegression
 
             if (!string.Equals(actualName, expected.Name, StringComparison.Ordinal) ||
                 !string.Equals(actualGlyph, expected.Glyph, StringComparison.Ordinal) ||
-                actualEvents.Length != expected.EventCount)
+                !actualEvents.SequenceEqual(expected.Events, StringComparer.Ordinal))
             {
                 throw new InvalidOperationException(
-                    $"Event category order, fallback glyphs, or filtering membership changed at index {i}.");
+                    $"Event category order, fallback glyphs, or ADOFAI event ordering changed at index {i} ({expected.Name}).");
             }
         }
+
+        string[] paletteEvents = actualCategories
+            .SelectMany(category => (string[])eventsProperty.GetValue(category)!)
+            .ToArray();
+        if (paletteEvents.Length != 51)
+            throw new InvalidOperationException($"The Add Event palette must contain exactly 51 events, not {paletteEvents.Length}.");
+
+        string[] excludedEvents = ["AddDecoration", "AddText", "AddObject", "FreeRoamWarning"];
+        string[] visibleExcludedEvents = excludedEvents
+            .Where(excluded => paletteEvents.Contains(excluded, StringComparer.Ordinal))
+            .ToArray();
+        if (visibleExcludedEvents.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Decoration-only/internal events remain in the Add Event palette: {string.Join(", ", visibleExcludedEvents)}.");
+        }
+        if (!paletteEvents.Contains("SetFilterAdvanced", StringComparer.Ordinal))
+            throw new InvalidOperationException("SetFilterAdvanced is a current ADOFAI Add Event entry and must remain visible.");
 
         PropertyInfo assetKeyProperty = definitionType.GetProperty(
             "AssetKey",
@@ -140,4 +187,53 @@ internal static class EventCategoryIconRegression
     private static PropertyInfo RequireProperty(Type type, string name) =>
         type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
         ?? throw new InvalidOperationException($"{type.Name}.{name} is missing.");
+
+    private static void VerifyPickerNavigationContract()
+    {
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.EventQuickPicker.cs"));
+        string[] requiredContracts =
+        [
+            "(selectedCategory.Events.Length + 9) / 10",
+            "int pageStart = _eventPageIndex * 10;",
+            "_eventCategoryIndex = categoryIndex;",
+            "if ((uint)digit < (uint)EventCategories.Length)",
+            "_eventCategoryIndex = digit;",
+            "int index = _eventPageIndex * 10 + slot;"
+        ];
+        foreach (string contract in requiredContracts)
+        {
+            if (!source.Contains(contract, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Event picker paging/shortcut/selection contract is missing: {contract}");
+        }
+
+        if (source.CountOccurrences("_eventPageIndex = 0;") < 2)
+            throw new InvalidOperationException("Mouse and Ctrl+digit category selection must both reset event paging.");
+    }
+
+    private static string FindSourceFile(string relativePath)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            string candidate = Path.Combine(directory.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(candidate))
+                return candidate;
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException($"Unable to locate {relativePath}.");
+    }
+
+    private static int CountOccurrences(this string source, string value)
+    {
+        int count = 0;
+        int offset = 0;
+        while ((offset = source.IndexOf(value, offset, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+        return count;
+    }
 }
