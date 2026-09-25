@@ -48,7 +48,7 @@ public partial class MainWindow
 
     private void DiagnosticsVisibilityChanged(object sender, RoutedEventArgs e)
     {
-        DiagnosticsPanel.Visibility = DiagnosticsMenuItem.IsChecked
+        DiagnosticsPanel.Visibility = DiagnosticsMenuItem.IsChecked == true
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

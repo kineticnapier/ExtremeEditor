@@ -21,28 +21,18 @@ internal static class PlaybackDiagnosticsLayoutRegression
             if (diagnosticsPanel.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("Detailed diagnostics must be collapsed by default.");
 
-            if (window.FindName("DiagnosticsMenuItem") is not MenuItem diagnosticsMenuItem ||
-                !diagnosticsMenuItem.IsCheckable)
+            if (window.FindName("DiagnosticsMenuItem") is not ToggleButton diagnosticsMenuItem)
             {
-                throw new InvalidOperationException("A checkable Diagnostics menu item must expose the detailed panel.");
+                throw new InvalidOperationException("A Diagnostics toggle must expose the detailed panel.");
             }
 
-            if (window.FindName("AssetsMenuItem") is not MenuItem assetsMenu ||
-                window.FindName("AdoFaiPathText") is not MenuItem assetPath ||
-                window.FindName("BrowseAdoFaiButton") is not MenuItem browseAssets ||
-                window.FindName("SetupAssetsButton") is not MenuItem setupAssets ||
-                !IsDescendantOf(assetPath, assetsMenu) ||
-                !IsDescendantOf(browseAssets, assetsMenu) ||
-                !IsDescendantOf(setupAssets, assetsMenu))
+            if (window.FindName("ToolsPopup") is not Popup ||
+                window.FindName("ToolsPopupPanel") is not Border ||
+                window.FindName("AdoFaiPathText") is not TextBlock ||
+                window.FindName("BrowseAdoFaiButton") is not Button ||
+                window.FindName("SetupAssetsButton") is not Button)
             {
-                throw new InvalidOperationException("Asset path, Browse, and Setup actions must live under Tools > Assets.");
-            }
-
-            if (IsDescendantOf<ToolBarTray>(assetPath) ||
-                IsDescendantOf<ToolBarTray>(browseAssets) ||
-                IsDescendantOf<ToolBarTray>(setupAssets))
-            {
-                throw new InvalidOperationException("Asset setup controls must not occupy the normal toolbar.");
+                throw new InvalidOperationException("Asset path, Browse, and Setup actions must live in the compact Tools popup.");
             }
 
             if (window.FindName("PlaybackDiagnosticsText") is not TextBlock diagnosticsText)

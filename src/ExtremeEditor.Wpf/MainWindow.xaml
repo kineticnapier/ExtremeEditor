@@ -100,23 +100,6 @@
         <Style x:Key="{x:Static ToolBar.SeparatorStyleKey}"
                TargetType="{x:Type Separator}"
                BasedOn="{StaticResource EditorSeparatorStyle}" />
-        <Style TargetType="{x:Type Menu}">
-            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        </Style>
-        <Style TargetType="{x:Type MenuItem}">
-            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
-                    <Setter Property="Opacity" Value="1" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -184,29 +167,61 @@
             </DockPanel>
         </Border>
 
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_Tools">
-                <MenuItem x:Name="AssetsMenuItem"
-                          Header="_Assets">
-                    <MenuItem x:Name="AdoFaiPathText"
-                              Header="Detecting…"
-                              IsEnabled="False" />
-                    <Separator Style="{StaticResource EditorSeparatorStyle}" />
-                    <MenuItem x:Name="BrowseAdoFaiButton"
-                              Header="_Browse for ADOFAI…"
-                              Click="BrowseAdoFaiClick" />
-                    <MenuItem x:Name="SetupAssetsButton"
-                              Header="_Setup Assets"
-                              Click="SetupAssetsClick" />
-                </MenuItem>
-                <Separator Style="{StaticResource EditorSeparatorStyle}" />
-                <MenuItem x:Name="DiagnosticsMenuItem"
-                          Header="Show _Diagnostics"
-                          IsCheckable="True"
-                          Checked="DiagnosticsVisibilityChanged"
-                          Unchecked="DiagnosticsVisibilityChanged" />
-            </MenuItem>
-        </Menu>
+        <Border DockPanel.Dock="Top"
+                Background="{StaticResource ToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource SeparatorBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Height="31">
+                <ToggleButton x:Name="ToolsButton"
+                              Content="Tools"
+                              HorizontalAlignment="Left"
+                              Padding="10,2"
+                              Margin="3,2" />
+                <Popup x:Name="ToolsPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=ToolsButton}"
+                       IsOpen="{Binding IsChecked, ElementName=ToolsButton, Mode=TwoWay}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border x:Name="ToolsPopupPanel"
+                            Width="440"
+                            Background="{StaticResource ToolbarBackgroundBrush}"
+                            BorderBrush="{StaticResource ControlBorderBrush}"
+                            BorderThickness="1"
+                            Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="ASSETS"
+                                       Style="{StaticResource ToolbarGroupLabelStyle}"
+                                       Margin="0,0,0,4" />
+                            <TextBlock x:Name="AdoFaiPathText"
+                                       Text="Detecting…"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       FontFamily="Consolas"
+                                       FontSize="11"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="Current ADOFAI installation"
+                                       Margin="0,0,0,7" />
+                            <WrapPanel>
+                                <Button x:Name="BrowseAdoFaiButton"
+                                        Content="Browse for ADOFAI…"
+                                        Click="BrowseAdoFaiClick" />
+                                <Button x:Name="SetupAssetsButton"
+                                        Content="Setup Assets"
+                                        Click="SetupAssetsClick" />
+                            </WrapPanel>
+                            <Separator Height="1"
+                                       Margin="0,8"
+                                       Background="{StaticResource SeparatorBrush}" />
+                            <ToggleButton x:Name="DiagnosticsMenuItem"
+                                          Content="Show Diagnostics"
+                                          HorizontalAlignment="Left"
+                                          Checked="DiagnosticsVisibilityChanged"
+                                          Unchecked="DiagnosticsVisibilityChanged" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
+        </Border>
 
         <ToolBarTray x:Name="TopToolBarTray"
                      DockPanel.Dock="Top"

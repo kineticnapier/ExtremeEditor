@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -12,10 +13,10 @@ internal static class AssetSetupUiRegression
     public static void Run()
     {
         Type mainWindowType = typeof(MainWindow);
-        RequireFieldType(mainWindowType, "AssetsMenuItem", typeof(MenuItem));
-        RequireFieldType(mainWindowType, "SetupAssetsButton", typeof(MenuItem));
-        RequireFieldType(mainWindowType, "BrowseAdoFaiButton", typeof(MenuItem));
-        RequireFieldType(mainWindowType, "AdoFaiPathText", typeof(MenuItem));
+        RequireFieldType(mainWindowType, "ToolsPopup", typeof(Popup));
+        RequireFieldType(mainWindowType, "SetupAssetsButton", typeof(Button));
+        RequireFieldType(mainWindowType, "BrowseAdoFaiButton", typeof(Button));
+        RequireFieldType(mainWindowType, "AdoFaiPathText", typeof(TextBlock));
 
         MethodInfo setupClick = RequireHandler(mainWindowType, "SetupAssetsClick");
         if (setupClick.GetCustomAttribute<AsyncStateMachineAttribute>() is null)
