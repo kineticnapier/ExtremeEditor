@@ -89,6 +89,8 @@ internal static class PlaybackDiagnosticsLayoutRegression
                 throw new InvalidOperationException("Help > About ExtremeEditor is missing.");
             }
 
+            RequireCustomMenuTemplates(window, fileMenu, assetsMenu);
+
             if (window.FindName("PlaybackDiagnosticsText") is not TextBlock diagnosticsText)
                 throw new InvalidOperationException("MainWindow.PlaybackDiagnosticsText is missing.");
 
@@ -197,6 +199,72 @@ internal static class PlaybackDiagnosticsLayoutRegression
         window.Measure(new Size(1500, 900));
         window.Arrange(new Rect(0, 0, 1500, 900));
         window.UpdateLayout();
+    }
+
+    private static void RequireCustomMenuTemplates(
+        MainWindow window,
+        MenuItem topLevelHeader,
+        MenuItem nestedSubmenuHeader)
+    {
+        ControlTemplate topLevelHeaderTemplate = RequireTemplate(window, "EditorTopLevelHeaderTemplate");
+        _ = RequireTemplate(window, "EditorTopLevelItemTemplate");
+        ControlTemplate submenuHeaderTemplate = RequireTemplate(window, "EditorSubmenuHeaderTemplate");
+        ControlTemplate submenuItemTemplate = RequireTemplate(window, "EditorSubmenuItemTemplate");
+        ControlTemplate separatorTemplate = RequireTemplate(window, "EditorMenuSeparatorTemplate");
+
+        if (topLevelHeader.Role != MenuItemRole.TopLevelHeader ||
+            !ReferenceEquals(topLevelHeader.Template, topLevelHeaderTemplate))
+        {
+            throw new InvalidOperationException("Top-level menu headers must use the ExtremeEditor template.");
+        }
+
+        if (nestedSubmenuHeader.Role != MenuItemRole.SubmenuHeader ||
+            !ReferenceEquals(nestedSubmenuHeader.Template, submenuHeaderTemplate))
+        {
+            throw new InvalidOperationException("Nested submenu headers must use the ExtremeEditor template.");
+        }
+
+        if (nestedSubmenuHeader.Items.OfType<MenuItem>().FirstOrDefault() is not MenuItem submenuItem ||
+            submenuItem.Role != MenuItemRole.SubmenuItem ||
+            !ReferenceEquals(submenuItem.Template, submenuItemTemplate))
+        {
+            throw new InvalidOperationException("Popup menu rows must use the ExtremeEditor submenu-item template.");
+        }
+
+        foreach (MenuItem header in new[] { topLevelHeader, nestedSubmenuHeader })
+        {
+            if (header.Template.FindName("PART_Popup", header) is not Popup)
+                throw new InvalidOperationException($"Menu role '{header.Role}' must retain a PART_Popup.");
+        }
+
+        foreach (MenuItem item in new[] { topLevelHeader, nestedSubmenuHeader, submenuItem })
+        {
+            if (item.Template.FindName("HeaderHost", item) is not ContentPresenter { RecognizesAccessKey: true })
+                throw new InvalidOperationException($"Menu role '{item.Role}' must preserve access-key recognition.");
+
+            foreach (DependencyProperty property in new[]
+                     {
+                         Control.BackgroundProperty,
+                         Control.ForegroundProperty,
+                         Control.BorderBrushProperty
+                     })
+            {
+                if (ReferenceEquals(item.GetValue(property), DependencyProperty.UnsetValue))
+                    throw new InvalidOperationException($"MenuItem.{property.Name} resolved to UnsetValue.");
+            }
+        }
+
+        if (topLevelHeader.Items.OfType<Separator>().FirstOrDefault() is not Separator separator)
+            throw new InvalidOperationException("File menu separator is missing.");
+        separator.ApplyTemplate();
+        if (!ReferenceEquals(separator.Template, separatorTemplate))
+            throw new InvalidOperationException("Menu separators must use the ExtremeEditor line template.");
+    }
+
+    private static ControlTemplate RequireTemplate(MainWindow window, string key)
+    {
+        return window.TryFindResource(key) as ControlTemplate
+            ?? throw new InvalidOperationException($"Menu template resource '{key}' is missing.");
     }
 
     private static void ApplyControlTemplates(DependencyObject parent)

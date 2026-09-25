@@ -4,25 +4,266 @@
         <ResourceDictionary Source="Colors.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
+    <ItemsPanelTemplate x:Key="EditorMenuItemsPanel">
+        <StackPanel IsItemsHost="True" Orientation="Horizontal" />
+    </ItemsPanelTemplate>
+
+    <ControlTemplate x:Key="EditorMenuTemplate" TargetType="{x:Type Menu}">
+        <Border Background="{TemplateBinding Background}"
+                Padding="{TemplateBinding Padding}"
+                SnapsToDevicePixels="True">
+            <ItemsPresenter KeyboardNavigation.TabNavigation="Cycle" />
+        </Border>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorTopLevelHeaderTemplate" TargetType="{x:Type MenuItem}">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="ItemBackground"
+                    Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter x:Name="HeaderHost"
+                                  ContentSource="Header"
+                                  RecognizesAccessKey="True"
+                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                  VerticalAlignment="Center" />
+            </Border>
+            <Popup x:Name="PART_Popup"
+                   AllowsTransparency="True"
+                   Focusable="False"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                   Placement="Bottom"
+                   PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                   PopupAnimation="None">
+                <Border Background="{StaticResource ToolbarBackgroundBrush}"
+                        BorderBrush="{StaticResource ControlBorderBrush}"
+                        BorderThickness="1"
+                        Padding="2"
+                        Grid.IsSharedSizeScope="True"
+                        SnapsToDevicePixels="True">
+                    <ScrollViewer CanContentScroll="True"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+                    </ScrollViewer>
+                </Border>
+            </Popup>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ItemBackground" Property="Background" Value="Transparent" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorTopLevelItemTemplate" TargetType="{x:Type MenuItem}">
+        <Border x:Name="ItemBackground"
+                Background="{TemplateBinding Background}"
+                Padding="{TemplateBinding Padding}"
+                SnapsToDevicePixels="True">
+            <ContentPresenter x:Name="HeaderHost"
+                              ContentSource="Header"
+                              RecognizesAccessKey="True"
+                              TextElement.Foreground="{TemplateBinding Foreground}"
+                              VerticalAlignment="Center" />
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ItemBackground" Property="Background" Value="Transparent" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorSubmenuHeaderTemplate" TargetType="{x:Type MenuItem}">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="ItemBackground"
+                    Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="MenuHeader" />
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="MenuGesture" />
+                        <ColumnDefinition Width="14" />
+                    </Grid.ColumnDefinitions>
+                    <ContentPresenter Grid.Column="0"
+                                      ContentSource="Icon"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                    <TextBlock x:Name="CheckMark"
+                               Grid.Column="0"
+                               Text="✓"
+                               Foreground="{TemplateBinding Foreground}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Visibility="Collapsed" />
+                    <ContentPresenter x:Name="HeaderHost"
+                                      Grid.Column="1"
+                                      ContentSource="Header"
+                                      RecognizesAccessKey="True"
+                                      TextElement.Foreground="{TemplateBinding Foreground}"
+                                      VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2"
+                               Margin="24,0,0,0"
+                               Text="{TemplateBinding InputGestureText}"
+                               Foreground="{TemplateBinding Foreground}"
+                               VerticalAlignment="Center" />
+                    <Path Grid.Column="3"
+                          Data="M 0 0 L 4 4 L 0 8"
+                          Stroke="{TemplateBinding Foreground}"
+                          StrokeThickness="1"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+            <Popup x:Name="PART_Popup"
+                   AllowsTransparency="True"
+                   Focusable="False"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                   Placement="Right"
+                   PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                   PopupAnimation="None">
+                <Border Background="{StaticResource ToolbarBackgroundBrush}"
+                        BorderBrush="{StaticResource ControlBorderBrush}"
+                        BorderThickness="1"
+                        Padding="2"
+                        Grid.IsSharedSizeScope="True"
+                        SnapsToDevicePixels="True">
+                    <ScrollViewer CanContentScroll="True"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+                    </ScrollViewer>
+                </Border>
+            </Popup>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ItemBackground" Property="Background" Value="Transparent" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorSubmenuItemTemplate" TargetType="{x:Type MenuItem}">
+        <Border x:Name="ItemBackground"
+                Background="{TemplateBinding Background}"
+                Padding="{TemplateBinding Padding}"
+                SnapsToDevicePixels="True">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="MenuHeader" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="MenuGesture" />
+                    <ColumnDefinition Width="14" />
+                </Grid.ColumnDefinitions>
+                <ContentPresenter Grid.Column="0"
+                                  ContentSource="Icon"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+                <TextBlock x:Name="CheckMark"
+                           Grid.Column="0"
+                           Text="✓"
+                           Foreground="{TemplateBinding Foreground}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Visibility="Collapsed" />
+                <ContentPresenter x:Name="HeaderHost"
+                                  Grid.Column="1"
+                                  ContentSource="Header"
+                                  RecognizesAccessKey="True"
+                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                  VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2"
+                           Margin="24,0,0,0"
+                           Text="{TemplateBinding InputGestureText}"
+                           Foreground="{TemplateBinding Foreground}"
+                           VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBackground" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ItemBackground" Property="Background" Value="Transparent" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="EditorMenuSeparatorTemplate" TargetType="{x:Type Separator}">
+        <Border Height="1"
+                Background="{TemplateBinding Background}"
+                SnapsToDevicePixels="True" />
+    </ControlTemplate>
+
     <Style TargetType="{x:Type Menu}">
         <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="Padding" Value="2,1" />
+        <Setter Property="ItemsPanel" Value="{StaticResource EditorMenuItemsPanel}" />
+        <Setter Property="Template" Value="{StaticResource EditorMenuTemplate}" />
     </Style>
 
     <Style TargetType="{x:Type MenuItem}">
-        <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="8,4" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Style.Triggers>
-            <Trigger Property="IsHighlighted" Value="True">
-                <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+            <Trigger Property="Role" Value="TopLevelHeader">
+                <Setter Property="Template" Value="{StaticResource EditorTopLevelHeaderTemplate}" />
+            </Trigger>
+            <Trigger Property="Role" Value="TopLevelItem">
+                <Setter Property="Template" Value="{StaticResource EditorTopLevelItemTemplate}" />
+            </Trigger>
+            <Trigger Property="Role" Value="SubmenuHeader">
+                <Setter Property="Template" Value="{StaticResource EditorSubmenuHeaderTemplate}" />
+            </Trigger>
+            <Trigger Property="Role" Value="SubmenuItem">
+                <Setter Property="Template" Value="{StaticResource EditorSubmenuItemTemplate}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                <Setter Property="Background" Value="Transparent" />
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <Style x:Key="EditorMenuSeparatorStyle" TargetType="{x:Type Separator}">
+        <Setter Property="Background" Value="{StaticResource SeparatorBrush}" />
+        <Setter Property="Margin" Value="5,4" />
+        <Setter Property="Template" Value="{StaticResource EditorMenuSeparatorTemplate}" />
+    </Style>
+
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}"
+           TargetType="{x:Type Separator}"
+           BasedOn="{StaticResource EditorMenuSeparatorStyle}" />
+
+    <Style TargetType="{x:Type Separator}"
+           BasedOn="{StaticResource EditorMenuSeparatorStyle}" />
 
     <Style x:Key="EditorSeparatorStyle" TargetType="{x:Type Separator}">
         <Setter Property="Background" Value="{StaticResource SeparatorBrush}" />
