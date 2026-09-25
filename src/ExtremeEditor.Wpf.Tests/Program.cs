@@ -20,8 +20,9 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 EventCategoryIconRegression.Run();
+                EventAvailabilityRegression.Run();
                 LegacyEventRoundTripRegression.Run();
-                Console.WriteLine("PASS: event palette and legacy event round-trip regressions are valid.");
+                Console.WriteLine("PASS: event palette, availability, and legacy event round-trip regressions are valid.");
                 return 0;
             }
 
@@ -32,6 +33,7 @@ internal static class Program
             {
                 AssetSetupUiRegression.Run();
                 EventCategoryIconRegression.Run();
+                EventAvailabilityRegression.Run();
                 PlaybackDiagnosticsLayoutRegression.Run();
                 NativeOnlyViewportRegression.Run();
                 Console.WriteLine("PASS: UI cleanup regressions are valid.");
@@ -109,6 +111,7 @@ internal static class Program
             EditorSelectionStateRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
+            EventAvailabilityRegression.Run();
             LegacyEventRoundTripRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
             AssetSetupRegression.Run();
@@ -144,7 +147,7 @@ internal static class Program
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
             CameraPlayerSmoothPivotRegression.Run();
-            Console.WriteLine("PASS: legacy WinForms host removal, editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
+            Console.WriteLine("PASS: legacy WinForms host removal, editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, event palette/availability/legacy round-trip, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }
         catch (Exception ex)
