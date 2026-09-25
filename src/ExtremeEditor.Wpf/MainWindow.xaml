@@ -11,6 +11,114 @@
         Background="#14161A"
         Loaded="AssetSetupWindowLoaded"
         PreviewKeyDown="AdoFaiPreviewKeyDown">
+    <Window.Resources>
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#14161A" />
+        <SolidColorBrush x:Key="ToolbarBackgroundBrush" Color="#20242A" />
+        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#2B3038" />
+        <SolidColorBrush x:Key="ControlHoverBrush" Color="#363D47" />
+        <SolidColorBrush x:Key="ControlPressedBrush" Color="#444D59" />
+        <SolidColorBrush x:Key="DisabledControlBrush" Color="#252A31" />
+        <SolidColorBrush x:Key="TextBrush" Color="#F2F4F7" />
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#BBC2CC" />
+        <SolidColorBrush x:Key="DisabledTextBrush" Color="#9EA7B3" />
+        <SolidColorBrush x:Key="ControlBorderBrush" Color="#4A525E" />
+        <SolidColorBrush x:Key="SeparatorBrush" Color="#59626F" />
+
+        <Style x:Key="EditorButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="Margin" Value="2,1" />
+            <Setter Property="MinHeight" Value="27" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                    <Setter Property="Background" Value="{StaticResource DisabledControlBrush}" />
+                    <Setter Property="BorderBrush" Value="#3D444E" />
+                    <Setter Property="Opacity" Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="EditorToggleButtonStyle" TargetType="{x:Type ToggleButton}">
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="Margin" Value="2,1" />
+            <Setter Property="MinHeight" Value="27" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="#35506F" />
+                    <Setter Property="BorderBrush" Value="#6E9AC7" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                    <Setter Property="Background" Value="{StaticResource DisabledControlBrush}" />
+                    <Setter Property="BorderBrush" Value="#3D444E" />
+                    <Setter Property="Opacity" Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="EditorSeparatorStyle" TargetType="{x:Type Separator}">
+            <Setter Property="Background" Value="{StaticResource SeparatorBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource SeparatorBrush}" />
+            <Setter Property="Margin" Value="5,4" />
+        </Style>
+
+        <Style x:Key="ToolbarGroupLabelStyle" TargetType="{x:Type TextBlock}">
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="7,0,4,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource EditorButtonStyle}" />
+        <Style TargetType="{x:Type ToggleButton}" BasedOn="{StaticResource EditorToggleButtonStyle}" />
+        <Style x:Key="{x:Static ToolBar.ButtonStyleKey}"
+               TargetType="{x:Type Button}"
+               BasedOn="{StaticResource EditorButtonStyle}" />
+        <Style x:Key="{x:Static ToolBar.ToggleButtonStyleKey}"
+               TargetType="{x:Type ToggleButton}"
+               BasedOn="{StaticResource EditorToggleButtonStyle}" />
+        <Style x:Key="{x:Static ToolBar.SeparatorStyleKey}"
+               TargetType="{x:Type Separator}"
+               BasedOn="{StaticResource EditorSeparatorStyle}" />
+        <Style TargetType="{x:Type Menu}">
+            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+        <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="Background" Value="{StaticResource ToolbarBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+                    <Setter Property="Opacity" Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{x:Static local:EditorCommands.Open}" />
         <KeyBinding Key="S" Modifiers="Control" Command="{x:Static local:EditorCommands.Save}" />
@@ -24,20 +132,92 @@
 
     <DockPanel LastChildFill="True">
         <StatusBar DockPanel.Dock="Bottom"
-                   Background="#1A1D22"
-                   Foreground="#DCDCE6">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusText" />
+                   Background="{StaticResource ToolbarBackgroundBrush}"
+                   Foreground="{StaticResource TextBrush}">
+            <StatusBarItem HorizontalContentAlignment="Stretch"
+                           Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType={x:Type StatusBar}}}">
+                <DockPanel LastChildFill="True">
+                    <TextBlock x:Name="PlaybackFpsText"
+                               DockPanel.Dock="Right"
+                               Text="FPS --"
+                               Margin="12,0,8,0"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               FontFamily="Consolas"
+                               ToolTip="Playback UI frame rate" />
+                    <TextBlock x:Name="StatusText"
+                               TextTrimming="CharacterEllipsis" />
+                </DockPanel>
             </StatusBarItem>
         </StatusBar>
 
+        <Border x:Name="DiagnosticsPanel"
+                DockPanel.Dock="Bottom"
+                Visibility="Collapsed"
+                MaxHeight="150"
+                Background="#191C21"
+                BorderBrush="{StaticResource SeparatorBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10,7">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Top"
+                            Orientation="Horizontal"
+                            Margin="0,0,0,5">
+                    <TextBlock Text="Playback diagnostics"
+                               Foreground="{StaticResource TextBrush}"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button Content="Hide"
+                            Click="HideDiagnosticsClick"
+                            Margin="10,0,0,0"
+                            Padding="8,1"
+                            MinHeight="23" />
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBlock x:Name="PlaybackDiagnosticsText"
+                               Text="A --:--.--- | C -- | playback diagnostics"
+                               FontFamily="Consolas"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               TextWrapping="Wrap" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Tools">
+                <MenuItem x:Name="AssetsMenuItem"
+                          Header="_Assets">
+                    <MenuItem x:Name="AdoFaiPathText"
+                              Header="Detecting…"
+                              IsEnabled="False" />
+                    <Separator Style="{StaticResource EditorSeparatorStyle}" />
+                    <MenuItem x:Name="BrowseAdoFaiButton"
+                              Header="_Browse for ADOFAI…"
+                              Click="BrowseAdoFaiClick" />
+                    <MenuItem x:Name="SetupAssetsButton"
+                              Header="_Setup Assets"
+                              Click="SetupAssetsClick" />
+                </MenuItem>
+                <Separator Style="{StaticResource EditorSeparatorStyle}" />
+                <MenuItem x:Name="DiagnosticsMenuItem"
+                          Header="Show _Diagnostics"
+                          IsCheckable="True"
+                          Checked="DiagnosticsVisibilityChanged"
+                          Unchecked="DiagnosticsVisibilityChanged" />
+            </MenuItem>
+        </Menu>
+
         <ToolBarTray x:Name="TopToolBarTray"
                      DockPanel.Dock="Top"
-                     Background="#1A1D22"
+                     Background="{StaticResource ToolbarBackgroundBrush}"
                      IsLocked="True">
-            <ToolBar Band="0"
-                     Background="#1A1D22"
-                     Foreground="#DCDCE6">
+            <ToolBar x:Name="FileHistoryToolBar"
+                     Band="0"
+                     Background="{StaticResource ToolbarBackgroundBrush}"
+                     Foreground="{StaticResource TextBrush}">
+                <TextBlock Text="FILE"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="Open"
                         Command="{x:Static local:EditorCommands.Open}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -48,12 +228,22 @@
                         Command="{x:Static local:EditorCommands.SaveAs}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
+                <TextBlock Text="HISTORY"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="Undo"
                         Command="{x:Static local:EditorCommands.Undo}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Button Content="Redo"
                         Command="{x:Static local:EditorCommands.Redo}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+            </ToolBar>
+
+            <ToolBar x:Name="ClipboardViewToolBar"
+                     Band="0"
+                     Background="{StaticResource ToolbarBackgroundBrush}"
+                     Foreground="{StaticResource TextBrush}">
+                <TextBlock Text="CLIPBOARD"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="Cut"
                         Command="{x:Static local:EditorCommands.Cut}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -64,6 +254,19 @@
                         Command="{x:Static local:EditorCommands.Paste}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Separator />
+                <TextBlock Text="VIEW"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
+                <Button Content="Frame"
+                        Command="{x:Static local:EditorCommands.Frame}"
+                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+            </ToolBar>
+
+            <ToolBar x:Name="TransformToolBar"
+                     Band="1"
+                     Background="{StaticResource ToolbarBackgroundBrush}"
+                     Foreground="{StaticResource TextBrush}">
+                <TextBlock Text="TRANSFORM"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button Content="+ Angle"
                         Command="{x:Static local:EditorCommands.InsertAngle}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -79,10 +282,14 @@
                 <Button Content="Flip V"
                         Command="{x:Static local:EditorCommands.FlipVertical}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Separator />
-                <Button Content="Frame"
-                        Command="{x:Static local:EditorCommands.Frame}"
-                        CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+            </ToolBar>
+
+            <ToolBar x:Name="PlaybackToolBar"
+                     Band="1"
+                     Background="{StaticResource ToolbarBackgroundBrush}"
+                     Foreground="{StaticResource TextBrush}">
+                <TextBlock Text="PLAYBACK"
+                           Style="{StaticResource ToolbarGroupLabelStyle}" />
                 <Button x:Name="PlayButton"
                         Content="Play"
                         Command="{x:Static local:EditorCommands.PlayPause}"
@@ -98,44 +305,6 @@
                               IsChecked="True"
                               Checked="HitSoundsToggleChanged"
                               Unchecked="HitSoundsToggleChanged" />
-            </ToolBar>
-
-            <ToolBar Band="1"
-                     Background="#1A1D22"
-                     Foreground="#DCDCE6">
-                <TextBlock Text="ADOFAI:"
-                           Margin="8,0,4,0"
-                           VerticalAlignment="Center" />
-                <TextBlock x:Name="AdoFaiPathText"
-                           Text="Detecting…"
-                           Width="520"
-                           TextTrimming="CharacterEllipsis"
-                           VerticalAlignment="Center"
-                           FontFamily="Consolas"
-                           FontSize="11" />
-                <Button x:Name="BrowseAdoFaiButton"
-                        Content="Browse…"
-                        Click="BrowseAdoFaiClick"
-                        Margin="6,0,0,0" />
-                <Button x:Name="SetupAssetsButton"
-                        Content="Setup Assets"
-                        Click="SetupAssetsClick"
-                        Margin="6,0,0,0" />
-            </ToolBar>
-
-            <ToolBar x:Name="PlaybackDiagnosticsBar"
-                     Band="2"
-                     Background="#1A1D22"
-                     Foreground="#DCDCE6">
-                <TextBlock x:Name="PlaybackDiagnosticsText"
-                           Text="A --:--.--- | C -- | playback diagnostics"
-                           Width="{Binding ActualWidth, ElementName=TopToolBarTray}"
-                           Margin="8,2"
-                           FontFamily="Consolas"
-                           FontSize="11"
-                           Foreground="#DCDCE6"
-                           TextWrapping="Wrap"
-                           ToolBar.OverflowMode="Never" />
             </ToolBar>
         </ToolBarTray>
 

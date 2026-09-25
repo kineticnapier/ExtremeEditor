@@ -83,7 +83,7 @@ public partial class MainWindow : Window
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
 
         StatusText.Text = $"Native viewport | {EditorVersion.Current} | new 2-floor level";
-        PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+        UpdateDiagnosticsDisplay("A --:--.--- | C --");
     }
 
     protected override void OnClosed(EventArgs e)
@@ -458,7 +458,7 @@ public partial class MainWindow : Window
         ClearSilentPlaybackState();
         NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
-        PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+        UpdateDiagnosticsDisplay("A --:--.--- | C --");
         CommandManager.InvalidateRequerySuggested();
     }
 
@@ -471,7 +471,7 @@ public partial class MainWindow : Window
             {
                 NativeViewport.ClearPlayback();
                 if (ShouldRefreshPlaybackDiagnostics(started))
-                    PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+                    UpdateDiagnosticsDisplay("A --:--.--- | C --");
                 PlayButton.Content = "Play";
                 return;
             }
@@ -494,9 +494,9 @@ public partial class MainWindow : Window
             LogPlaybackAnomalies(chartTime);
             if (ShouldRefreshPlaybackDiagnostics(started))
             {
-                PlaybackDiagnosticsText.Text =
+                UpdateDiagnosticsDisplay(
                     $"A {_audio.Position:mm\\:ss\\.fff}/{_audio.Duration:mm\\:ss\\.fff} | " +
-                    $"C {chartTime:F3}/{_timingMap.Duration:F3}s | {PlaybackDiagnosticsSnapshot}";
+                    $"C {chartTime:F3}/{_timingMap.Duration:F3}s");
             }
 
             if (!_audio.IsPlaying)
@@ -514,7 +514,7 @@ public partial class MainWindow : Window
         {
             NativeViewport.ClearPlayback();
             if (ShouldRefreshPlaybackDiagnostics(sampleStarted))
-                PlaybackDiagnosticsText.Text = $"A --:--.--- | C -- | {PlaybackDiagnosticsSnapshot}";
+                UpdateDiagnosticsDisplay("A --:--.--- | C --");
             PlayButton.Content = "Play";
             return;
         }
@@ -535,8 +535,8 @@ public partial class MainWindow : Window
 
         if (ShouldRefreshPlaybackDiagnostics(sampleStarted))
         {
-            PlaybackDiagnosticsText.Text =
-                $"A --:--.--- | C {chartTime:F3}/{_timingMap.Duration:F3}s | silent preview | {PlaybackDiagnosticsSnapshot}";
+            UpdateDiagnosticsDisplay(
+                $"A --:--.--- | C {chartTime:F3}/{_timingMap.Duration:F3}s | silent preview");
         }
 
         PlayButton.Content = _silentPlaybackPlaying ? "Pause" : "Play";

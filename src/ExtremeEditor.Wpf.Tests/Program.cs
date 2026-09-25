@@ -15,6 +15,18 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_UI_CLEANUP_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                AssetSetupUiRegression.Run();
+                PlaybackDiagnosticsLayoutRegression.Run();
+                NativeOnlyViewportRegression.Run();
+                Console.WriteLine("PASS: UI cleanup regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_WINFORMS_REMOVAL_ONLY"),
                 "1",
                 StringComparison.Ordinal))

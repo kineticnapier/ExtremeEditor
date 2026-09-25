@@ -114,9 +114,9 @@ public partial class MainWindow
             GetDefaultSteamRoots());
 
         AssetCacheStatus cache = AssetSetupService.InspectCache(AssetSetupService.DefaultCacheRoot);
-        AdoFaiPathText.Text = _adoFaiGameRoot ?? "ADOFAI not detected — use Browse…";
+        AdoFaiPathText.Header = _adoFaiGameRoot ?? "ADOFAI not detected — use Browse…";
         AdoFaiPathText.ToolTip = _adoFaiGameRoot;
-        SetupAssetsButton.Content = cache.IsReady ? "Rebuild Assets" : "Setup Assets";
+        SetupAssetsButton.Header = cache.IsReady ? "Rebuild Assets" : "Setup Assets";
         SetupAssetsButton.IsEnabled = !_assetSetupRunning;
         BrowseAdoFaiButton.IsEnabled = !_assetSetupRunning;
     }

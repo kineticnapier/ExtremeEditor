@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -11,9 +12,10 @@ internal static class AssetSetupUiRegression
     public static void Run()
     {
         Type mainWindowType = typeof(MainWindow);
-        RequireField(mainWindowType, "SetupAssetsButton");
-        RequireField(mainWindowType, "BrowseAdoFaiButton");
-        RequireField(mainWindowType, "AdoFaiPathText");
+        RequireFieldType(mainWindowType, "AssetsMenuItem", typeof(MenuItem));
+        RequireFieldType(mainWindowType, "SetupAssetsButton", typeof(MenuItem));
+        RequireFieldType(mainWindowType, "BrowseAdoFaiButton", typeof(MenuItem));
+        RequireFieldType(mainWindowType, "AdoFaiPathText", typeof(MenuItem));
 
         MethodInfo setupClick = RequireHandler(mainWindowType, "SetupAssetsClick");
         if (setupClick.GetCustomAttribute<AsyncStateMachineAttribute>() is null)
@@ -84,10 +86,15 @@ internal static class AssetSetupUiRegression
         }
     }
 
-    private static void RequireField(Type type, string name)
+    private static void RequireFieldType(Type type, string name, Type expectedType)
     {
-        if (type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic) is null)
-            throw new InvalidOperationException($"MainWindow XAML field '{name}' is missing.");
+        FieldInfo field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"MainWindow XAML field '{name}' is missing.");
+        if (field.FieldType != expectedType)
+        {
+            throw new InvalidOperationException(
+                $"MainWindow XAML field '{name}' must be {expectedType.Name}, actual {field.FieldType.Name}.");
+        }
     }
 
     private static MethodInfo RequireHandler(Type type, string name)

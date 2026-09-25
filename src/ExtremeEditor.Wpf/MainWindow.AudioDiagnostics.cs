@@ -38,6 +38,26 @@ public partial class MainWindow
         $"tickMaxGap={PlaybackTickMaxGapMilliseconds:F1}ms renderMaxGap={PlaybackRenderMaxGapMilliseconds:F1}ms | " +
         NativeDiagnosticsSnapshot;
 
+    private void UpdateDiagnosticsDisplay(string transportSummary)
+    {
+        PlaybackFpsText.Text = PlaybackUiFps > 0.0
+            ? $"{PlaybackUiFps:F1} FPS"
+            : "FPS --";
+        PlaybackDiagnosticsText.Text = $"{transportSummary} | {PlaybackDiagnosticsSnapshot}";
+    }
+
+    private void DiagnosticsVisibilityChanged(object sender, RoutedEventArgs e)
+    {
+        DiagnosticsPanel.Visibility = DiagnosticsMenuItem.IsChecked
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void HideDiagnosticsClick(object sender, RoutedEventArgs e)
+    {
+        DiagnosticsMenuItem.IsChecked = false;
+    }
+
     private string NativeDiagnosticsSnapshot
     {
         get
