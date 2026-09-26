@@ -11,14 +11,18 @@ internal static class TerminalPortalRegression
     {
         string portalPath = IconAssetCache.FloorPath("Portal");
         string outlinePath = IconAssetCache.OutlinePath("Portal");
-        string? directory = Path.GetDirectoryName(portalPath);
-        if (string.IsNullOrWhiteSpace(directory))
+        string? portalDirectory = Path.GetDirectoryName(portalPath);
+        string? outlineDirectory = Path.GetDirectoryName(outlinePath);
+        if (string.IsNullOrWhiteSpace(portalDirectory) || string.IsNullOrWhiteSpace(outlineDirectory))
             throw new InvalidOperationException("Portal icon cache path has no parent directory.");
 
         byte[]? portalBackup = File.Exists(portalPath) ? File.ReadAllBytes(portalPath) : null;
         byte[]? outlineBackup = File.Exists(outlinePath) ? File.ReadAllBytes(outlinePath) : null;
+        bool portalDirectoryExisted = Directory.Exists(portalDirectory);
+        bool outlineDirectoryExisted = Directory.Exists(outlineDirectory);
 
-        Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(portalDirectory);
+        Directory.CreateDirectory(outlineDirectory);
         try
         {
             // Snapshot building only consumes the path. Deliberately provide an
@@ -42,6 +46,8 @@ internal static class TerminalPortalRegression
         {
             RestoreFile(portalPath, portalBackup);
             RestoreFile(outlinePath, outlineBackup);
+            RemoveDirectoryIfCreatedAndEmpty(portalDirectory, portalDirectoryExisted);
+            RemoveDirectoryIfCreatedAndEmpty(outlineDirectory, outlineDirectoryExisted);
         }
     }
 
@@ -117,5 +123,11 @@ internal static class TerminalPortalRegression
         }
 
         File.WriteAllBytes(path, backup);
+    }
+
+    private static void RemoveDirectoryIfCreatedAndEmpty(string path, bool existedBefore)
+    {
+        if (!existedBefore && Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+            Directory.Delete(path);
     }
 }
