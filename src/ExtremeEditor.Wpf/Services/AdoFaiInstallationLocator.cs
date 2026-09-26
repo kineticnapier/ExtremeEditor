@@ -5,6 +5,9 @@ namespace ExtremeEditor.Wpf;
 public static partial class AdoFaiInstallationLocator
 {
     private const string AppId = "977950";
+    private const string NeoCosmosAppId = "1977570";
+    private const string NeoCosmosDepot32 = "1977571";
+    private const string NeoCosmosDepot64 = "1977572";
     private const string DefaultInstallDirectory = "A Dance of Fire and Ice";
 
     public static bool IsGameRoot(string path)
@@ -49,6 +52,51 @@ public static partial class AdoFaiInstallationLocator
         }
 
         return null;
+    }
+
+    public static bool HasInstalledNeoCosmos(string gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot))
+            return false;
+
+        try
+        {
+            string root = Normalize(gameRoot);
+            var installDirectory = new DirectoryInfo(root);
+            DirectoryInfo? commonDirectory = installDirectory.Parent;
+            DirectoryInfo? steamAppsDirectory = commonDirectory?.Parent;
+
+            if (commonDirectory is null ||
+                steamAppsDirectory is null ||
+                !string.Equals(commonDirectory.Name, "common", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(steamAppsDirectory.Name, "steamapps", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string manifestPath = Path.Combine(steamAppsDirectory.FullName, $"appmanifest_{AppId}.acf");
+            if (!File.Exists(manifestPath))
+                return false;
+
+            string text = File.ReadAllText(manifestPath);
+
+            bool disabled = DisabledNeoCosmosRegex().IsMatch(text) ||
+                            ManifestSectionContainsAnyKey(text, "DisabledDLC", NeoCosmosAppId);
+            if (disabled)
+                return false;
+
+            return ManifestSectionContainsAnyKey(text, "InstalledDepots", NeoCosmosDepot32, NeoCosmosDepot64) ||
+                   ManifestSectionContainsAnyKey(text, "MountedDepots", NeoCosmosDepot32, NeoCosmosDepot64);
+        }
+        catch (Exception ex) when (ex is
+            ArgumentException or
+            NotSupportedException or
+            PathTooLongException or
+            IOException or
+            UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static IEnumerable<string> EnumerateLibraryRoots(string steamRoot)
@@ -140,6 +188,85 @@ public static partial class AdoFaiInstallationLocator
         return IsGameRoot(candidate) ? Normalize(candidate) : null;
     }
 
+    private static bool ManifestSectionContainsAnyKey(string text, string sectionName, params string[] keys)
+    {
+        Match section = Regex.Match(
+            text,
+            $"\\\"{Regex.Escape(sectionName)}\\\"\\s*\\{{",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!section.Success)
+            return false;
+
+        int openingBrace = text.IndexOf('{', section.Index + section.Length - 1);
+        if (openingBrace < 0)
+            return false;
+
+        int closingBrace = FindMatchingBrace(text, openingBrace);
+        if (closingBrace <= openingBrace)
+            return false;
+
+        string body = text[(openingBrace + 1)..closingBrace];
+        foreach (string key in keys)
+        {
+            if (Regex.IsMatch(
+                    body,
+                    $"\\\"{Regex.Escape(key)}\\\"\\s*(?:\\{{|\\\")",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int FindMatchingBrace(string text, int openingBrace)
+    {
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+
+        for (int i = openingBrace; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (c == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+
+                if (c == '"')
+                    inString = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c == '}' && --depth == 0)
+                return i;
+        }
+
+        return -1;
+    }
+
     private static string Normalize(string path)
         => Path.GetFullPath(path.Trim('"'))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -153,4 +280,7 @@ public static partial class AdoFaiInstallationLocator
 
     [GeneratedRegex("\\\"installdir\\\"\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"", RegexOptions.IgnoreCase)]
     private static partial Regex InstallDirRegex();
+
+    [GeneratedRegex("\\\"DisabledDLC\\\"\\s*\\\"[^\\\"]*\\b1977570\\b[^\\\"]*\\\"", RegexOptions.IgnoreCase)]
+    private static partial Regex DisabledNeoCosmosRegex();
 }
