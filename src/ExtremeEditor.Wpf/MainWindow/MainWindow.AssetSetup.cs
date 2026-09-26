@@ -8,6 +8,7 @@ public partial class MainWindow
 {
     private bool _assetSetupRunning;
     private string? _adoFaiGameRoot;
+    private bool _hasNeoCosmos;
 
     private void AssetSetupWindowLoaded(object sender, RoutedEventArgs e)
     {
@@ -112,6 +113,8 @@ public partial class MainWindow
         _adoFaiGameRoot = AdoFaiInstallationLocator.FindInstalledGame(
             savedPath,
             GetDefaultSteamRoots());
+        _hasNeoCosmos = _adoFaiGameRoot is not null &&
+                        AdoFaiInstallationLocator.HasInstalledNeoCosmos(_adoFaiGameRoot);
 
         AssetCacheStatus cache = AssetSetupService.InspectCache(AssetSetupService.DefaultCacheRoot);
         string installationName = _adoFaiGameRoot is null
@@ -122,6 +125,7 @@ public partial class MainWindow
         SetupAssetsMenuItem.Header = cache.IsReady ? "Rebuild Assets" : "Setup Assets";
         SetupAssetsMenuItem.IsEnabled = !_assetSetupRunning;
         BrowseAdoFaiMenuItem.IsEnabled = !_assetSetupRunning;
+        RefreshEventPalette();
     }
 
     private static string[] GetDefaultSteamRoots()
