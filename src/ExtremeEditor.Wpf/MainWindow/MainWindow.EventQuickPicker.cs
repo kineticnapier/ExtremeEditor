@@ -169,7 +169,7 @@ public partial class MainWindow
             _eventCategoryBar.Children.Add(button);
         }
 
-        EventCategoryDefinition selectedCategory = EventCategories[_eventCategoryIndex];
+        EventCategoryDefinition selectedCategory = GetVisibleEventCategory(EventCategories[_eventCategoryIndex]);
         int pageCount = Math.Max(1, (selectedCategory.Events.Length + 9) / 10);
         _eventPageIndex = Math.Clamp(_eventPageIndex, 0, pageCount - 1);
         int pageStart = _eventPageIndex * 10;
@@ -349,7 +349,7 @@ public partial class MainWindow
         if (_level is null || _selection.PrimaryFloor < 0)
             return false;
 
-        EventCategoryDefinition category = EventCategories[_eventCategoryIndex];
+        EventCategoryDefinition category = GetVisibleEventCategory(EventCategories[_eventCategoryIndex]);
         int slot = digit == 0 ? 9 : digit - 1;
         int index = _eventPageIndex * 10 + slot;
         if ((uint)index >= (uint)category.Events.Length)
@@ -360,7 +360,7 @@ public partial class MainWindow
 
     private void ChangeEventPage(int delta, bool jumpToEdge)
     {
-        EventCategoryDefinition category = EventCategories[_eventCategoryIndex];
+        EventCategoryDefinition category = GetVisibleEventCategory(EventCategories[_eventCategoryIndex]);
         int pageCount = Math.Max(1, (category.Events.Length + 9) / 10);
         if (jumpToEdge)
             _eventPageIndex = delta < 0 ? 0 : pageCount - 1;
@@ -374,7 +374,7 @@ public partial class MainWindow
         if (_level is null || _selection.PrimaryFloor < 0)
             return;
 
-        var dialog = new EventPickerWindow(EventCatalog)
+        var dialog = new EventPickerWindow(BuildVisibleEventCatalog())
         {
             Owner = this
         };
@@ -386,7 +386,8 @@ public partial class MainWindow
             if (categoryIndex >= 0)
             {
                 _eventCategoryIndex = categoryIndex;
-                int eventIndex = Array.IndexOf(EventCategories[categoryIndex].Events, selected.EventType);
+                EventCategoryDefinition visibleCategory = GetVisibleEventCategory(EventCategories[categoryIndex]);
+                int eventIndex = Array.IndexOf(visibleCategory.Events, selected.EventType);
                 _eventPageIndex = eventIndex < 0 ? 0 : eventIndex / 10;
             }
             RefreshEventPalette();
@@ -400,6 +401,12 @@ public partial class MainWindow
         {
             StatusText.Text = $"{eventType} is stored in decorations[]; creation is not wired yet";
             return true;
+        }
+
+        if (!IsEventAvailableForCurrentEditor(eventType))
+        {
+            StatusText.Text = $"{eventType} is not available in the current ADOFAI editor context";
+            return false;
         }
 
         EditorSession? editor = EnsureEditorSession();
