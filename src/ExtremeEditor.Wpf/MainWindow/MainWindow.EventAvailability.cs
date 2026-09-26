@@ -24,11 +24,10 @@ public partial class MainWindow
         "ScaleRadius"
     };
 
-    // ExtremeEditor currently models the normal retail editor context. These three
-    // accessors keep the gate decision centralized so DLC/official detection can be
-    // wired later without duplicating visibility logic throughout the picker.
+    // ExtremeEditor models the retail editor context. Pro/official gates remain
+    // disabled, while Neo Cosmos availability follows the detected ADOFAI install.
     private static bool EnableProEvents => false;
-    private static bool HasNeoCosmos => false;
+    private bool HasNeoCosmos => _hasNeoCosmos;
     private static bool IsOfficialLevel => false;
 
     private static bool IsEventAvailable(
@@ -49,10 +48,10 @@ public partial class MainWindow
                (!requiresNeoCosmos || hasNeoCosmos);
     }
 
-    private static bool IsEventAvailableForCurrentEditor(string eventType) =>
+    private bool IsEventAvailableForCurrentEditor(string eventType) =>
         IsEventAvailable(eventType, EnableProEvents, HasNeoCosmos, IsOfficialLevel);
 
-    private static EventCategoryDefinition GetVisibleEventCategory(EventCategoryDefinition category) =>
+    private EventCategoryDefinition GetVisibleEventCategory(EventCategoryDefinition category) =>
         category with
         {
             Events = category.Events
@@ -60,7 +59,7 @@ public partial class MainWindow
                 .ToArray()
         };
 
-    private static EventCatalogEntry[] BuildVisibleEventCatalog() =>
+    private EventCatalogEntry[] BuildVisibleEventCatalog() =>
         EventCatalog
             .Where(entry => IsEventAvailableForCurrentEditor(entry.EventType))
             .ToArray();
