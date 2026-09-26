@@ -389,10 +389,13 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return;
+        int selectedIndex = EventList.SelectedIndex;
         int[] selection = _selection.SelectedFloors.ToArray();
         int primary = _selection.PrimaryFloor;
         editor.DeleteAction(item.Action);
         RefreshEditorAfterMutation(primary, selection);
+        if (EventList.Items.Count > 0)
+            EventList.SelectedIndex = Math.Clamp(selectedIndex, 0, EventList.Items.Count - 1);
         e.Handled = true;
     }
 

@@ -3,7 +3,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace ExtremeEditor.Wpf;
 
@@ -80,6 +82,7 @@ public partial class MainWindow
 
     private bool _eventPropertyEditorInitialized;
     private StackPanel? _eventPropertyPanel;
+    private Expander? _eventRawJsonExpander;
     private JsonObject? _eventPropertyDraft;
 
     private void InitializeEventPropertyEditor()
@@ -99,7 +102,7 @@ public partial class MainWindow
                 Margin = new Thickness(0, 0, 4, 0)
             };
 
-            var rawExpander = new Expander
+            _eventRawJsonExpander = new Expander
             {
                 Header = "Raw JSON",
                 Foreground = EventEditorForeground,
@@ -109,7 +112,7 @@ public partial class MainWindow
             };
             EventEditorText.MinHeight = 140;
             EventEditorText.Margin = new Thickness(0, 6, 0, 0);
-            _eventPropertyPanel.Children.Add(rawExpander);
+            _eventPropertyPanel.Children.Add(_eventRawJsonExpander);
 
             var scroller = new ScrollViewer
             {
@@ -135,20 +138,12 @@ public partial class MainWindow
         if (_eventPropertyPanel is null)
             return;
 
-        Expander? rawExpander = _eventPropertyPanel.Children.OfType<Expander>().FirstOrDefault();
+        Expander? rawExpander = _eventRawJsonExpander;
         _eventPropertyPanel.Children.Clear();
 
         if (EventList.SelectedItem is not EventListItem item)
         {
             _eventPropertyDraft = null;
-            _eventPropertyPanel.Children.Add(new TextBlock
-            {
-                Text = "Select an event to edit its properties.",
-                Foreground = EventEditorMuted,
-                TextWrapping = TextWrapping.Wrap
-            });
-            if (rawExpander is not null)
-                _eventPropertyPanel.Children.Add(rawExpander);
             return;
         }
 
@@ -167,20 +162,61 @@ public partial class MainWindow
         _eventPropertyDraft = draft;
         SyncEventDraftToRawJson();
 
-        _eventPropertyPanel.Children.Add(new TextBlock
-        {
-            Text = eventType,
-            Foreground = EventEditorForeground,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
+        _eventPropertyPanel.Children.Add(CreateEventPropertyHeader(eventType));
 
         foreach (EventPropertyDefinition property in BuildVisiblePropertyList(eventType, draft))
             _eventPropertyPanel.Children.Add(CreatePropertyRow(property, draft[property.Name]));
 
         if (rawExpander is not null)
             _eventPropertyPanel.Children.Add(rawExpander);
+    }
+
+    private FrameworkElement CreateEventPropertyHeader(string eventType)
+    {
+        var header = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        header.Children.Add(new TextBlock
+        {
+            Text = eventType,
+            Foreground = EventEditorForeground,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var trashIcon = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M4,5 H16 M7,5 V3 H13 V5 M6,5 L7,17 H13 L14,5 M9,8 V14 M11,8 V14"),
+            Width = 16,
+            Height = 16,
+            Stretch = Stretch.Uniform,
+            StrokeThickness = 1.5,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round
+        };
+        trashIcon.SetBinding(
+            Shape.StrokeProperty,
+            new Binding(nameof(Control.Foreground))
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1)
+            });
+
+        var deleteButton = new Button
+        {
+            Command = EditorCommands.DeleteEvent,
+            ToolTip = "Delete event",
+            Content = trashIcon
+        };
+        deleteButton.SetResourceReference(FrameworkElement.StyleProperty, "EditorDeleteEventButtonStyle");
+        Grid.SetColumn(deleteButton, 1);
+        header.Children.Add(deleteButton);
+        return header;
     }
 
     private IReadOnlyList<EventPropertyDefinition> BuildVisiblePropertyList(string eventType, JsonObject draft)

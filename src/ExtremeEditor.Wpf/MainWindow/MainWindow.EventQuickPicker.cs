@@ -61,7 +61,6 @@ public partial class MainWindow
     private static readonly Brush PaletteSelected = new SolidColorBrush(Color.FromRgb(82, 58, 121));
     private static readonly Brush PaletteNormal = new SolidColorBrush(Color.FromRgb(43, 47, 54));
     private static readonly Brush PaletteBorder = new SolidColorBrush(Color.FromRgb(72, 77, 87));
-    private static readonly Brush PaletteKeyBadge = new SolidColorBrush(Color.FromRgb(117, 62, 174));
     private static readonly Brush PaletteText = new SolidColorBrush(Color.FromRgb(238, 240, 244));
     private static readonly Brush PaletteMuted = new SolidColorBrush(Color.FromRgb(166, 172, 184));
 
@@ -184,47 +183,19 @@ public partial class MainWindow
             string eventType = selectedCategory.Events[eventIndex];
             int digit = slot == 9 ? 0 : slot + 1;
             bool decorationPending = DecorationObjectEventTypes.Contains(eventType);
-            string shortName = ShortEventName(eventType);
-
-            var content = new Grid();
-            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            content.Children.Add(new TextBlock
-            {
-                Text = shortName,
-                Foreground = decorationPending ? PaletteMuted : PaletteText,
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold,
-                HorizontalAlignment = HorizontalAlignment.Center
-            });
-            var keyBadge = new Border
-            {
-                Background = PaletteKeyBadge,
-                CornerRadius = new CornerRadius(2),
-                Padding = new Thickness(3, 0, 3, 0),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 1, 0, 0),
-                Child = new TextBlock
-                {
-                    Text = digit.ToString(),
-                    Foreground = Brushes.White,
-                    FontSize = 9,
-                    FontFamily = new FontFamily("Consolas")
-                }
-            };
-            Grid.SetRow(keyBadge, 1);
-            content.Children.Add(keyBadge);
 
             var button = new Button
             {
-                Width = 29,
-                Height = 40,
+                Width = 36,
+                Height = 38,
                 Margin = new Thickness(1),
-                Padding = new Thickness(1),
+                Padding = new Thickness(3),
                 Background = PaletteNormal,
                 BorderBrush = PaletteBorder,
                 BorderThickness = new Thickness(1),
-                Content = content,
+                Content = CreateEventContent(
+                    eventType,
+                    decorationPending ? PaletteMuted : PaletteText),
                 ToolTip = decorationPending
                     ? $"{digit}: {eventType} (decoration creation pending)"
                     : $"{digit}: {eventType}"
@@ -244,6 +215,35 @@ public partial class MainWindow
         if (capitals.Length >= 2)
             return capitals;
         return eventType.Length <= 3 ? eventType : eventType[..3];
+    }
+
+    private static object CreateEventContent(string eventType, Brush fallbackForeground)
+    {
+        ImageSource? source = WpfIconRenderer.GetCachedBitmap(IconAssetCache.EventPath(eventType));
+        if (source is null)
+        {
+            return new TextBlock
+            {
+                Text = ShortEventName(eventType),
+                Foreground = fallbackForeground,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        return new Image
+        {
+            Source = source,
+            Width = 24,
+            Height = 24,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
     }
 
     private static Button? FindDescendantButton(DependencyObject parent, string content)

@@ -241,10 +241,7 @@
                                    TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Content="Add Event"
-                                    Command="{x:Static local:EditorCommands.AddEvent}"
-                                    Margin="0,0,6,0" />
-                            <Button Content="Delete Event"
-                                    Command="{x:Static local:EditorCommands.DeleteEvent}" />
+                                    Command="{x:Static local:EditorCommands.AddEvent}" />
                         </StackPanel>
                     </StackPanel>
 

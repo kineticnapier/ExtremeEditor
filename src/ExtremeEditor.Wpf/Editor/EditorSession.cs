@@ -29,7 +29,7 @@ internal sealed class EditorSession
     private EditorClipboard? _clipboard;
     private JsonObject? _sourceRoot;
     private bool _sourceMappingInitialized;
-    private int _nextNewSourceIndex = -1;
+    private int _nextNewSourceIndex = -2;
     private int _historyPosition;
     private int _savedHistoryPosition;
 
@@ -206,7 +206,10 @@ internal sealed class EditorSession
     public void DeleteAction(LevelAction action)
     {
         EnsureSourceMapping();
-        Execute(new DeleteActionCommand(action));
+        int index = FindActionIndex(action);
+        if (index < 0)
+            return;
+        Execute(new DeleteActionCommand(_actions[index]));
     }
 
     public void ReplaceAction(LevelAction oldAction, LevelAction updatedAction)
@@ -582,7 +585,7 @@ internal sealed class EditorSession
         _structureEdits.Clear();
         _newActionTemplates.Clear();
         _pendingDecorations.Clear();
-        _nextNewSourceIndex = -1;
+        _nextNewSourceIndex = -2;
         EnsureSourceMapping();
     }
 

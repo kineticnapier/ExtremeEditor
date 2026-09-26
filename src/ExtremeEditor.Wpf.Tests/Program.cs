@@ -15,11 +15,23 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_EVENT_DELETE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                EditorSessionEventDeletionRegression.Run();
+                EventDeleteUiRegression.Run();
+                Console.WriteLine("PASS: event deletion identity and UI regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EVENT_CATEGORY_ICON_ONLY"),
                 "1",
                 StringComparison.Ordinal))
             {
                 EventCategoryIconRegression.Run();
+                EventPaletteIconRegression.Run();
                 EventAvailabilityRegression.Run();
                 LegacyEventRoundTripRegression.Run();
                 Console.WriteLine("PASS: event palette, availability, and legacy event round-trip regressions are valid.");
@@ -34,6 +46,8 @@ internal static class Program
                 AssetSetupUiRegression.Run();
                 EventCategoryIconRegression.Run();
                 EventAvailabilityRegression.Run();
+                EditorSessionEventDeletionRegression.Run();
+                EventDeleteUiRegression.Run();
                 PlaybackDiagnosticsLayoutRegression.Run();
                 NativeOnlyViewportRegression.Run();
                 Console.WriteLine("PASS: UI cleanup regressions are valid.");
@@ -111,8 +125,11 @@ internal static class Program
             EditorSelectionStateRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
+            EventPaletteIconRegression.Run();
             EventAvailabilityRegression.Run();
             LegacyEventRoundTripRegression.Run();
+            EditorSessionEventDeletionRegression.Run();
+            EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
             AssetSetupRegression.Run();
             AdoFaiInstallationLocatorRegression.Run();
