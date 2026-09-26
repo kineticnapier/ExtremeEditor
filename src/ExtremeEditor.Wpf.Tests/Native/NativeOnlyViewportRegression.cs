@@ -83,6 +83,8 @@ internal static class NativeOnlyViewportRegression
         RequireNativeMethod(nameof(NativeLevelViewport.ClearPlayback));
         RequireNativeMethod(nameof(NativeLevelViewport.FrameAll));
         RequireNativeMethod("ReloadAssets");
+
+        TerminalPortalRegression.Run();
     }
 
     private static void RequireNativeMethod(string name, params Type[] parameterTypes)
