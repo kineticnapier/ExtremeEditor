@@ -89,6 +89,19 @@ HRESULT D2DBackend::RenderFrame(
         PublishRenderFrameStats(stats);
         return E_FAIL;
     }
+    if (scene != nullptr)
+    {
+        DecorationRenderState decoration_state = scene->GetDecorationRenderState();
+        if (!SyncStaticDecorations(
+                decoration_state.decorations.get(),
+                decoration_state.decorations_version,
+                decoration_state.assets.get(),
+                decoration_state.assets_version))
+        {
+            PublishRenderFrameStats(stats);
+            return E_FAIL;
+        }
+    }
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -212,6 +225,14 @@ HRESULT D2DBackend::RenderFrame(
             zoom,
             camera_rotation,
             selected_floor,
+            stats);
+
+        DrawStaticDecorationsCamera(
+            *scene,
+            camera_x,
+            camera_y,
+            zoom,
+            camera_rotation,
             stats);
 
         if (!playback.active)
