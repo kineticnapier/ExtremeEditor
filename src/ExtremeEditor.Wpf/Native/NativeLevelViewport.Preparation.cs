@@ -22,6 +22,9 @@ public sealed partial class NativeLevelViewport
 
         var watch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
+        StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
+        result.Snapshot.StaticDecorations = decorationData.Instances;
+        result.Snapshot.DecorationAssets = decorationData.Assets;
         watch.Stop();
         return new PreparedNativeLevel(result.Snapshot, result.Metrics, watch.Elapsed);
     }
