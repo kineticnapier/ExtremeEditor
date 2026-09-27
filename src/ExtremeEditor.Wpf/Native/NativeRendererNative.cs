@@ -57,6 +57,25 @@ internal static class NativeRendererNative
         float boundsRight,
         float boundsBottom);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_static_decorations", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetStaticDecorations(
+        nint renderer,
+        nint decorations,
+        uint decorationCount);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_clear_decoration_assets", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void ClearDecorationAssets(nint renderer);
+
+    [DllImport(
+        DllName,
+        EntryPoint = "ee_renderer_set_decoration_asset",
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Unicode)]
+    internal static extern int SetDecorationAsset(
+        nint renderer,
+        uint assetId,
+        string imagePath);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_frame_all", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void FrameAll(nint renderer);
 
