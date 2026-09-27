@@ -14,6 +14,7 @@ internal struct NativeAbiInfo
     public uint TrackTransformEventSize;
     public uint CameraEventSize;
     public uint SpriteMetadataSize;
+    public uint StaticDecorationSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -66,6 +67,33 @@ internal struct NativePoint
 {
     public float X;
     public float Y;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeStaticDecoration
+{
+    public const uint RelativeGlobal = 0u;
+    public const uint RelativeTile = 1u;
+    public const uint FlagVisible = 1u;
+
+    public int SourceIndex;
+    public int Floor;
+    public uint AssetId;
+    public uint RelativeMode;
+    public float PositionX;
+    public float PositionY;
+    public float PivotOffsetX;
+    public float PivotOffsetY;
+    public float RotationRadians;
+    public float ScaleX;
+    public float ScaleY;
+    public uint Color;
+    public float Opacity;
+    public int Depth;
+    public uint Flags;
+
+    public readonly string RelativeTo => RelativeMode == RelativeTile ? "Tile" : "Global";
+    public readonly bool Visible => (Flags & FlagVisible) != 0u;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -297,3 +325,5 @@ internal sealed record NativeIconAsset(uint Id, string ImagePath, string? Outlin
         };
     }
 }
+
+internal sealed record NativeDecorationAsset(uint Id, string ImagePath);
