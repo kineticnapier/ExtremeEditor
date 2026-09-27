@@ -23,6 +23,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->track_transform_event_size = sizeof(EeTrackTransformEvent);
     info->camera_event_size = sizeof(EeCameraEvent);
     info->sprite_metadata_size = sizeof(EeSpriteMetadata);
+    info->static_decoration_size = sizeof(EeStaticDecoration);
     return EE_OK;
 }
 
@@ -118,6 +119,38 @@ EeResult ee_renderer_set_level(
     {
         return EE_ERROR_INITIALIZATION;
     }
+}
+
+EeResult ee_renderer_set_static_decorations(
+    EeRendererHandle renderer,
+    const EeStaticDecoration* decorations,
+    uint32_t decoration_count)
+{
+    if (renderer == nullptr || (decoration_count > 0 && decorations == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetStaticDecorations(decorations, decoration_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
+void ee_renderer_clear_decoration_assets(EeRendererHandle renderer)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->ClearDecorationAssets();
+}
+
+EeResult ee_renderer_set_decoration_asset(
+    EeRendererHandle renderer,
+    uint32_t asset_id,
+    const wchar_t* image_path)
+{
+    if (renderer == nullptr || image_path == nullptr || *image_path == L'\0')
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetDecorationAsset(asset_id, image_path)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
 }
 
 void ee_renderer_frame_all(EeRendererHandle renderer)
