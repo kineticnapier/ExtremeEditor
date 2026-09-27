@@ -1,5 +1,6 @@
 #pragma once
 
+#include "decoration_assets.h"
 #include "floor_instanced_renderer.h"
 #include "icon_assets.h"
 #include "icon_instanced_renderer.h"
@@ -7,6 +8,7 @@
 
 #include <windows.h>
 #include <d2d1_1.h>
+#include <d3d1.h>
 #include <d3d11.h>
 #include <dwrite.h>
 #include <dxgi1_2.h>
@@ -61,6 +63,11 @@ public:
     bool Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept;
     void Shutdown() noexcept;
     bool Resize(std::uint32_t width, std::uint32_t height) noexcept;
+    bool SyncStaticDecorations(
+        const std::vector<EeStaticDecoration>* decorations,
+        std::uint64_t decorations_version,
+        const DecorationAssetTable* assets,
+        std::uint64_t assets_version) noexcept;
     HRESULT RenderFrame(
         double seconds,
         const LevelScene* scene,
@@ -152,6 +159,13 @@ private:
         float camera_rotation,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
+    void DrawStaticDecorationsCamera(
+        const LevelScene& scene,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        RenderFrameStats& stats) noexcept;
     void DrawEditorHud(
         const LevelScene& scene,
         float camera_x,
@@ -186,6 +200,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2d_context_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> target_bitmap_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> decoration_color_effect_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_text_format_;
@@ -212,7 +227,11 @@ private:
     std::vector<Microsoft::WRL::ComPtr<ID2D1PathGeometry>> floor_geometries_;
     std::vector<std::uint32_t> visible_candidates_;
     std::unordered_map<std::uint32_t, IconBitmapSet> icon_bitmaps_;
+    std::vector<EeStaticDecoration> static_decorations_;
+    std::unordered_map<std::uint32_t, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> decoration_bitmaps_;
     std::uint64_t cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t cached_static_decorations_version_ = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
 };
 }
