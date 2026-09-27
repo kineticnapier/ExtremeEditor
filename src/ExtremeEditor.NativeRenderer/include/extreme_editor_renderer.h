@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 12u
+#define EE_RENDERER_API_VERSION 13u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -48,6 +48,9 @@
 #define EE_TRACK_TRANSFORM_SCALE_X 0x8u
 #define EE_TRACK_TRANSFORM_SCALE_Y 0x10u
 #define EE_TRACK_TRANSFORM_OPACITY 0x20u
+#define EE_DECORATION_RELATIVE_GLOBAL 0u
+#define EE_DECORATION_RELATIVE_TILE 1u
+#define EE_DECORATION_VISIBLE 0x1u
 
 #ifdef __cplusplus
 extern "C" {
@@ -126,6 +129,7 @@ typedef struct EeAbiInfo
     uint32_t track_transform_event_size;
     uint32_t camera_event_size;
     uint32_t sprite_metadata_size;
+    uint32_t static_decoration_size;
 } EeAbiInfo;
 
 typedef struct EeSpriteMetadata
@@ -186,6 +190,25 @@ typedef struct EePoint
     float x;
     float y;
 } EePoint;
+
+typedef struct EeStaticDecoration
+{
+    int32_t source_index;
+    int32_t floor;
+    uint32_t asset_id;
+    uint32_t relative_mode;
+    float position_x;
+    float position_y;
+    float pivot_offset_x;
+    float pivot_offset_y;
+    float rotation_radians;
+    float scale_x;
+    float scale_y;
+    uint32_t color;
+    float opacity;
+    int32_t depth;
+    uint32_t flags;
+} EeStaticDecoration;
 
 typedef struct EePlaybackTiming
 {
@@ -296,6 +319,15 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_top,
     float bounds_right,
     float bounds_bottom);
+EE_RENDERER_API EeResult ee_renderer_set_static_decorations(
+    EeRendererHandle renderer,
+    const EeStaticDecoration* decorations,
+    uint32_t decoration_count);
+EE_RENDERER_API void ee_renderer_clear_decoration_assets(EeRendererHandle renderer);
+EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(
+    EeRendererHandle renderer,
+    uint32_t asset_id,
+    const wchar_t* image_path);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
 EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
