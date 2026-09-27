@@ -1,5 +1,6 @@
 #pragma once
 
+#include "decoration_assets.h"
 #include "icon_assets.h"
 #include "level_scene.h"
 #include "native_window.h"
@@ -28,6 +29,9 @@ public:
     bool Initialize(HWND parent, std::uint32_t width, std::uint32_t height) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
+    bool SetStaticDecorations(const EeStaticDecoration* decorations, std::uint32_t decoration_count) noexcept;
+    void ClearDecorationAssets() noexcept;
+    bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
     void FrameAll() noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(
@@ -78,6 +82,10 @@ private:
     mutable std::mutex scene_mutex_;
     std::shared_ptr<LevelScene> scene_;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
+    std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
+        std::make_shared<std::vector<EeStaticDecoration>>();
+    std::shared_ptr<const DecorationAssetTable> decoration_assets_ =
+        std::make_shared<DecorationAssetTable>();
     std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings_ =
         std::make_shared<std::vector<EePlaybackTiming>>();
     std::shared_ptr<const std::vector<EeCameraEvent>> camera_events_ =
@@ -90,6 +98,8 @@ private:
     int hover_hud_button_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;
+    std::uint64_t static_decorations_version_ = 0;
+    std::uint64_t decoration_assets_version_ = 0;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
     EeEditorActionCallback editor_action_callback_ = nullptr;
