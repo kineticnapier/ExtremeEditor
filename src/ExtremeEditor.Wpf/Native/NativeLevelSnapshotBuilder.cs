@@ -38,7 +38,15 @@ internal static class NativeLevelSnapshotBuilder
     public static NativeLevelSnapshot Build(LevelDocument level) =>
         BuildProfiled(level).Snapshot;
 
-    internal static NativeLevelSnapshotBuildResult BuildProfiled(LevelDocument level)
+    internal static NativeLevelSnapshotBuildResult BuildProfiled(LevelDocument level) =>
+        BuildProfiled(level, includeTerminalPortal: true);
+
+    internal static NativeLevelSnapshotBuildResult BuildGeometryProfiled(LevelDocument level) =>
+        BuildProfiled(level, includeTerminalPortal: false);
+
+    private static NativeLevelSnapshotBuildResult BuildProfiled(
+        LevelDocument level,
+        bool includeTerminalPortal)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -204,6 +212,9 @@ internal static class NativeLevelSnapshotBuilder
             target.IconAngle = resolved.AngleRadians;
         }
 
+        if (includeTerminalPortal)
+            TerminalPortalResolver.Apply(floors, iconAssets);
+
         watch.Stop();
         TimeSpan iconTime = watch.Elapsed;
 
@@ -326,7 +337,7 @@ internal static class NativeLevelSnapshotBuilder
                 {
                     string fullPath = Path.GetFullPath(candidate);
                     uint id = checked((uint)iconAssets.Count);
-                    iconAssets.Add(new NativeIconAsset(id, fullPath, null));
+                    iconAssets.Add(NativeIconAsset.Create(id, fullPath, null));
                     iconId = id;
                 }
                 else
@@ -396,7 +407,7 @@ internal static class NativeLevelSnapshotBuilder
             ? Path.GetFullPath(outlineCandidate)
             : null;
         uint iconId = checked((uint)iconAssets.Count);
-        iconAssets.Add(new NativeIconAsset(iconId, imagePath, outlinePath));
+        iconAssets.Add(NativeIconAsset.Create(iconId, imagePath, outlinePath));
         asset = new FloorIconAsset(iconId);
         cache[key] = asset;
         return true;

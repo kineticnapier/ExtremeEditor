@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.Wpf.Native;
 
@@ -12,6 +13,7 @@ internal struct NativeAbiInfo
     public uint DiagnosticsSize;
     public uint TrackTransformEventSize;
     public uint CameraEventSize;
+    public uint SpriteMetadataSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -208,7 +210,90 @@ internal struct NativeRendererDiagnostics
     public uint TrackActiveSingleEventCount;
 }
 
-internal sealed record NativeIconAsset(
-    uint Id,
-    string ImagePath,
-    string? OutlinePath);
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeSpriteMetadata
+{
+    public const uint FlagValid = 1u;
+
+    public uint StructSize;
+    public uint Flags;
+    public float SpriteRectX;
+    public float SpriteRectY;
+    public float SpriteRectWidth;
+    public float SpriteRectHeight;
+    public float TextureRectX;
+    public float TextureRectY;
+    public float TextureRectWidth;
+    public float TextureRectHeight;
+    public float PivotX;
+    public float PivotY;
+    public float PixelsPerUnit;
+
+    public static NativeSpriteMetadata Missing => new()
+    {
+        StructSize = checked((uint)Marshal.SizeOf<NativeSpriteMetadata>())
+    };
+
+    public static NativeSpriteMetadata From(SpriteAssetMetadata? metadata)
+    {
+        NativeSpriteMetadata result = Missing;
+        if (metadata is null)
+            return result;
+
+        result.Flags = FlagValid;
+        result.SpriteRectX = metadata.SpriteRectX;
+        result.SpriteRectY = metadata.SpriteRectY;
+        result.SpriteRectWidth = metadata.SpriteRectWidth;
+        result.SpriteRectHeight = metadata.SpriteRectHeight;
+        result.TextureRectX = metadata.TextureRectX;
+        result.TextureRectY = metadata.TextureRectY;
+        result.TextureRectWidth = metadata.TextureRectWidth;
+        result.TextureRectHeight = metadata.TextureRectHeight;
+        result.PivotX = metadata.PivotX;
+        result.PivotY = metadata.PivotY;
+        result.PixelsPerUnit = metadata.PixelsPerUnit;
+        return result;
+    }
+}
+
+internal sealed record NativeIconAsset(uint Id, string ImagePath, string? OutlinePath)
+{
+    public float SpriteRectX { get; init; }
+    public float SpriteRectY { get; init; }
+    public float SpriteRectWidth { get; init; }
+    public float SpriteRectHeight { get; init; }
+    public float TextureRectX { get; init; }
+    public float TextureRectY { get; init; }
+    public float TextureRectWidth { get; init; }
+    public float TextureRectHeight { get; init; }
+    public float PivotX { get; init; }
+    public float PivotY { get; init; }
+    public float PixelsPerUnit { get; init; }
+    public NativeSpriteMetadata ImageMetadata { get; init; } = NativeSpriteMetadata.Missing;
+    public NativeSpriteMetadata OutlineMetadata { get; init; } = NativeSpriteMetadata.Missing;
+
+    public static NativeIconAsset Create(uint id, string imagePath, string? outlinePath)
+    {
+        IconAssetCache.TryReadSpriteMetadata(imagePath, out SpriteAssetMetadata? imageMetadata);
+        SpriteAssetMetadata? outlineMetadata = null;
+        if (outlinePath is not null)
+            IconAssetCache.TryReadSpriteMetadata(outlinePath, out outlineMetadata);
+
+        return new NativeIconAsset(id, imagePath, outlinePath)
+        {
+            SpriteRectX = imageMetadata?.SpriteRectX ?? 0f,
+            SpriteRectY = imageMetadata?.SpriteRectY ?? 0f,
+            SpriteRectWidth = imageMetadata?.SpriteRectWidth ?? 0f,
+            SpriteRectHeight = imageMetadata?.SpriteRectHeight ?? 0f,
+            TextureRectX = imageMetadata?.TextureRectX ?? 0f,
+            TextureRectY = imageMetadata?.TextureRectY ?? 0f,
+            TextureRectWidth = imageMetadata?.TextureRectWidth ?? 0f,
+            TextureRectHeight = imageMetadata?.TextureRectHeight ?? 0f,
+            PivotX = imageMetadata?.PivotX ?? 0f,
+            PivotY = imageMetadata?.PivotY ?? 0f,
+            PixelsPerUnit = imageMetadata?.PixelsPerUnit ?? 0f,
+            ImageMetadata = NativeSpriteMetadata.From(imageMetadata),
+            OutlineMetadata = NativeSpriteMetadata.From(outlineMetadata)
+        };
+    }
+}

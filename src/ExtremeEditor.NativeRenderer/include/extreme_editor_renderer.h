@@ -13,10 +13,11 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 11u
+#define EE_RENDERER_API_VERSION 12u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
+#define EE_SPRITE_METADATA_VALID 0x1u
 #define EE_PLAYBACK_TIMING_FLAG_CCW 0x1u
 #define EE_PLAYBACK_FLAG_ACTIVE 0x1u
 #define EE_PLAYBACK_FLAG_PLAYING 0x2u
@@ -124,7 +125,25 @@ typedef struct EeAbiInfo
     uint32_t diagnostics_size;
     uint32_t track_transform_event_size;
     uint32_t camera_event_size;
+    uint32_t sprite_metadata_size;
 } EeAbiInfo;
+
+typedef struct EeSpriteMetadata
+{
+    uint32_t struct_size;
+    uint32_t flags;
+    float sprite_rect_x;
+    float sprite_rect_y;
+    float sprite_rect_width;
+    float sprite_rect_height;
+    float texture_rect_x;
+    float texture_rect_y;
+    float texture_rect_width;
+    float texture_rect_height;
+    float pivot_x;
+    float pivot_y;
+    float pixels_per_unit;
+} EeSpriteMetadata;
 
 typedef struct EeRendererCreateInfo
 {
@@ -283,7 +302,9 @@ EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     EeRendererHandle renderer,
     uint32_t icon_id,
     const wchar_t* image_path,
-    const wchar_t* outline_path);
+    const wchar_t* outline_path,
+    const EeSpriteMetadata* image_metadata,
+    const EeSpriteMetadata* outline_metadata);
 EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_set_selection(
     EeRendererHandle renderer,

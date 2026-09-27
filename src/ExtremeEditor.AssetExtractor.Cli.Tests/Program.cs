@@ -42,6 +42,7 @@ internal static class Program
             VerifyPng(Path.Combine(floorDirectory, "perlin.png"));
             VerifyPng(Path.Combine(floorDirectory, "ramp.png"));
             VerifyPng(Path.Combine(floorDirectory, "glow.png"));
+            VerifyPortalMetadata(Path.Combine(floorIconDirectory, "Portal.png"));
 
             int floorIcons = CountFiles(floorIconDirectory, "*.png");
             int outlineIcons = CountFiles(outlineDirectory, "*.png");
@@ -95,6 +96,32 @@ internal static class Program
                 }
             }
         }
+    }
+
+    private static void VerifyPortalMetadata(string imagePath)
+    {
+        string metadataPath = imagePath + ".sprite.json";
+        if (!File.Exists(metadataPath))
+            throw new FileNotFoundException("Portal Sprite metadata sidecar is missing.", metadataPath);
+
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(metadataPath));
+        JsonElement root = document.RootElement;
+        VerifyMetadataValue(root, "spriteRectWidth", 256f);
+        VerifyMetadataValue(root, "spriteRectHeight", 256f);
+        VerifyMetadataValue(root, "textureRectX", 44f);
+        VerifyMetadataValue(root, "textureRectY", 43f);
+        VerifyMetadataValue(root, "textureRectWidth", 169f);
+        VerifyMetadataValue(root, "textureRectHeight", 169f);
+        VerifyMetadataValue(root, "pivotX", 128f);
+        VerifyMetadataValue(root, "pivotY", 128f);
+        VerifyMetadataValue(root, "pixelsPerUnit", 290f);
+    }
+
+    private static void VerifyMetadataValue(JsonElement root, string name, float expected)
+    {
+        float actual = root.GetProperty(name).GetSingle();
+        if (MathF.Abs(actual - expected) > 0.000001f)
+            throw new InvalidDataException($"Portal metadata {name}: expected {expected}, got {actual}.");
     }
 
     private static void VerifyManifest(

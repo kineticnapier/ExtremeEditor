@@ -60,7 +60,10 @@ add_executable(native_renderer_tests
 
 target_compile_features(native_renderer_tests PRIVATE cxx_std_20)
 target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(native_renderer_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
 add_executable(camera_runtime_reference_tests

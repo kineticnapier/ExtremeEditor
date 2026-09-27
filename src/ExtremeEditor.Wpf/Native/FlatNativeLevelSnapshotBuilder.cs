@@ -36,7 +36,7 @@ internal static class FlatNativeLevelSnapshotBuilder
         };
 
         NativeLevelSnapshotBuildResult geometryResult =
-            NativeLevelSnapshotBuilder.BuildProfiled(geometryOnlyLevel);
+            NativeLevelSnapshotBuilder.BuildGeometryProfiled(geometryOnlyLevel);
         NativeLevelSnapshot geometrySnapshot = geometryResult.Snapshot;
         NativeFloor[] floors = geometrySnapshot.Floors;
         double[] angles = level.Angles;
@@ -189,6 +189,8 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
         }
+
+        TerminalPortalResolver.Apply(floors, iconAssets);
 
         // Track visual state has its own ABI fields now; icon flags stay icon-only.
         int trackVisualCount = Math.Min(floors.Length, trackVisuals.Length);
@@ -361,7 +363,7 @@ internal static class FlatNativeLevelSnapshotBuilder
                 {
                     string fullPath = Path.GetFullPath(candidate);
                     uint id = checked((uint)iconAssets.Count);
-                    iconAssets.Add(new NativeIconAsset(id, fullPath, null));
+                    iconAssets.Add(NativeIconAsset.Create(id, fullPath, null));
                     iconId = id;
                 }
                 else
@@ -430,7 +432,7 @@ internal static class FlatNativeLevelSnapshotBuilder
             ? Path.GetFullPath(outlineCandidate)
             : null;
         uint iconId = checked((uint)iconAssets.Count);
-        iconAssets.Add(new NativeIconAsset(iconId, imagePath, outlinePath));
+        iconAssets.Add(NativeIconAsset.Create(iconId, imagePath, outlinePath));
         asset = new FloorIconAsset(iconId);
         cache[key] = asset;
         return true;

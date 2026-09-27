@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using AssetsTools.NET;
 using AssetsTools.NET.Extra;
 using AssetsTools.NET.Texture;
@@ -27,6 +29,21 @@ public static class AdoFaiIconExtractor
     ];
 
     private sealed record ResourceAsset(AssetsFileInstance Instance, AssetFileInfo Info);
+
+    private readonly record struct SpriteMetrics(
+        float SpriteRectX,
+        float SpriteRectY,
+        float SpriteRectWidth,
+        float SpriteRectHeight,
+        float TextureRectX,
+        float TextureRectY,
+        float TextureRectWidth,
+        float TextureRectHeight,
+        float PixelsPerUnit,
+        float WorldWidth,
+        float WorldHeight,
+        float PivotX,
+        float PivotY);
 
     public static IconExtractionResult Extract(string gameRoot, string outputDirectory)
     {
@@ -485,6 +502,7 @@ public static class AdoFaiIconExtractor
         int y = ClampRound(textureRect["y"].AsFloat, 0, Math.Max(0, texture.m_Height - 1));
         int width = ClampRound(textureRect["width"].AsFloat, 1, texture.m_Width - x);
         int height = ClampRound(textureRect["height"].AsFloat, 1, texture.m_Height - y);
+        SpriteMetrics metrics = ReadSpriteMetrics(sprite, spriteName, x, y, width, height);
 
         byte[] cropped = CropRgbaBottomUp(decoded, texture.m_Width, x, y, width, height);
         PngWriter.WriteRgba32(
@@ -493,10 +511,140 @@ public static class AdoFaiIconExtractor
             height,
             cropped,
             flipVertically: true);
+        WriteSpriteMetadata(destination, metrics);
 
         Console.WriteLine(
             $"[icons] sprite={spriteName} pathId={spriteInfo.PathId} texture={texture.m_Name} texturePathId={textureExternal.info.PathId} crop={x},{y} {width}x{height} -> {Path.GetFileName(destination)}");
+        Console.WriteLine(
+            $"[sprite-meta] {Path.GetFileNameWithoutExtension(destination)} sprite={spriteName} " +
+            $"rect={Format(metrics.SpriteRectWidth)}x{Format(metrics.SpriteRectHeight)} " +
+            $"ppu={Format(metrics.PixelsPerUnit)} " +
+            $"world={Format(metrics.WorldWidth)}x{Format(metrics.WorldHeight)} " +
+            $"pivot={Format(metrics.PivotX)},{Format(metrics.PivotY)}");
     }
+
+    private static SpriteMetrics ReadSpriteMetrics(
+        AssetTypeValueField sprite,
+        string spriteName,
+        int textureRectX,
+        int textureRectY,
+        int textureRectWidth,
+        int textureRectHeight)
+    {
+        AssetTypeValueField rect = sprite["m_Rect"];
+        if (rect.IsDummy)
+            throw new InvalidDataException($"Sprite '{spriteName}' has no m_Rect field.");
+
+        float rectX = ReadRequiredFloat(rect, "x", spriteName);
+        float rectY = ReadRequiredFloat(rect, "y", spriteName);
+        float rectWidth = ReadRequiredFloat(rect, "width", spriteName);
+        float rectHeight = ReadRequiredFloat(rect, "height", spriteName);
+        if (!TryFindField(sprite, "m_PixelsToUnits", out AssetTypeValueField pixelsToUnitsField))
+        {
+            DumpSerializedFieldTree(sprite, spriteName);
+            throw new InvalidDataException(
+                $"Sprite '{spriteName}' has no m_PixelsToUnits in its serialized field tree.");
+        }
+
+        float pixelsToUnits = pixelsToUnitsField.AsFloat;
+        if (!float.IsFinite(pixelsToUnits) || pixelsToUnits <= 0f)
+        {
+            throw new InvalidDataException(
+                $"Sprite '{spriteName}' has invalid m_PixelsToUnits={Format(pixelsToUnits)}.");
+        }
+
+        if (!TryFindField(sprite, "m_Pivot", out AssetTypeValueField pivot))
+            throw new InvalidDataException($"Sprite '{spriteName}' has no m_Pivot field.");
+
+        float pivotX = ReadRequiredFloat(pivot, "x", spriteName) * rectWidth;
+        float pivotY = ReadRequiredFloat(pivot, "y", spriteName) * rectHeight;
+
+        return new SpriteMetrics(
+            rectX,
+            rectY,
+            rectWidth,
+            rectHeight,
+            textureRectX,
+            textureRectY,
+            textureRectWidth,
+            textureRectHeight,
+            pixelsToUnits,
+            rectWidth / pixelsToUnits,
+            rectHeight / pixelsToUnits,
+            pivotX,
+            pivotY);
+    }
+
+    private static void WriteSpriteMetadata(string imagePath, SpriteMetrics metrics)
+    {
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            metrics,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true
+            });
+        File.WriteAllBytes(imagePath + ".sprite.json", json);
+    }
+
+    private static float ReadRequiredFloat(
+        AssetTypeValueField parent,
+        string fieldName,
+        string spriteName)
+    {
+        float? value = TryReadFloat(parent, fieldName);
+        if (value is not float result || !float.IsFinite(result))
+        {
+            throw new InvalidDataException(
+                $"Sprite '{spriteName}' has no finite {parent.FieldName}.{fieldName} value.");
+        }
+
+        return result;
+    }
+
+    private static float? TryReadFloat(AssetTypeValueField parent, string fieldName)
+    {
+        AssetTypeValueField field = parent[fieldName];
+        return field.IsDummy ? null : field.AsFloat;
+    }
+
+    private static bool TryFindField(
+        AssetTypeValueField root,
+        string fieldName,
+        out AssetTypeValueField result)
+    {
+        if (string.Equals(root.FieldName, fieldName, StringComparison.Ordinal))
+        {
+            result = root;
+            return true;
+        }
+
+        foreach (AssetTypeValueField child in root.Children)
+        {
+            if (TryFindField(child, fieldName, out result))
+                return true;
+        }
+
+        result = null!;
+        return false;
+    }
+
+    private static void DumpSerializedFieldTree(AssetTypeValueField sprite, string spriteName)
+    {
+        Console.WriteLine($"[sprite-meta] {spriteName}: serialized field tree (m_PixelsToUnits missing)");
+        DumpSerializedFieldTree(sprite, depth: 0);
+    }
+
+    private static void DumpSerializedFieldTree(AssetTypeValueField field, int depth)
+    {
+        Console.WriteLine(
+            $"[sprite-meta-field] {new string(' ', depth * 2)}{field.FieldName}: {field.TypeName}");
+        foreach (AssetTypeValueField child in field.Children)
+            DumpSerializedFieldTree(child, depth + 1);
+    }
+
+    private static string Format(float value)
+        => value.ToString("0.######", CultureInfo.InvariantCulture);
 
     private static int ClampRound(float value, int min, int max)
     {

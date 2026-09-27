@@ -30,6 +30,7 @@ struct VSInput
     float2 localUv : TEXCOORD0;
     float2 worldPosition : INSTANCEPOS;
     float2 sizePixels : INSTANCESIZE;
+    float2 centerOffsetPixels : INSTANCEOFFSET;
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
 };
@@ -54,7 +55,7 @@ VSOutput VSMain(VSInput input)
     float is = input.rotation.y;
     float c = cc * ic - cs * is;
     float s = cs * ic + cc * is;
-    float2 local = input.localPosition * input.sizePixels;
+    float2 local = input.localPosition * input.sizePixels + input.centerOffsetPixels;
     float2 offset = float2(
         c * local.x - s * local.y,
         s * local.x + c * local.y);
@@ -124,8 +125,9 @@ bool IconInstancedRenderer::EnsureCameraPipeline() noexcept
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"INSTANCEPOS", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCESIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCEOFFSET", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(current->CreateInputLayout(
             elements,
@@ -199,29 +201,45 @@ bool IconInstancedRenderer::DrawCamera(
         const float cosine = std::cos(floor.icon_angle);
         const float sine = std::sin(floor.icon_angle);
 
-        auto append_instance = [&](std::int32_t batch_index, float requested, float depth_offset) noexcept
+        auto append_instance = [&](std::int32_t batch_index,
+                                   const SpriteMetadata& metadata,
+                                   float requested,
+                                   float depth_offset) noexcept
         {
             if (batch_index < 0 || static_cast<std::size_t>(batch_index) >= batches_.size())
                 return;
             Batch& batch = batches_[static_cast<std::size_t>(batch_index)];
-            const std::uint32_t max_dimension = std::max(batch.texture.width, batch.texture.height);
-            if (max_dimension == 0)
+            SpriteDrawLayout layout = CalculateSpriteDrawLayout(
+                metadata,
+                batch.texture.width,
+                batch.texture.height,
+                requested);
+            if (layout.width <= 0.0f || layout.height <= 0.0f)
                 return;
-            const float size = RequestedSize(requested);
-            const float scale = size / static_cast<float>(max_dimension);
-            float draw_width = static_cast<float>(batch.texture.width) * scale;
-            const float draw_height = static_cast<float>(batch.texture.height) * scale;
+            float draw_width = layout.width;
             if (flipped)
                 draw_width = -draw_width;
             const float depth = std::max(0.0f, floor_depth - depth_step * depth_offset);
             batch.instances.push_back(InstanceData{
-                floor.x, floor.y, draw_width, draw_height, cosine, sine, depth});
+                floor.x,
+                floor.y,
+                draw_width,
+                layout.height,
+                flipped ? -layout.offset_x : layout.offset_x,
+                layout.offset_y,
+                cosine,
+                sine,
+                depth});
             ++sprite_count;
         };
 
         if (is_floor_icon && asset.outline_batch >= 0)
-            append_instance(asset.outline_batch, base_requested * 1.04f, 0.20f);
-        append_instance(asset.image_batch, base_requested, 0.30f);
+            append_instance(
+                asset.outline_batch,
+                asset.outline_metadata,
+                base_requested * 1.04f,
+                0.20f);
+        append_instance(asset.image_batch, asset.image_metadata, base_requested, 0.30f);
         ++logical_icon_count;
     }
 

@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ExtremeEditor.AssetExtractor;
 
 namespace ExtremeEditor.AssetExtractor.Tests;
@@ -41,6 +42,7 @@ internal static class Program
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "SwirlBlue.png"), "SwirlBlue.png");
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Rabbit.png"), "Rabbit.png");
             VerifyCanonicalPng(Path.Combine(iconResult.FloorDirectory, "Snail.png"), "Snail.png");
+            VerifyPortalMetadata(Path.Combine(iconResult.FloorDirectory, "Portal.png"));
             VerifyIconCatalog(gameRoot, iconResult, iconOutput);
 
             string hitSoundOutput = Path.Combine(outputDirectory, "hitsounds");
@@ -73,6 +75,32 @@ internal static class Program
                 }
             }
         }
+    }
+
+    private static void VerifyPortalMetadata(string imagePath)
+    {
+        string metadataPath = imagePath + ".sprite.json";
+        if (!File.Exists(metadataPath))
+            throw new FileNotFoundException("Portal Sprite metadata sidecar is missing.", metadataPath);
+
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(metadataPath));
+        JsonElement root = document.RootElement;
+        VerifyMetadataValue(root, "spriteRectWidth", 256f);
+        VerifyMetadataValue(root, "spriteRectHeight", 256f);
+        VerifyMetadataValue(root, "textureRectX", 44f);
+        VerifyMetadataValue(root, "textureRectY", 43f);
+        VerifyMetadataValue(root, "textureRectWidth", 169f);
+        VerifyMetadataValue(root, "textureRectHeight", 169f);
+        VerifyMetadataValue(root, "pivotX", 128f);
+        VerifyMetadataValue(root, "pivotY", 128f);
+        VerifyMetadataValue(root, "pixelsPerUnit", 290f);
+    }
+
+    private static void VerifyMetadataValue(JsonElement root, string name, float expected)
+    {
+        float actual = root.GetProperty(name).GetSingle();
+        if (MathF.Abs(actual - expected) > 0.000001f)
+            throw new InvalidDataException($"Portal metadata {name}: expected {expected}, got {actual}.");
     }
 
     private static void VerifyIconCatalog(string gameRoot, IconExtractionResult result, string iconOutput)

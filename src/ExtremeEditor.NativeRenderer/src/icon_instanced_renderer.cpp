@@ -32,6 +32,7 @@ struct VSInput
     float2 localUv : TEXCOORD0;
     float2 worldPosition : INSTANCEPOS;
     float2 sizePixels : INSTANCESIZE;
+    float2 centerOffsetPixels : INSTANCEOFFSET;
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
 };
@@ -45,7 +46,7 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    float2 local = input.localPosition * input.sizePixels;
+    float2 local = input.localPosition * input.sizePixels + input.centerOffsetPixels;
     float c = input.rotation.x;
     float s = input.rotation.y;
     float2 offset = float2(
@@ -159,8 +160,9 @@ bool IconInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"INSTANCEPOS", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCESIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCEOFFSET", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(device->CreateInputLayout(
             elements,
@@ -351,6 +353,7 @@ bool IconInstancedRenderer::SyncAssets(
             if (LoadTexture(asset.image_path, image))
             {
                 entry.image_batch = static_cast<std::int32_t>(next_batches.size());
+                entry.image_metadata = asset.image_metadata;
                 Batch batch;
                 batch.texture = std::move(image);
                 next_batches.push_back(std::move(batch));
@@ -362,6 +365,7 @@ bool IconInstancedRenderer::SyncAssets(
                 if (LoadTexture(asset.outline_path, outline))
                 {
                     entry.outline_batch = static_cast<std::int32_t>(next_batches.size());
+                    entry.outline_metadata = asset.outline_metadata;
                     Batch batch;
                     batch.texture = std::move(outline);
                     next_batches.push_back(std::move(batch));
@@ -377,11 +381,6 @@ bool IconInstancedRenderer::SyncAssets(
     flat_instances_.clear();
     cached_assets_version_ = assets_version;
     return true;
-}
-
-float IconInstancedRenderer::RequestedSize(float requested) noexcept
-{
-    return std::clamp(requested, 10.0f, 96.0f);
 }
 
 bool IconInstancedRenderer::EnsureInstanceBuffer(std::size_t instance_count) noexcept
@@ -486,20 +485,24 @@ bool IconInstancedRenderer::Draw(
         const float cosine = std::cos(floor.icon_angle);
         const float sine = std::sin(floor.icon_angle);
 
-        auto append_instance = [&](std::int32_t batch_index, float requested, float depth_offset) noexcept
+        auto append_instance = [&](std::int32_t batch_index,
+                                   const SpriteMetadata& metadata,
+                                   float requested,
+                                   float depth_offset) noexcept
         {
             if (batch_index < 0 || static_cast<std::size_t>(batch_index) >= batches_.size())
                 return;
 
             Batch& batch = batches_[static_cast<std::size_t>(batch_index)];
-            const std::uint32_t max_dimension = std::max(batch.texture.width, batch.texture.height);
-            if (max_dimension == 0)
+            SpriteDrawLayout layout = CalculateSpriteDrawLayout(
+                metadata,
+                batch.texture.width,
+                batch.texture.height,
+                requested);
+            if (layout.width <= 0.0f || layout.height <= 0.0f)
                 return;
 
-            const float size = RequestedSize(requested);
-            const float scale = size / static_cast<float>(max_dimension);
-            float draw_width = static_cast<float>(batch.texture.width) * scale;
-            const float draw_height = static_cast<float>(batch.texture.height) * scale;
+            float draw_width = layout.width;
             if (flipped)
                 draw_width = -draw_width;
 
@@ -508,7 +511,9 @@ bool IconInstancedRenderer::Draw(
                 floor.x,
                 floor.y,
                 draw_width,
-                draw_height,
+                layout.height,
+                flipped ? -layout.offset_x : layout.offset_x,
+                layout.offset_y,
                 cosine,
                 sine,
                 depth});
@@ -516,9 +521,13 @@ bool IconInstancedRenderer::Draw(
         };
 
         if (is_floor_icon && asset.outline_batch >= 0)
-            append_instance(asset.outline_batch, base_requested * 1.04f, 0.20f);
+            append_instance(
+                asset.outline_batch,
+                asset.outline_metadata,
+                base_requested * 1.04f,
+                0.20f);
 
-        append_instance(asset.image_batch, base_requested, 0.30f);
+        append_instance(asset.image_batch, asset.image_metadata, base_requested, 0.30f);
         ++logical_icon_count;
     }
 

@@ -102,6 +102,8 @@ private:
     {
         Microsoft::WRL::ComPtr<ID2D1Bitmap1> image;
         Microsoft::WRL::ComPtr<ID2D1Bitmap1> outline;
+        SpriteMetadata image_metadata;
+        SpriteMetadata outline_metadata;
         bool attempted = false;
     };
 
@@ -118,7 +120,8 @@ private:
         float center_y,
         float requested_size,
         float angle_radians,
-        bool flipped) noexcept;
+        bool flipped,
+        const SpriteMetadata& metadata) noexcept;
     void QueryVisibleFloors(
         const LevelScene& scene,
         float camera_x,

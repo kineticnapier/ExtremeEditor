@@ -422,8 +422,12 @@ D2DBackend::IconBitmapSet* D2DBackend::GetIconBitmaps(
         return &cached;
 
     cached.image = LoadBitmap(found->second.image_path);
+    cached.image_metadata = found->second.image_metadata;
     if (!found->second.outline_path.empty())
+    {
         cached.outline = LoadBitmap(found->second.outline_path);
+        cached.outline_metadata = found->second.outline_metadata;
+    }
     return &cached;
 }
 
@@ -433,20 +437,21 @@ void D2DBackend::DrawBitmapCentered(
     float center_y,
     float requested_size,
     float angle_radians,
-    bool flipped) noexcept
+    bool flipped,
+    const SpriteMetadata& metadata) noexcept
 {
     if (bitmap == nullptr)
         return;
 
     const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
-    const std::uint32_t max_dimension = std::max(pixels.width, pixels.height);
-    if (max_dimension == 0)
+    SpriteDrawLayout layout = CalculateSpriteDrawLayout(
+        metadata,
+        pixels.width,
+        pixels.height,
+        requested_size);
+    if (layout.width <= 0.0f || layout.height <= 0.0f)
         return;
 
-    const float size = std::clamp(requested_size, 10.0f, 96.0f);
-    const float scale = size / static_cast<float>(max_dimension);
-    const float draw_width = static_cast<float>(pixels.width) * scale;
-    const float draw_height = static_cast<float>(pixels.height) * scale;
     const float cosine = std::cos(angle_radians);
     const float sine = std::sin(angle_radians);
     const float flip_x = flipped ? -1.0f : 1.0f;
@@ -462,10 +467,10 @@ void D2DBackend::DrawBitmapCentered(
     d2d_context_->DrawBitmap(
         bitmap,
         D2D1::RectF(
-            -draw_width * 0.5f,
-            -draw_height * 0.5f,
-            draw_width * 0.5f,
-            draw_height * 0.5f),
+            layout.offset_x - layout.width * 0.5f,
+            layout.offset_y - layout.height * 0.5f,
+            layout.offset_x + layout.width * 0.5f,
+            layout.offset_y + layout.height * 0.5f),
         1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
@@ -569,7 +574,8 @@ void D2DBackend::DrawSceneOverlays(
                     center_y,
                     size * 1.04f,
                     floor.icon_angle,
-                    flipped);
+                    flipped,
+                    bitmaps->outline_metadata);
                 ++stats.draw_calls;
             }
 
@@ -579,7 +585,8 @@ void D2DBackend::DrawSceneOverlays(
                 center_y,
                 size,
                 floor.icon_angle,
-                flipped);
+                flipped,
+                bitmaps->image_metadata);
             ++stats.icon_draws;
             ++stats.draw_calls;
         }

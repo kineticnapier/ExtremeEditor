@@ -19,7 +19,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 11;
+    private const uint ExpectedApiVersion = 12;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -86,6 +86,11 @@ internal sealed class NativeRendererSession : IDisposable
         if (abiInfo.CameraEventSize != managedCameraEventSize)
             throw new InvalidOperationException(
                 $"Native camera-event ABI mismatch. Managed {managedCameraEventSize}, native {abiInfo.CameraEventSize}.");
+
+        uint managedSpriteMetadataSize = checked((uint)Marshal.SizeOf<NativeSpriteMetadata>());
+        if (abiInfo.SpriteMetadataSize != managedSpriteMetadataSize)
+            throw new InvalidOperationException(
+                $"Native sprite-metadata ABI mismatch. Managed {managedSpriteMetadataSize}, native {abiInfo.SpriteMetadataSize}.");
 
         var createInfo = new NativeRendererCreateInfo
         {
@@ -163,11 +168,15 @@ internal sealed class NativeRendererSession : IDisposable
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)
         {
+            NativeSpriteMetadata imageMetadata = asset.ImageMetadata;
+            NativeSpriteMetadata outlineMetadata = asset.OutlineMetadata;
             int result = NativeRendererNative.SetIconAsset(
                 _renderer,
                 asset.Id,
                 asset.ImagePath,
-                asset.OutlinePath);
+                asset.OutlinePath,
+                ref imageMetadata,
+                ref outlineMetadata);
             if (result != 0)
                 throw new InvalidOperationException(
                     $"Native icon asset upload failed for {asset.ImagePath} with result {result}.");

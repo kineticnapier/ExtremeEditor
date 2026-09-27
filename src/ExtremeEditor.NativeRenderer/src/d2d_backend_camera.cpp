@@ -134,10 +134,23 @@ void D2DBackend::DrawSceneOverlaysCamera(
             if (is_floor_icon && bitmaps->outline)
             {
                 DrawBitmapCentered(
-                    bitmaps->outline.Get(), center.x, center.y, size * 1.04f, icon_angle, flipped);
+                    bitmaps->outline.Get(),
+                    center.x,
+                    center.y,
+                    size * 1.04f,
+                    icon_angle,
+                    flipped,
+                    bitmaps->outline_metadata);
                 ++stats.draw_calls;
             }
-            DrawBitmapCentered(bitmaps->image.Get(), center.x, center.y, size, icon_angle, flipped);
+            DrawBitmapCentered(
+                bitmaps->image.Get(),
+                center.x,
+                center.y,
+                size,
+                icon_angle,
+                flipped,
+                bitmaps->image_metadata);
             ++stats.icon_draws;
             ++stats.draw_calls;
         }

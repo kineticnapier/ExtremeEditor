@@ -15,6 +15,10 @@ public static class IconAssetCache
     public static string FloorPath(string floorIcon) => Path.Combine(FloorDirectory, SafeName(floorIcon) + ".png");
     public static string OutlinePath(string floorIcon) => Path.Combine(OutlineDirectory, SafeName(floorIcon) + ".png");
     public static string CategoryPath(string category) => Path.Combine(CategoryDirectory, SafeName(category) + ".png");
+    public static string SpriteMetadataPath(string imagePath) => imagePath + ".sprite.json";
+
+    public static bool TryReadSpriteMetadata(string imagePath, out SpriteAssetMetadata? metadata) =>
+        SpriteAssetMetadata.TryRead(imagePath, out metadata);
 
     private static string SafeName(string value)
     {

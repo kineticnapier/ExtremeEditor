@@ -373,7 +373,9 @@ void Renderer::ClearIconAssets() noexcept
 bool Renderer::SetIconAsset(
     std::uint32_t icon_id,
     const wchar_t* image_path,
-    const wchar_t* outline_path) noexcept
+    const wchar_t* outline_path,
+    const EeSpriteMetadata& image_metadata,
+    const EeSpriteMetadata& outline_metadata) noexcept
 {
     if (image_path == nullptr || *image_path == L'\0')
         return false;
@@ -386,6 +388,8 @@ bool Renderer::SetIconAsset(
         asset.image_path = image_path;
         if (outline_path != nullptr)
             asset.outline_path = outline_path;
+        asset.image_metadata = SpriteMetadata::FromAbi(image_metadata);
+        asset.outline_metadata = SpriteMetadata::FromAbi(outline_metadata);
         (*next)[icon_id] = std::move(asset);
         icon_assets_ = std::move(next);
         ++icon_assets_version_;

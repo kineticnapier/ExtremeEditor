@@ -72,7 +72,9 @@ internal static class NativeRendererNative
         nint renderer,
         uint iconId,
         string imagePath,
-        string? outlinePath);
+        string? outlinePath,
+        ref NativeSpriteMetadata imageMetadata,
+        ref NativeSpriteMetadata outlineMetadata);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_get_selected_floor", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int GetSelectedFloor(nint renderer);

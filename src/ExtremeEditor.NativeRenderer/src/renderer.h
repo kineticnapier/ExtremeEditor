@@ -30,7 +30,12 @@ public:
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
     void FrameAll() noexcept;
     void ClearIconAssets() noexcept;
-    bool SetIconAsset(std::uint32_t icon_id, const wchar_t* image_path, const wchar_t* outline_path) noexcept;
+    bool SetIconAsset(
+        std::uint32_t icon_id,
+        const wchar_t* image_path,
+        const wchar_t* outline_path,
+        const EeSpriteMetadata& image_metadata,
+        const EeSpriteMetadata& outline_metadata) noexcept;
     void SetSelection(const std::int32_t* floors, std::uint32_t floor_count, std::int32_t primary_floor) noexcept;
     void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
     void SetEditorActionCallback(EeEditorActionCallback callback, void* user_data) noexcept;

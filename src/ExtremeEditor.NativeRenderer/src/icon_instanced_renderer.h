@@ -74,6 +74,8 @@ private:
         float y;
         float width;
         float height;
+        float offset_x;
+        float offset_y;
         float cosine;
         float sine;
         float depth;
@@ -90,6 +92,8 @@ private:
     {
         std::int32_t image_batch = -1;
         std::int32_t outline_batch = -1;
+        SpriteMetadata image_metadata;
+        SpriteMetadata outline_metadata;
     };
 
     struct QuadVertex
@@ -133,7 +137,6 @@ private:
     bool LoadTexture(const std::wstring& path, SpriteTexture& output) noexcept;
     bool EnsureInstanceBuffer(std::size_t instance_count) noexcept;
     bool UploadInstances(ID3D11DeviceContext* context) noexcept;
-    static float RequestedSize(float requested) noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;

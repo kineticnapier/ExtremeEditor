@@ -22,6 +22,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->diagnostics_size = sizeof(EeRendererDiagnostics);
     info->track_transform_event_size = sizeof(EeTrackTransformEvent);
     info->camera_event_size = sizeof(EeCameraEvent);
+    info->sprite_metadata_size = sizeof(EeSpriteMetadata);
     return EE_OK;
 }
 
@@ -135,15 +136,22 @@ EeResult ee_renderer_set_icon_asset(
     EeRendererHandle renderer,
     uint32_t icon_id,
     const wchar_t* image_path,
-    const wchar_t* outline_path)
+    const wchar_t* outline_path,
+    const EeSpriteMetadata* image_metadata,
+    const EeSpriteMetadata* outline_metadata)
 {
-    if (renderer == nullptr || image_path == nullptr)
+    if (renderer == nullptr || image_path == nullptr || image_metadata == nullptr ||
+        outline_metadata == nullptr ||
+        image_metadata->struct_size != sizeof(EeSpriteMetadata) ||
+        outline_metadata->struct_size != sizeof(EeSpriteMetadata))
         return EE_ERROR_INVALID_ARGUMENT;
 
     return static_cast<ee::Renderer*>(renderer)->SetIconAsset(
         icon_id,
         image_path,
-        outline_path)
+        outline_path,
+        *image_metadata,
+        *outline_metadata)
         ? EE_OK
         : EE_ERROR_INVALID_ARGUMENT;
 }
