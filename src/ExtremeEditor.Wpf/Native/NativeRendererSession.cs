@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.Wpf.Native;
 
@@ -19,7 +20,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 12;
+    private const uint ExpectedApiVersion = 13;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -92,6 +93,11 @@ internal sealed class NativeRendererSession : IDisposable
             throw new InvalidOperationException(
                 $"Native sprite-metadata ABI mismatch. Managed {managedSpriteMetadataSize}, native {abiInfo.SpriteMetadataSize}.");
 
+        uint managedStaticDecorationSize = checked((uint)Marshal.SizeOf<NativeStaticDecoration>());
+        if (abiInfo.StaticDecorationSize != managedStaticDecorationSize)
+            throw new InvalidOperationException(
+                $"Native static-decoration ABI mismatch. Managed {managedStaticDecorationSize}, native {abiInfo.StaticDecorationSize}.");
+
         var createInfo = new NativeRendererCreateInfo
         {
             StructSize = checked((uint)Marshal.SizeOf<NativeRendererCreateInfo>()),
@@ -163,6 +169,38 @@ internal sealed class NativeRendererSession : IDisposable
                 geometriesHandle.Free();
             if (floorsHandle.IsAllocated)
                 floorsHandle.Free();
+        }
+
+        GCHandle decorationsHandle = default;
+        try
+        {
+            nint decorations = nint.Zero;
+            if (snapshot.StaticDecorations.Length > 0)
+            {
+                decorationsHandle = GCHandle.Alloc(snapshot.StaticDecorations, GCHandleType.Pinned);
+                decorations = decorationsHandle.AddrOfPinnedObject();
+            }
+
+            int result = NativeRendererNative.SetStaticDecorations(
+                _renderer,
+                decorations,
+                checked((uint)snapshot.StaticDecorations.Length));
+            if (result != 0)
+                throw new InvalidOperationException($"Native static-decoration upload failed with result {result}.");
+        }
+        finally
+        {
+            if (decorationsHandle.IsAllocated)
+                decorationsHandle.Free();
+        }
+
+        NativeRendererNative.ClearDecorationAssets(_renderer);
+        foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
+        {
+            int result = NativeRendererNative.SetDecorationAsset(_renderer, asset.Id, asset.ImagePath);
+            if (result != 0)
+                throw new InvalidOperationException(
+                    $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
         }
 
         NativeRendererNative.ClearIconAssets(_renderer);
