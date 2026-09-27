@@ -1,5 +1,6 @@
 #pragma once
 
+#include "decoration_assets.h"
 #include "extreme_editor_renderer.h"
 #include "track_transform_runtime.h"
 
@@ -12,6 +13,14 @@
 
 namespace ee
 {
+struct DecorationRenderState
+{
+    std::shared_ptr<const std::vector<EeStaticDecoration>> decorations;
+    std::shared_ptr<const DecorationAssetTable> assets;
+    std::uint64_t decorations_version = 0;
+    std::uint64_t assets_version = 0;
+};
+
 struct LevelScene
 {
     static std::shared_ptr<LevelScene> Create(
@@ -40,6 +49,11 @@ struct LevelScene
     void UpdateTrackTransforms() noexcept;
     void EvaluateVisibleTrackVisuals(const std::vector<std::uint32_t>& visible_floors) noexcept;
     TrackTransformUpdateMetrics TrackTransformMetrics() const noexcept;
+
+    bool SetStaticDecorations(const EeStaticDecoration* decorations, std::uint32_t decoration_count) noexcept;
+    void ClearDecorationAssets() noexcept;
+    bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
+    DecorationRenderState GetDecorationRenderState() const noexcept;
 
     std::vector<EeFloor> floors;
     std::vector<EeGeometry> geometries;
@@ -78,5 +92,13 @@ private:
     double track_playback_anchor_chart_time_ = 0.0;
     double track_playback_anchor_rate_ = 1.0;
     std::chrono::steady_clock::time_point track_playback_anchor_steady_{};
+
+    mutable std::mutex decoration_mutex_;
+    std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
+        std::make_shared<std::vector<EeStaticDecoration>>();
+    std::shared_ptr<const DecorationAssetTable> decoration_assets_ =
+        std::make_shared<DecorationAssetTable>();
+    std::uint64_t static_decorations_version_ = 0;
+    std::uint64_t decoration_assets_version_ = 0;
 };
 }
