@@ -8,6 +8,8 @@ namespace ee
 {
 namespace
 {
+thread_local ID2D1DeviceContext* last_decoration_context = nullptr;
+
 D2D1_POINT_2F DecorationWorldToScreen(
     float world_x,
     float world_y,
@@ -39,10 +41,10 @@ bool D2DBackend::SyncStaticDecorations(
     if (!d2d_context_)
         return false;
 
-    const bool device_changed = decoration_context_ != d2d_context_.Get();
+    const bool device_changed = last_decoration_context != d2d_context_.Get();
     if (device_changed)
     {
-        decoration_context_ = d2d_context_.Get();
+        last_decoration_context = d2d_context_.Get();
         decoration_color_effect_.Reset();
         decoration_bitmaps_.clear();
         cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
@@ -132,9 +134,9 @@ void D2DBackend::DrawStaticDecorationsCamera(
             continue;
         }
 
-        // ADOFAI pivotOffset changes the rotation pivot without changing the
-        // unrotated placement. Rotate the offset around that pivot and apply only
-        // the resulting displacement.
+        // pivotOffset changes the rotation pivot without changing the unrotated
+        // placement. Preserve the raw ADOFAI value in the ABI and apply only the
+        // rotation-induced displacement here.
         const float local_c = std::cos(decoration.rotation_radians);
         const float local_s = std::sin(decoration.rotation_radians);
         const float rotated_pivot_x =
