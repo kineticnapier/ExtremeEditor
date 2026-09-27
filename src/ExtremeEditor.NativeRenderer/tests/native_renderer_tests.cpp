@@ -29,7 +29,8 @@ int main()
     if (info.floor_size != sizeof(EeFloor) ||
         info.clock_size != sizeof(EePlaybackTiming) ||
         info.diagnostics_size != sizeof(EeRendererDiagnostics) ||
-        info.sprite_metadata_size != sizeof(EeSpriteMetadata))
+        info.sprite_metadata_size != sizeof(EeSpriteMetadata) ||
+        info.static_decoration_size != sizeof(EeStaticDecoration))
     {
         std::cerr << "ABI struct size mismatch.\n";
         return 1;
