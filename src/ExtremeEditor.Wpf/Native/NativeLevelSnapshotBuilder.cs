@@ -12,6 +12,8 @@ internal sealed class NativeLevelSnapshot
     public required NativeGeometry[] Geometries { get; init; }
     public required NativePoint[] Points { get; init; }
     public required NativeIconAsset[] IconAssets { get; init; }
+    public NativeStaticDecoration[] StaticDecorations { get; set; } = [];
+    public NativeDecorationAsset[] DecorationAssets { get; set; } = [];
     public required float BoundsLeft { get; init; }
     public required float BoundsTop { get; init; }
     public required float BoundsRight { get; init; }
@@ -220,12 +222,15 @@ internal static class NativeLevelSnapshotBuilder
 
         watch.Restart();
         WorldRect bounds = level.Bounds;
+        StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
         var snapshot = new NativeLevelSnapshot
         {
             Floors = floors,
             Geometries = geometries.ToArray(),
             Points = points.ToArray(),
             IconAssets = iconAssets.ToArray(),
+            StaticDecorations = decorationData.Instances,
+            DecorationAssets = decorationData.Assets,
             BoundsLeft = bounds.Left,
             BoundsTop = bounds.Top,
             BoundsRight = bounds.Right,
