@@ -13,6 +13,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/renderer_track.cpp
     src/renderer_editor.cpp
     src/renderer_diagnostics.cpp
+    src/renderer_decorations.cpp
     src/d2d_backend.cpp
     src/d2d_backend_compat.cpp
     src/d2d_backend_camera.cpp
