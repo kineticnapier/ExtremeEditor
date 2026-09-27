@@ -24,6 +24,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/icon_instanced_renderer.cpp
     src/icon_instanced_renderer_camera.cpp
     src/level_scene.cpp
+    src/level_scene_decorations.cpp
     src/track_transform_runtime.cpp
 )
 
