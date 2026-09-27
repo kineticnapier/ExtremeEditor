@@ -24,7 +24,7 @@ internal sealed class EditorSession
     private readonly Stack<IEditorCommand> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
     private readonly Dictionary<int, JsonObject> _newActionTemplates = new();
-    private readonly List<PendingDecoration> _pendingDecorations = new();
+    private readonly List<LevelDecoration> _decorations;
 
     private EditorClipboard? _clipboard;
     private JsonObject? _sourceRoot;
@@ -38,6 +38,8 @@ internal sealed class EditorSession
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
+        _decorations = document.Decorations.Select(CloneDecoration).ToList();
+        Document.ReplaceDecorations(_decorations);
     }
 
     public LevelDocument Document { get; }
@@ -49,7 +51,6 @@ internal sealed class EditorSession
     public string? RedoName => _redo.TryPeek(out IEditorCommand? command) ? command.Name : null;
     public IReadOnlyList<FloorStructureEdit> StructureEdits => _structureEdits;
     public IReadOnlyDictionary<int, JsonObject> NewActionTemplates => _newActionTemplates;
-    public IReadOnlyList<PendingDecoration> PendingDecorations => _pendingDecorations;
 
     public event EventHandler? Changed;
 
@@ -156,14 +157,14 @@ internal sealed class EditorSession
         }
 
         var decorations = new List<ClipboardDecoration>();
-        if (root["decorations"] is JsonArray decorationArray)
+        foreach (LevelDecoration decoration in _decorations)
         {
-            foreach (JsonNode? node in decorationArray)
-            {
-                if (node is not JsonObject obj || !TryGetInt(obj["floor"], out int floor) || !floorSet.Contains(floor))
-                    continue;
-                decorations.Add(new ClipboardDecoration(floor - firstFloor, (JsonObject)obj.DeepClone()));
-            }
+            if (decoration.Floor is not int floor || !floorSet.Contains(floor))
+                continue;
+            decorations.Add(new ClipboardDecoration(
+                floor - firstFloor,
+                decoration.EventType,
+                (JsonObject)decoration.Properties.DeepClone()));
         }
 
         _clipboard = new EditorClipboard(angles, actions.ToArray(), decorations.ToArray());
@@ -262,7 +263,7 @@ internal sealed class EditorSession
         IReadOnlyList<ClipboardAction> clipboardActions,
         IReadOnlyList<ClipboardDecoration> clipboardDecorations,
         List<LevelAction>? createdActions,
-        List<PendingDecoration>? createdDecorations,
+        List<LevelDecoration>? createdDecorations,
         bool recordStructure)
     {
         int beforeFloorCount = Document.FloorCount;
@@ -272,12 +273,27 @@ internal sealed class EditorSession
         if (count == 0)
             return;
 
+        var structureEdit = new FloorStructureEdit(
+            FloorStructureEditKind.Insert,
+            clampedAfter,
+            count,
+            beforeFloorCount);
+
         _angles.InsertRange(insertIndex, angles);
         for (int i = 0; i < _actions.Count; i++)
         {
             LevelAction action = _actions[i];
             if (action.Floor > clampedAfter)
                 _actions[i] = action with { Floor = action.Floor + count };
+        }
+        for (int i = 0; i < _decorations.Count; i++)
+        {
+            if (!AdoFaiEditorSaveService.TryTransformDecoration(
+                    _decorations[i], structureEdit, removeWhenDeleted: true, out LevelDecoration? transformed))
+            {
+                throw new InvalidOperationException("An insertion unexpectedly removed a decoration.");
+            }
+            _decorations[i] = transformed;
         }
 
         if (createdActions is null || createdActions.Count == 0)
@@ -309,21 +325,23 @@ internal sealed class EditorSession
             createdDecorations?.Clear();
             foreach (ClipboardDecoration item in clipboardDecorations)
             {
-                var node = (JsonObject)item.Node.DeepClone();
                 int floor = clampedAfter + 1 + item.RelativeFloor;
-                node["floor"] = floor;
-                var pending = new PendingDecoration(Guid.NewGuid(), floor, node);
-                _pendingDecorations.Add(pending);
-                createdDecorations?.Add(pending);
+                var created = new LevelDecoration(floor, item.EventType)
+                {
+                    SourceIndex = NextNewSourceIndex(),
+                    Properties = (JsonObject)item.Properties.DeepClone()
+                };
+                _decorations.Add(created);
+                createdDecorations?.Add(created);
             }
         }
         else
         {
-            _pendingDecorations.AddRange(createdDecorations);
+            _decorations.AddRange(createdDecorations);
         }
 
         if (recordStructure)
-            _structureEdits.Add(new FloorStructureEdit(FloorStructureEditKind.Insert, clampedAfter, count, beforeFloorCount));
+            _structureEdits.Add(structureEdit);
         RebuildDocument();
     }
 
@@ -347,25 +365,31 @@ internal sealed class EditorSession
                 _actions[i] = action with { Floor = action.Floor - count };
         }
 
-        PendingDecoration[] removedDecorations = _pendingDecorations
-            .Where(item => item.Floor >= first && item.Floor <= last)
-            .ToArray();
-        _pendingDecorations.RemoveAll(item => item.Floor >= first && item.Floor <= last);
-        for (int i = 0; i < _pendingDecorations.Count; i++)
+        var structureEdit = new FloorStructureEdit(
+            FloorStructureEditKind.Delete,
+            first,
+            count,
+            beforeFloorCount);
+        var removedDecorations = new List<DeletedDecoration>();
+        var survivingDecorations = new List<LevelDecoration>(_decorations.Count);
+        for (int i = 0; i < _decorations.Count; i++)
         {
-            PendingDecoration item = _pendingDecorations[i];
-            if (item.Floor > last)
+            LevelDecoration current = _decorations[i];
+            if (AdoFaiEditorSaveService.TryTransformDecoration(
+                    current, structureEdit, removeWhenDeleted: true, out LevelDecoration? transformed))
             {
-                int floor = item.Floor - count;
-                item.Node["floor"] = floor;
-                _pendingDecorations[i] = item with { Floor = floor };
+                survivingDecorations.Add(transformed);
             }
+            else
+                removedDecorations.Add(new DeletedDecoration(i, current));
         }
+        _decorations.Clear();
+        _decorations.AddRange(survivingDecorations);
 
         if (recordStructure)
-            _structureEdits.Add(new FloorStructureEdit(FloorStructureEditKind.Delete, first, count, beforeFloorCount));
+            _structureEdits.Add(structureEdit);
         RebuildDocument();
-        return new DeletedRange(first, removedAngles, removedActions, removedDecorations);
+        return new DeletedRange(first, removedAngles, removedActions, removedDecorations.ToArray());
     }
 
     internal void RestoreDeletedRaw(DeletedRange deleted, bool removeLastStructureEdit)
@@ -381,17 +405,22 @@ internal sealed class EditorSession
         }
         _actions.AddRange(deleted.Actions);
 
-        for (int i = 0; i < _pendingDecorations.Count; i++)
+        var inverseEdit = new FloorStructureEdit(
+            FloorStructureEditKind.Insert,
+            afterFloor,
+            count,
+            Document.FloorCount);
+        for (int i = 0; i < _decorations.Count; i++)
         {
-            PendingDecoration item = _pendingDecorations[i];
-            if (item.Floor >= deleted.FirstFloor)
+            if (!AdoFaiEditorSaveService.TryTransformDecoration(
+                    _decorations[i], inverseEdit, removeWhenDeleted: true, out LevelDecoration? transformed))
             {
-                int floor = item.Floor + count;
-                item.Node["floor"] = floor;
-                _pendingDecorations[i] = item with { Floor = floor };
+                throw new InvalidOperationException("Undoing deletion unexpectedly removed a decoration.");
             }
+            _decorations[i] = transformed;
         }
-        _pendingDecorations.AddRange(deleted.Decorations);
+        foreach (DeletedDecoration removed in deleted.Decorations.OrderBy(item => item.Index))
+            _decorations.Insert(Math.Min(removed.Index, _decorations.Count), removed.Decoration);
 
         if (removeLastStructureEdit && _structureEdits.Count > 0)
             _structureEdits.RemoveAt(_structureEdits.Count - 1);
@@ -466,6 +495,7 @@ internal sealed class EditorSession
         RecomputeSpeedRatios();
         Document.Angles = _angles.ToArray();
         Document.ReplaceActions(_actions);
+        Document.ReplaceDecorations(_decorations);
         Document.RebuildGeometry();
     }
 
@@ -584,8 +614,9 @@ internal sealed class EditorSession
         _sourceMappingInitialized = false;
         _structureEdits.Clear();
         _newActionTemplates.Clear();
-        _pendingDecorations.Clear();
         _nextNewSourceIndex = -2;
+        for (int i = 0; i < _decorations.Count; i++)
+            _decorations[i] = _decorations[i] with { SourceIndex = i };
         EnsureSourceMapping();
     }
 
@@ -595,6 +626,9 @@ internal sealed class EditorSession
             return null;
         return actions[sourceIndex] is JsonObject obj ? (JsonObject)obj.DeepClone() : null;
     }
+
+    private static LevelDecoration CloneDecoration(LevelDecoration decoration) =>
+        decoration with { Properties = (JsonObject)decoration.Properties.DeepClone() };
 
     private void OnChanged()
     {
@@ -661,7 +695,7 @@ internal sealed class EditorSession
         string name) : IEditorCommand
     {
         private readonly List<LevelAction> _createdActions = [];
-        private readonly List<PendingDecoration> _createdDecorations = [];
+        private readonly List<LevelDecoration> _createdDecorations = [];
         private int _firstInsertedFloor;
 
         public string Name => name;
@@ -733,10 +767,10 @@ internal sealed record EditorClipboard(
     ClipboardDecoration[] Decorations);
 
 internal sealed record ClipboardAction(int RelativeFloor, LevelAction Action, JsonObject? Template);
-internal sealed record ClipboardDecoration(int RelativeFloor, JsonObject Node);
-internal sealed record PendingDecoration(Guid Id, int Floor, JsonObject Node);
+internal sealed record ClipboardDecoration(int RelativeFloor, string EventType, JsonObject Properties);
+internal sealed record DeletedDecoration(int Index, LevelDecoration Decoration);
 internal sealed record DeletedRange(
     int FirstFloor,
     double[] Angles,
     LevelAction[] Actions,
-    PendingDecoration[] Decorations);
+    DeletedDecoration[] Decorations);

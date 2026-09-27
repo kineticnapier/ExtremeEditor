@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Core;
 
@@ -166,6 +167,7 @@ public static partial class AdoFaiLoader
                 HitSoundVolumePercent = parsed.HitSoundVolumePercent,
                 Bounds = bounds
             };
+            document.ReplaceDecorations(parsed.Decorations);
 
             return new LoadResult(
                 document,
@@ -199,6 +201,7 @@ public static partial class AdoFaiLoader
         private readonly Dictionary<int, LevelAction[]> _actionsByFloor = new();
         private readonly List<LevelAction> _speedActions = new();
         private readonly Dictionary<string, string> _stringPool = new(StringComparer.Ordinal);
+        private readonly List<LevelDecoration> _decorations = new();
 
         private ParserMode _mode = ParserMode.Root;
         private ParserMode _resumeMode;
@@ -209,6 +212,8 @@ public static partial class AdoFaiLoader
         private int _skipDepth;
         private bool _sawAngleData;
         private int _actionCount;
+        private int _decorationSourceIndex;
+        private JsonObjectTokenBuilder? _decorationBuilder;
 
         private double _initialBpm = 100.0;
         private string? _songFilename;
@@ -245,6 +250,12 @@ public static partial class AdoFaiLoader
                 case ParserMode.Action:
                     AcceptAction(ref reader);
                     break;
+                case ParserMode.Decorations:
+                    AcceptDecorations(ref reader);
+                    break;
+                case ParserMode.Decoration:
+                    AcceptDecoration(ref reader);
+                    break;
                 default:
                     throw new InvalidOperationException($"Unexpected parser mode: {_mode}");
             }
@@ -271,7 +282,8 @@ public static partial class AdoFaiLoader
                 _countdownTicks,
                 _separateCountdownTime,
                 _defaultHitSound,
-                _hitSoundVolumePercent);
+                _hitSoundVolumePercent,
+                _decorations.ToArray());
         }
 
         private void AcceptRoot(ref Utf8JsonReader reader)
@@ -303,6 +315,12 @@ public static partial class AdoFaiLoader
             if (field == RootField.Actions && reader.TokenType == JsonTokenType.StartArray)
             {
                 _mode = ParserMode.Actions;
+                return;
+            }
+
+            if (field == RootField.Decorations && reader.TokenType == JsonTokenType.StartArray)
+            {
+                _mode = ParserMode.Decorations;
                 return;
             }
 
@@ -489,6 +507,45 @@ public static partial class AdoFaiLoader
             }
         }
 
+        private void AcceptDecorations(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+            {
+                _mode = ParserMode.Root;
+                return;
+            }
+
+            _decorationSourceIndex++;
+            if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                _decorationBuilder = new JsonObjectTokenBuilder();
+                _decorationBuilder.Accept(ref reader);
+                _mode = ParserMode.Decoration;
+            }
+            else if (reader.TokenType == JsonTokenType.StartArray)
+            {
+                BeginSkip(ParserMode.Decorations);
+            }
+        }
+
+        private void AcceptDecoration(ref Utf8JsonReader reader)
+        {
+            JsonObjectTokenBuilder builder = _decorationBuilder
+                ?? throw new InvalidOperationException("Decoration JSON builder is missing.");
+            builder.Accept(ref reader);
+            if (!builder.IsComplete)
+                return;
+
+            int sourceIndex = _decorationSourceIndex - 1;
+            if (builder.Result is JsonObject source &&
+                TryCreateDecoration(source, sourceIndex, out LevelDecoration decoration))
+            {
+                _decorations.Add(decoration);
+            }
+            _decorationBuilder = null;
+            _mode = ParserMode.Decorations;
+        }
+
         private void FinalizeAction()
         {
             string type = _action.EventType ?? "<unknown>";
@@ -605,6 +662,7 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("angleData"u8)) return RootField.AngleData;
             if (reader.ValueTextEquals("settings"u8)) return RootField.Settings;
             if (reader.ValueTextEquals("actions"u8)) return RootField.Actions;
+            if (reader.ValueTextEquals("decorations"u8)) return RootField.Decorations;
             return RootField.Unknown;
         }
 
@@ -697,6 +755,8 @@ public static partial class AdoFaiLoader
             Settings,
             Actions,
             Action,
+            Decorations,
+            Decoration,
             Skip
         }
 
@@ -706,7 +766,8 @@ public static partial class AdoFaiLoader
             Unknown,
             AngleData,
             Settings,
-            Actions
+            Actions,
+            Decorations
         }
 
         private enum SettingField
@@ -774,5 +835,6 @@ public static partial class AdoFaiLoader
         int CountdownTicks,
         bool SeparateCountdownTime,
         string DefaultHitSound,
-        double HitSoundVolumePercent);
+        double HitSoundVolumePercent,
+        LevelDecoration[] Decorations);
 }

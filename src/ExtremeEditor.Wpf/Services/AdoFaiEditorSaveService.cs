@@ -22,8 +22,7 @@ internal static class AdoFaiEditorSaveService
         JsonObject root = session.GetSourceRootForSave();
         ReplaceAngles(root, session.Document.Angles);
         ReplaceActions(root, session);
-        TransformDecorations(root, session.StructureEdits);
-        AppendPendingDecorations(root, session.PendingDecorations);
+        ReplaceDecorations(root, session.Document.Decorations);
 
         string fullPath = Path.GetFullPath(path);
         string? directory = Path.GetDirectoryName(fullPath);
@@ -148,38 +147,64 @@ internal static class AdoFaiEditorSaveService
         root["actions"] = output;
     }
 
-    private static void TransformDecorations(JsonObject root, IReadOnlyList<FloorStructureEdit> edits)
+    private static void ReplaceDecorations(
+        JsonObject root,
+        IReadOnlyList<LevelDecoration> decorations)
     {
-        if (root["decorations"] is not JsonArray decorations || edits.Count == 0)
-            return;
-
-        foreach (FloorStructureEdit edit in edits)
-        {
-            for (int i = decorations.Count - 1; i >= 0; i--)
-            {
-                if (decorations[i] is not JsonObject obj)
-                    continue;
-                if (!TransformObject(obj, edit, removeWhenDeleted: true))
-                    decorations.RemoveAt(i);
-            }
-        }
+        var output = new JsonArray();
+        foreach (LevelDecoration decoration in decorations)
+            output.Add(BuildDecorationJson(decoration));
+        root["decorations"] = output;
     }
 
-    private static void AppendPendingDecorations(JsonObject root, IReadOnlyList<PendingDecoration> pending)
+    internal static JsonObject BuildDecorationJson(LevelDecoration decoration)
     {
-        if (pending.Count == 0)
-            return;
-
-        JsonArray decorations = root["decorations"] as JsonArray ?? new JsonArray();
-        if (root["decorations"] is null)
-            root["decorations"] = decorations;
-
-        foreach (PendingDecoration item in pending)
+        var result = (JsonObject)decoration.Properties.DeepClone();
+        result.Remove("floor");
+        result.Remove("eventType");
+        var output = new JsonObject();
+        if (decoration.Floor is int floor)
+            output["floor"] = floor;
+        output["eventType"] = decoration.EventType;
+        foreach ((string name, JsonNode? value) in result.ToArray())
         {
-            JsonObject node = (JsonObject)item.Node.DeepClone();
-            node["floor"] = item.Floor;
-            decorations.Add(node);
+            result.Remove(name);
+            output[name] = value;
         }
+        return output;
+    }
+
+    internal static bool TryTransformDecoration(
+        LevelDecoration decoration,
+        FloorStructureEdit edit,
+        bool removeWhenDeleted,
+        out LevelDecoration transformed)
+    {
+        if (decoration.Floor is null)
+        {
+            transformed = decoration;
+            return true;
+        }
+
+        JsonObject node = BuildDecorationJson(decoration);
+        if (!TransformObject(node, edit, removeWhenDeleted))
+        {
+            transformed = decoration;
+            return false;
+        }
+
+        if (!EditorSession.TryGetInt(node["floor"], out int floor))
+            floor = decoration.Floor.Value;
+        string eventType = node["eventType"]?.GetValue<string>() ?? decoration.EventType;
+        node.Remove("floor");
+        node.Remove("eventType");
+        transformed = decoration with
+        {
+            Floor = floor,
+            EventType = eventType,
+            Properties = node
+        };
+        return true;
     }
 
     internal static bool TransformObject(JsonObject obj, FloorStructureEdit edit, bool removeWhenDeleted)

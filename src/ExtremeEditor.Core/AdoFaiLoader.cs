@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Core;
 
@@ -124,6 +125,22 @@ public static partial class AdoFaiLoader
             .GroupBy(action => action.Floor)
             .ToDictionary(group => group.Key, group => group.ToArray());
 
+        var parsedDecorations = new List<LevelDecoration>();
+        if (root.TryGetProperty("decorations", out JsonElement decorations) &&
+            decorations.ValueKind == JsonValueKind.Array)
+        {
+            int sourceIndex = 0;
+            foreach (JsonElement decoration in decorations.EnumerateArray())
+            {
+                if (decoration.ValueKind == JsonValueKind.Object &&
+                    TryCreateDecoration(decoration, sourceIndex, out LevelDecoration parsed))
+                {
+                    parsedDecorations.Add(parsed);
+                }
+                sourceIndex++;
+            }
+        }
+
         TimeSpan parse = sw.Elapsed;
 
         sw.Restart();
@@ -149,10 +166,164 @@ public static partial class AdoFaiLoader
             HitSoundVolumePercent = hitSoundVolumePercent,
             Bounds = bounds
         };
+        document.ReplaceDecorations(parsedDecorations);
 
         return new LoadResult(
             document,
             new LoadMetrics(read, parse, build, bytes.LongLength));
+    }
+
+    private static bool TryCreateDecoration(
+        JsonElement source,
+        int sourceIndex,
+        out LevelDecoration decoration)
+    {
+        decoration = null!;
+        try
+        {
+            return JsonNode.Parse(
+                       source.GetRawText(),
+                       documentOptions: TolerantJsonOptions) is JsonObject sourceObject &&
+                   TryCreateDecoration(sourceObject, sourceIndex, out decoration);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDecoration(
+        JsonObject source,
+        int sourceIndex,
+        out LevelDecoration decoration)
+    {
+        decoration = null!;
+        int? floor = null;
+        if (source.ContainsKey("floor"))
+        {
+            if (!TryReadLooseInt(source["floor"], out int parsedFloor))
+                return false;
+            floor = parsedFloor;
+        }
+
+        string eventType = ReadLooseNodeString(source["eventType"]) ?? "<unknown>";
+        var properties = (JsonObject)source.DeepClone();
+        properties.Remove("floor");
+        properties.Remove("eventType");
+        decoration = new LevelDecoration(floor, eventType)
+        {
+            SourceIndex = sourceIndex,
+            Properties = properties
+        };
+        return true;
+    }
+
+    private static bool TryReadLooseInt(JsonNode? node, out int value)
+    {
+        if (node is JsonValue jsonValue)
+        {
+            if (jsonValue.TryGetValue(out value))
+                return true;
+            if (jsonValue.TryGetValue(out long longValue) &&
+                longValue is >= int.MinValue and <= int.MaxValue)
+            {
+                value = (int)longValue;
+                return true;
+            }
+            if (int.TryParse(node.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                return true;
+        }
+        value = 0;
+        return false;
+    }
+
+    private static string? ReadLooseNodeString(JsonNode? node)
+    {
+        if (node is null)
+            return null;
+        if (node is JsonValue value && value.TryGetValue(out string? text))
+            return text;
+        return node.ToString();
+    }
+
+    private sealed class JsonObjectTokenBuilder
+    {
+        private readonly Stack<JsonNode> _containers = new();
+        private string? _propertyName;
+
+        public JsonObject? Result { get; private set; }
+        public bool IsComplete => Result is not null && _containers.Count == 0;
+
+        public void Accept(ref Utf8JsonReader reader)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.StartObject:
+                    var obj = new JsonObject();
+                    Add(obj);
+                    _containers.Push(obj);
+                    break;
+                case JsonTokenType.StartArray:
+                    var array = new JsonArray();
+                    Add(array);
+                    _containers.Push(array);
+                    break;
+                case JsonTokenType.EndObject:
+                case JsonTokenType.EndArray:
+                    if (_containers.Count > 0)
+                        _containers.Pop();
+                    break;
+                case JsonTokenType.PropertyName:
+                    _propertyName = reader.GetString();
+                    break;
+                case JsonTokenType.String:
+                    Add(JsonValue.Create(reader.GetString()));
+                    break;
+                case JsonTokenType.Number:
+                    Add(CreateNumber(ref reader));
+                    break;
+                case JsonTokenType.True:
+                    Add(JsonValue.Create(true));
+                    break;
+                case JsonTokenType.False:
+                    Add(JsonValue.Create(false));
+                    break;
+                case JsonTokenType.Null:
+                    Add(null);
+                    break;
+            }
+        }
+
+        private void Add(JsonNode? node)
+        {
+            if (_containers.TryPeek(out JsonNode? parent))
+            {
+                if (parent is JsonArray array)
+                {
+                    array.Add(node);
+                    return;
+                }
+                if (parent is JsonObject obj && _propertyName is not null)
+                {
+                    obj[_propertyName] = node;
+                    _propertyName = null;
+                }
+                return;
+            }
+
+            if (node is JsonObject root)
+                Result = root;
+        }
+
+        private static JsonNode CreateNumber(ref Utf8JsonReader reader)
+        {
+            return JsonNode.Parse(reader.ValueSpan)
+                ?? throw new JsonException("Decoration number token could not be parsed.");
+        }
     }
 
     private static void ComputeSpeedRatios(List<LevelAction> actions, double initialBpm)

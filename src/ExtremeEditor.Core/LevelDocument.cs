@@ -52,11 +52,18 @@ public sealed record LevelAction(
     public int PropertyOverridesStructureRevision { get; set; }
 }
 
+public sealed record LevelDecoration(int? Floor, string EventType)
+{
+    public int SourceIndex { get; init; } = -1;
+    public required JsonObject Properties { get; init; }
+}
+
 public sealed class LevelDocument
 {
     private LevelActionStore? _actionStore;
     private IReadOnlyDictionary<int, LevelAction[]> _actionsByFloor =
         LevelActionStore.Empty.DictionaryView;
+    private IReadOnlyList<LevelDecoration> _decorations = Array.Empty<LevelDecoration>();
 
     public required string SourcePath { get; set; }
     public required double[] Angles { get; set; }
@@ -82,6 +89,10 @@ public sealed class LevelDocument
             ActionCount = _actionStore.ActionCount;
         }
     }
+    public IReadOnlyList<LevelDecoration> Decorations => _decorations;
+    public int DecorationCount { get; private set; }
+    public IReadOnlyDictionary<string, int> DecorationTypeCounts { get; private set; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
     public required double InitialBpm { get; set; }
     public required string? SongFilename { get; set; }
     public required double OffsetMilliseconds { get; set; }
@@ -118,6 +129,22 @@ public sealed class LevelDocument
             counts[action.EventType] = count + 1;
         }
         ActionTypeCounts = counts;
+    }
+
+    public void ReplaceDecorations(IEnumerable<LevelDecoration> decorations)
+    {
+        ArgumentNullException.ThrowIfNull(decorations);
+        LevelDecoration[] ordered = decorations.ToArray();
+        _decorations = ordered;
+        DecorationCount = ordered.Length;
+
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (LevelDecoration decoration in ordered)
+        {
+            counts.TryGetValue(decoration.EventType, out int count);
+            counts[decoration.EventType] = count + 1;
+        }
+        DecorationTypeCounts = counts;
     }
 
     public void RebuildGeometry()
