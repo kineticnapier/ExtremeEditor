@@ -129,8 +129,6 @@ public static class DecorationWorldTransformResolver
         if (!ReadBool(decoration.Properties["stickToFloor"], false))
             return baseRotation;
 
-        // Stock scrDecoration.SetRotation: when stickToFloor is enabled the current
-        // parent-floor Z rotation is added each time UpdateLock refreshes the transform.
         return baseRotation + parentFloorRotation;
     }
 
@@ -140,18 +138,62 @@ public static class DecorationWorldTransformResolver
         Vector2 parentFloorScale)
     {
         ArgumentNullException.ThrowIfNull(decoration);
-        if (!float.IsFinite(baseScale.X) || !float.IsFinite(baseScale.Y))
-            throw new ArgumentOutOfRangeException(nameof(baseScale));
-        if (!float.IsFinite(parentFloorScale.X) || !float.IsFinite(parentFloorScale.Y))
-            throw new ArgumentOutOfRangeException(nameof(parentFloorScale));
+        ValidateFinite(baseScale, nameof(baseScale));
+        ValidateFinite(parentFloorScale, nameof(parentFloorScale));
 
         if (!ReadBool(decoration.Properties["stickToFloor"], false))
             return baseScale;
 
-        // Stock scrDecoration.SetScale multiplies by parentFloor.transform.localScale
-        // component-wise for stickToFloor decorations. Camera lock scaling remains a
-        // separate renderer concern and is intentionally not baked into this helper.
         return baseScale * parentFloorScale;
+    }
+
+    public static float ResolveDecorationRotation(
+        LevelDecoration decoration,
+        float baseRotation,
+        float parentFloorRotation,
+        float cameraRotation)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        if (!float.IsFinite(baseRotation))
+            throw new ArgumentOutOfRangeException(nameof(baseRotation));
+        if (!float.IsFinite(parentFloorRotation))
+            throw new ArgumentOutOfRangeException(nameof(parentFloorRotation));
+        if (!float.IsFinite(cameraRotation))
+            throw new ArgumentOutOfRangeException(nameof(cameraRotation));
+
+        if (ReadBool(decoration.Properties["stickToFloor"], false))
+            return baseRotation + parentFloorRotation;
+
+        return ReadBool(decoration.Properties["lockRotation"], false)
+            ? baseRotation + cameraRotation
+            : baseRotation;
+    }
+
+    public static Vector2 ResolveDecorationScale(
+        LevelDecoration decoration,
+        Vector2 baseScale,
+        Vector2 parentFloorScale,
+        float cameraOrthographicSize,
+        float levelCameraZoomPercent)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        ValidateFinite(baseScale, nameof(baseScale));
+        ValidateFinite(parentFloorScale, nameof(parentFloorScale));
+        if (!float.IsFinite(cameraOrthographicSize) || cameraOrthographicSize <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(cameraOrthographicSize));
+        if (!float.IsFinite(levelCameraZoomPercent) || levelCameraZoomPercent <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(levelCameraZoomPercent));
+
+        float scaleMultiplier = ReadSingle(decoration.Properties["scaleMultiplier"], 1f);
+        float cameraScaleMultiplier = ReadBool(decoration.Properties["lockScale"], false)
+            ? cameraOrthographicSize * 0.2f / (levelCameraZoomPercent / 100f)
+            : 1f;
+
+        Vector2 result = baseScale * (cameraScaleMultiplier * scaleMultiplier);
+        if (ReadBool(decoration.Properties["stickToFloor"], false))
+            result *= parentFloorScale;
+
+        return result;
     }
 
     private static Vector2 ResolveWorldPositionCore(
@@ -226,6 +268,11 @@ public static class DecorationWorldTransformResolver
         return defaultValue;
     }
 
+    private static float ReadSingle(JsonNode? node, float defaultValue)
+    {
+        return TryReadSingle(node, out float value) ? value : defaultValue;
+    }
+
     private static Vector2 ReadVector2(JsonNode? node, Vector2 defaultValue)
     {
         if (node is not JsonArray array || array.Count < 2)
@@ -235,6 +282,12 @@ public static class DecorationWorldTransformResolver
             return defaultValue;
 
         return new Vector2(x, y);
+    }
+
+    private static void ValidateFinite(Vector2 value, string paramName)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y))
+            throw new ArgumentOutOfRangeException(paramName);
     }
 
     private static bool TryReadSingle(JsonNode? node, out float value)
