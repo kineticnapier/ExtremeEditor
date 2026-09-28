@@ -96,6 +96,25 @@ public static class DecorationWorldTransformResolver
         return screenRelative / 20f + new Vector2(0.5f, 0.5f);
     }
 
+    public static Vector2 ResolveStickToFloorWorldPosition(
+        LevelDecoration decoration,
+        Vector2 baseWorldPosition,
+        Vector2 parentFloorWorldPosition,
+        Vector2 startPosition)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+
+        bool stickToFloor = ReadBool(decoration.Properties["stickToFloor"], false);
+        if (!stickToFloor)
+            return baseWorldPosition;
+
+        // Stock scrDecoration.UpdatePosition semantics:
+        // pivotPosVec is resolved independently, then the current parent floor delta
+        // since setup is applied dynamically. Do not bake this runtime movement back
+        // into DecorationState or the base placement resolver.
+        return baseWorldPosition + parentFloorWorldPosition - startPosition;
+    }
+
     private static Vector2 ResolveWorldPositionCore(
         LevelDocument level,
         LevelDecoration decoration,
@@ -147,6 +166,13 @@ public static class DecorationWorldTransformResolver
         if (node is JsonValue value && value.TryGetValue(out string? text))
             return text;
         return null;
+    }
+
+    private static bool ReadBool(JsonNode? node, bool defaultValue)
+    {
+        if (node is JsonValue value && value.TryGetValue(out bool result))
+            return result;
+        return defaultValue;
     }
 
     private static int ReadInt32(JsonNode? node, int defaultValue)
