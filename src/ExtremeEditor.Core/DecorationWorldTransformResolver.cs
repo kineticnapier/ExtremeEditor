@@ -37,6 +37,34 @@ public static class DecorationWorldTransformResolver
         return ResolveWorldPositionCore(level, decoration, state, planetWorldPositionResolver);
     }
 
+    public static Vector2 ResolveWorldPosition(
+        LevelDocument level,
+        LevelDecoration decoration,
+        DecorationState state,
+        Vector2 cameraNow,
+        Vector2 cameraAtStart)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(decoration);
+        ArgumentNullException.ThrowIfNull(state);
+
+        Vector2 world = ResolveWorldPositionCore(level, decoration, state, null);
+        Vector2 parallax = ReadVector2(decoration.Properties["parallax"], Vector2.Zero);
+
+        // Stock scrDecoration/scrParallax semantics: a zero parallax vector disables
+        // both camera-follow delta and parallaxOffset. Otherwise parallax is stored as
+        // percent and applied component-wise to camera movement.
+        if (parallax == Vector2.Zero)
+            return world;
+
+        Vector2 multiplier = parallax / 100f;
+        Vector2 parallaxOffset = ReadVector2(decoration.Properties["parallaxOffset"], Vector2.Zero)
+                                 * PathBuilder.DefaultLongTileSize;
+        Vector2 cameraDelta = cameraNow - cameraAtStart;
+
+        return world + cameraDelta * multiplier + parallaxOffset;
+    }
+
     private static Vector2 ResolveWorldPositionCore(
         LevelDocument level,
         LevelDecoration decoration,
@@ -100,5 +128,44 @@ public static class DecorationWorldTransformResolver
                 return (int)wide;
         }
         return defaultValue;
+    }
+
+    private static Vector2 ReadVector2(JsonNode? node, Vector2 defaultValue)
+    {
+        if (node is not JsonArray array || array.Count < 2)
+            return defaultValue;
+
+        if (!TryReadSingle(array[0], out float x) || !TryReadSingle(array[1], out float y))
+            return defaultValue;
+
+        return new Vector2(x, y);
+    }
+
+    private static bool TryReadSingle(JsonNode? node, out float value)
+    {
+        if (node is JsonValue jsonValue)
+        {
+            if (jsonValue.TryGetValue(out float single))
+            {
+                value = single;
+                return float.IsFinite(value);
+            }
+
+            if (jsonValue.TryGetValue(out double wide) && double.IsFinite(wide) &&
+                wide is >= -float.MaxValue and <= float.MaxValue)
+            {
+                value = (float)wide;
+                return true;
+            }
+
+            if (jsonValue.TryGetValue(out int integer))
+            {
+                value = integer;
+                return true;
+            }
+        }
+
+        value = 0f;
+        return false;
     }
 }
