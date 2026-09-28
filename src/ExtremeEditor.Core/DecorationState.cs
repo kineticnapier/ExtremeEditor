@@ -12,8 +12,15 @@ public sealed record DecorationState(
     double ScaleY,
     double Opacity)
 {
+    public double PivotOffsetX { get; init; }
+    public double PivotOffsetY { get; init; }
+    public double ParallaxOffsetX { get; init; }
+    public double ParallaxOffsetY { get; init; }
+
     public (double X, double Y) Position => (PositionX, PositionY);
     public (double X, double Y) Scale => (ScaleX, ScaleY);
+    public (double X, double Y) PivotOffset => (PivotOffsetX, PivotOffsetY);
+    public (double X, double Y) ParallaxOffset => (ParallaxOffsetX, ParallaxOffsetY);
 
     public static DecorationState Evaluate(
         LevelDecoration decoration,
@@ -34,6 +41,10 @@ public sealed record DecorationState(
         var scaleX = new ScalarTweenState(state.ScaleX);
         var scaleY = new ScalarTweenState(state.ScaleY);
         var opacity = new ScalarTweenState(state.Opacity);
+        var pivotOffsetX = new ScalarTweenState(state.PivotOffsetX);
+        var pivotOffsetY = new ScalarTweenState(state.PivotOffsetY);
+        var parallaxOffsetX = new ScalarTweenState(state.ParallaxOffsetX);
+        var parallaxOffsetY = new ScalarTweenState(state.ParallaxOffsetY);
 
         foreach (VfxOccurrence occurrence in timeline.Occurrences)
         {
@@ -57,15 +68,16 @@ public sealed record DecorationState(
                 continue;
 
             double startTime = occurrence.StartTime;
-            if (TryReadPair(properties!["position"], out double newPositionX, out double newPositionY))
+
+            if (TryReadComponents(properties!["position"], out double? newPositionX, out double? newPositionY))
             {
-                positionX.Start(newPositionX, startTime, durationSeconds, occurrence.Ease);
-                positionY.Start(newPositionY, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(positionX, newPositionX, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(positionY, newPositionY, startTime, durationSeconds, occurrence.Ease);
             }
-            else if (TryReadPair(
+            else if (TryReadComponents(
                          properties["positionOffset"],
-                         out double positionOffsetX,
-                         out double positionOffsetY))
+                         out double? positionOffsetX,
+                         out double? positionOffsetY))
             {
                 string? relativeTo = ReadString(properties["relativeTo"]);
                 bool isLastPosition = string.Equals(
@@ -73,18 +85,24 @@ public sealed record DecorationState(
                     "LastPosition",
                     StringComparison.OrdinalIgnoreCase);
 
-                // Stock ffxMoveDecorationsPlus captures pivotPosVec for
-                // LastPosition before replacing an existing position tween.
-                // Start then reproduces Kill(complete: true), so the captured
-                // target base and the new tween's start value may differ.
-                double targetBaseX = isLastPosition
-                    ? positionX.ValueAt(startTime)
-                    : state.PositionX;
-                double targetBaseY = isLastPosition
-                    ? positionY.ValueAt(startTime)
-                    : state.PositionY;
-                positionX.Start(targetBaseX + positionOffsetX, startTime, durationSeconds, occurrence.Ease);
-                positionY.Start(targetBaseY + positionOffsetY, startTime, durationSeconds, occurrence.Ease);
+                // Stock ffxMoveDecorationsPlus captures the current position for LastPosition
+                // before replacing an existing position tween. Other relative modes target
+                // the AddDecoration base plus positionOffset.
+                if (positionOffsetX is double offsetX)
+                {
+                    double targetBaseX = isLastPosition
+                        ? positionX.ValueAt(startTime)
+                        : state.PositionX;
+                    positionX.Start(targetBaseX + offsetX, startTime, durationSeconds, occurrence.Ease);
+                }
+
+                if (positionOffsetY is double offsetY)
+                {
+                    double targetBaseY = isLastPosition
+                        ? positionY.ValueAt(startTime)
+                        : state.PositionY;
+                    positionY.Start(targetBaseY + offsetY, startTime, durationSeconds, occurrence.Ease);
+                }
             }
 
             if (TryReadDouble(properties["rotation"], out double newRotation) ||
@@ -93,14 +111,29 @@ public sealed record DecorationState(
                 rotation.Start(newRotation, startTime, durationSeconds, occurrence.Ease);
             }
 
-            if (TryReadPair(properties["scale"], out double newScaleX, out double newScaleY))
+            if (TryReadComponents(properties["scale"], out double? newScaleX, out double? newScaleY))
             {
-                scaleX.Start(newScaleX, startTime, durationSeconds, occurrence.Ease);
-                scaleY.Start(newScaleY, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(scaleX, newScaleX, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(scaleY, newScaleY, startTime, durationSeconds, occurrence.Ease);
             }
 
             if (TryReadDouble(properties["opacity"], out double newOpacity))
                 opacity.Start(newOpacity, startTime, durationSeconds, occurrence.Ease);
+
+            if (TryReadComponents(properties["pivotOffset"], out double? newPivotX, out double? newPivotY))
+            {
+                StartIfSpecified(pivotOffsetX, newPivotX, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(pivotOffsetY, newPivotY, startTime, durationSeconds, occurrence.Ease);
+            }
+
+            if (TryReadComponents(
+                    properties["parallaxOffset"],
+                    out double? newParallaxX,
+                    out double? newParallaxY))
+            {
+                StartIfSpecified(parallaxOffsetX, newParallaxX, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(parallaxOffsetY, newParallaxY, startTime, durationSeconds, occurrence.Ease);
+            }
         }
 
         return state with
@@ -110,7 +143,11 @@ public sealed record DecorationState(
             Rotation = rotation.ValueAt(timeSeconds),
             ScaleX = scaleX.ValueAt(timeSeconds),
             ScaleY = scaleY.ValueAt(timeSeconds),
-            Opacity = opacity.ValueAt(timeSeconds)
+            Opacity = opacity.ValueAt(timeSeconds),
+            PivotOffsetX = pivotOffsetX.ValueAt(timeSeconds),
+            PivotOffsetY = pivotOffsetY.ValueAt(timeSeconds),
+            ParallaxOffsetX = parallaxOffsetX.ValueAt(timeSeconds),
+            ParallaxOffsetY = parallaxOffsetY.ValueAt(timeSeconds)
         };
     }
 
@@ -119,6 +156,9 @@ public sealed record DecorationState(
         JsonObject properties = decoration.Properties;
         (double positionX, double positionY) = ReadPair(properties["position"], 0, 0);
         (double scaleX, double scaleY) = ReadPair(properties["scale"], 100, 100);
+        (double pivotOffsetX, double pivotOffsetY) = ReadPair(properties["pivotOffset"], 0, 0);
+        (double parallaxOffsetX, double parallaxOffsetY) = ReadPair(properties["parallaxOffset"], 0, 0);
+
         return new DecorationState(
             decoration.SourceIndex,
             positionX,
@@ -126,7 +166,24 @@ public sealed record DecorationState(
             ReadDouble(properties["rotation"], 0),
             scaleX,
             scaleY,
-            ReadDouble(properties["opacity"], 100));
+            ReadDouble(properties["opacity"], 100))
+        {
+            PivotOffsetX = pivotOffsetX,
+            PivotOffsetY = pivotOffsetY,
+            ParallaxOffsetX = parallaxOffsetX,
+            ParallaxOffsetY = parallaxOffsetY
+        };
+    }
+
+    private static void StartIfSpecified(
+        ScalarTweenState tween,
+        double? target,
+        double startTime,
+        double durationSeconds,
+        string? ease)
+    {
+        if (target is double value)
+            tween.Start(value, startTime, durationSeconds, ease);
     }
 
     private static bool TagsOverlap(string decorationTags, string? targetTags)
@@ -175,6 +232,30 @@ public sealed record DecorationState(
         x = 0;
         y = 0;
         return false;
+    }
+
+    private static bool TryReadComponents(JsonNode? node, out double? x, out double? y)
+    {
+        x = null;
+        y = null;
+        if (node is not JsonArray { Count: >= 2 } array)
+            return false;
+
+        if (array[0] is not null)
+        {
+            if (!TryReadDouble(array[0], out double valueX))
+                return false;
+            x = valueX;
+        }
+
+        if (array[1] is not null)
+        {
+            if (!TryReadDouble(array[1], out double valueY))
+                return false;
+            y = valueY;
+        }
+
+        return true;
     }
 
     private static double ReadDouble(JsonNode? node, double defaultValue) =>
