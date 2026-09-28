@@ -12,3 +12,5 @@ build/
 
 extract-debug/
 extract-wpf-binary/
+
+FloorMesh.cs
