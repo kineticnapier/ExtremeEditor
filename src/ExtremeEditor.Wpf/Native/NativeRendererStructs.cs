@@ -15,6 +15,7 @@ internal struct NativeAbiInfo
     public uint CameraEventSize;
     public uint SpriteMetadataSize;
     public uint StaticDecorationSize;
+    public uint FloorIconStateSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -53,6 +54,23 @@ internal struct NativeFloor
     public float TransformScaleY;
     public float TransformOpacity;
     public uint TrackTransformFlags;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeFloorIconState
+{
+    public static NativeFloorIconState None => new() { IconId = NativeFloor.NoIcon };
+
+    public uint IconId;
+    public uint IconFlags;
+    public float IconAngle;
+
+    public readonly void ApplyTo(ref NativeFloor floor)
+    {
+        floor.IconId = IconId;
+        floor.IconFlags = IconFlags;
+        floor.IconAngle = IconAngle;
+    }
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -29,7 +29,7 @@
       <_AssetExtractorFiles Include="$(AssetExtractorOutputDir)**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(_AssetExtractorFiles)"
-          DestinationFiles="@(_AssetExtractorFiles->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(_AssetExtractorFiles->'$(OutDir)AssetExtractor\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
   <Target Name="BuildNativeRenderer" BeforeTargets="CoreCompile">

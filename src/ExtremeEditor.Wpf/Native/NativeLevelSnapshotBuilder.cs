@@ -12,6 +12,8 @@ internal sealed class NativeLevelSnapshot
     public required NativeGeometry[] Geometries { get; init; }
     public required NativePoint[] Points { get; init; }
     public required NativeIconAsset[] IconAssets { get; init; }
+    public bool[] CcwBeforeFloor { get; set; } = [];
+    public float[] IconRotationOffsets { get; set; } = [];
     public NativeStaticDecoration[] StaticDecorations { get; set; } = [];
     public NativeDecorationAsset[] DecorationAssets { get; set; } = [];
     public required float BoundsLeft { get; init; }

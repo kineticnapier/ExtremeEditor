@@ -57,6 +57,13 @@ internal static class NativeRendererNative
         float boundsRight,
         float boundsBottom);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_update_floor_icons", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int UpdateFloorIcons(
+        nint renderer,
+        uint startFloor,
+        nint states,
+        uint stateCount);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_static_decorations", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetStaticDecorations(
         nint renderer,
@@ -78,6 +85,9 @@ internal static class NativeRendererNative
 
     [DllImport(DllName, EntryPoint = "ee_renderer_frame_all", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void FrameAll(nint renderer);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_center_at", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void CenterAt(nint renderer, float worldX, float worldY);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_clear_icon_assets", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ClearIconAssets(nint renderer);

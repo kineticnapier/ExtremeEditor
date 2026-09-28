@@ -30,9 +30,14 @@ internal static class AssetSetupUiRegression
             ?? throw new InvalidOperationException("AssetSetupService.DefaultExtractorPath is missing.");
 
         if (extractorPathProperty.GetValue(null) is not string extractorPath ||
-            !extractorPath.EndsWith("ExtremeEditor.AssetExtractor.exe", StringComparison.OrdinalIgnoreCase))
+            !extractorPath.EndsWith("ExtremeEditor.AssetExtractor.exe", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                Path.GetFileName(Path.GetDirectoryName(extractorPath)),
+                "AssetExtractor",
+                StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("DefaultExtractorPath must resolve the standalone ExtremeEditor.AssetExtractor executable.");
+            throw new InvalidOperationException(
+                "DefaultExtractorPath must resolve the isolated AssetExtractor/ExtremeEditor.AssetExtractor.exe executable.");
         }
 
         Assembly wpfAssembly = mainWindowType.Assembly;

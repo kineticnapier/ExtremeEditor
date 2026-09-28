@@ -328,6 +328,7 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     std::lock_guard lock(scene_mutex_);
     const bool had_scene = static_cast<bool>(scene_);
     scene_ = std::move(scene);
+    pending_icon_states_.clear();
 
     if (!had_scene)
     {
@@ -341,6 +342,33 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     playback_active_ = false;
     ++scene_version_;
     return true;
+}
+
+bool Renderer::UpdateFloorIcons(
+    std::uint32_t start_floor,
+    const EeFloorIconState* states,
+    std::uint32_t state_count) noexcept
+{
+    if (states == nullptr || state_count == 0)
+        return false;
+
+    try
+    {
+        std::lock_guard lock(scene_mutex_);
+        if (!scene_ || start_floor > scene_->floors.size() ||
+            state_count > scene_->floors.size() - start_floor)
+        {
+            return false;
+        }
+
+        pending_icon_start_floor_ = start_floor;
+        pending_icon_states_.assign(states, states + state_count);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 void Renderer::FrameAll() noexcept
@@ -361,6 +389,16 @@ void Renderer::FrameAll() noexcept
     camera_x_ = (left + right) * 0.5f;
     camera_y_ = (top + bottom) * 0.5f;
     zoom_ = std::clamp(std::min(available_width / bounds_width, available_height / bounds_height), 0.05f, 400.0f);
+}
+
+void Renderer::CenterAt(float world_x, float world_y) noexcept
+{
+    if (!std::isfinite(world_x) || !std::isfinite(world_y))
+        return;
+
+    std::lock_guard lock(scene_mutex_);
+    camera_x_ = world_x;
+    camera_y_ = world_y;
 }
 
 void Renderer::ClearIconAssets() noexcept
@@ -698,6 +736,19 @@ void Renderer::RenderLoop() noexcept
         std::chrono::steady_clock::time_point anchor_steady;
         {
             std::lock_guard lock(scene_mutex_);
+            if (scene_ && !pending_icon_states_.empty())
+            {
+                for (std::size_t i = 0; i < pending_icon_states_.size(); ++i)
+                {
+                    EeFloor& floor = scene_->floors[pending_icon_start_floor_ + i];
+                    const EeFloorIconState& state = pending_icon_states_[i];
+                    floor.icon_id = state.icon_id;
+                    floor.icon_flags = state.icon_flags;
+                    floor.icon_angle = state.icon_angle;
+                }
+                pending_icon_states_.clear();
+                ++scene_version_;
+            }
             scene = scene_;
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;

@@ -18,7 +18,7 @@ public sealed record AssetSetupRunResult(
 
 public static class AssetSetupService
 {
-    public const int SupportedFormatVersion = 1;
+    public const int SupportedFormatVersion = 2;
 
     public static string DefaultCacheRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -27,6 +27,7 @@ public static class AssetSetupService
 
     public static string DefaultExtractorPath => Path.Combine(
         AppContext.BaseDirectory,
+        "AssetExtractor",
         "ExtremeEditor.AssetExtractor.exe");
 
     public static AssetCacheStatus InspectCache(string cacheRoot)
@@ -89,7 +90,7 @@ public static class AssetSetupService
                 !ValidateCount(manifest, "outlineIcons", outlineDirectory, "*.png", out countError) ||
                 !ValidateCount(manifest, "eventIcons", eventDirectory, "*.png", out countError) ||
                 !ValidateCount(manifest, "categoryIcons", categoryDirectory, "*.png", out countError) ||
-                !ValidateCount(manifest, "hitSounds", hitSoundDirectory, "*.wav", out countError))
+                !ValidateHitSounds(manifest, hitSoundDirectory, out countError))
             {
                 return NotReady(root, countError ?? "Asset-cache count validation failed.");
             }
@@ -175,6 +176,101 @@ public static class AssetSetupService
         if (actual != expected)
         {
             error = $"manifest.json {propertyName} mismatch: manifest={expected}, files={actual}.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateHitSounds(
+        JsonElement manifest,
+        string directory,
+        out string? error)
+    {
+        error = null;
+        if (!TryGetInt32(manifest, "hitSounds", out int expectedCount) || expectedCount < 0)
+        {
+            error = "manifest.json hitSounds is missing or invalid.";
+            return false;
+        }
+
+        if (!manifest.TryGetProperty("hitSoundNames", out JsonElement namesElement) ||
+            namesElement.ValueKind != JsonValueKind.Array)
+        {
+            error = "manifest.json hitSoundNames is missing or invalid.";
+            return false;
+        }
+
+        var declaredNames = new List<string>();
+        var declaredSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (JsonElement element in namesElement.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(element.GetString()))
+            {
+                error = "manifest.json hitSoundNames contains an empty or invalid name.";
+                return false;
+            }
+
+            string name = element.GetString()!.Trim();
+            if (name.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0 ||
+                !string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal))
+            {
+                error = $"manifest.json hitSoundNames contains an invalid file name: '{name}'.";
+                return false;
+            }
+
+            if (!declaredSet.Add(name))
+            {
+                error = $"manifest.json hitSoundNames contains duplicate clip '{name}'.";
+                return false;
+            }
+            declaredNames.Add(name);
+        }
+
+        if (declaredNames.Count != expectedCount)
+        {
+            error =
+                $"manifest.json hitSounds mismatch: hitSounds={expectedCount}, hitSoundNames={declaredNames.Count}.";
+            return false;
+        }
+
+        var diskNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in Directory.EnumerateFiles(directory, "*.wav", SearchOption.TopDirectoryOnly))
+        {
+            string name = Path.GetFileNameWithoutExtension(path);
+            if (name.StartsWith("snd", StringComparison.OrdinalIgnoreCase))
+                name = name[3..];
+
+            if (string.IsNullOrWhiteSpace(name) || !diskNames.Add(name))
+            {
+                error = $"Hit sound directory contains an empty or duplicate logical clip name: '{name}'.";
+                return false;
+            }
+        }
+
+        foreach (string name in declaredNames)
+        {
+            if (!diskNames.Contains(name))
+            {
+                error = $"Hit sound cache is missing required clip '{name}'.";
+                return false;
+            }
+        }
+
+        foreach (string name in diskNames)
+        {
+            if (!declaredSet.Contains(name))
+            {
+                error = $"Hit sound cache contains undeclared clip '{name}'.";
+                return false;
+            }
+        }
+
+        if (diskNames.Count != expectedCount)
+        {
+            error =
+                $"manifest.json hitSounds mismatch: manifest={expectedCount}, files={diskNames.Count}.";
             return false;
         }
 

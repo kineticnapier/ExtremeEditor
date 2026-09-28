@@ -221,7 +221,7 @@ public static class TimingMapBuilder
 
         for (int floor = 0; floor < floorCount; floor++)
         {
-            double pauseSeconds = 0.0;
+            double pauseBeats = 0.0;
             LevelAction[]? actions = null;
             if (actionFloorIndex < actionFloors.Count && actionFloors[actionFloorIndex] == floor)
             {
@@ -261,12 +261,14 @@ public static class TimingMapBuilder
                             }
                             break;
 
-                        case LevelActionKind.Pause when action.Duration is double pauseBeats && pauseBeats > 0:
-                            pauseSeconds += pauseBeats * (60.0 / bpm);
+                        case LevelActionKind.Pause when action.Duration is double durationBeats && durationBeats > 0:
+                            pauseBeats += durationBeats;
                             break;
                     }
                 }
             }
+
+            double pauseSeconds = pauseBeats * (60.0 / bpm);
 
             if (virtualTwirlFloors?.Contains(floor) == true)
                 isCcw = !isCcw;

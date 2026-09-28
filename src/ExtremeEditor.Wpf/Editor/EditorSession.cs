@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
@@ -18,6 +19,11 @@ internal readonly record struct FloorStructureEdit(
 
 internal sealed class EditorSession
 {
+    private static readonly bool ManagedMutationProfilingEnabled = string.Equals(
+        Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDIT_MANAGED_PROFILING"),
+        "1",
+        StringComparison.Ordinal);
+
     private readonly List<double> _angles;
     private readonly List<LevelAction> _actions;
     private readonly Stack<IEditorCommand> _undo = new();
@@ -460,7 +466,8 @@ internal sealed class EditorSession
         int index = FindActionIndex(oldAction);
         if (index >= 0)
             _actions[index] = newAction;
-        RebuildDocument();
+        RebuildDocument(
+            rebuildGeometry: !IsSetHitsoundGeometryIndependentReplacement(oldAction, newAction));
     }
 
     private void Execute(IEditorCommand command)
@@ -489,14 +496,83 @@ internal sealed class EditorSession
         Execute(new SetAnglesCommand(name, indices, before, after));
     }
 
-    private void RebuildDocument()
+    private void RebuildDocument(bool rebuildGeometry = true)
     {
+        Stopwatch? totalWatch = null;
+        Stopwatch? phaseWatch = null;
+        if (ManagedMutationProfilingEnabled)
+        {
+            Console.WriteLine(
+                $"[edit-managed] begin actions={_actions.Count:N0} " +
+                $"decorations={_decorations.Count:N0} rebuildGeometry={rebuildGeometry}");
+            totalWatch = Stopwatch.StartNew();
+            phaseWatch = Stopwatch.StartNew();
+        }
+
         _actions.Sort(static (a, b) => a.Floor.CompareTo(b.Floor));
+        LogManagedMutationPhase("actionSort", phaseWatch);
+
+        phaseWatch?.Restart();
         RecomputeSpeedRatios();
+        LogManagedMutationPhase("speedRatioRecompute", phaseWatch);
+
+        phaseWatch?.Restart();
         Document.Angles = _angles.ToArray();
+        LogManagedMutationPhase("anglesCopy", phaseWatch);
+
+        phaseWatch?.Restart();
         Document.ReplaceActions(_actions);
+        LogManagedMutationPhase("replaceActions", phaseWatch);
+
+        phaseWatch?.Restart();
         Document.ReplaceDecorations(_decorations);
-        Document.RebuildGeometry();
+        LogManagedMutationPhase("replaceDecorations", phaseWatch);
+
+        phaseWatch?.Restart();
+        if (rebuildGeometry)
+            Document.RebuildGeometry();
+        LogManagedMutationPhase("geometry", phaseWatch);
+
+        if (totalWatch is not null)
+        {
+            totalWatch.Stop();
+            Console.WriteLine($"[edit-managed] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
+        }
+    }
+
+    private static void LogManagedMutationPhase(string phase, Stopwatch? watch)
+    {
+        if (watch is null)
+            return;
+        watch.Stop();
+        Console.WriteLine($"[edit-managed] {phase}={watch.Elapsed.TotalMilliseconds:F1}ms");
+    }
+
+    private static bool IsSetHitsoundGeometryIndependentReplacement(
+        LevelAction before,
+        LevelAction after)
+    {
+        if (!string.Equals(before.EventType, "SetHitsound", StringComparison.Ordinal) ||
+            !string.Equals(after.EventType, "SetHitsound", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // HitSound, HitSoundVolumePercent, GameSound, and opaque property
+        // overrides do not participate in Core path geometry. Keep every other
+        // modeled action field stable so this remains a SetHitsound-only fast path.
+        return before.Floor == after.Floor &&
+               before.Active == after.Active &&
+               before.SourceIndex == after.SourceIndex &&
+               before.Kind == after.Kind &&
+               string.Equals(before.SpeedType, after.SpeedType, StringComparison.Ordinal) &&
+               before.BeatsPerMinute == after.BeatsPerMinute &&
+               before.BpmMultiplier == after.BpmMultiplier &&
+               string.Equals(before.CustomIcon, after.CustomIcon, StringComparison.Ordinal) &&
+               before.SpeedRatio == after.SpeedRatio &&
+               string.Equals(before.Planets, after.Planets, StringComparison.Ordinal) &&
+               before.AngleOffset == after.AngleOffset &&
+               before.Duration == after.Duration;
     }
 
     private void RecomputeSpeedRatios()

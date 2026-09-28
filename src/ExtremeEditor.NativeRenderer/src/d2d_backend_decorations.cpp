@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "static_decoration_transform.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,27 +10,6 @@ namespace ee
 namespace
 {
 thread_local ID2D1DeviceContext* last_decoration_context = nullptr;
-
-D2D1_POINT_2F DecorationWorldToScreen(
-    float world_x,
-    float world_y,
-    float camera_x,
-    float camera_y,
-    float zoom,
-    float camera_rotation,
-    std::uint32_t width,
-    std::uint32_t height) noexcept
-{
-    const float dx = world_x - camera_x;
-    const float dy = world_y - camera_y;
-    const float c = std::cos(camera_rotation);
-    const float s = std::sin(camera_rotation);
-    const float view_x = c * dx + s * dy;
-    const float view_y = -s * dx + c * dy;
-    return D2D1::Point2F(
-        view_x * zoom + static_cast<float>(width) * 0.5f,
-        -view_y * zoom + static_cast<float>(height) * 0.5f);
-}
 }
 
 bool D2DBackend::SyncStaticDecorations(
@@ -67,12 +47,7 @@ bool D2DBackend::SyncStaticDecorations(
         std::stable_sort(
             static_decorations_.begin(),
             static_decorations_.end(),
-            [](const EeStaticDecoration& left, const EeStaticDecoration& right)
-            {
-                if (left.depth != right.depth)
-                    return left.depth < right.depth;
-                return left.source_index < right.source_index;
-            });
+            StaticDecorationDrawOrderLess);
         cached_static_decorations_version_ = decorations_version;
     }
 
@@ -83,7 +58,27 @@ bool D2DBackend::SyncStaticDecorations(
         {
             for (const auto& entry : *assets)
             {
-                Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap = LoadBitmap(entry.second.image_path);
+                const DecorationAsset& asset = entry.second;
+                if (asset.width == 0u || asset.height == 0u || asset.stride == 0u ||
+                    asset.pixels.empty())
+                {
+                    continue;
+                }
+
+                Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+                const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+                    D2D1_BITMAP_OPTIONS_NONE,
+                    D2D1::PixelFormat(
+                        DXGI_FORMAT_B8G8R8A8_UNORM,
+                        D2D1_ALPHA_MODE_PREMULTIPLIED));
+                HRESULT hr = d2d_context_->CreateBitmap(
+                    D2D1::SizeU(asset.width, asset.height),
+                    asset.pixels.data(),
+                    asset.stride,
+                    &properties,
+                    bitmap.GetAddressOf());
+                if (FAILED(hr))
+                    bitmap.Reset();
                 if (bitmap)
                     decoration_bitmaps_.emplace(entry.first, std::move(bitmap));
             }
@@ -118,65 +113,55 @@ void D2DBackend::DrawStaticDecorationsCamera(
         if (bitmap_it == decoration_bitmaps_.end() || !bitmap_it->second)
             continue;
 
-        float world_x = decoration.position_x;
-        float world_y = decoration.position_y;
+        float anchor_x = 0.0f;
+        float anchor_y = 0.0f;
         if (decoration.relative_mode == EE_DECORATION_RELATIVE_TILE)
         {
             if (decoration.floor < 0 ||
                 static_cast<std::size_t>(decoration.floor) >= scene.floors.size())
                 continue;
             const EeFloor& floor = scene.floors[static_cast<std::size_t>(decoration.floor)];
-            world_x += floor.x;
-            world_y += floor.y;
+            anchor_x = floor.x;
+            anchor_y = floor.y;
         }
         else if (decoration.relative_mode != EE_DECORATION_RELATIVE_GLOBAL)
         {
             continue;
         }
 
-        // pivotOffset changes the rotation pivot without changing the unrotated
-        // placement. Preserve the raw ADOFAI value in the ABI and apply only the
-        // rotation-induced displacement here.
-        const float local_c = std::cos(decoration.rotation_radians);
-        const float local_s = std::sin(decoration.rotation_radians);
-        const float rotated_pivot_x =
-            local_c * decoration.pivot_offset_x - local_s * decoration.pivot_offset_y;
-        const float rotated_pivot_y =
-            local_s * decoration.pivot_offset_x + local_c * decoration.pivot_offset_y;
-        world_x += decoration.pivot_offset_x - rotated_pivot_x;
-        world_y += decoration.pivot_offset_y - rotated_pivot_y;
-
-        const D2D1_POINT_2F center = DecorationWorldToScreen(
-            world_x,
-            world_y,
+        StaticDecorationScreenTransform transform =
+            CalculateStaticDecorationScreenTransform(
+            decoration,
+            anchor_x,
+            anchor_y,
             camera_x,
             camera_y,
             zoom,
             camera_rotation,
             width_,
-            height_);
+            height_,
+            pixels_per_unit);
 
         ID2D1Bitmap1* bitmap = bitmap_it->second.Get();
         const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
         if (pixels.width == 0u || pixels.height == 0u)
             continue;
 
-        const float sx = zoom * decoration.scale_x / pixels_per_unit;
-        const float sy = zoom * decoration.scale_y / pixels_per_unit;
+        const float sx = transform.m11;
+        const float sy = transform.m22;
         if (!std::isfinite(sx) || !std::isfinite(sy) ||
-            std::abs(sx) <= 0.000001f || std::abs(sy) <= 0.000001f)
+            (!std::isfinite(transform.m12)) || (!std::isfinite(transform.m21)) ||
+            std::abs(decoration.scale_x) <= 0.000001f ||
+            std::abs(decoration.scale_y) <= 0.000001f)
             continue;
 
-        const float angle = decoration.rotation_radians + camera_rotation;
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
         d2d_context_->SetTransform(D2D1::Matrix3x2F(
-            sx * c,
-            sx * s,
-            -sy * s,
-            sy * c,
-            center.x,
-            center.y));
+            transform.m11,
+            transform.m12,
+            transform.m21,
+            transform.m22,
+            transform.center_x,
+            transform.center_y));
 
         const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
         const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;

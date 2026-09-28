@@ -7,7 +7,7 @@ namespace ExtremeEditor.AssetExtractor;
 
 public static class Program
 {
-    private const int ManifestFormatVersion = 1;
+    private const int ManifestFormatVersion = 2;
 
     public static int Main(string[] args)
     {
@@ -66,7 +66,8 @@ public static class Program
                 OutlineIcons: iconResult.OutlineIconCount,
                 EventIcons: iconResult.EventIconCount,
                 CategoryIcons: categoryIconCount,
-                HitSounds: hitSoundResult.HitSoundCount);
+                HitSounds: hitSoundResult.HitSoundCount,
+                HitSoundNames: hitSoundResult.HitSoundNames);
 
             byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(
                 manifest,
@@ -253,7 +254,8 @@ public static class Program
         int OutlineIcons,
         int EventIcons,
         int CategoryIcons,
-        int HitSounds);
+        int HitSounds,
+        IReadOnlyList<string> HitSoundNames);
 
     private sealed record Options(
         string? GameRoot,

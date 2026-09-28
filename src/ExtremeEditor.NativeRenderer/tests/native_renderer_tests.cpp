@@ -30,9 +30,17 @@ int main()
         info.clock_size != sizeof(EePlaybackTiming) ||
         info.diagnostics_size != sizeof(EeRendererDiagnostics) ||
         info.sprite_metadata_size != sizeof(EeSpriteMetadata) ||
-        info.static_decoration_size != sizeof(EeStaticDecoration))
+        info.static_decoration_size != sizeof(EeStaticDecoration) ||
+        info.floor_icon_state_size != sizeof(EeFloorIconState))
     {
         std::cerr << "ABI struct size mismatch.\n";
+        return 1;
+    }
+
+    EeFloorIconState icon_state{};
+    if (ee_renderer_update_floor_icons(nullptr, 0u, &icon_state, 1u) != EE_ERROR_INVALID_ARGUMENT)
+    {
+        std::cerr << "Floor icon update accepted a null renderer.\n";
         return 1;
     }
 

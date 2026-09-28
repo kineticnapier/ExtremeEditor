@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
 using Microsoft.Win32;
 
 namespace ExtremeEditor.Wpf;
@@ -416,7 +417,7 @@ public partial class MainWindow
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             int[] selection = _selection.SelectedFloors.ToArray();
             editor.ReplaceAction(item.Action, updated);
-            RefreshEditorAfterMutation(updated.Floor, selection);
+            RefreshEditorAfterMutation(updated.Floor, selection, item.Action, updated);
         }
         catch (Exception ex)
         {
@@ -439,7 +440,11 @@ public partial class MainWindow
         CommandManager.InvalidateRequerySuggested();
     }
 
-    private void RefreshEditorAfterMutation(int preferredPrimary, IEnumerable<int>? preferredSelection = null)
+    private void RefreshEditorAfterMutation(
+        int preferredPrimary,
+        IEnumerable<int>? preferredSelection = null,
+        LevelAction? actionBefore = null,
+        LevelAction? actionAfter = null)
     {
         if (_level is null)
             return;
@@ -450,7 +455,10 @@ public partial class MainWindow
         selection = selection.Select(floor => Math.Clamp(floor, 0, maxFloor)).Distinct().ToArray();
         int primary = Math.Clamp(preferredPrimary, 0, maxFloor);
 
-        NativeViewport.SetLevel(_level);
+        if (actionBefore is not null && actionAfter is not null)
+            NativeActionEditUpdate.Apply(NativeViewport, _level, actionBefore, actionAfter);
+        else
+            NativeViewport.SetLevel(_level);
         _selection.SetFloorCount(_level.FloorCount);
         _selection.SetSelection(selection, primary);
 

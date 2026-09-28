@@ -47,6 +47,15 @@ internal readonly record struct StaticTrackTransform(
     float Opacity,
     bool StickToFloors);
 
+internal sealed class TrackTransformResolveDiagnostics
+{
+    internal long WorkItemCount { get; private set; }
+
+    internal void Reset() => WorkItemCount = 0;
+
+    internal void RecordWorkItem() => WorkItemCount = checked(WorkItemCount + 1);
+}
+
 internal static class TrackTransformMetadataCache
 {
     private static readonly ConditionalWeakTable<LevelDocument, TrackTransformSourceData> Cache = new();
@@ -609,9 +618,15 @@ internal static class TrackTransformResolver
     private const float TileSize = PathBuilder.DefaultLongTileSize;
     private const float DegToRad = MathF.PI / 180f;
 
-    internal static StaticTrackTransform[] ResolveStatic(LevelDocument level)
+    internal static StaticTrackTransform[] ResolveStatic(LevelDocument level) =>
+        ResolveStatic(level, diagnostics: null);
+
+    internal static StaticTrackTransform[] ResolveStatic(
+        LevelDocument level,
+        TrackTransformResolveDiagnostics? diagnostics)
     {
         ArgumentNullException.ThrowIfNull(level);
+        diagnostics?.Reset();
         int count = level.FloorCount;
         if (count == 0)
             return [];
@@ -619,85 +634,105 @@ internal static class TrackTransformResolver
         TrackTransformSourceData source = TrackTransformMetadataCache.Get(level);
         List<TrackTransformSourceEvent> live = BuildLiveEvents(level, source);
 
-        var position = level.Positions.ToArray();
-        var rotation = new float[count];
-        var scale = Enumerable.Repeat(1f, count).ToArray();
-        var opacity = Enumerable.Repeat(1f, count).ToArray();
-        var stick = Enumerable.Repeat(source.DefaultStickToFloors, count).ToArray();
-        Vector2 persistentOffset = Vector2.Zero;
-
-        foreach (TrackTransformSourceEvent item in live)
-        {
-            if (!item.Active || item.EventType != "PositionTrack" || (uint)item.Floor >= (uint)count)
-                continue;
-
-            int floor = item.Floor;
-            if (item.PositionOffset is TrackTransformVector2 offset &&
-                (item.DisabledFlags & TrackTransformSourceReader.DisablePosition) == 0u)
-            {
-                int target = ResolveReference(item.RelativeTo, floor, count);
-                float dx = (float)(offset.X ?? 0.0) * TileSize;
-                float dy = (float)(offset.Y ?? 0.0) * TileSize;
-                if (target != floor)
-                {
-                    Vector2 baseCurrent = level.Positions[floor] + persistentOffset;
-                    Vector2 relativeDelta = position[target] - baseCurrent;
-                    dx += relativeDelta.X;
-                    dy += relativeDelta.Y;
-                }
-
-                var delta = new Vector2(dx, dy);
-                if (item.JustThisTile)
-                {
-                    position[floor] += delta;
-                }
-                else
-                {
-                    for (int i = floor; i < count; i++)
-                        position[i] += delta;
-                    persistentOffset = position[floor] - level.Positions[floor];
-                }
-            }
-
-            if (item.StaticScale is double rawScale &&
-                (item.DisabledFlags & TrackTransformSourceReader.DisableScale) == 0u)
-            {
-                float value = (float)(rawScale / 100.0);
-                ApplyFrom(scale, floor, value, item.JustThisTile);
-            }
-
-            if (item.Rotation is double rawRotation &&
-                (item.DisabledFlags & TrackTransformSourceReader.DisableRotation) == 0u)
-            {
-                float value = (float)rawRotation * DegToRad;
-                ApplyFrom(rotation, floor, value, item.JustThisTile);
-            }
-
-            if (item.Opacity is double rawOpacity &&
-                (item.DisabledFlags & TrackTransformSourceReader.DisableOpacity) == 0u)
-            {
-                float value = Math.Clamp((float)(rawOpacity / 100.0), 0f, 100f);
-                ApplyFrom(opacity, floor, value, item.JustThisTile);
-            }
-
-            if (item.StickToFloors is bool stickValue &&
-                (item.DisabledFlags & TrackTransformSourceReader.DisableStickToFloors) == 0u)
-            {
-                ApplyFrom(stick, floor, stickValue, item.JustThisTile);
-            }
-        }
-
         var result = new StaticTrackTransform[count];
-        for (int i = 0; i < count; i++)
+        Vector2 persistentPosition = Vector2.Zero;
+        Vector2 relativeBaseOffset = Vector2.Zero;
+        float persistentRotation = 0f;
+        float persistentScale = 1f;
+        float persistentOpacity = 1f;
+        bool persistentStick = source.DefaultStickToFloors;
+        int eventCursor = 0;
+
+        for (int floor = 0; floor < count; floor++)
         {
-            result[i] = new StaticTrackTransform(
-                position[i].X,
-                position[i].Y,
-                rotation[i],
-                scale[i],
-                scale[i],
-                opacity[i],
-                stick[i]);
+            while (eventCursor < live.Count && live[eventCursor].Floor < floor)
+                eventCursor++;
+
+            Vector2 floorPosition = level.Positions[floor] + persistentPosition;
+            float floorRotation = persistentRotation;
+            float floorScale = persistentScale;
+            float floorOpacity = persistentOpacity;
+            bool floorStick = persistentStick;
+
+            while (eventCursor < live.Count && live[eventCursor].Floor == floor)
+            {
+                TrackTransformSourceEvent item = live[eventCursor++];
+                if (!item.Active || item.EventType != "PositionTrack")
+                    continue;
+
+                if (item.PositionOffset is TrackTransformVector2 offset &&
+                    (item.DisabledFlags & TrackTransformSourceReader.DisablePosition) == 0u)
+                {
+                    int target = ResolveReference(item.RelativeTo, floor, count);
+                    float dx = (float)(offset.X ?? 0.0) * TileSize;
+                    float dy = (float)(offset.Y ?? 0.0) * TileSize;
+                    if (target != floor)
+                    {
+                        Vector2 targetPosition = target < floor
+                            ? new Vector2(result[target].X, result[target].Y)
+                            : level.Positions[target] + persistentPosition;
+                        Vector2 baseCurrent = level.Positions[floor] + relativeBaseOffset;
+                        Vector2 relativeDelta = targetPosition - baseCurrent;
+                        dx += relativeDelta.X;
+                        dy += relativeDelta.Y;
+                    }
+
+                    var delta = new Vector2(dx, dy);
+                    floorPosition += delta;
+                    if (!item.JustThisTile)
+                    {
+                        persistentPosition += delta;
+                        relativeBaseOffset = floorPosition - level.Positions[floor];
+                    }
+                    diagnostics?.RecordWorkItem();
+                }
+
+                if (item.StaticScale is double rawScale &&
+                    (item.DisabledFlags & TrackTransformSourceReader.DisableScale) == 0u)
+                {
+                    floorScale = (float)(rawScale / 100.0);
+                    if (!item.JustThisTile)
+                        persistentScale = floorScale;
+                    diagnostics?.RecordWorkItem();
+                }
+
+                if (item.Rotation is double rawRotation &&
+                    (item.DisabledFlags & TrackTransformSourceReader.DisableRotation) == 0u)
+                {
+                    floorRotation = (float)rawRotation * DegToRad;
+                    if (!item.JustThisTile)
+                        persistentRotation = floorRotation;
+                    diagnostics?.RecordWorkItem();
+                }
+
+                if (item.Opacity is double rawOpacity &&
+                    (item.DisabledFlags & TrackTransformSourceReader.DisableOpacity) == 0u)
+                {
+                    floorOpacity = Math.Clamp((float)(rawOpacity / 100.0), 0f, 100f);
+                    if (!item.JustThisTile)
+                        persistentOpacity = floorOpacity;
+                    diagnostics?.RecordWorkItem();
+                }
+
+                if (item.StickToFloors is bool stickValue &&
+                    (item.DisabledFlags & TrackTransformSourceReader.DisableStickToFloors) == 0u)
+                {
+                    floorStick = stickValue;
+                    if (!item.JustThisTile)
+                        persistentStick = floorStick;
+                    diagnostics?.RecordWorkItem();
+                }
+            }
+
+            result[floor] = new StaticTrackTransform(
+                floorPosition.X,
+                floorPosition.Y,
+                floorRotation,
+                floorScale,
+                floorScale,
+                floorOpacity,
+                floorStick);
+            diagnostics?.RecordWorkItem();
         }
         return result;
     }
@@ -979,13 +1014,6 @@ internal static class TrackTransformResolver
             _ => floor + (reference?.Offset ?? 0)
         };
         return Math.Clamp(target, 0, Math.Max(0, count - 1));
-    }
-
-    private static void ApplyFrom<T>(T[] values, int floor, T value, bool justThisTile)
-    {
-        int end = justThisTile ? floor + 1 : values.Length;
-        for (int i = floor; i < end; i++)
-            values[i] = value;
     }
 
     private static uint MapEase(string? ease)

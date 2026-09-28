@@ -117,13 +117,27 @@ internal static class StaticDecorationRegression
                   "visible": true,
                   "depth": 0,
                   "relativeTo": "Global"
+                },
+                {
+                  "floor": 1,
+                  "eventType": "AddDecoration",
+                  "decorationImage": "global.png",
+                  "position": [2, 2],
+                  "pivotOffset": [0, 0],
+                  "rotation": 0,
+                  "scale": [100, 100],
+                  "color": "FFFFFF",
+                  "opacity": 0,
+                  "visible": true,
+                  "depth": 0,
+                  "relativeTo": "Global"
                 }
               ]
             }
             """);
 
             LevelDocument level = AdoFaiLoader.Load(levelPath).Document;
-            if (level.Decorations.Count != 6 ||
+            if (level.Decorations.Count != 7 ||
                 level.Decorations.Any(static decoration =>
                     !string.Equals(decoration.EventType, "AddDecoration", StringComparison.Ordinal)))
             {
@@ -146,6 +160,12 @@ internal static class StaticDecorationRegression
             object global = contract.FindBySourceIndex(instances, 1);
             object floorlessGlobal = contract.FindBySourceIndex(instances, 4);
             contract.AssertInvisibleIsNotDrawable(instances, 2);
+            contract.AssertSourceIsAbsent(instances, 3, "missing decorationImage");
+            contract.AssertSourceIsAbsent(instances, 5, "empty decorationImage");
+            contract.AssertInvisibleIsNotDrawable(instances, 6);
+
+            if (assets.Count != 2)
+                throw new InvalidOperationException("Static decoration assets were not deduplicated by resolved path.");
 
             contract.AssertInstance(
                 tile,
@@ -265,6 +285,18 @@ internal static class StaticDecorationRegression
             {
                 throw new InvalidOperationException(
                     "visible:false AddDecoration must be omitted or marked non-visible in the native snapshot.");
+            }
+        }
+
+        public void AssertSourceIsAbsent(
+            IReadOnlyList<object> instances,
+            int sourceIndex,
+            string reason)
+        {
+            if (instances.Any(candidate => ReadInt(candidate, "SourceIndex") == sourceIndex))
+            {
+                throw new InvalidOperationException(
+                    $"Static AddDecoration with {reason} must be skipped.");
             }
         }
 

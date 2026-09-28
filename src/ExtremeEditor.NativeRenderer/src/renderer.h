@@ -29,10 +29,15 @@ public:
     bool Initialize(HWND parent, std::uint32_t width, std::uint32_t height) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
+    bool UpdateFloorIcons(
+        std::uint32_t start_floor,
+        const EeFloorIconState* states,
+        std::uint32_t state_count) noexcept;
     bool SetStaticDecorations(const EeStaticDecoration* decorations, std::uint32_t decoration_count) noexcept;
     void ClearDecorationAssets() noexcept;
     bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
     void FrameAll() noexcept;
+    void CenterAt(float world_x, float world_y) noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(
         std::uint32_t icon_id,
@@ -100,6 +105,8 @@ private:
     std::uint64_t icon_assets_version_ = 0;
     std::uint64_t static_decorations_version_ = 0;
     std::uint64_t decoration_assets_version_ = 0;
+    std::uint32_t pending_icon_start_floor_ = 0;
+    std::vector<EeFloorIconState> pending_icon_states_;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
     EeEditorActionCallback editor_action_callback_ = nullptr;

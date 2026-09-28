@@ -48,10 +48,22 @@ internal static class AssetSetupRegression
             AssertReady(inspectMethod, cacheRoot, expected: false, "missing manifest/cache must be reported as not ready");
 
             WriteMinimalCanonicalCache(cacheRoot, formatVersion: 1);
-            AssertReady(inspectMethod, cacheRoot, expected: true, "canonical formatVersion=1 cache must be accepted");
+            AssertReady(inspectMethod, cacheRoot, expected: false, "legacy formatVersion=1 cache must require re-extraction");
 
             WriteMinimalCanonicalCache(cacheRoot, formatVersion: 2);
+            AssertReady(inspectMethod, cacheRoot, expected: true, "canonical formatVersion=2 cache must be accepted");
+
+            WriteMinimalCanonicalCache(cacheRoot, formatVersion: 3);
             AssertReady(inspectMethod, cacheRoot, expected: false, "unknown manifest formatVersion must be rejected");
+
+            WriteMinimalCanonicalCache(cacheRoot, formatVersion: 2, hitSoundNames: ["Kick", "kick"]);
+            AssertReady(inspectMethod, cacheRoot, expected: false, "duplicate logical hit sound names must be rejected");
+
+            WriteMinimalCanonicalCache(cacheRoot, formatVersion: 2, hitSoundNames: [""]);
+            AssertReady(inspectMethod, cacheRoot, expected: false, "empty logical hit sound names must be rejected");
+
+            WriteMinimalCanonicalCache(cacheRoot, formatVersion: 2, hitSoundNames: ["Kick", "Sizzle"]);
+            AssertReady(inspectMethod, cacheRoot, expected: false, "missing declared hit sound files must be rejected");
 
             string extractorPath = Path.Combine(cacheRoot, "ExtremeEditor.AssetExtractor.exe");
             string gameRoot = Path.Combine(cacheRoot, "ADOFAI");
@@ -103,7 +115,10 @@ internal static class AssetSetupRegression
             throw new InvalidOperationException(message);
     }
 
-    private static void WriteMinimalCanonicalCache(string cacheRoot, int formatVersion)
+    private static void WriteMinimalCanonicalCache(
+        string cacheRoot,
+        int formatVersion,
+        string[]? hitSoundNames = null)
     {
         string floorDirectory = Path.Combine(cacheRoot, "floor-mesh");
         string iconDirectory = Path.Combine(cacheRoot, "icons");
@@ -129,6 +144,7 @@ internal static class AssetSetupRegression
         File.WriteAllBytes(Path.Combine(categoryDirectory, "Gameplay.png"), [1]);
         File.WriteAllBytes(Path.Combine(hitSoundDirectory, "sndKick.wav"), [1]);
 
+        string[] names = hitSoundNames ?? ["Kick"];
         var manifest = new
         {
             formatVersion,
@@ -138,7 +154,8 @@ internal static class AssetSetupRegression
             outlineIcons = 1,
             eventIcons = 1,
             categoryIcons = 1,
-            hitSounds = 1
+            hitSounds = names.Length,
+            hitSoundNames = names
         };
 
         File.WriteAllText(

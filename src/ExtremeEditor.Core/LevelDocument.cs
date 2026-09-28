@@ -149,6 +149,7 @@ public sealed class LevelDocument
 
     public void RebuildGeometry()
     {
+        LevelGeometryDiagnostics.RecordRebuild();
         Positions = PathBuilder.BuildPositions(Angles);
         Bounds = PathBuilder.CalculateBounds(Positions);
     }

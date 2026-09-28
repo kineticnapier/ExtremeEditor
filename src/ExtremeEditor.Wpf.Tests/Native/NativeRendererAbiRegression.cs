@@ -16,7 +16,7 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 13u)
+        if (version != 16u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
 
         Type staticDecoration = assembly.GetType("ExtremeEditor.Wpf.Native.NativeStaticDecoration")
@@ -49,6 +49,14 @@ internal static class NativeRendererAbiRegression
             throw new InvalidOperationException(
                 "Native static decoration ABI is incomplete: " +
                 string.Join(", ", missingDecorationFields));
+        }
+
+        Type floorIconState = assembly.GetType("ExtremeEditor.Wpf.Native.NativeFloorIconState")
+            ?? throw new InvalidOperationException("NativeFloorIconState is missing.");
+        foreach (string name in new[] { "IconId", "IconFlags", "IconAngle" })
+        {
+            if (floorIconState.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is null)
+                throw new InvalidOperationException($"Native floor-icon ABI is missing {name}.");
         }
 
         Type diagnostics = assembly.GetType("ExtremeEditor.Wpf.Native.NativeRendererDiagnostics")

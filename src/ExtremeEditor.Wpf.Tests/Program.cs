@@ -15,6 +15,149 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_COORDINATES_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsCoordinateRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations coordinate regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_EASING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsEasingRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations easing regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_INTERPOLATION_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsInterpolationRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations interpolation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsEvaluationRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations evaluation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VFX_TIMELINE_CORE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VfxTimelineCoreRegression.Run();
+                VfxTimelineExpansionRegression.Run();
+                VfxTimelineEdgeRegression.Run();
+                Console.WriteLine("PASS: VFX timeline core regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TWIRL_INCREMENTAL_NATIVE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TwirlIncrementalNativeRegression.Run();
+                Console.WriteLine("PASS: incremental Twirl native action-edit regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MANAGED_GEOMETRY_EDIT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                ManagedGeometryEditRegression.Run();
+                Console.WriteLine("PASS: managed geometry action-edit regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_INCREMENTAL_NATIVE_EDIT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                IncrementalNativeEditRegression.Run();
+                Console.WriteLine("PASS: incremental native action-edit regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_OWNERSHIP_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                SaveNodeOwnershipRegression.Run();
+                LegacyEventRoundTripRegression.Run();
+                Console.WriteLine("PASS: save JsonNode ownership and round-trip regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_GO_TO_FLOOR_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                GoToFloorRegression.Run();
+                Console.WriteLine("PASS: Go to Floor regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_TRANSFORM_SCALING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackTransformScalingRegression.Run();
+                Console.WriteLine("PASS: persistent track-transform scaling regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ASSET_EXTRACTOR_PACKAGING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                AssetExtractorPackagingRegression.Run();
+                Console.WriteLine("PASS: AssetExtractor packaging isolation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_PAUSE_TIMING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                PauseTimingStockRegression.Run();
+                Console.WriteLine("PASS: stock Pause timing regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_INITIAL_HITSOUND_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                InitialHitSoundRegression.Run();
+                Console.WriteLine("PASS: initial hitsound regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_STATIC_DECORATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -143,11 +286,13 @@ internal static class Program
 
             WinFormsHostRemovalRegression.Run();
             EditorSelectionStateRegression.Run();
+            GoToFloorRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
             EventPaletteIconRegression.Run();
             EventAvailabilityRegression.Run();
             LegacyEventRoundTripRegression.Run();
+            SaveNodeOwnershipRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
@@ -186,6 +331,17 @@ internal static class Program
             CameraPlayerSmoothPivotRegression.Run();
             DecorationModelFoundationRegression.Run();
             StaticDecorationRegression.Run();
+            PauseTimingStockRegression.Run();
+            InitialHitSoundRegression.Run();
+            AssetExtractorPackagingRegression.Run();
+            TrackTransformScalingRegression.Run();
+            VfxTimelineCoreRegression.Run();
+            VfxTimelineExpansionRegression.Run();
+            VfxTimelineEdgeRegression.Run();
+            MoveDecorationsEvaluationRegression.Run();
+            MoveDecorationsInterpolationRegression.Run();
+            MoveDecorationsEasingRegression.Run();
+            MoveDecorationsCoordinateRegression.Run();
             Console.WriteLine("PASS: legacy WinForms host removal, editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, event palette/availability/legacy round-trip, decoration model foundation, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }

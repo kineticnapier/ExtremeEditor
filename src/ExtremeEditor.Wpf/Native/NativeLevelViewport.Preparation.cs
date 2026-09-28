@@ -19,14 +19,27 @@ public sealed partial class NativeLevelViewport
     internal static PreparedNativeLevel PrepareLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        NativeLevelUpdateDiagnostics.RecordPrepareLevel();
 
-        var watch = Stopwatch.StartNew();
+        Console.WriteLine(
+            $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
+
+        var totalWatch = Stopwatch.StartNew();
+        var phaseWatch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
+        phaseWatch.Stop();
+        Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+
+        phaseWatch.Restart();
         StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
         result.Snapshot.StaticDecorations = decorationData.Instances;
         result.Snapshot.DecorationAssets = decorationData.Assets;
-        watch.Stop();
-        return new PreparedNativeLevel(result.Snapshot, result.Metrics, watch.Elapsed);
+        phaseWatch.Stop();
+        Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+
+        totalWatch.Stop();
+        Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
+        return new PreparedNativeLevel(result.Snapshot, result.Metrics, totalWatch.Elapsed);
     }
 
     internal static PreparedNativePlayback PreparePlayback(LevelDocument level, TimingMap timingMap)

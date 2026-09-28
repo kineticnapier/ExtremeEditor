@@ -87,6 +87,7 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
     internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
+    internal NativeLevelSnapshot? SnapshotForDiagnostics => _snapshot;
 
     public bool FollowPlayer
     {
@@ -104,6 +105,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
         bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
         _snapshot = null;
@@ -115,6 +117,31 @@ public sealed partial class NativeLevelViewport : HwndHost
             _trackTransformTimeline = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
+    }
+
+    internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        if (_snapshot is null ||
+            !FloorIconResolver.TryResolveFrom(level, _snapshot, startFloor, out FloorIconSuffixResolution resolved))
+        {
+            return false;
+        }
+
+        if (_session is not null && !_session.UpdateFloorIcons(startFloor, resolved.States))
+            return false;
+
+        for (int i = 0; i < resolved.States.Length; i++)
+            resolved.States[i].ApplyTo(ref _snapshot.Floors[startFloor + i]);
+        Array.Copy(
+            resolved.CcwBeforeFloorSuffix,
+            0,
+            _snapshot.CcwBeforeFloor,
+            startFloor,
+            resolved.CcwBeforeFloorSuffix.Length);
+        _level = level;
+        NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(startFloor);
+        return true;
     }
 
     public void ReloadAssets()
@@ -207,6 +234,15 @@ public sealed partial class NativeLevelViewport : HwndHost
 
         _session.FrameAll();
         _frameAllPending = false;
+    }
+
+    public void CenterFloor(int floor)
+    {
+        if (_snapshot is null || (uint)floor >= (uint)_snapshot.Floors.Length)
+            return;
+
+        NativeFloor target = _snapshot.Floors[floor];
+        _session?.CenterAt(target.X, target.Y);
     }
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)

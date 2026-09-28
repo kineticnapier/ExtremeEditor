@@ -14,6 +14,21 @@ public partial class MainWindow
     // and the QWE/ASD/etc. keys create floors directly.
     private void AdoFaiPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        bool control = (modifiers & ModifierKeys.Control) != 0;
+        bool shift = (modifiers & ModifierKeys.Shift) != 0;
+        bool alt = (modifiers & ModifierKeys.Alt) != 0;
+        bool windows = (modifiers & ModifierKeys.Windows) != 0;
+
+        if (control && !shift && !alt && !windows && key == Key.G)
+        {
+            if (!e.IsRepeat)
+                ShowGoToFloor();
+            e.Handled = true;
+            return;
+        }
+
         if (Keyboard.FocusedElement is TextBox or PasswordBox)
             return;
 
@@ -26,12 +41,6 @@ public partial class MainWindow
             return;
         }
 
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        ModifierKeys modifiers = Keyboard.Modifiers;
-        bool control = (modifiers & ModifierKeys.Control) != 0;
-        bool shift = (modifiers & ModifierKeys.Shift) != 0;
-        bool alt = (modifiers & ModifierKeys.Alt) != 0;
-        bool windows = (modifiers & ModifierKeys.Windows) != 0;
         bool backQuote = Keyboard.IsKeyDown(Key.Oem3);
 
         // ADOFAI treats BackQuote as a real modifier, not as a normal key.

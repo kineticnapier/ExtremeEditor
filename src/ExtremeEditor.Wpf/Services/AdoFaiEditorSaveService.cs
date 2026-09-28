@@ -129,7 +129,7 @@ internal static class AdoFaiEditorSaveService
             }
             else if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
             {
-                obj = original;
+                obj = (JsonObject)original.DeepClone();
             }
             else if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
             {

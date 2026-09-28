@@ -12,7 +12,8 @@ namespace ExtremeEditor.AssetExtractor;
 public sealed record HitSoundExtractionResult(
     string OutputDirectory,
     string KickPath,
-    int HitSoundCount);
+    int HitSoundCount,
+    IReadOnlyList<string> HitSoundNames);
 
 public static class AdoFaiHitSoundExtractor
 {
@@ -53,6 +54,7 @@ public static class AdoFaiHitSoundExtractor
             int exported = 0;
             int missing = 0;
             var failures = new List<string>();
+            var exportedNames = new List<string>();
 
             foreach (string hitSoundName in hitSoundNames)
             {
@@ -71,6 +73,7 @@ public static class AdoFaiHitSoundExtractor
                 {
                     ExtractClip(manager, instance, clipInfo, dataDirectory, output, clipName);
                     exported++;
+                    exportedNames.Add(hitSoundName);
                 }
                 catch (Exception ex)
                 {
@@ -90,7 +93,7 @@ public static class AdoFaiHitSoundExtractor
             if (failures.Count > 0)
                 Console.WriteLine($"[extract] hitsound failures: {string.Join(" | ", failures)}");
 
-            return new HitSoundExtractionResult(output, kickPath, exported);
+            return new HitSoundExtractionResult(output, kickPath, exported, exportedNames.ToArray());
         }
         finally
         {

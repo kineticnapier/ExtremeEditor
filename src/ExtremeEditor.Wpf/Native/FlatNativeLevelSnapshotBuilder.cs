@@ -13,6 +13,9 @@ internal static class FlatNativeLevelSnapshotBuilder
     internal static NativeLevelSnapshotBuildResult BuildProfiled(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        NativeLevelUpdateDiagnostics.RecordFlatSnapshotBuild();
+
+        var totalWatch = Stopwatch.StartNew();
 
         LevelActionStore empty = LevelActionStore.Empty;
         var geometryOnlyLevel = new LevelDocument
@@ -35,20 +38,36 @@ internal static class FlatNativeLevelSnapshotBuilder
             Bounds = level.Bounds
         };
 
+        var phaseWatch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult geometryResult =
             NativeLevelSnapshotBuilder.BuildGeometryProfiled(geometryOnlyLevel);
+        phaseWatch.Stop();
+        LogPhase("baseGeometry", phaseWatch.Elapsed);
         NativeLevelSnapshot geometrySnapshot = geometryResult.Snapshot;
         NativeFloor[] floors = geometrySnapshot.Floors;
         double[] angles = level.Angles;
+
+        phaseWatch.Restart();
         NativeTrackVisual[] trackVisuals = TrackVisualResolver.Resolve(level);
+        phaseWatch.Stop();
+        LogPhase("trackVisualResolve", phaseWatch.Elapsed);
+
+        phaseWatch.Restart();
         StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
+        phaseWatch.Stop();
+        LogPhase("trackTransformResolve", phaseWatch.Elapsed);
+
+        phaseWatch.Restart();
         NativeTileDimensions[] tileDimensions = TileDimensionsResolver.Resolve(level);
+        phaseWatch.Stop();
+        LogPhase("tileDimensionsResolve", phaseWatch.Elapsed);
 
         // TileDimensions changes FloorMesh's own length/width inputs. It cannot be
         // represented by a simple XY transform at corners: stretching the finished
         // 90-degree polygon would swap length/width on its outgoing arm. Keep the
         // common 100% geometry shared, and create extra cached geometry only for
         // distinct non-default dimension pairs actually present in the chart.
+        phaseWatch.Restart();
         var sizedGeometries = geometrySnapshot.Geometries.ToList();
         var sizedPoints = geometrySnapshot.Points.ToList();
         var sizedGeometryIds = new Dictionary<SizedGeometryKey, uint>();
@@ -97,86 +116,27 @@ internal static class FlatNativeLevelSnapshotBuilder
             }
             target.GeometryId = geometryId;
         }
+        phaseWatch.Stop();
+        LogPhase("sizedGeometryPass", phaseWatch.Elapsed);
 
-        var watch = Stopwatch.StartNew();
+        phaseWatch.Restart();
         var iconAssets = new List<NativeIconAsset>();
-        var floorIconCache = new Dictionary<string, FloorIconAsset?>(StringComparer.OrdinalIgnoreCase);
-        var eventIconCache = new Dictionary<string, uint?>(StringComparer.Ordinal);
-
-        bool hasSwirlRed = TryGetFloorIconAsset(
-            "SwirlRed", iconAssets, floorIconCache, out FloorIconAsset swirlRed);
-        bool hasSwirlBlue = TryGetFloorIconAsset(
-            "SwirlBlue", iconAssets, floorIconCache, out FloorIconAsset swirlBlue);
-
-        bool isCcw = false;
-        int validActionFloorCount = 0;
-        LevelActionStore store = level.ActionStore;
-        for (int actionFloorIndex = 0; actionFloorIndex < store.ActionFloorCount; actionFloorIndex++)
-        {
-            int floor = store.GetFloor(actionFloorIndex);
-            if ((uint)floor >= (uint)floors.Length)
-                continue;
-
-            validActionFloorCount++;
-            ReadOnlySpan<LevelAction> actions = store.GetActionsAt(actionFloorIndex);
-            bool midSpin = floor < angles.Length && Math.Abs(angles[floor] - 999.0) < 0.000001;
-            float entryAngle = floors[floor].EntryAngle;
-            float exitAngle = GetExitAngle(floor, angles, entryAngle);
-
-            if (actions.Length == 1 && actions[0].Active && actions[0].Kind == LevelActionKind.Twirl)
-            {
-                isCcw = !isCcw;
-                SwirlVisual swirl = CalculateSwirlVisual(entryAngle, exitAngle, isCcw, midSpin);
-                bool hasAsset = swirl.IsRed ? hasSwirlRed : hasSwirlBlue;
-                FloorIconAsset asset = swirl.IsRed ? swirlRed : swirlBlue;
-                if (hasAsset)
-                {
-                    ref NativeFloor nativeFloor = ref floors[floor];
-                    nativeFloor.IconId = asset.IconId;
-                    nativeFloor.IconFlags = NativeFloor.IconFlagFloor |
-                                            (swirl.Flipped ? NativeFloor.IconFlagFlipped : 0u);
-                    nativeFloor.IconAngle = swirl.IconAngle;
-                    continue;
-                }
-            }
-            else
-            {
-                foreach (LevelAction action in actions)
-                {
-                    if (action.Active && action.Kind == LevelActionKind.Twirl)
-                        isCcw = !isCcw;
-                }
-            }
-
-            if (!TryResolveIcon(
-                    actions,
-                    entryAngle,
-                    exitAngle,
-                    isCcw,
-                    midSpin,
-                    iconAssets,
-                    floorIconCache,
-                    eventIconCache,
-                    out ResolvedIcon resolved))
-                continue;
-
-            ref NativeFloor target = ref floors[floor];
-            target.IconId = resolved.IconId;
-            if (resolved.IsFloorIcon)
-                target.IconFlags |= NativeFloor.IconFlagFloor;
-            if (resolved.Flipped)
-                target.IconFlags |= NativeFloor.IconFlagFlipped;
-            target.IconAngle = resolved.AngleRadians;
-        }
+        FloorIconResolution iconResolution = FloorIconResolver.ResolveAll(level, floors, iconAssets);
+        phaseWatch.Stop();
+        TimeSpan iconPassTime = phaseWatch.Elapsed;
+        LogPhase("iconPass", iconPassTime);
 
         // PositionTrack is a persistent floor-state transform, not a runtime
         // MoveTrack tween. TileDimensions is already baked into the floor mesh
         // above, so transform scale remains available exclusively for PositionTrack
         // and MoveTrack and composes naturally with the shaped geometry.
+        phaseWatch.Restart();
         int transformCount = Math.Min(floors.Length, staticTransforms.Length);
+        var iconRotationOffsets = new float[floors.Length];
         for (int floor = 0; floor < transformCount; floor++)
         {
             StaticTrackTransform transform = staticTransforms[floor];
+            iconRotationOffsets[floor] = transform.Rotation;
             ref NativeFloor target = ref floors[floor];
             target.X = transform.X;
             target.Y = transform.Y;
@@ -189,10 +149,18 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
         }
+        phaseWatch.Stop();
+        TimeSpan transformPassTime = phaseWatch.Elapsed;
+        LogPhase("transformPass", transformPassTime);
 
+        phaseWatch.Restart();
         TerminalPortalResolver.Apply(floors, iconAssets);
+        phaseWatch.Stop();
+        TimeSpan terminalPortalTime = phaseWatch.Elapsed;
+        LogPhase("terminalPortal", terminalPortalTime);
 
         // Track visual state has its own ABI fields now; icon flags stay icon-only.
+        phaseWatch.Restart();
         int trackVisualCount = Math.Min(floors.Length, trackVisuals.Length);
         for (int floor = 0; floor < trackVisualCount; floor++)
         {
@@ -206,11 +174,13 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.TrackStartFloor = visual.StartFloor;
             target.TrackPulseLength = visual.PulseLength;
         }
+        phaseWatch.Stop();
+        TimeSpan trackVisualPassTime = phaseWatch.Elapsed;
+        LogPhase("trackVisualPass", trackVisualPassTime);
 
-        watch.Stop();
-        TimeSpan iconTime = watch.Elapsed;
+        TimeSpan iconTime = iconPassTime + transformPassTime + terminalPortalTime + trackVisualPassTime;
 
-        watch.Restart();
+        phaseWatch.Restart();
         (float boundsLeft, float boundsTop, float boundsRight, float boundsBottom) =
             CalculateTransformBounds(floors, tileDimensions, geometrySnapshot);
         var snapshot = new NativeLevelSnapshot
@@ -219,12 +189,19 @@ internal static class FlatNativeLevelSnapshotBuilder
             Geometries = sizedGeometries.ToArray(),
             Points = sizedPoints.ToArray(),
             IconAssets = iconAssets.ToArray(),
+            CcwBeforeFloor = iconResolution.CcwBeforeFloor,
+            IconRotationOffsets = iconRotationOffsets,
             BoundsLeft = boundsLeft,
             BoundsTop = boundsTop,
             BoundsRight = boundsRight,
             BoundsBottom = boundsBottom
         };
-        watch.Stop();
+        phaseWatch.Stop();
+        TimeSpan boundsFinalizeTime = phaseWatch.Elapsed;
+        LogPhase("boundsFinalize", boundsFinalizeTime);
+
+        totalWatch.Stop();
+        LogPhase("snapshotTotal", totalWatch.Elapsed);
 
         NativeLevelSnapshotBuildMetrics baseMetrics = geometryResult.Metrics;
         return new NativeLevelSnapshotBuildResult(
@@ -232,11 +209,14 @@ internal static class FlatNativeLevelSnapshotBuilder
             new NativeLevelSnapshotBuildMetrics(
                 baseMetrics.FloorGeometry,
                 iconTime,
-                baseMetrics.Finalize + watch.Elapsed,
+                baseMetrics.Finalize + boundsFinalizeTime,
                 snapshot.Geometries.Length,
                 snapshot.IconAssets.Length,
-                validActionFloorCount));
+                iconResolution.ValidActionFloorCount));
     }
+
+    private static void LogPhase(string phase, TimeSpan elapsed) =>
+        Console.WriteLine($"[native-prepare] {phase}={elapsed.TotalMilliseconds:F1}ms");
 
     private static (float Left, float Top, float Right, float Bottom) CalculateTransformBounds(
         NativeFloor[] floors,
@@ -272,190 +252,6 @@ internal static class FlatNativeLevelSnapshotBuilder
         return (left, top, right, bottom);
     }
 
-    private static bool TryResolveIcon(
-        ReadOnlySpan<LevelAction> actions,
-        float entryAngle,
-        float exitAngle,
-        bool isCcw,
-        bool midSpin,
-        List<NativeIconAsset> iconAssets,
-        Dictionary<string, FloorIconAsset?> floorIconCache,
-        Dictionary<string, uint?> eventIconCache,
-        out ResolvedIcon resolved)
-    {
-        resolved = default;
-        LevelAction? customIconAction = null;
-        LevelAction? speedAction = null;
-        bool checkpoint = false;
-        bool twirl = false;
-        bool hasActiveAction = false;
-
-        foreach (LevelAction action in actions)
-        {
-            if (!action.Active)
-                continue;
-
-            hasActiveAction = true;
-            switch (action.Kind)
-            {
-                case LevelActionKind.SetFloorIcon when customIconAction is null:
-                    customIconAction = action;
-                    break;
-                case LevelActionKind.Checkpoint:
-                    checkpoint = true;
-                    break;
-                case LevelActionKind.Twirl:
-                    twirl = true;
-                    break;
-                case LevelActionKind.SetSpeed when speedAction is null:
-                    speedAction = action;
-                    break;
-            }
-        }
-
-        if (!hasActiveAction)
-            return false;
-
-        if (customIconAction?.CustomIcon is { Length: > 0 } customIcon &&
-            TryFloorIcon(customIcon, 0f, false, iconAssets, floorIconCache, out resolved))
-            return true;
-
-        if (checkpoint &&
-            TryFloorIcon("Checkpoint", 0f, false, iconAssets, floorIconCache, out resolved))
-            return true;
-
-        if (twirl)
-        {
-            SwirlVisual swirl = CalculateSwirlVisual(entryAngle, exitAngle, isCcw, midSpin);
-            if (TryFloorIcon(
-                    swirl.IsRed ? "SwirlRed" : "SwirlBlue",
-                    swirl.IconAngle,
-                    swirl.Flipped,
-                    iconAssets,
-                    floorIconCache,
-                    out resolved))
-                return true;
-        }
-
-        if (speedAction?.SpeedRatio is double ratio)
-        {
-            string speedIcon = ratio switch
-            {
-                <= 0.45 => "DoubleSnail",
-                < 0.95 => "Snail",
-                <= 1.05 => "SameSpeed",
-                <= 2.05 => "Rabbit",
-                _ => "DoubleRabbit"
-            };
-            if (TryFloorIcon(speedIcon, 0f, false, iconAssets, floorIconCache, out resolved))
-                return true;
-        }
-
-        foreach (LevelAction action in actions)
-        {
-            if (!action.Active)
-                continue;
-
-            if (!eventIconCache.TryGetValue(action.EventType, out uint? iconId))
-            {
-                string candidate = IconAssetCache.EventPath(action.EventType);
-                if (File.Exists(candidate))
-                {
-                    string fullPath = Path.GetFullPath(candidate);
-                    uint id = checked((uint)iconAssets.Count);
-                    iconAssets.Add(NativeIconAsset.Create(id, fullPath, null));
-                    iconId = id;
-                }
-                else
-                {
-                    iconId = null;
-                }
-                eventIconCache[action.EventType] = iconId;
-            }
-
-            if (iconId is uint resolvedId)
-            {
-                resolved = new ResolvedIcon(resolvedId, false, 0f, false);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryFloorIcon(
-        string key,
-        float angle,
-        bool flipped,
-        List<NativeIconAsset> iconAssets,
-        Dictionary<string, FloorIconAsset?> cache,
-        out ResolvedIcon resolved)
-    {
-        if (!TryGetFloorIconAsset(key, iconAssets, cache, out FloorIconAsset asset))
-        {
-            resolved = default;
-            return false;
-        }
-
-        resolved = new ResolvedIcon(asset.IconId, true, angle, flipped);
-        return true;
-    }
-
-    private static bool TryGetFloorIconAsset(
-        string key,
-        List<NativeIconAsset> iconAssets,
-        Dictionary<string, FloorIconAsset?> cache,
-        out FloorIconAsset asset)
-    {
-        if (cache.TryGetValue(key, out FloorIconAsset? cached))
-        {
-            if (cached is FloorIconAsset value)
-            {
-                asset = value;
-                return true;
-            }
-            asset = default;
-            return false;
-        }
-
-        string imageCandidate = IconAssetCache.FloorPath(key);
-        if (!File.Exists(imageCandidate))
-        {
-            cache[key] = null;
-            asset = default;
-            return false;
-        }
-
-        string imagePath = Path.GetFullPath(imageCandidate);
-        string outlineCandidate = IconAssetCache.OutlinePath(key);
-        string? outlinePath = File.Exists(outlineCandidate)
-            ? Path.GetFullPath(outlineCandidate)
-            : null;
-        uint iconId = checked((uint)iconAssets.Count);
-        iconAssets.Add(NativeIconAsset.Create(iconId, imagePath, outlinePath));
-        asset = new FloorIconAsset(iconId);
-        cache[key] = asset;
-        return true;
-    }
-
-    private static SwirlVisual CalculateSwirlVisual(
-        float entryScreenAngle,
-        float exitScreenAngle,
-        bool isCcw,
-        bool midSpin)
-    {
-        float entry = Mod(TwoPi + MathF.PI / 2f - entryScreenAngle, TwoPi);
-        float exit = Mod(TwoPi + MathF.PI / 2f - exitScreenAngle, TwoPi);
-        float direction = isCcw ? -1f : 1f;
-        float moved = Mod((exit - entry) * direction, TwoPi);
-        if (MathF.Abs(moved) <= 0.000001f && !midSpin)
-            moved = TwoPi;
-
-        bool isRed = moved < 3.1415918f;
-        float iconAngle = entry + moved * 0.5f * direction;
-        return new SwirlVisual(isRed, isCcw, iconAngle);
-    }
-
     private static float GetExitAngle(int floor, double[] angles, float entryAngle)
     {
         if (floor >= angles.Length)
@@ -486,11 +282,4 @@ internal static class FlatNativeLevelSnapshotBuilder
     }
 
     private readonly record struct SizedGeometryKey(uint BaseGeometryId, int Length, int Width);
-    private readonly record struct FloorIconAsset(uint IconId);
-    private readonly record struct ResolvedIcon(
-        uint IconId,
-        bool IsFloorIcon,
-        float AngleRadians,
-        bool Flipped);
-    private readonly record struct SwirlVisual(bool IsRed, bool Flipped, float IconAngle);
 }

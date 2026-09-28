@@ -180,12 +180,27 @@ internal static class Program
             throw new InvalidOperationException(
                 $"HitSoundCount mismatch: result={result.HitSoundCount}, files={waves.Length}.");
 
+        if (result.HitSoundNames.Count != result.HitSoundCount)
+            throw new InvalidOperationException(
+                $"HitSoundNames mismatch: names={result.HitSoundNames.Count}, count={result.HitSoundCount}.");
+
+        HashSet<string> declaredNames = result.HitSoundNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (declaredNames.Count != result.HitSoundNames.Count)
+            throw new InvalidOperationException("HitSoundNames must not contain duplicates.");
+        if (!declaredNames.Contains("Sizzle"))
+            throw new InvalidOperationException("Current ADOFAI extraction must declare the successfully extracted Sizzle clip.");
+
         foreach (string wave in waves)
         {
             string fileName = Path.GetFileName(wave);
             if (!allowedFileNames.Contains(fileName))
                 throw new InvalidOperationException(
                     $"Extractor emitted non-HitSound AudioClip '{fileName}'. Output must be derived from the game's HitSound enum.");
+
+            string logicalName = Path.GetFileNameWithoutExtension(fileName)[3..];
+            if (!declaredNames.Contains(logicalName))
+                throw new InvalidOperationException(
+                    $"Extractor emitted '{fileName}' without declaring logical hit sound '{logicalName}'.");
 
             VerifyCanonicalWave(wave, fileName);
         }

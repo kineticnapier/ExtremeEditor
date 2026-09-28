@@ -24,6 +24,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->camera_event_size = sizeof(EeCameraEvent);
     info->sprite_metadata_size = sizeof(EeSpriteMetadata);
     info->static_decoration_size = sizeof(EeStaticDecoration);
+    info->floor_icon_state_size = sizeof(EeFloorIconState);
     return EE_OK;
 }
 
@@ -157,6 +158,26 @@ void ee_renderer_frame_all(EeRendererHandle renderer)
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->FrameAll();
+}
+
+EeResult ee_renderer_update_floor_icons(
+    EeRendererHandle renderer,
+    uint32_t start_floor,
+    const EeFloorIconState* states,
+    uint32_t state_count)
+{
+    if (renderer == nullptr || states == nullptr || state_count == 0)
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->UpdateFloorIcons(start_floor, states, state_count)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
+}
+
+void ee_renderer_center_at(EeRendererHandle renderer, float world_x, float world_y)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->CenterAt(world_x, world_y);
 }
 
 void ee_renderer_clear_icon_assets(EeRendererHandle renderer)

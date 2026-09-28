@@ -43,7 +43,7 @@ public static class FlatTimingMapBuilder
 
         for (int floor = 0; floor < floorCount; floor++)
         {
-            double pauseSeconds = 0.0;
+            double pauseBeats = 0.0;
             if (actionFloorIndex < store.ActionFloorCount && store.GetFloor(actionFloorIndex) == floor)
             {
                 ReadOnlySpan<LevelAction> actions = store.GetActionsAt(actionFloorIndex++);
@@ -74,12 +74,14 @@ public static class FlatTimingMapBuilder
                                 bpm = target;
                             }
                             break;
-                        case LevelActionKind.Pause when action.Duration is double pauseBeats && pauseBeats > 0:
-                            pauseSeconds += pauseBeats * (60.0 / bpm);
+                        case LevelActionKind.Pause when action.Duration is double durationBeats && durationBeats > 0:
+                            pauseBeats += durationBeats;
                             break;
                     }
                 }
             }
+
+            double pauseSeconds = pauseBeats * (60.0 / bpm);
 
             bool midSpin = floor < level.Angles.Length &&
                            Math.Abs(level.Angles[floor] - 999.0) < 0.000001;

@@ -9,3 +9,6 @@ assets-cache/
 
 build/
 *.log
+
+extract-debug/
+extract-wpf-binary/

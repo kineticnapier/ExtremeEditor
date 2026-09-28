@@ -117,6 +117,10 @@
                           Command="{x:Static local:EditorCommands.Paste}"
                           InputGestureText="Ctrl+V" />
                 <Separator />
+                <MenuItem Header="_Go to Floor…"
+                          InputGestureText="Ctrl+G"
+                          Click="GoToFloorClick" />
+                <Separator />
                 <MenuItem x:Name="TransformMenu" Header="_Transform">
                     <MenuItem Header="_Angle…"
                               Command="{x:Static local:EditorCommands.InsertAngle}"

@@ -51,6 +51,7 @@ target_link_libraries(ExtremeEditor.NativeRenderer PRIVATE
     dwrite
     windowscodecs
     ole32
+    dxguid
 )
 
 if(MSVC)
@@ -94,6 +95,16 @@ target_link_libraries(camera_runtime_reference_tests PRIVATE
 
 add_executable(camera_cull_transform_purity_tests
     tests/camera_cull_transform_purity_tests.cpp
+)
+
+add_executable(static_decoration_transform_tests
+    tests/static_decoration_transform_tests.cpp
+)
+
+target_compile_features(static_decoration_transform_tests PRIVATE cxx_std_20)
+target_include_directories(static_decoration_transform_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(camera_cull_transform_purity_tests PRIVATE cxx_std_20)
@@ -180,6 +191,7 @@ target_include_directories(track_transform_anchor_jitter_scaling_tests PRIVATE
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
+add_test(NAME static_decoration_transform_tests COMMAND static_decoration_transform_tests)
 add_test(NAME track_transform_phase_diagnostics_tests COMMAND track_transform_phase_diagnostics_tests)
 add_test(NAME track_transform_visual_lazy_tests COMMAND track_transform_visual_lazy_tests)
 add_test(NAME track_transform_visual_cull_tests COMMAND track_transform_visual_cull_tests)

@@ -20,7 +20,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 13;
+    private const uint ExpectedApiVersion = 16;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -67,6 +67,11 @@ internal sealed class NativeRendererSession : IDisposable
         if (abiInfo.FloorSize != managedFloorSize)
             throw new InvalidOperationException(
                 $"Native floor ABI mismatch. Managed {managedFloorSize}, native {abiInfo.FloorSize}.");
+
+        uint managedFloorIconStateSize = checked((uint)Marshal.SizeOf<NativeFloorIconState>());
+        if (abiInfo.FloorIconStateSize != managedFloorIconStateSize)
+            throw new InvalidOperationException(
+                $"Native floor-icon state ABI mismatch. Managed {managedFloorIconStateSize}, native {abiInfo.FloorIconStateSize}.");
 
         uint managedTimingSize = checked((uint)Marshal.SizeOf<NativePlaybackTiming>());
         if (abiInfo.ClockSize != managedTimingSize)
@@ -376,6 +381,34 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer != nint.Zero)
             NativeRendererNative.FrameAll(_renderer);
+    }
+
+    internal bool UpdateFloorIcons(int startFloor, NativeFloorIconState[] states)
+    {
+        if (_renderer == nint.Zero || startFloor < 0 || states.Length == 0)
+            return false;
+
+        GCHandle handle = default;
+        try
+        {
+            handle = GCHandle.Alloc(states, GCHandleType.Pinned);
+            return NativeRendererNative.UpdateFloorIcons(
+                _renderer,
+                checked((uint)startFloor),
+                handle.AddrOfPinnedObject(),
+                checked((uint)states.Length)) == 0;
+        }
+        finally
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+    }
+
+    internal void CenterAt(float worldX, float worldY)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.CenterAt(_renderer, worldX, worldY);
     }
 
     private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers)

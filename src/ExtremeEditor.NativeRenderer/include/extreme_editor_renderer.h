@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 13u
+#define EE_RENDERER_API_VERSION 16u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -130,6 +130,7 @@ typedef struct EeAbiInfo
     uint32_t camera_event_size;
     uint32_t sprite_metadata_size;
     uint32_t static_decoration_size;
+    uint32_t floor_icon_state_size;
 } EeAbiInfo;
 
 typedef struct EeSpriteMetadata
@@ -178,6 +179,13 @@ typedef struct EeFloor
     float transform_opacity;
     uint32_t track_transform_flags;
 } EeFloor;
+
+typedef struct EeFloorIconState
+{
+    uint32_t icon_id;
+    uint32_t icon_flags;
+    float icon_angle;
+} EeFloorIconState;
 
 typedef struct EeGeometry
 {
@@ -319,6 +327,11 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_top,
     float bounds_right,
     float bounds_bottom);
+EE_RENDERER_API EeResult ee_renderer_update_floor_icons(
+    EeRendererHandle renderer,
+    uint32_t start_floor,
+    const EeFloorIconState* states,
+    uint32_t state_count);
 EE_RENDERER_API EeResult ee_renderer_set_static_decorations(
     EeRendererHandle renderer,
     const EeStaticDecoration* decorations,
@@ -329,6 +342,7 @@ EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(
     uint32_t asset_id,
     const wchar_t* image_path);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
+EE_RENDERER_API void ee_renderer_center_at(EeRendererHandle renderer, float world_x, float world_y);
 EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
 EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     EeRendererHandle renderer,

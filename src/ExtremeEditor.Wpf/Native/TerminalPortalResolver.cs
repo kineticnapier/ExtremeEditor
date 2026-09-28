@@ -5,6 +5,31 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal static class TerminalPortalResolver
 {
+    internal static bool TryResolveExisting(
+        IReadOnlyList<NativeIconAsset> iconAssets,
+        out NativeFloorIconState state)
+    {
+        state = default;
+        string imageCandidate = IconAssetCache.FloorPath("Portal");
+        if (!File.Exists(imageCandidate))
+            return false;
+
+        string imagePath = Path.GetFullPath(imageCandidate);
+        NativeIconAsset? asset = iconAssets.FirstOrDefault(candidate =>
+            candidate.OutlinePath is null &&
+            string.Equals(candidate.ImagePath, imagePath, StringComparison.OrdinalIgnoreCase));
+        if (asset is null)
+            return false;
+
+        state = new NativeFloorIconState
+        {
+            IconId = asset.Id,
+            IconFlags = NativeFloor.IconFlagFloor,
+            IconAngle = 0f
+        };
+        return true;
+    }
+
     public static void Apply(NativeFloor[] floors, List<NativeIconAsset> iconAssets)
     {
         if (floors.Length == 0)
