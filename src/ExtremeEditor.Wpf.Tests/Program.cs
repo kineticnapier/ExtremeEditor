@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_TILE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsTilePlacementRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations Tile placement regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_COORDINATES_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -342,6 +352,7 @@ internal static class Program
             MoveDecorationsInterpolationRegression.Run();
             MoveDecorationsEasingRegression.Run();
             MoveDecorationsCoordinateRegression.Run();
+            MoveDecorationsTilePlacementRegression.Run();
             Console.WriteLine("PASS: legacy WinForms host removal, editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, event palette/availability/legacy round-trip, decoration model foundation, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");
             return 0;
         }
