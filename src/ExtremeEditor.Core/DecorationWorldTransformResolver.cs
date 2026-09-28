@@ -49,17 +49,35 @@ public static class DecorationWorldTransformResolver
         ArgumentNullException.ThrowIfNull(state);
 
         Vector2 world = ResolveWorldPositionCore(level, decoration, state, null);
-        Vector2 parallax = ReadVector2(decoration.Properties["parallax"], Vector2.Zero);
+        return ApplyParallax(decoration, state, world, cameraNow, cameraAtStart);
+    }
 
-        if (parallax == Vector2.Zero)
-            return world;
+    public static Vector2 ResolveParallaxWorldPosition(
+        LevelDocument level,
+        LevelDecoration decoration,
+        DecorationState state,
+        Vector2 cameraNow,
+        Vector2 cameraAtStart)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(decoration);
+        ArgumentNullException.ThrowIfNull(state);
 
-        Vector2 multiplier = parallax / 100f;
-        Vector2 parallaxOffset = ReadVector2(decoration.Properties["parallaxOffset"], Vector2.Zero)
-                                 * PathBuilder.DefaultLongTileSize;
-        Vector2 cameraDelta = cameraNow - cameraAtStart;
+        string placement = ReadString(decoration.Properties["relativeTo"]) ?? "Tile";
+        Vector2 world;
+        if (string.Equals(placement, "Camera", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(placement, "CameraAspect", StringComparison.OrdinalIgnoreCase))
+        {
+            world = new Vector2(
+                checked((float)(state.PositionX * PathBuilder.DefaultLongTileSize)),
+                checked((float)(state.PositionY * PathBuilder.DefaultLongTileSize)));
+        }
+        else
+        {
+            world = ResolveWorldPositionCore(level, decoration, state, null);
+        }
 
-        return world + cameraDelta * multiplier + parallaxOffset;
+        return ApplyParallax(decoration, state, world, cameraNow, cameraAtStart);
     }
 
     public static Vector2 ResolveScreenRelativePosition(
@@ -84,7 +102,9 @@ public static class DecorationWorldTransformResolver
                 $"Decoration placement '{placement}' does not use camera screen-clamp semantics.");
         }
 
-        Vector2 pivotOffset = ReadVector2(decoration.Properties["pivotOffset"], Vector2.Zero);
+        Vector2 pivotOffset = new(
+            checked((float)state.PivotOffsetX),
+            checked((float)state.PivotOffsetY));
         Vector2 logical = new(
             checked((float)state.PositionX),
             checked((float)state.PositionY));
@@ -194,6 +214,26 @@ public static class DecorationWorldTransformResolver
             result *= parentFloorScale;
 
         return result;
+    }
+
+    private static Vector2 ApplyParallax(
+        LevelDecoration decoration,
+        DecorationState state,
+        Vector2 world,
+        Vector2 cameraNow,
+        Vector2 cameraAtStart)
+    {
+        Vector2 parallax = ReadVector2(decoration.Properties["parallax"], Vector2.Zero);
+        if (parallax == Vector2.Zero)
+            return world;
+
+        Vector2 multiplier = parallax / 100f;
+        Vector2 parallaxOffset = new(
+            checked((float)(state.ParallaxOffsetX * PathBuilder.DefaultLongTileSize)),
+            checked((float)(state.ParallaxOffsetY * PathBuilder.DefaultLongTileSize)));
+        Vector2 cameraDelta = cameraNow - cameraAtStart;
+
+        return world + cameraDelta * multiplier + parallaxOffset;
     }
 
     private static Vector2 ResolveWorldPositionCore(
