@@ -5,8 +5,9 @@ namespace ExtremeEditor.Core;
 
 /// <summary>
 /// Converts the chart-space decoration position produced by <see cref="DecorationState"/>
-/// into the stock game's world-space placement for placement modes whose world transform
-/// is independent of camera/planet/parallax state.
+/// into stock-game world-space placement. Camera/parallax-specific composition remains a
+/// renderer concern; planet-follow placement receives the current planet world position
+/// from the caller so logical decoration state stays independent from runtime follow state.
 /// </summary>
 public static class DecorationWorldTransformResolver
 {
@@ -19,6 +20,29 @@ public static class DecorationWorldTransformResolver
         ArgumentNullException.ThrowIfNull(decoration);
         ArgumentNullException.ThrowIfNull(state);
 
+        return ResolveWorldPositionCore(level, decoration, state, null);
+    }
+
+    public static Vector2 ResolveWorldPosition(
+        LevelDocument level,
+        LevelDecoration decoration,
+        DecorationState state,
+        Func<string, Vector2> planetWorldPositionResolver)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(decoration);
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(planetWorldPositionResolver);
+
+        return ResolveWorldPositionCore(level, decoration, state, planetWorldPositionResolver);
+    }
+
+    private static Vector2 ResolveWorldPositionCore(
+        LevelDocument level,
+        LevelDecoration decoration,
+        DecorationState state,
+        Func<string, Vector2>? planetWorldPositionResolver)
+    {
         var logicalWorldOffset = new Vector2(
             checked((float)(state.PositionX * PathBuilder.DefaultLongTileSize)),
             checked((float)(state.PositionY * PathBuilder.DefaultLongTileSize)));
@@ -39,9 +63,25 @@ public static class DecorationWorldTransformResolver
             return level.Positions[floor] + logicalWorldOffset;
         }
 
+        if (IsPlanetPlacement(placement))
+        {
+            if (planetWorldPositionResolver is null)
+            {
+                throw new NotSupportedException(
+                    $"Decoration placement '{placement}' requires the current planet world position.");
+            }
+
+            return planetWorldPositionResolver(placement) + logicalWorldOffset;
+        }
+
         throw new NotSupportedException(
             $"Decoration placement '{placement}' requires renderer-specific placement semantics.");
     }
+
+    private static bool IsPlanetPlacement(string placement) =>
+        string.Equals(placement, "RedPlanet", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(placement, "BluePlanet", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(placement, "GreenPlanet", StringComparison.OrdinalIgnoreCase);
 
     private static string? ReadString(JsonNode? node)
     {
