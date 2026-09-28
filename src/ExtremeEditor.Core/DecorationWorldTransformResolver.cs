@@ -115,6 +115,45 @@ public static class DecorationWorldTransformResolver
         return baseWorldPosition + parentFloorWorldPosition - startPosition;
     }
 
+    public static float ResolveStickToFloorRotation(
+        LevelDecoration decoration,
+        float baseRotation,
+        float parentFloorRotation)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        if (!float.IsFinite(baseRotation))
+            throw new ArgumentOutOfRangeException(nameof(baseRotation));
+        if (!float.IsFinite(parentFloorRotation))
+            throw new ArgumentOutOfRangeException(nameof(parentFloorRotation));
+
+        if (!ReadBool(decoration.Properties["stickToFloor"], false))
+            return baseRotation;
+
+        // Stock scrDecoration.SetRotation: when stickToFloor is enabled the current
+        // parent-floor Z rotation is added each time UpdateLock refreshes the transform.
+        return baseRotation + parentFloorRotation;
+    }
+
+    public static Vector2 ResolveStickToFloorScale(
+        LevelDecoration decoration,
+        Vector2 baseScale,
+        Vector2 parentFloorScale)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        if (!float.IsFinite(baseScale.X) || !float.IsFinite(baseScale.Y))
+            throw new ArgumentOutOfRangeException(nameof(baseScale));
+        if (!float.IsFinite(parentFloorScale.X) || !float.IsFinite(parentFloorScale.Y))
+            throw new ArgumentOutOfRangeException(nameof(parentFloorScale));
+
+        if (!ReadBool(decoration.Properties["stickToFloor"], false))
+            return baseScale;
+
+        // Stock scrDecoration.SetScale multiplies by parentFloor.transform.localScale
+        // component-wise for stickToFloor decorations. Camera lock scaling remains a
+        // separate renderer concern and is intentionally not baked into this helper.
+        return baseScale * parentFloorScale;
+    }
+
     private static Vector2 ResolveWorldPositionCore(
         LevelDocument level,
         LevelDecoration decoration,
