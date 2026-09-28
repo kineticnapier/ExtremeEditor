@@ -51,9 +51,6 @@ public static class DecorationWorldTransformResolver
         Vector2 world = ResolveWorldPositionCore(level, decoration, state, null);
         Vector2 parallax = ReadVector2(decoration.Properties["parallax"], Vector2.Zero);
 
-        // Stock scrDecoration/scrParallax semantics: a zero parallax vector disables
-        // both camera-follow delta and parallaxOffset. Otherwise parallax is stored as
-        // percent and applied component-wise to camera movement.
         if (parallax == Vector2.Zero)
             return world;
 
@@ -63,6 +60,40 @@ public static class DecorationWorldTransformResolver
         Vector2 cameraDelta = cameraNow - cameraAtStart;
 
         return world + cameraDelta * multiplier + parallaxOffset;
+    }
+
+    public static Vector2 ResolveScreenRelativePosition(
+        LevelDecoration decoration,
+        DecorationState state,
+        float screenWidth,
+        float screenHeight)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        ArgumentNullException.ThrowIfNull(state);
+        if (!float.IsFinite(screenWidth) || screenWidth <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(screenWidth));
+        if (!float.IsFinite(screenHeight) || screenHeight <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(screenHeight));
+
+        string placement = ReadString(decoration.Properties["relativeTo"]) ?? "Tile";
+        bool isCamera = string.Equals(placement, "Camera", StringComparison.OrdinalIgnoreCase);
+        bool isCameraAspect = string.Equals(placement, "CameraAspect", StringComparison.OrdinalIgnoreCase);
+        if (!isCamera && !isCameraAspect)
+        {
+            throw new NotSupportedException(
+                $"Decoration placement '{placement}' does not use camera screen-clamp semantics.");
+        }
+
+        Vector2 pivotOffset = ReadVector2(decoration.Properties["pivotOffset"], Vector2.Zero);
+        Vector2 logical = new(
+            checked((float)state.PositionX),
+            checked((float)state.PositionY));
+        Vector2 screenRelative = logical + pivotOffset;
+
+        if (isCameraAspect)
+            screenRelative.X *= screenHeight / screenWidth;
+
+        return screenRelative / 20f + new Vector2(0.5f, 0.5f);
     }
 
     private static Vector2 ResolveWorldPositionCore(
