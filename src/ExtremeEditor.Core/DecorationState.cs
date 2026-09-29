@@ -16,6 +16,7 @@ public sealed record DecorationState(
     public double PivotOffsetY { get; init; }
     public double ParallaxOffsetX { get; init; }
     public double ParallaxOffsetY { get; init; }
+    public uint Color { get; init; } = 0x00FF_FFFFu;
 
     public (double X, double Y) Position => (PositionX, PositionY);
     public (double X, double Y) Scale => (ScaleX, ScaleY);
@@ -50,6 +51,9 @@ public sealed record DecorationState(
         var pivotOffsetY = new ScalarTweenState(state.PivotOffsetY);
         var parallaxOffsetX = new ScalarTweenState(state.ParallaxOffsetX);
         var parallaxOffsetY = new ScalarTweenState(state.ParallaxOffsetY);
+        var colorR = new ScalarTweenState((state.Color >> 16) & 0xffu);
+        var colorG = new ScalarTweenState((state.Color >> 8) & 0xffu);
+        var colorB = new ScalarTweenState(state.Color & 0xffu);
 
         foreach (VfxOccurrence occurrence in timeline.Occurrences)
         {
@@ -127,6 +131,13 @@ public sealed record DecorationState(
             if (TryReadDouble(properties["opacity"], out double newOpacity))
                 opacity.Start(newOpacity, startTime, durationSeconds, occurrence.Ease);
 
+            if (TryReadColor(properties["color"], out uint newColor))
+            {
+                colorR.Start((newColor >> 16) & 0xffu, startTime, durationSeconds, occurrence.Ease);
+                colorG.Start((newColor >> 8) & 0xffu, startTime, durationSeconds, occurrence.Ease);
+                colorB.Start(newColor & 0xffu, startTime, durationSeconds, occurrence.Ease);
+            }
+
             if (TryReadComponents(properties["pivotOffset"], out double? newPivotX, out double? newPivotY))
             {
                 StartIfSpecified(pivotOffsetX, newPivotX, startTime, durationSeconds, occurrence.Ease);
@@ -154,7 +165,11 @@ public sealed record DecorationState(
             PivotOffsetX = pivotOffsetX.ValueAt(timeSeconds),
             PivotOffsetY = pivotOffsetY.ValueAt(timeSeconds),
             ParallaxOffsetX = parallaxOffsetX.ValueAt(timeSeconds),
-            ParallaxOffsetY = parallaxOffsetY.ValueAt(timeSeconds)
+            ParallaxOffsetY = parallaxOffsetY.ValueAt(timeSeconds),
+            Color = PackColor(
+                colorR.ValueAt(timeSeconds),
+                colorG.ValueAt(timeSeconds),
+                colorB.ValueAt(timeSeconds))
         };
     }
 
@@ -178,7 +193,8 @@ public sealed record DecorationState(
             PivotOffsetX = pivotOffsetX,
             PivotOffsetY = pivotOffsetY,
             ParallaxOffsetX = parallaxOffsetX,
-            ParallaxOffsetY = parallaxOffsetY
+            ParallaxOffsetY = parallaxOffsetY,
+            Color = ReadColor(properties["color"], 0x00FF_FFFFu)
         };
     }
 
@@ -242,6 +258,30 @@ public sealed record DecorationState(
         }
 
         return true;
+    }
+
+    private static uint ReadColor(JsonNode? node, uint defaultValue) =>
+        TryReadColor(node, out uint color) ? color : defaultValue;
+
+    private static bool TryReadColor(JsonNode? node, out uint color)
+    {
+        string? text = ReadString(node)?.Trim().TrimStart('#');
+        if (!string.IsNullOrWhiteSpace(text) &&
+            text.Length >= 6 &&
+            uint.TryParse(text[..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb))
+        {
+            color = rgb & 0x00FF_FFFFu;
+            return true;
+        }
+
+        color = 0;
+        return false;
+    }
+
+    private static uint PackColor(double red, double green, double blue)
+    {
+        static uint Channel(double value) => (uint)Math.Clamp((int)Math.Round(value), 0, 255);
+        return (Channel(red) << 16) | (Channel(green) << 8) | Channel(blue);
     }
 
     private static double ReadDouble(JsonNode? node, double defaultValue) =>
