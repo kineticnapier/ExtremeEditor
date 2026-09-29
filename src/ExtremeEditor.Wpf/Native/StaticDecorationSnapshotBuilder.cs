@@ -57,6 +57,18 @@ internal static class StaticDecorationSnapshotBuilder
 {
     private const float DegreesToRadians = MathF.PI / 180f;
 
+    // Native API v18 has four low flag bits in use. Masking is packed into the
+    // next bits without widening the hot decoration ABI. For Mask instances only,
+    // ChartPositionX/Y carry the masking front/back depth; Mask decorations are
+    // never rendered as ordinary sprites, so their diagnostic chart-position slots
+    // are otherwise unused by the renderer.
+    internal const uint MaskingTypeBits = 0x300u;
+    internal const uint MaskingNone = 0x000u;
+    internal const uint MaskingMask = 0x100u;
+    internal const uint MaskingVisibleInside = 0x200u;
+    internal const uint MaskingVisibleOutside = 0x300u;
+    internal const uint MaskingUseDepth = 0x400u;
+
     internal static StaticDecorationSnapshotData Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
@@ -121,6 +133,9 @@ internal static class StaticDecorationSnapshotBuilder
         int scaleZeroStatic = 0;
         int scaleMissingTotal = 0;
         int scaleMissingNativeZero = 0;
+        int maskCount = 0;
+        int visibleInsideMaskCount = 0;
+        int visibleOutsideMaskCount = 0;
         string? scaleZeroExample = null;
 
         foreach (VfxOccurrence occurrence in timeline.Occurrences)
@@ -253,7 +268,21 @@ internal static class StaticDecorationSnapshotBuilder
                 baseAnchorY = level.Positions[anchorFloor].Y;
             }
 
-            uint flags = NativeStaticDecoration.FlagVisible;
+            uint maskingType = ResolveMaskingType(ReadString(properties["maskingType"]));
+            if (maskingType == MaskingMask)
+                maskCount++;
+            else if (maskingType == MaskingVisibleInside)
+                visibleInsideMaskCount++;
+            else if (maskingType == MaskingVisibleOutside)
+                visibleOutsideMaskCount++;
+
+            bool useMaskingDepth = ReadBool(properties["useMaskingDepth"], defaultValue: false);
+            int maskingFrontDepth = ReadInt(properties["maskingFrontDepth"], -1);
+            int maskingBackDepth = ReadInt(properties["maskingBackDepth"], -1);
+
+            uint flags = NativeStaticDecoration.FlagVisible | maskingType;
+            if (useMaskingDepth && maskingType == MaskingMask)
+                flags |= MaskingUseDepth;
             if (rendererTransform.StickToFloor)
                 flags |= NativeStaticDecoration.FlagStickToFloor;
             if (rendererTransform.LockRotation)
@@ -285,8 +314,12 @@ internal static class StaticDecorationSnapshotBuilder
                 ParallaxOffsetX = rendererTransform.ParallaxOffset.X,
                 ParallaxOffsetY = rendererTransform.ParallaxOffset.Y,
                 ScaleMultiplier = rendererTransform.ScaleMultiplier,
-                ChartPositionX = checked((float)initialState.PositionX),
-                ChartPositionY = checked((float)initialState.PositionY)
+                ChartPositionX = maskingType == MaskingMask
+                    ? maskingFrontDepth
+                    : checked((float)initialState.PositionX),
+                ChartPositionY = maskingType == MaskingMask
+                    ? maskingBackDepth
+                    : checked((float)initialState.PositionY)
             };
             int instanceIndex = instances.Count;
             instances.Add(template);
@@ -337,14 +370,12 @@ internal static class StaticDecorationSnapshotBuilder
             }
         }
 
-        // Keep source order as the stable tie-break while preserving depth for the
-        // native renderer. Do not pre-sort here: SourceIndex is also part of the
-        // regression/debug contract.
         NativeStaticDecoration[] instanceArray = instances.ToArray();
         NativeDecorationPlaybackRuntime? runtime = animated.Count == 0
             ? null
             : new NativeDecorationPlaybackRuntime(instanceArray, animated.ToArray());
         runtime?.Update(timeSeconds);
+
         if (DecorationDiagnostics.Enabled)
         {
             Console.WriteLine(
@@ -375,9 +406,13 @@ internal static class StaticDecorationSnapshotBuilder
                 $"scaleZeroSourceMissingScale={scaleZeroSourceMissingScale} " +
                 $"scaleZeroAnimated={scaleZeroAnimated} scaleZeroStatic={scaleZeroStatic} " +
                 $"scaleMissingTotal={scaleMissingTotal} scaleMissingNativeZero={scaleMissingNativeZero}");
+            Console.WriteLine(
+                $"[decoration-diagnostic] masks={maskCount} visibleInsideMask={visibleInsideMaskCount} " +
+                $"visibleOutsideMask={visibleOutsideMaskCount}");
             if (scaleZeroExample is not null)
                 Console.WriteLine(scaleZeroExample);
         }
+
         return new StaticDecorationSnapshotData(instanceArray, assets.ToArray(), runtime);
     }
 
@@ -426,8 +461,11 @@ internal static class StaticDecorationSnapshotBuilder
         template.ParallaxOffsetX = rendererTransform.ParallaxOffset.X;
         template.ParallaxOffsetY = rendererTransform.ParallaxOffset.Y;
         template.ScaleMultiplier = rendererTransform.ScaleMultiplier;
-        template.ChartPositionX = checked((float)state.PositionX);
-        template.ChartPositionY = checked((float)state.PositionY);
+        if ((template.Flags & MaskingTypeBits) != MaskingMask)
+        {
+            template.ChartPositionX = checked((float)state.PositionX);
+            template.ChartPositionY = checked((float)state.PositionY);
+        }
         template.RotationRadians = checked((float)state.Rotation) * DegreesToRadians;
         template.ScaleX = checked((float)(state.ScaleX / 100.0));
         template.ScaleY = checked((float)(state.ScaleY / 100.0));
@@ -454,6 +492,17 @@ internal static class StaticDecorationSnapshotBuilder
         return uint.MaxValue;
     }
 
+    private static uint ResolveMaskingType(string? maskingType)
+    {
+        if (string.Equals(maskingType, "Mask", StringComparison.OrdinalIgnoreCase))
+            return MaskingMask;
+        if (string.Equals(maskingType, "VisibleInsideMask", StringComparison.OrdinalIgnoreCase))
+            return MaskingVisibleInside;
+        if (string.Equals(maskingType, "VisibleOutsideMask", StringComparison.OrdinalIgnoreCase))
+            return MaskingVisibleOutside;
+        return MaskingNone;
+    }
+
     private static Dictionary<string, List<(int Order, VfxOccurrence Occurrence)>> BuildMoveIndex(
         VfxTimeline timeline)
     {
@@ -462,9 +511,7 @@ internal static class StaticDecorationSnapshotBuilder
         {
             VfxOccurrence occurrence = timeline.Occurrences[order];
             if (!IsIndexedMoveOccurrence(occurrence))
-            {
                 continue;
-            }
 
             foreach (string tag in MoveDecorationsTargeting.GetTargetTags(occurrence.SourceEvent))
             {
@@ -487,7 +534,6 @@ internal static class StaticDecorationSnapshotBuilder
         {
             return false;
         }
-
         return MoveDecorationsTargeting.GetTargetTags(occurrence.SourceEvent).Count > 0;
     }
 
@@ -565,13 +611,6 @@ internal static class StaticDecorationSnapshotBuilder
                 return result;
         }
         return defaultValue;
-    }
-
-    private static (float X, float Y) ReadPair(JsonNode? node, float defaultX, float defaultY)
-    {
-        if (node is not JsonArray array || array.Count < 2)
-            return (defaultX, defaultY);
-        return (ReadFloat(array[0], defaultX), ReadFloat(array[1], defaultY));
     }
 
     private static uint ReadColor(JsonNode? node)
