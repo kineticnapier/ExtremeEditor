@@ -258,7 +258,7 @@ internal static class StaticDecorationSnapshotBuilder
             float scaleY = checked((float)initialState.ScaleY);
             float rotationDegrees = checked((float)initialState.Rotation);
             int depth = ReadInt(properties["depth"], 0);
-            uint color = ReadColor(properties["color"]);
+            uint color = initialState.Color;
             float baseAnchorX = 0f;
             float baseAnchorY = 0f;
             if (decoration.Floor is int anchorFloor &&
@@ -470,6 +470,7 @@ internal static class StaticDecorationSnapshotBuilder
         template.ScaleX = checked((float)(state.ScaleX / 100.0));
         template.ScaleY = checked((float)(state.ScaleY / 100.0));
         template.Opacity = Math.Clamp(checked((float)(state.Opacity / 100.0)), 0f, 1f);
+        template.Color = state.Color;
         return template;
     }
 
