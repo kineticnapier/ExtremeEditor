@@ -183,7 +183,7 @@ Microsoft::WRL::ComPtr<ID2D1Effect> InvertMaskAlpha(
     inverted->SetInputEffect(0, mask);
     if (FAILED(inverted->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix)) ||
         FAILED(inverted->SetValue(
-            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+            D2D1_COLORMATRIX_ALPHA_MODE,
             D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)))
     {
         return {};
@@ -203,10 +203,13 @@ bool D2DBackend::SyncStaticDecorations(
         return false;
 
     const std::size_t input_count = decorations != nullptr ? decorations->size() : 0u;
+    // Decoration playback increments the scene-local decoration version on every
+    // evaluated frame. Diagnostics should report structural handoffs, not every
+    // animation tick, or an enabled diagnostic flag floods stderr.
     const bool log_sync = DecorationDiagnosticsEnabled() &&
                           (logged_decoration_input_ != decorations ||
                            logged_decoration_input_count_ != input_count ||
-                           logged_decoration_input_version_ != decorations_version);
+                           cached_static_decorations_scene_generation_ != scene_generation);
     if (log_sync)
     {
         std::fprintf(
@@ -379,8 +382,9 @@ void D2DBackend::DrawStaticDecorationsCamera(
     constexpr float pixels_per_unit = 100.0f;
     std::size_t draw_target_count = 0u;
 
-    const auto try_resolve_transform = [&](const EeStaticDecoration& decoration,
-                                           StaticDecorationScreenTransform& transform) noexcept -> bool
+    const auto try_resolve_transform = [&](
+        const EeStaticDecoration& decoration,
+        StaticDecorationScreenTransform& transform) noexcept -> bool
     {
         float anchor_x = decoration.base_anchor_x;
         float anchor_y = decoration.base_anchor_y;
@@ -390,8 +394,11 @@ void D2DBackend::DrawStaticDecorationsCamera(
 
         if (decoration.relative_mode == EE_DECORATION_RELATIVE_TILE)
         {
-            if (decoration.floor < 0 || static_cast<std::size_t>(decoration.floor) >= scene.floors.size())
+            if (decoration.floor < 0 ||
+                static_cast<std::size_t>(decoration.floor) >= scene.floors.size())
+            {
                 return false;
+            }
             const EeFloor& floor = scene.floors[static_cast<std::size_t>(decoration.floor)];
             if ((decoration.flags & EE_DECORATION_STICK_TO_FLOOR) != 0u)
             {
@@ -451,12 +458,18 @@ void D2DBackend::DrawStaticDecorationsCamera(
         return true;
     };
 
+    // SpriteMask objects participate in masking but are not visible renderers.
+    // Build their transformed alpha images once for this frame, then reuse them
+    // for all VisibleInsideMask / VisibleOutsideMask targets.
     std::vector<PreparedDecorationMask> prepared_masks;
     for (const EeStaticDecoration& decoration : static_decorations_)
     {
+        // ADOFAI's scrDecoration.SetOpacity only updates ApplyColor(), which writes
+        // SpriteRenderer.color. scrVisualDecoration.SetVisible controls the
+        // SpriteMask renderer itself. Therefore a Mask continues masking at
+        // opacity 0; only visibility / zero-area transforms disable its effect.
         if (!DecorationIsMask(decoration) ||
             (decoration.flags & EE_DECORATION_VISIBLE) == 0u ||
-            !std::isfinite(decoration.opacity) || decoration.opacity <= 0.0f ||
             std::abs(decoration.scale_x) <= 0.000001f ||
             std::abs(decoration.scale_y) <= 0.000001f)
         {
@@ -629,7 +642,11 @@ void D2DBackend::DrawStaticDecorationsCamera(
             mask_union = BuildMaskUnion(d2d_context_.Get(), prepared_masks, decoration);
 
         if (visible_inside && !mask_union)
+        {
+            // Unity SpriteMaskInteraction.VisibleInsideMask is invisible if no
+            // applicable SpriteMask exists.
             continue;
+        }
 
         if ((visible_inside || visible_outside) && mask_union)
         {
@@ -675,6 +692,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
         }
         else
         {
+            // None, or VisibleOutsideMask with no applicable mask: normal sprite.
             d2d_context_->SetTransform(D2D1::Matrix3x2F(
                 transform.m11,
                 transform.m12,
