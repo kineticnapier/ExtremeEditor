@@ -104,6 +104,29 @@ Microsoft::WRL::ComPtr<ID2D1Effect> CreateTransformedImage(
     return affine;
 }
 
+Microsoft::WRL::ComPtr<ID2D1Effect> CreateTransformedImage(
+    ID2D1DeviceContext* context,
+    ID2D1Effect* input,
+    const StaticDecorationScreenTransform& transform,
+    float bitmap_width,
+    float bitmap_height) noexcept
+{
+    if (!input)
+        return {};
+
+    Microsoft::WRL::ComPtr<ID2D1Image> output;
+    input->GetOutput(output.GetAddressOf());
+    if (!output)
+        return {};
+
+    return CreateTransformedImage(
+        context,
+        output.Get(),
+        transform,
+        bitmap_width,
+        bitmap_height);
+}
+
 Microsoft::WRL::ComPtr<ID2D1Effect> BuildMaskUnion(
     ID2D1DeviceContext* context,
     const std::vector<PreparedDecorationMask>& masks,
