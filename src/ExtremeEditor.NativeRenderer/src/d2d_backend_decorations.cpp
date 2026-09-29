@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "decoration_masking.h"
 #include "diagnostic_flags.h"
 #include "static_decoration_transform.h"
 
@@ -6,7 +7,9 @@
 #include <cmath>
 #include <cstdio>
 #include <d2d1effects.h>
+#include <d2d1effects_2.h>
 #include <string>
+#include <vector>
 
 namespace ee
 {
@@ -26,6 +29,12 @@ struct DecorationDrawRejections
     std::size_t unsupported_placement = 0u;
     std::size_t invalid_struct_data = 0u;
     std::size_t other = 0u;
+};
+
+struct PreparedDecorationMask
+{
+    const EeStaticDecoration* decoration = nullptr;
+    Microsoft::WRL::ComPtr<ID2D1Effect> transformed_image;
 };
 
 const char* PlacementName(std::uint32_t placement) noexcept
@@ -57,6 +66,106 @@ std::string Utf8AssetName(const std::wstring& path)
     WideCharToMultiByte(
         CP_UTF8, 0, name.c_str(), static_cast<int>(name.size()), result.data(), bytes, nullptr, nullptr);
     return result;
+}
+
+Microsoft::WRL::ComPtr<ID2D1Effect> CreateTransformedImage(
+    ID2D1DeviceContext* context,
+    ID2D1Image* input,
+    const StaticDecorationScreenTransform& transform,
+    float bitmap_width,
+    float bitmap_height) noexcept
+{
+    Microsoft::WRL::ComPtr<ID2D1Effect> affine;
+    if (!context || !input || FAILED(context->CreateEffect(CLSID_D2D12DAffineTransform, affine.GetAddressOf())))
+        return {};
+
+    const float dx = transform.center_x -
+        transform.m11 * bitmap_width * 0.5f -
+        transform.m21 * bitmap_height * 0.5f;
+    const float dy = transform.center_y -
+        transform.m12 * bitmap_width * 0.5f -
+        transform.m22 * bitmap_height * 0.5f;
+    const D2D1_MATRIX_3X2_F matrix = D2D1::Matrix3x2F(
+        transform.m11,
+        transform.m12,
+        transform.m21,
+        transform.m22,
+        dx,
+        dy);
+
+    affine->SetInput(0, input);
+    if (FAILED(affine->SetValue(D2D1_2DAFFINETRANSFORM_PROP_TRANSFORM_MATRIX, matrix)) ||
+        FAILED(affine->SetValue(
+            D2D1_2DAFFINETRANSFORM_PROP_INTERPOLATION_MODE,
+            D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE_LINEAR)))
+    {
+        return {};
+    }
+    return affine;
+}
+
+Microsoft::WRL::ComPtr<ID2D1Effect> BuildMaskUnion(
+    ID2D1DeviceContext* context,
+    const std::vector<PreparedDecorationMask>& masks,
+    const EeStaticDecoration& target) noexcept
+{
+    std::vector<ID2D1Effect*> applicable;
+    applicable.reserve(masks.size());
+    for (const PreparedDecorationMask& mask : masks)
+    {
+        if (mask.decoration && mask.transformed_image &&
+            DecorationMaskAppliesTo(*mask.decoration, target))
+        {
+            applicable.push_back(mask.transformed_image.Get());
+        }
+    }
+
+    if (applicable.empty())
+        return {};
+    if (applicable.size() == 1u)
+    {
+        Microsoft::WRL::ComPtr<ID2D1Effect> result = applicable.front();
+        return result;
+    }
+
+    Microsoft::WRL::ComPtr<ID2D1Effect> composite;
+    if (FAILED(context->CreateEffect(CLSID_D2D1Composite, composite.GetAddressOf())) ||
+        FAILED(composite->SetInputCount(static_cast<UINT32>(applicable.size()))))
+    {
+        return {};
+    }
+    for (UINT32 i = 0; i < applicable.size(); ++i)
+        composite->SetInputEffect(i, applicable[i]);
+    if (FAILED(composite->SetValue(D2D1_COMPOSITE_PROP_MODE, D2D1_COMPOSITE_MODE_SOURCE_OVER)))
+        return {};
+    return composite;
+}
+
+Microsoft::WRL::ComPtr<ID2D1Effect> InvertMaskAlpha(
+    ID2D1DeviceContext* context,
+    ID2D1Effect* mask) noexcept
+{
+    Microsoft::WRL::ComPtr<ID2D1Effect> inverted;
+    if (!context || !mask || FAILED(context->CreateEffect(CLSID_D2D1ColorMatrix, inverted.GetAddressOf())))
+        return {};
+
+    const D2D1_MATRIX_5X4_F matrix =
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, -1.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+    inverted->SetInputEffect(0, mask);
+    if (FAILED(inverted->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix)) ||
+        FAILED(inverted->SetValue(
+            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)))
+    {
+        return {};
+    }
+    return inverted;
 }
 }
 
@@ -247,39 +356,19 @@ void D2DBackend::DrawStaticDecorationsCamera(
     constexpr float pixels_per_unit = 100.0f;
     std::size_t draw_target_count = 0u;
 
-    for (const EeStaticDecoration& decoration : static_decorations_)
+    const auto try_resolve_transform = [&](const EeStaticDecoration& decoration,
+                                           StaticDecorationScreenTransform& transform) noexcept -> bool
     {
-        if ((decoration.flags & EE_DECORATION_VISIBLE) == 0u)
-        {
-            ++rejected.unsupported_flags;
-            continue;
-        }
-        if (!std::isfinite(decoration.opacity) || decoration.opacity <= 0.0f)
-        {
-            ++rejected.invalid_opacity;
-            continue;
-        }
-
-        const auto bitmap_it = decoration_bitmaps_.find(decoration.asset_id);
-        if (bitmap_it == decoration_bitmaps_.end() || !bitmap_it->second)
-        {
-            ++rejected.invalid_asset_id;
-            continue;
-        }
-
         float anchor_x = decoration.base_anchor_x;
         float anchor_y = decoration.base_anchor_y;
         float parent_rotation = 0.0f;
         float parent_scale_x = 1.0f;
         float parent_scale_y = 1.0f;
+
         if (decoration.relative_mode == EE_DECORATION_RELATIVE_TILE)
         {
-            if (decoration.floor < 0 ||
-                static_cast<std::size_t>(decoration.floor) >= scene.floors.size())
-            {
-                ++rejected.invalid_floor;
-                continue;
-            }
+            if (decoration.floor < 0 || static_cast<std::size_t>(decoration.floor) >= scene.floors.size())
+                return false;
             const EeFloor& floor = scene.floors[static_cast<std::size_t>(decoration.floor)];
             if ((decoration.flags & EE_DECORATION_STICK_TO_FLOOR) != 0u)
             {
@@ -298,10 +387,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
                  decoration.relative_mode == EE_DECORATION_RELATIVE_GREEN_PLANET)
         {
             if (!playback.active)
-            {
-                ++rejected.unsupported_placement;
-                continue;
-            }
+                return false;
             const bool wants_red = decoration.relative_mode == EE_DECORATION_RELATIVE_RED_PLANET;
             const bool wants_blue = decoration.relative_mode == EE_DECORATION_RELATIVE_BLUE_PLANET;
             if (wants_red || wants_blue)
@@ -312,8 +398,6 @@ void D2DBackend::DrawStaticDecorationsCamera(
             }
             else
             {
-                // The current playback model exposes two planet poses. Preserve GreenPlanet
-                // placement and use their center until the three-planet runtime lands.
                 anchor_x = (playback.stationary_x + playback.orbiting_x) * 0.5f;
                 anchor_y = (playback.stationary_y + playback.orbiting_y) * 0.5f;
             }
@@ -322,12 +406,10 @@ void D2DBackend::DrawStaticDecorationsCamera(
                  decoration.relative_mode != EE_DECORATION_RELATIVE_CAMERA &&
                  decoration.relative_mode != EE_DECORATION_RELATIVE_CAMERA_ASPECT)
         {
-            ++rejected.unsupported_placement;
-            continue;
+            return false;
         }
 
-        StaticDecorationScreenTransform transform =
-            CalculateStaticDecorationScreenTransform(
+        transform = CalculateStaticDecorationScreenTransform(
             decoration,
             anchor_x,
             anchor_y,
@@ -343,6 +425,73 @@ void D2DBackend::DrawStaticDecorationsCamera(
             parent_scale_y,
             scene.floors.empty() ? 0.0f : scene.floors.front().x,
             scene.floors.empty() ? 0.0f : scene.floors.front().y);
+        return true;
+    };
+
+    std::vector<PreparedDecorationMask> prepared_masks;
+    for (const EeStaticDecoration& decoration : static_decorations_)
+    {
+        if (!DecorationIsMask(decoration) ||
+            (decoration.flags & EE_DECORATION_VISIBLE) == 0u ||
+            !std::isfinite(decoration.opacity) || decoration.opacity <= 0.0f ||
+            std::abs(decoration.scale_x) <= 0.000001f ||
+            std::abs(decoration.scale_y) <= 0.000001f)
+        {
+            continue;
+        }
+
+        const auto bitmap_it = decoration_bitmaps_.find(decoration.asset_id);
+        if (bitmap_it == decoration_bitmaps_.end() || !bitmap_it->second)
+            continue;
+
+        StaticDecorationScreenTransform transform;
+        if (!try_resolve_transform(decoration, transform))
+            continue;
+
+        ID2D1Bitmap1* bitmap = bitmap_it->second.Get();
+        const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
+        if (pixels.width == 0u || pixels.height == 0u)
+            continue;
+
+        Microsoft::WRL::ComPtr<ID2D1Effect> transformed = CreateTransformedImage(
+            d2d_context_.Get(),
+            bitmap,
+            transform,
+            static_cast<float>(pixels.width),
+            static_cast<float>(pixels.height));
+        if (transformed)
+            prepared_masks.push_back({&decoration, std::move(transformed)});
+    }
+
+    for (const EeStaticDecoration& decoration : static_decorations_)
+    {
+        if (DecorationIsMask(decoration))
+            continue;
+
+        if ((decoration.flags & EE_DECORATION_VISIBLE) == 0u)
+        {
+            ++rejected.unsupported_flags;
+            continue;
+        }
+        if (!std::isfinite(decoration.opacity) || decoration.opacity <= 0.0f)
+        {
+            ++rejected.invalid_opacity;
+            continue;
+        }
+
+        const auto bitmap_it = decoration_bitmaps_.find(decoration.asset_id);
+        if (bitmap_it == decoration_bitmaps_.end() || !bitmap_it->second)
+        {
+            ++rejected.invalid_asset_id;
+            continue;
+        }
+
+        StaticDecorationScreenTransform transform;
+        if (!try_resolve_transform(decoration, transform))
+        {
+            ++rejected.unsupported_placement;
+            continue;
+        }
 
         ID2D1Bitmap1* bitmap = bitmap_it->second.Get();
         const D2D1_SIZE_U pixels = bitmap->GetPixelSize();
@@ -355,7 +504,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
         const float sx = transform.m11;
         const float sy = transform.m22;
         if (!std::isfinite(sx) || !std::isfinite(sy) ||
-            (!std::isfinite(transform.m12)) || (!std::isfinite(transform.m21)))
+            !std::isfinite(transform.m12) || !std::isfinite(transform.m21))
         {
             ++rejected.invalid_struct_data;
             continue;
@@ -432,14 +581,6 @@ void D2DBackend::DrawStaticDecorationsCamera(
                 decoration.parallax_offset_y);
         }
 
-        d2d_context_->SetTransform(D2D1::Matrix3x2F(
-            transform.m11,
-            transform.m12,
-            transform.m21,
-            transform.m22,
-            transform.center_x,
-            transform.center_y));
-
         const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
         const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
         const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
@@ -458,20 +599,83 @@ void D2DBackend::DrawStaticDecorationsCamera(
             D2D1_COLORMATRIX_PROP_ALPHA_MODE,
             D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED);
 
-        const D2D1_POINT_2F offset = D2D1::Point2F(
-            -static_cast<float>(pixels.width) * 0.5f,
-            -static_cast<float>(pixels.height) * 0.5f);
-        const D2D1_RECT_F source = D2D1::RectF(
-            0.0f,
-            0.0f,
-            static_cast<float>(pixels.width),
-            static_cast<float>(pixels.height));
-        d2d_context_->DrawImage(
-            decoration_color_effect_.Get(),
-            &offset,
-            &source,
-            D2D1_INTERPOLATION_MODE_LINEAR,
-            D2D1_COMPOSITE_MODE_SOURCE_OVER);
+        const bool visible_inside = DecorationIsVisibleInsideMask(decoration);
+        const bool visible_outside = DecorationIsVisibleOutsideMask(decoration);
+        Microsoft::WRL::ComPtr<ID2D1Effect> mask_union;
+        if (visible_inside || visible_outside)
+            mask_union = BuildMaskUnion(d2d_context_.Get(), prepared_masks, decoration);
+
+        if (visible_inside && !mask_union)
+            continue;
+
+        if ((visible_inside || visible_outside) && mask_union)
+        {
+            Microsoft::WRL::ComPtr<ID2D1Effect> transformed_target = CreateTransformedImage(
+                d2d_context_.Get(),
+                decoration_color_effect_.Get(),
+                transform,
+                static_cast<float>(pixels.width),
+                static_cast<float>(pixels.height));
+            if (!transformed_target)
+            {
+                ++rejected.other;
+                continue;
+            }
+
+            Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
+            if (visible_outside)
+            {
+                effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
+                if (!effective_mask)
+                {
+                    ++rejected.other;
+                    continue;
+                }
+            }
+
+            Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
+            if (FAILED(d2d_context_->CreateEffect(CLSID_D2D1AlphaMask, alpha_mask.GetAddressOf())))
+            {
+                ++rejected.other;
+                continue;
+            }
+            alpha_mask->SetInputEffect(0, transformed_target.Get());
+            alpha_mask->SetInputEffect(1, effective_mask.Get());
+
+            d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+            d2d_context_->DrawImage(
+                alpha_mask.Get(),
+                nullptr,
+                nullptr,
+                D2D1_INTERPOLATION_MODE_LINEAR,
+                D2D1_COMPOSITE_MODE_SOURCE_OVER);
+        }
+        else
+        {
+            d2d_context_->SetTransform(D2D1::Matrix3x2F(
+                transform.m11,
+                transform.m12,
+                transform.m21,
+                transform.m22,
+                transform.center_x,
+                transform.center_y));
+
+            const D2D1_POINT_2F offset = D2D1::Point2F(
+                -static_cast<float>(pixels.width) * 0.5f,
+                -static_cast<float>(pixels.height) * 0.5f);
+            const D2D1_RECT_F source = D2D1::RectF(
+                0.0f,
+                0.0f,
+                static_cast<float>(pixels.width),
+                static_cast<float>(pixels.height));
+            d2d_context_->DrawImage(
+                decoration_color_effect_.Get(),
+                &offset,
+                &source,
+                D2D1_INTERPOLATION_MODE_LINEAR,
+                D2D1_COMPOSITE_MODE_SOURCE_OVER);
+        }
+
         ++draw_target_count;
         ++stats.draw_calls;
     }
