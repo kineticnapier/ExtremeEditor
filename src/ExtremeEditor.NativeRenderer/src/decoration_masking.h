@@ -49,13 +49,22 @@ constexpr int DecorationMaskBackDepth(const EeStaticDecoration& decoration) noex
 
 constexpr bool DecorationMaskDepthApplies(
     std::uint32_t flags,
+    int mask_depth,
     int front_depth,
     int back_depth,
     int target_depth) noexcept
 {
     if ((flags & kDecorationMaskingUseDepth) == 0u)
-        return true;
+    {
+        // ADOFAI scrVisualDecoration.SetMaskingDepth(customRange=false, ...)
+        // disables SpriteMask.isCustomRangeActive. Unity's default SpriteMask
+        // range affects sprites behind the mask. ADOFAI maps decoration depth to
+        // sortingOrder as -depth, so "behind" means a larger ADOFAI depth.
+        return target_depth > mask_depth;
+    }
 
+    // ADOFAI forwards maskingFrontDepth/maskingBackDepth to SpriteMask's custom
+    // sorting range. With one sorting layer this is the inclusive depth interval.
     const int low = std::min(front_depth, back_depth);
     const int high = std::max(front_depth, back_depth);
     return target_depth >= low && target_depth <= high;
@@ -68,13 +77,18 @@ constexpr bool DecorationMaskAppliesTo(
     return DecorationIsMask(mask) &&
            DecorationMaskDepthApplies(
                mask.flags,
+               mask.depth,
                DecorationMaskFrontDepth(mask),
                DecorationMaskBackDepth(mask),
                target.depth);
 }
 
-static_assert(DecorationMaskDepthApplies(0u, -10, 10, 500));
-static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, -10, 10, 0));
-static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 10, -10, -10));
-static_assert(!DecorationMaskDepthApplies(kDecorationMaskingUseDepth, -10, 10, 11));
+// Default range: only decorations behind the mask participate.
+static_assert(DecorationMaskDepthApplies(0u, 10, -1, -1, 11));
+static_assert(!DecorationMaskDepthApplies(0u, 10, -1, -1, 10));
+static_assert(!DecorationMaskDepthApplies(0u, 10, -1, -1, 9));
+// Custom range follows the explicit front/back depths regardless of ordering.
+static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 999, -10, 10, 0));
+static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 999, 10, -10, -10));
+static_assert(!DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 999, -10, 10, 11));
 }
