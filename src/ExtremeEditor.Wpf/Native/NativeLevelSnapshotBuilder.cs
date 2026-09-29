@@ -16,6 +16,7 @@ internal sealed class NativeLevelSnapshot
     public float[] IconRotationOffsets { get; set; } = [];
     public NativeStaticDecoration[] StaticDecorations { get; set; } = [];
     public NativeDecorationAsset[] DecorationAssets { get; set; } = [];
+    public NativeDecorationPlaybackRuntime? DecorationPlayback { get; set; }
     public required float BoundsLeft { get; init; }
     public required float BoundsTop { get; init; }
     public required float BoundsRight { get; init; }
@@ -233,6 +234,7 @@ internal static class NativeLevelSnapshotBuilder
             IconAssets = iconAssets.ToArray(),
             StaticDecorations = decorationData.Instances,
             DecorationAssets = decorationData.Assets,
+            DecorationPlayback = decorationData.PlaybackRuntime,
             BoundsLeft = bounds.Left,
             BoundsTop = bounds.Top,
             BoundsRight = bounds.Right,

@@ -1,5 +1,6 @@
 #include "level_scene.h"
 
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <utility>
@@ -93,8 +94,26 @@ bool LevelScene::SetStaticDecorations(
             next->assign(decorations, decorations + decoration_count);
 
         std::lock_guard lock(decoration_mutex_);
+        const std::size_t previous_count = static_decorations_
+            ? static_decorations_->size()
+            : 0u;
+        if (static_decorations_version_ == 0u || previous_count != decoration_count)
+        {
+            std::fprintf(
+                stderr,
+                "[decoration-diagnostic] nativeReceivedCount=%u\n",
+                decoration_count);
+        }
         static_decorations_ = std::move(next);
         ++static_decorations_version_;
+        if (static_decorations_version_ == 1u || previous_count != decoration_count)
+        {
+            std::fprintf(
+                stderr,
+                "[decoration-diagnostic] sceneStoredCount=%zu sceneDecorationVersion=%llu\n",
+                static_decorations_->size(),
+                static_cast<unsigned long long>(static_decorations_version_));
+        }
         return true;
     }
     catch (...)
@@ -142,6 +161,19 @@ DecorationRenderState LevelScene::GetDecorationRenderState() const noexcept
     state.assets = decoration_assets_;
     state.decorations_version = static_decorations_version_;
     state.assets_version = decoration_assets_version_;
+    if (logged_decoration_handoff_version_ != static_decorations_version_)
+    {
+        std::fprintf(
+            stderr,
+            "[decoration-diagnostic] sceneBackendHandoffCount=%zu sceneDecorationVersion=%llu "
+            "sceneAssetCount=%zu sceneAssetVersion=%llu sceneGeneration=%llu\n",
+            static_decorations_ ? static_decorations_->size() : 0u,
+            static_cast<unsigned long long>(static_decorations_version_),
+            decoration_assets_ ? decoration_assets_->size() : 0u,
+            static_cast<unsigned long long>(decoration_assets_version_),
+            static_cast<unsigned long long>(generation));
+        logged_decoration_handoff_version_ = static_decorations_version_;
+    }
     return state;
 }
 }

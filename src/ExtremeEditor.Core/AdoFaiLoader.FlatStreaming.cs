@@ -462,6 +462,12 @@ public static partial class AdoFaiLoader
                 case FlatActionField.Duration when TryReadDouble(ref reader, out double duration):
                     _action.Duration = duration;
                     break;
+                case FlatActionField.Tag:
+                    _action.TargetTag = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.EventTag:
+                    _action.EventTag = ReadPooledString(ref reader);
+                    break;
             }
         }
 
@@ -526,7 +532,10 @@ public static partial class AdoFaiLoader
                 GameSound = _action.GameSound,
                 Planets = _action.Planets,
                 AngleOffset = _action.AngleOffset,
-                Duration = _action.Duration
+                Duration = _action.Duration,
+                TargetTag = _action.TargetTag,
+                EventTag = _action.EventTag,
+                SourceIndex = _actionCount - 1
             };
             _actions.Add(action);
             if (action.Active && action.Kind == LevelActionKind.SetSpeed)
@@ -614,6 +623,8 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("planets"u8)) return FlatActionField.Planets;
             if (reader.ValueTextEquals("angleOffset"u8)) return FlatActionField.AngleOffset;
             if (reader.ValueTextEquals("duration"u8)) return FlatActionField.Duration;
+            if (reader.ValueTextEquals("tag"u8)) return FlatActionField.Tag;
+            if (reader.ValueTextEquals("eventTag"u8)) return FlatActionField.EventTag;
             return FlatActionField.Unknown;
         }
 
@@ -669,7 +680,7 @@ public static partial class AdoFaiLoader
         {
             None, Unknown, Floor, EventType, Active, SpeedType, BeatsPerMinute,
             BpmMultiplier, Icon, HitSound, HitSoundVolume, GameSound, Planets,
-            AngleOffset, Duration
+            AngleOffset, Duration, Tag, EventTag
         }
 
         private struct FlatActionBuilder
@@ -688,6 +699,8 @@ public static partial class AdoFaiLoader
             public string? Planets;
             public double? AngleOffset;
             public double? Duration;
+            public string? TargetTag;
+            public string? EventTag;
         }
     }
 

@@ -115,7 +115,7 @@ public static class VfxTimelineBuilder
 
             foreach (LevelAction source in sourceActions)
             {
-                string? eventTag = ReadString(source.PropertyOverrides, "eventTag");
+                string? eventTag = MoveDecorationsTargeting.GetEventTag(source);
                 if (source.Floor == repeat.Floor ||
                     !string.Equals(eventTag, repeat.Tag, StringComparison.Ordinal))
                 {
@@ -219,7 +219,7 @@ public static class VfxTimelineBuilder
             angleOffset,
             action.Duration,
             ReadString(action.PropertyOverrides, "ease"),
-            ReadString(action.PropertyOverrides, "eventTag"),
+            MoveDecorationsTargeting.GetEventTag(action),
             action,
             RepeatDescriptor: repeatDescriptor,
             StartTime: startTime,
@@ -234,7 +234,7 @@ public static class VfxTimelineBuilder
         LevelAction action,
         IReadOnlyDictionary<(int Floor, string Tag), VfxRepeatDescriptor> repeats)
     {
-        string? eventTag = ReadString(action.PropertyOverrides, "eventTag");
+        string? eventTag = MoveDecorationsTargeting.GetEventTag(action);
         if (string.IsNullOrWhiteSpace(eventTag))
             return null;
 
@@ -309,7 +309,8 @@ public static class VfxTimelineBuilder
             action.Floor,
             action.SourceIndex,
             repeatType,
-            ReadString(properties, "tag") ?? ReadString(properties, "eventTag"),
+            MoveDecorationsTargeting.GetTargetTag(action) ??
+                MoveDecorationsTargeting.GetEventTag(action),
             ReadInt(properties, "repetitions"),
             ReadDouble(properties, "interval"),
             ReadInt(properties, "floorCount"),

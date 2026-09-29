@@ -34,6 +34,7 @@ public sealed partial class NativeLevelViewport
         StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
         result.Snapshot.StaticDecorations = decorationData.Instances;
         result.Snapshot.DecorationAssets = decorationData.Assets;
+        result.Snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
         phaseWatch.Stop();
         Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
 

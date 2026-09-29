@@ -176,28 +176,7 @@ internal sealed class NativeRendererSession : IDisposable
                 floorsHandle.Free();
         }
 
-        GCHandle decorationsHandle = default;
-        try
-        {
-            nint decorations = nint.Zero;
-            if (snapshot.StaticDecorations.Length > 0)
-            {
-                decorationsHandle = GCHandle.Alloc(snapshot.StaticDecorations, GCHandleType.Pinned);
-                decorations = decorationsHandle.AddrOfPinnedObject();
-            }
-
-            int result = NativeRendererNative.SetStaticDecorations(
-                _renderer,
-                decorations,
-                checked((uint)snapshot.StaticDecorations.Length));
-            if (result != 0)
-                throw new InvalidOperationException($"Native static-decoration upload failed with result {result}.");
-        }
-        finally
-        {
-            if (decorationsHandle.IsAllocated)
-                decorationsHandle.Free();
-        }
+        SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
 
         NativeRendererNative.ClearDecorationAssets(_renderer);
         foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
@@ -223,6 +202,44 @@ internal sealed class NativeRendererSession : IDisposable
             if (result != 0)
                 throw new InvalidOperationException(
                     $"Native icon asset upload failed for {asset.ImagePath} with result {result}.");
+        }
+    }
+
+    internal void SetStaticDecorations(
+        NativeStaticDecoration[] decorations,
+        bool logUpload = false)
+    {
+        ArgumentNullException.ThrowIfNull(decorations);
+        if (_renderer == nint.Zero)
+            return;
+
+        if (logUpload)
+        {
+            Console.WriteLine(
+                $"[decoration-diagnostic] setStaticDecorationsCount={decorations.Length}");
+        }
+
+        GCHandle decorationsHandle = default;
+        try
+        {
+            nint decorationPointer = nint.Zero;
+            if (decorations.Length > 0)
+            {
+                decorationsHandle = GCHandle.Alloc(decorations, GCHandleType.Pinned);
+                decorationPointer = decorationsHandle.AddrOfPinnedObject();
+            }
+
+            int result = NativeRendererNative.SetStaticDecorations(
+                _renderer,
+                decorationPointer,
+                checked((uint)decorations.Length));
+            if (result != 0)
+                throw new InvalidOperationException($"Native static-decoration upload failed with result {result}.");
+        }
+        finally
+        {
+            if (decorationsHandle.IsAllocated)
+                decorationsHandle.Free();
         }
     }
 

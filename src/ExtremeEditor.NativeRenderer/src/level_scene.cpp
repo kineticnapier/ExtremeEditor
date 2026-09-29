@@ -7,6 +7,7 @@
 namespace ee
 {
 thread_local const LevelScene* LevelScene::current_runtime_scene_ = nullptr;
+std::atomic<std::uint64_t> LevelScene::next_generation_{1u};
 
 std::shared_ptr<LevelScene> LevelScene::Create(
     const EeFloor* floor_data,
@@ -26,6 +27,7 @@ std::shared_ptr<LevelScene> LevelScene::Create(
         return nullptr;
 
     auto scene = std::make_shared<LevelScene>();
+    scene->generation = next_generation_.fetch_add(1u, std::memory_order_relaxed);
     scene->floors.assign(floor_data, floor_data + floor_count);
     scene->geometries.assign(geometry_data, geometry_data + geometry_count);
     scene->points.assign(point_data, point_data + point_count);

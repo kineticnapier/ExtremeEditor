@@ -48,6 +48,8 @@ public sealed record LevelAction(
     public string? Planets { get; set; }
     public double? AngleOffset { get; set; }
     public double? Duration { get; set; }
+    public string? TargetTag { get; set; }
+    public string? EventTag { get; set; }
     public JsonObject? PropertyOverrides { get; set; }
     public int PropertyOverridesStructureRevision { get; set; }
 }

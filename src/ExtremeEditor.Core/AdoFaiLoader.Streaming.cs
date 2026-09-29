@@ -504,6 +504,12 @@ public static partial class AdoFaiLoader
                     if (TryReadDoubleToken(ref reader, out double duration))
                         _action.Duration = duration;
                     break;
+                case ActionField.Tag:
+                    _action.TargetTag = ReadPooledString(ref reader);
+                    break;
+                case ActionField.EventTag:
+                    _action.EventTag = ReadPooledString(ref reader);
+                    break;
             }
         }
 
@@ -569,7 +575,10 @@ public static partial class AdoFaiLoader
                 GameSound = _action.GameSound,
                 Planets = _action.Planets,
                 AngleOffset = _action.AngleOffset,
-                Duration = _action.Duration
+                Duration = _action.Duration,
+                TargetTag = _action.TargetTag,
+                EventTag = _action.EventTag,
+                SourceIndex = _actionCount - 1
             };
 
             if (_actionsByFloor.TryGetValue(action.Floor, out LevelAction[]? existing))
@@ -695,6 +704,8 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("planets"u8)) return ActionField.Planets;
             if (reader.ValueTextEquals("angleOffset"u8)) return ActionField.AngleOffset;
             if (reader.ValueTextEquals("duration"u8)) return ActionField.Duration;
+            if (reader.ValueTextEquals("tag"u8)) return ActionField.Tag;
+            if (reader.ValueTextEquals("eventTag"u8)) return ActionField.EventTag;
             return ActionField.Unknown;
         }
 
@@ -801,7 +812,9 @@ public static partial class AdoFaiLoader
             GameSound,
             Planets,
             AngleOffset,
-            Duration
+            Duration,
+            Tag,
+            EventTag
         }
 
         private struct ActionBuilder
@@ -820,6 +833,8 @@ public static partial class AdoFaiLoader
             public string? Planets;
             public double? AngleOffset;
             public double? Duration;
+            public string? TargetTag;
+            public string? EventTag;
         }
     }
 

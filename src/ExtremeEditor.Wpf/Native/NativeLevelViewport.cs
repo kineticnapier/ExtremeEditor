@@ -207,11 +207,13 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
     {
+        UpdateDecorationPlayback(chartTime);
         _session?.SetPlaybackAnchor(chartTime, chartRate, active, playing);
     }
 
     public void ClearPlayback()
     {
+        UpdateDecorationPlayback(double.NegativeInfinity);
         _session?.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
     }
 
@@ -336,6 +338,10 @@ public sealed partial class NativeLevelViewport : HwndHost
             var snapshotWatch = Stopwatch.StartNew();
             NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(_level);
             _snapshot = result.Snapshot;
+            StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(_level);
+            _snapshot.StaticDecorations = decorationData.Instances;
+            _snapshot.DecorationAssets = decorationData.Assets;
+            _snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
             buildMetrics = result.Metrics;
             snapshotWatch.Stop();
             snapshotBuild = snapshotWatch.Elapsed;
@@ -355,6 +361,17 @@ public sealed partial class NativeLevelViewport : HwndHost
             buildMetrics.GeometryCount,
             buildMetrics.IconAssetCount,
             buildMetrics.ActionFloorCount);
+    }
+
+    private void UpdateDecorationPlayback(double chartTime)
+    {
+        if (_snapshot?.DecorationPlayback is not NativeDecorationPlaybackRuntime playback ||
+            !playback.Update(chartTime))
+        {
+            return;
+        }
+
+        _session?.SetStaticDecorations(_snapshot.StaticDecorations);
     }
 
     private void UploadPendingPlaybackTimeline()

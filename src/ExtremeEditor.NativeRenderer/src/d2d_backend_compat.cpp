@@ -96,7 +96,8 @@ HRESULT D2DBackend::RenderFrame(
                 decoration_state.decorations.get(),
                 decoration_state.decorations_version,
                 decoration_state.assets.get(),
-                decoration_state.assets_version))
+                decoration_state.assets_version,
+                scene->generation))
         {
             PublishRenderFrameStats(stats);
             return E_FAIL;

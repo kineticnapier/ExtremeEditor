@@ -5,6 +5,7 @@
 #include "icon_assets.h"
 #include "icon_instanced_renderer.h"
 #include "level_scene.h"
+#include "scene_local_cache.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
@@ -66,7 +67,8 @@ public:
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
         const DecorationAssetTable* assets,
-        std::uint64_t assets_version) noexcept;
+        std::uint64_t assets_version,
+        std::uint64_t scene_generation) noexcept;
     HRESULT RenderFrame(
         double seconds,
         const LevelScene* scene,
@@ -232,5 +234,15 @@ private:
     std::uint64_t cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t cached_static_decorations_version_ = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t cached_static_decorations_scene_generation_ =
+        std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t cached_decoration_assets_scene_generation_ =
+        std::numeric_limits<std::uint64_t>::max();
+    std::size_t logged_decoration_source_count_ = std::numeric_limits<std::size_t>::max();
+    std::size_t logged_decoration_draw_count_ = std::numeric_limits<std::size_t>::max();
+    std::size_t logged_decoration_bitmap_count_ = std::numeric_limits<std::size_t>::max();
+    const std::vector<EeStaticDecoration>* logged_decoration_input_ = nullptr;
+    std::size_t logged_decoration_input_count_ = std::numeric_limits<std::size_t>::max();
+    std::uint64_t logged_decoration_input_version_ = std::numeric_limits<std::uint64_t>::max();
 };
 }

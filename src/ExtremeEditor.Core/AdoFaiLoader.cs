@@ -87,17 +87,24 @@ public static partial class AdoFaiLoader
             actions.ValueKind == JsonValueKind.Array)
         {
             actionCount = actions.GetArrayLength();
+            int sourceIndex = 0;
             foreach (JsonElement action in actions.EnumerateArray())
             {
                 if (action.ValueKind != JsonValueKind.Object)
+                {
+                    sourceIndex++;
                     continue;
+                }
 
                 string type = ReadLooseString(action, "eventType") ?? "<unknown>";
                 actionTypes.TryGetValue(type, out int count);
                 actionTypes[type] = count + 1;
 
                 if (!TryReadIntProperty(action, "floor", out int floor))
+                {
+                    sourceIndex++;
                     continue;
+                }
 
                 bool active = !action.TryGetProperty("active", out JsonElement activeValue) ||
                               ReadLooseBool(activeValue, defaultValue: true);
@@ -115,8 +122,12 @@ public static partial class AdoFaiLoader
                     GameSound = ReadLooseString(action, "gameSound"),
                     Planets = ReadLooseString(action, "planets"),
                     AngleOffset = ReadLooseDoubleProperty(action, "angleOffset"),
-                    Duration = ReadLooseDoubleProperty(action, "duration")
+                    Duration = ReadLooseDoubleProperty(action, "duration"),
+                    TargetTag = ReadLooseString(action, "tag"),
+                    EventTag = ReadLooseString(action, "eventTag"),
+                    SourceIndex = sourceIndex
                 });
+                sourceIndex++;
             }
         }
 

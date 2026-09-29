@@ -31,8 +31,7 @@ public sealed record DecorationState(
         ArgumentNullException.ThrowIfNull(timeline);
 
         DecorationState state = FromDecoration(decoration);
-        string? decorationTag = ReadString(decoration.Properties["tag"]);
-        if (string.IsNullOrEmpty(decorationTag))
+        if (string.IsNullOrEmpty(ReadString(decoration.Properties["tag"])))
             return state;
 
         var positionX = new ScalarTweenState(state.PositionX);
@@ -59,8 +58,7 @@ public sealed record DecorationState(
             }
 
             JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
-            string? targetTag = ReadString(properties?["tag"]);
-            if (!TagsOverlap(decorationTag, targetTag))
+            if (!MoveDecorationsTargeting.Targets(decoration, occurrence))
                 continue;
 
             double durationSeconds = occurrence.DurationSeconds ?? 0;
@@ -185,27 +183,6 @@ public sealed record DecorationState(
         if (target is double value)
             tween.Start(value, startTime, durationSeconds, ease);
     }
-
-    private static bool TagsOverlap(string decorationTags, string? targetTags)
-    {
-        if (string.IsNullOrEmpty(targetTags))
-            return false;
-
-        string[] decorationTokens = SplitTags(decorationTags);
-        string[] targetTokens = SplitTags(targetTags);
-        foreach (string target in targetTokens)
-        {
-            foreach (string candidate in decorationTokens)
-            {
-                if (string.Equals(target, candidate, StringComparison.Ordinal))
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    private static string[] SplitTags(string tags) =>
-        tags.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
     private static string? ReadString(JsonNode? node)
     {

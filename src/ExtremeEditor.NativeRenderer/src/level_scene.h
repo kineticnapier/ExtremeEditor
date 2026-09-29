@@ -5,9 +5,11 @@
 #include "track_transform_runtime.h"
 
 #include <chrono>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -36,6 +38,8 @@ struct LevelScene
         float bounds_bottom);
 
     static const LevelScene* CurrentRuntimeScene() noexcept;
+
+    std::uint64_t generation = 0;
 
     void Query(float left, float top, float right, float bottom, std::vector<std::uint32_t>& output) const;
     void AppendVisualTransformCandidates(
@@ -70,6 +74,7 @@ private:
     static constexpr float BaseCullMargin = 2.5f;
     static constexpr double PlaybackAnchorJitterToleranceSeconds = 0.050;
     static thread_local const LevelScene* current_runtime_scene_;
+    static std::atomic<std::uint64_t> next_generation_;
 
     void RebuildCells() noexcept;
     void RebuildVisualTransformCullIndex(
@@ -100,5 +105,7 @@ private:
         std::make_shared<DecorationAssetTable>();
     std::uint64_t static_decorations_version_ = 0;
     std::uint64_t decoration_assets_version_ = 0;
+    mutable std::uint64_t logged_decoration_handoff_version_ =
+        std::numeric_limits<std::uint64_t>::max();
 };
 }

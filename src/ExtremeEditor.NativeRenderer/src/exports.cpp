@@ -1,6 +1,8 @@
 #include "extreme_editor_renderer.h"
 #include "renderer.h"
 
+#include <cstdio>
+#include <limits>
 #include <new>
 
 uint32_t ee_renderer_get_api_version(void)
@@ -129,6 +131,42 @@ EeResult ee_renderer_set_static_decorations(
 {
     if (renderer == nullptr || (decoration_count > 0 && decorations == nullptr))
         return EE_ERROR_INVALID_ARGUMENT;
+
+    static thread_local const EeStaticDecoration* last_logged_decorations = nullptr;
+    static thread_local uint32_t last_logged_count = std::numeric_limits<uint32_t>::max();
+    if (last_logged_decorations != decorations || last_logged_count != decoration_count)
+    {
+        std::fprintf(
+            stderr,
+            "[decoration-diagnostic] nativeEntrypointCount=%u abiStructSize=%zu\n",
+            decoration_count,
+            sizeof(EeStaticDecoration));
+        if (decoration_count > 0u)
+        {
+            const EeStaticDecoration& item = decorations[0];
+            std::fprintf(
+                stderr,
+                "[decoration-diagnostic] nativeEntrypointFirst assetId=%u floor=%d "
+                "position=(%.6g,%.6g) pivot=(%.6g,%.6g) rotation=%.6g "
+                "scale=(%.6g,%.6g) opacity=%.6g depth=%d placement=%u flags=%u sourceIndex=%d\n",
+                item.asset_id,
+                item.floor,
+                item.position_x,
+                item.position_y,
+                item.pivot_offset_x,
+                item.pivot_offset_y,
+                item.rotation_radians,
+                item.scale_x,
+                item.scale_y,
+                item.opacity,
+                item.depth,
+                item.relative_mode,
+                item.flags,
+                item.source_index);
+        }
+        last_logged_decorations = decorations;
+        last_logged_count = decoration_count;
+    }
 
     return static_cast<ee::Renderer*>(renderer)->SetStaticDecorations(decorations, decoration_count)
         ? EE_OK

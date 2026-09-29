@@ -6,7 +6,51 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal readonly record struct StaticDecorationSnapshotData(
     NativeStaticDecoration[] Instances,
-    NativeDecorationAsset[] Assets);
+    NativeDecorationAsset[] Assets,
+    NativeDecorationPlaybackRuntime? PlaybackRuntime);
+
+internal sealed class NativeDecorationPlaybackRuntime
+{
+    private readonly NativeStaticDecoration[] _instances;
+    private readonly AnimatedDecorationBinding[] _animated;
+    private double _lastTime = double.NaN;
+
+    internal NativeDecorationPlaybackRuntime(
+        NativeStaticDecoration[] instances,
+        AnimatedDecorationBinding[] animated)
+    {
+        _instances = instances;
+        _animated = animated;
+    }
+
+    internal int AnimatedCount => _animated.Length;
+
+    internal bool Update(double chartTime)
+    {
+        if (_animated.Length == 0 || chartTime.Equals(_lastTime))
+            return false;
+
+        foreach (AnimatedDecorationBinding binding in _animated)
+        {
+            DecorationState state = DecorationState.Evaluate(
+                binding.Decoration,
+                binding.Timeline,
+                chartTime);
+            _instances[binding.InstanceIndex] = StaticDecorationSnapshotBuilder.ApplyState(
+                binding.Template,
+                state);
+        }
+
+        _lastTime = chartTime;
+        return true;
+    }
+}
+
+internal readonly record struct AnimatedDecorationBinding(
+    int InstanceIndex,
+    LevelDecoration Decoration,
+    VfxTimeline Timeline,
+    NativeStaticDecoration Template);
 
 internal static class StaticDecorationSnapshotBuilder
 {
@@ -15,35 +59,144 @@ internal static class StaticDecorationSnapshotBuilder
     internal static StaticDecorationSnapshotData Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        VfxTimeline timeline = HasMoveDecorations(level)
+            ? VfxTimelineBuilder.Build(level)
+            : new VfxTimeline(Array.Empty<VfxOccurrence>(), Array.Empty<VfxRepeatDescriptor>());
+        return BuildCore(level, timeline, double.NegativeInfinity);
+    }
+
+    internal static StaticDecorationSnapshotData Build(
+        LevelDocument level,
+        VfxTimeline timeline,
+        double timeSeconds)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timeline);
+        return BuildCore(level, timeline, timeSeconds);
+    }
+
+    private static StaticDecorationSnapshotData BuildCore(
+        LevelDocument level,
+        VfxTimeline timeline,
+        double timeSeconds)
+    {
+        Dictionary<string, List<(int Order, VfxOccurrence Occurrence)>> movesByTag =
+            BuildMoveIndex(timeline);
 
         var instances = new List<NativeStaticDecoration>();
         var assets = new List<NativeDecorationAsset>();
+        var animated = new List<AnimatedDecorationBinding>();
         var assetIds = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         string? levelDirectory = level.SourcePath == "<synthetic>"
             ? null
             : Path.GetDirectoryName(Path.GetFullPath(level.SourcePath));
 
+        int addDecorationCount = 0;
+        int acceptedCount = 0;
+        int excludedNonAddDecoration = 0;
+        int excludedInvisible = 0;
+        int excludedOpacity = 0;
+        int excludedMissingImage = 0;
+        int excludedUnsupportedPlacement = 0;
+        int excludedInvalidFloor = 0;
+        int placementTile = 0;
+        int placementGlobal = 0;
+        int placementCamera = 0;
+        int placementCameraAspect = 0;
+        int placementRedPlanet = 0;
+        int placementBluePlanet = 0;
+        int placementGreenPlanet = 0;
+        int placementOther = 0;
+        int opacityZeroTotal = 0;
+        int opacityZeroAnimated = 0;
+        int opacityZeroStatic = 0;
+        int decorationsWithTag = 0;
+        int decorationsMatchedByMove = 0;
+        int taggedMoveOccurrenceCount = 0;
+        int scaleZeroTotal = 0;
+        int scaleZeroSourceHasScale = 0;
+        int scaleZeroSourceMissingScale = 0;
+        int scaleZeroAnimated = 0;
+        int scaleZeroStatic = 0;
+        int scaleMissingTotal = 0;
+        int scaleMissingNativeZero = 0;
+        string? scaleZeroExample = null;
+
+        foreach (VfxOccurrence occurrence in timeline.Occurrences)
+        {
+            if (IsIndexedMoveOccurrence(occurrence))
+                taggedMoveOccurrenceCount++;
+        }
+
+        int moveDecorationsActionCount = level.ActionTypeCounts.TryGetValue(
+            "MoveDecorations",
+            out int moveActionCount)
+            ? moveActionCount
+            : 0;
+
         foreach (LevelDecoration decoration in level.Decorations)
         {
             if (!string.Equals(decoration.EventType, "AddDecoration", StringComparison.Ordinal))
+            {
+                excludedNonAddDecoration++;
                 continue;
+            }
+
+            addDecorationCount++;
 
             JsonObject properties = decoration.Properties;
-            if (!ReadBool(properties["visible"], defaultValue: true))
-                continue;
+            string? relativeTo = ReadString(properties["relativeTo"]);
+            relativeTo = string.IsNullOrWhiteSpace(relativeTo) ? "Tile" : relativeTo.Trim();
+            CountPlacement(
+                relativeTo,
+                ref placementTile,
+                ref placementGlobal,
+                ref placementCamera,
+                ref placementCameraAspect,
+                ref placementRedPlanet,
+                ref placementBluePlanet,
+                ref placementGreenPlanet,
+                ref placementOther);
+
+            string? decorationTags = ReadString(properties["tag"]);
+            if (HasTags(decorationTags))
+                decorationsWithTag++;
+            VfxOccurrence[] relevantMoves = ResolveMoves(properties["tag"], movesByTag);
+            bool isAnimated = relevantMoves.Length > 0;
+            if (isAnimated)
+                decorationsMatchedByMove++;
 
             float opacity = Math.Clamp(ReadFloat(properties["opacity"], 100f) / 100f, 0f, 1f);
             if (opacity <= 0f)
-                continue;
+            {
+                opacityZeroTotal++;
+                if (isAnimated)
+                    opacityZeroAnimated++;
+                else
+                    opacityZeroStatic++;
+            }
 
-            string? relativeTo = ReadString(properties["relativeTo"]);
-            relativeTo = string.IsNullOrWhiteSpace(relativeTo) ? "Tile" : relativeTo.Trim();
+            if (!ReadBool(properties["visible"], defaultValue: true))
+            {
+                excludedInvisible++;
+                continue;
+            }
+
+            if (opacity <= 0f && !isAnimated)
+            {
+                excludedOpacity++;
+                continue;
+            }
+
             uint relativeMode;
             if (string.Equals(relativeTo, "Tile", StringComparison.OrdinalIgnoreCase))
             {
                 relativeMode = NativeStaticDecoration.RelativeTile;
                 if (decoration.Floor is not int floor || (uint)floor >= (uint)level.Positions.Length)
+                {
+                    excludedInvalidFloor++;
                     continue;
+                }
             }
             else if (string.Equals(relativeTo, "Global", StringComparison.OrdinalIgnoreCase))
             {
@@ -53,12 +206,16 @@ internal static class StaticDecorationSnapshotBuilder
             {
                 // Camera/CameraAspect/planets/LastPosition require runtime reference
                 // state and intentionally remain outside the #14 static subset.
+                excludedUnsupportedPlacement++;
                 continue;
             }
 
             string? image = ReadString(properties["decorationImage"]);
             if (string.IsNullOrWhiteSpace(image) || levelDirectory is null)
+            {
+                excludedMissingImage++;
                 continue;
+            }
 
             string imagePath;
             try
@@ -67,11 +224,15 @@ internal static class StaticDecorationSnapshotBuilder
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
+                excludedMissingImage++;
                 continue;
             }
 
             if (!File.Exists(imagePath))
+            {
+                excludedMissingImage++;
                 continue;
+            }
 
             if (!assetIds.TryGetValue(imagePath, out uint assetId))
             {
@@ -82,12 +243,13 @@ internal static class StaticDecorationSnapshotBuilder
 
             (float positionX, float positionY) = ReadPair(properties["position"], 0f, 0f);
             (float pivotX, float pivotY) = ReadPair(properties["pivotOffset"], 0f, 0f);
+            bool sourceHasScale = properties.ContainsKey("scale");
             (float scaleX, float scaleY) = ReadPair(properties["scale"], 100f, 100f);
             float rotationDegrees = ReadFloat(properties["rotation"], 0f);
             int depth = ReadInt(properties["depth"], 0);
             uint color = ReadColor(properties["color"]);
 
-            instances.Add(new NativeStaticDecoration
+            var template = new NativeStaticDecoration
             {
                 SourceIndex = decoration.SourceIndex,
                 Floor = decoration.Floor ?? -1,
@@ -104,14 +266,205 @@ internal static class StaticDecorationSnapshotBuilder
                 Opacity = opacity,
                 Depth = depth,
                 Flags = NativeStaticDecoration.FlagVisible
-            });
+            };
+            int instanceIndex = instances.Count;
+            instances.Add(template);
+            acceptedCount++;
+
+            if (!sourceHasScale)
+            {
+                scaleMissingTotal++;
+                if (Math.Abs(template.ScaleX) <= 0.000001f ||
+                    Math.Abs(template.ScaleY) <= 0.000001f)
+                {
+                    scaleMissingNativeZero++;
+                }
+            }
+
+            if (Math.Abs(template.ScaleX) <= 0.000001f ||
+                Math.Abs(template.ScaleY) <= 0.000001f)
+            {
+                scaleZeroTotal++;
+                if (sourceHasScale)
+                    scaleZeroSourceHasScale++;
+                else
+                    scaleZeroSourceMissingScale++;
+                if (isAnimated)
+                    scaleZeroAnimated++;
+                else
+                    scaleZeroStatic++;
+
+                scaleZeroExample ??=
+                    $"[decoration-diagnostic] scaleZeroExample sourceIndex={decoration.SourceIndex} " +
+                    $"floor={decoration.Floor?.ToString(CultureInfo.InvariantCulture) ?? "<none>"} " +
+                    $"sourceHasScale={sourceHasScale} " +
+                    $"rawScale={properties["scale"]?.ToJsonString() ?? "<missing>"} " +
+                    $"parsedScale=({scaleX.ToString("G9", CultureInfo.InvariantCulture)}," +
+                    $"{scaleY.ToString("G9", CultureInfo.InvariantCulture)}) " +
+                    $"nativeScale=({template.ScaleX.ToString("G9", CultureInfo.InvariantCulture)}," +
+                    $"{template.ScaleY.ToString("G9", CultureInfo.InvariantCulture)}) " +
+                    $"moveTarget={isAnimated}";
+            }
+
+            if (isAnimated)
+            {
+                animated.Add(new AnimatedDecorationBinding(
+                    instanceIndex,
+                    decoration,
+                    new VfxTimeline(relevantMoves, Array.Empty<VfxRepeatDescriptor>()),
+                    template));
+            }
         }
 
         // Keep source order as the stable tie-break while preserving depth for the
         // native renderer. Do not pre-sort here: SourceIndex is also part of the
         // regression/debug contract.
-        return new StaticDecorationSnapshotData(instances.ToArray(), assets.ToArray());
+        NativeStaticDecoration[] instanceArray = instances.ToArray();
+        NativeDecorationPlaybackRuntime? runtime = animated.Count == 0
+            ? null
+            : new NativeDecorationPlaybackRuntime(instanceArray, animated.ToArray());
+        runtime?.Update(timeSeconds);
+        Console.WriteLine(
+            $"[decoration-diagnostic] source={level.DecorationCount} addDecoration={addDecorationCount} " +
+            $"accepted={acceptedCount} excludedNonAddDecoration={excludedNonAddDecoration} " +
+            $"excludedInvisible={excludedInvisible} excludedOpacity={excludedOpacity} " +
+            $"excludedMissingImage={excludedMissingImage} " +
+            $"excludedUnsupportedPlacement={excludedUnsupportedPlacement} " +
+            $"excludedInvalidFloor={excludedInvalidFloor}");
+        Console.WriteLine(
+            $"[decoration-diagnostic] placements Tile={placementTile} Global={placementGlobal} " +
+            $"Camera={placementCamera} CameraAspect={placementCameraAspect} " +
+            $"RedPlanet={placementRedPlanet} BluePlanet={placementBluePlanet} " +
+            $"GreenPlanet={placementGreenPlanet} other={placementOther} " +
+            $"managedSnapshotItems={instanceArray.Length} animated={animated.Count} assets={assets.Count}");
+        Console.WriteLine(
+            $"[decoration-diagnostic] opacityZeroTotal={opacityZeroTotal} " +
+            $"opacityZeroAnimated={opacityZeroAnimated} opacityZeroStatic={opacityZeroStatic}");
+        Console.WriteLine(
+            $"[decoration-diagnostic] moveDecorationsActionCount={moveDecorationsActionCount} " +
+            $"timelineOccurrenceCount={timeline.Occurrences.Count} " +
+            $"taggedMoveOccurrenceCount={taggedMoveOccurrenceCount} " +
+            $"decorationsWithTag={decorationsWithTag} " +
+            $"decorationsMatchedByMove={decorationsMatchedByMove}");
+        Console.WriteLine(
+            $"[decoration-diagnostic] scaleZeroTotal={scaleZeroTotal} " +
+            $"scaleZeroSourceHasScale={scaleZeroSourceHasScale} " +
+            $"scaleZeroSourceMissingScale={scaleZeroSourceMissingScale} " +
+            $"scaleZeroAnimated={scaleZeroAnimated} scaleZeroStatic={scaleZeroStatic} " +
+            $"scaleMissingTotal={scaleMissingTotal} scaleMissingNativeZero={scaleMissingNativeZero}");
+        if (scaleZeroExample is not null)
+            Console.WriteLine(scaleZeroExample);
+        return new StaticDecorationSnapshotData(instanceArray, assets.ToArray(), runtime);
     }
+
+    private static void CountPlacement(
+        string relativeTo,
+        ref int tile,
+        ref int global,
+        ref int camera,
+        ref int cameraAspect,
+        ref int redPlanet,
+        ref int bluePlanet,
+        ref int greenPlanet,
+        ref int other)
+    {
+        if (string.Equals(relativeTo, "Tile", StringComparison.OrdinalIgnoreCase))
+            tile++;
+        else if (string.Equals(relativeTo, "Global", StringComparison.OrdinalIgnoreCase))
+            global++;
+        else if (string.Equals(relativeTo, "Camera", StringComparison.OrdinalIgnoreCase))
+            camera++;
+        else if (string.Equals(relativeTo, "CameraAspect", StringComparison.OrdinalIgnoreCase))
+            cameraAspect++;
+        else if (string.Equals(relativeTo, "RedPlanet", StringComparison.OrdinalIgnoreCase))
+            redPlanet++;
+        else if (string.Equals(relativeTo, "BluePlanet", StringComparison.OrdinalIgnoreCase))
+            bluePlanet++;
+        else if (string.Equals(relativeTo, "GreenPlanet", StringComparison.OrdinalIgnoreCase))
+            greenPlanet++;
+        else
+            other++;
+    }
+
+    internal static NativeStaticDecoration ApplyState(
+        NativeStaticDecoration template,
+        DecorationState state)
+    {
+        template.PositionX = checked((float)state.PositionX);
+        template.PositionY = checked((float)state.PositionY);
+        template.PivotOffsetX = checked((float)state.PivotOffsetX);
+        template.PivotOffsetY = checked((float)state.PivotOffsetY);
+        template.RotationRadians = checked((float)state.Rotation) * DegreesToRadians;
+        template.ScaleX = checked((float)(state.ScaleX / 100.0));
+        template.ScaleY = checked((float)(state.ScaleY / 100.0));
+        template.Opacity = Math.Clamp(checked((float)(state.Opacity / 100.0)), 0f, 1f);
+        return template;
+    }
+
+    private static Dictionary<string, List<(int Order, VfxOccurrence Occurrence)>> BuildMoveIndex(
+        VfxTimeline timeline)
+    {
+        var result = new Dictionary<string, List<(int, VfxOccurrence)>>(StringComparer.Ordinal);
+        for (int order = 0; order < timeline.Occurrences.Count; order++)
+        {
+            VfxOccurrence occurrence = timeline.Occurrences[order];
+            if (!IsIndexedMoveOccurrence(occurrence))
+            {
+                continue;
+            }
+
+            foreach (string tag in MoveDecorationsTargeting.GetTargetTags(occurrence.SourceEvent))
+            {
+                if (!result.TryGetValue(tag, out List<(int, VfxOccurrence)>? entries))
+                {
+                    entries = [];
+                    result.Add(tag, entries);
+                }
+                entries.Add((order, occurrence));
+            }
+        }
+        return result;
+    }
+
+    private static bool IsIndexedMoveOccurrence(VfxOccurrence occurrence)
+    {
+        if (!occurrence.Active ||
+            !string.Equals(occurrence.EventType, "MoveDecorations", StringComparison.Ordinal) ||
+            occurrence.RepeatPlacementResolved == false)
+        {
+            return false;
+        }
+
+        return MoveDecorationsTargeting.GetTargetTags(occurrence.SourceEvent).Count > 0;
+    }
+
+    private static bool HasTags(string? tags) =>
+        !string.IsNullOrEmpty(tags) && SplitTags(tags).Any();
+
+    private static VfxOccurrence[] ResolveMoves(
+        JsonNode? decorationTagNode,
+        IReadOnlyDictionary<string, List<(int Order, VfxOccurrence Occurrence)>> movesByTag)
+    {
+        string? tags = ReadString(decorationTagNode);
+        if (string.IsNullOrEmpty(tags))
+            return [];
+
+        var matches = new SortedDictionary<int, VfxOccurrence>();
+        foreach (string tag in SplitTags(tags))
+        {
+            if (!movesByTag.TryGetValue(tag, out List<(int Order, VfxOccurrence Occurrence)>? entries))
+                continue;
+            foreach ((int order, VfxOccurrence occurrence) in entries)
+                matches[order] = occurrence;
+        }
+        return matches.Values.ToArray();
+    }
+
+    private static IEnumerable<string> SplitTags(string tags) =>
+        tags.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+    private static bool HasMoveDecorations(LevelDocument level) =>
+        level.ActionTypeCounts.TryGetValue("MoveDecorations", out int count) && count > 0;
 
     private static string? ReadString(JsonNode? node)
     {
