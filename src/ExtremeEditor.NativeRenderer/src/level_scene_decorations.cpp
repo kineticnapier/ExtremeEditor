@@ -164,7 +164,7 @@ DecorationRenderState LevelScene::GetDecorationRenderState() const noexcept
     state.decorations_version = static_decorations_version_;
     state.assets_version = decoration_assets_version_;
     if (DecorationDiagnosticsEnabled() &&
-        logged_decoration_handoff_version_ != static_decorations_version_)
+        logged_decoration_handoff_version_ == std::numeric_limits<std::uint64_t>::max())
     {
         std::fprintf(
             stderr,
