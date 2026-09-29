@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <d2d1effects.h>
+#include <string>
 
 namespace ee
 {
@@ -26,6 +27,37 @@ struct DecorationDrawRejections
     std::size_t invalid_struct_data = 0u;
     std::size_t other = 0u;
 };
+
+const char* PlacementName(std::uint32_t placement) noexcept
+{
+    switch (placement)
+    {
+    case EE_DECORATION_RELATIVE_GLOBAL: return "Global";
+    case EE_DECORATION_RELATIVE_TILE: return "Tile";
+    case EE_DECORATION_RELATIVE_CAMERA: return "Camera";
+    case EE_DECORATION_RELATIVE_CAMERA_ASPECT: return "CameraAspect";
+    case EE_DECORATION_RELATIVE_RED_PLANET: return "RedPlanet";
+    case EE_DECORATION_RELATIVE_BLUE_PLANET: return "BluePlanet";
+    case EE_DECORATION_RELATIVE_GREEN_PLANET: return "GreenPlanet";
+    default: return "Other";
+    }
+}
+
+std::string Utf8AssetName(const std::wstring& path)
+{
+    if (path.empty())
+        return {};
+    const std::size_t separator = path.find_last_of(L"\\/");
+    const std::wstring name = separator == std::wstring::npos ? path : path.substr(separator + 1u);
+    const int bytes = WideCharToMultiByte(
+        CP_UTF8, 0, name.c_str(), static_cast<int>(name.size()), nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0)
+        return {};
+    std::string result(static_cast<std::size_t>(bytes), '\0');
+    WideCharToMultiByte(
+        CP_UTF8, 0, name.c_str(), static_cast<int>(name.size()), result.data(), bytes, nullptr, nullptr);
+    return result;
+}
 }
 
 bool D2DBackend::SyncStaticDecorations(
@@ -74,6 +106,8 @@ bool D2DBackend::SyncStaticDecorations(
             return false;
     }
 
+    const bool decoration_scene_changed =
+        cached_static_decorations_scene_generation_ != scene_generation;
     const bool copied_decorations = ShouldRefreshSceneLocalCache(
         cached_static_decorations_scene_generation_,
         cached_static_decorations_version_,
@@ -90,6 +124,8 @@ bool D2DBackend::SyncStaticDecorations(
             StaticDecorationDrawOrderLess);
         cached_static_decorations_version_ = decorations_version;
         cached_static_decorations_scene_generation_ = scene_generation;
+        if (decoration_scene_changed)
+            logged_large_decorations_.clear();
     }
 
     if (log_sync)
@@ -114,6 +150,7 @@ bool D2DBackend::SyncStaticDecorations(
             assets_version))
     {
         decoration_bitmaps_.clear();
+        decoration_asset_paths_.clear();
         if (assets != nullptr)
         {
             for (const auto& entry : *assets)
@@ -140,7 +177,10 @@ bool D2DBackend::SyncStaticDecorations(
                 if (FAILED(hr))
                     bitmap.Reset();
                 if (bitmap)
+                {
                     decoration_bitmaps_.emplace(entry.first, std::move(bitmap));
+                    decoration_asset_paths_.emplace(entry.first, asset.source_path);
+                }
             }
         }
         cached_decoration_assets_version_ = assets_version;
@@ -325,6 +365,71 @@ void D2DBackend::DrawStaticDecorationsCamera(
         {
             ++rejected.invalid_scale;
             continue;
+        }
+
+        const StaticDecorationScreenRect screen_rect = CalculateStaticDecorationScreenRect(
+            transform,
+            static_cast<float>(pixels.width),
+            static_cast<float>(pixels.height));
+        const float clipped_left = std::max(0.0f, screen_rect.left);
+        const float clipped_top = std::max(0.0f, screen_rect.top);
+        const float clipped_right = std::min(static_cast<float>(width_), screen_rect.right);
+        const float clipped_bottom = std::min(static_cast<float>(height_), screen_rect.bottom);
+        const float clipped_width = std::max(0.0f, clipped_right - clipped_left);
+        const float clipped_height = std::max(0.0f, clipped_bottom - clipped_top);
+        const double viewport_area = static_cast<double>(width_) * static_cast<double>(height_);
+        const double coverage = viewport_area > 0.0
+            ? static_cast<double>(clipped_width) * clipped_height / viewport_area
+            : 0.0;
+        if (DecorationDiagnosticsEnabled() && coverage >= 0.5 &&
+            logged_large_decorations_.insert(decoration.source_index).second)
+        {
+            const auto path_it = decoration_asset_paths_.find(decoration.asset_id);
+            const std::string asset_name = path_it == decoration_asset_paths_.end()
+                ? std::string{}
+                : Utf8AssetName(path_it->second);
+            std::fprintf(
+                stderr,
+                "[decoration-large] sourceIndex=%d assetId=%u assetName=%s placement=%s "
+                "floor=%d depth=%d opacity=%.6g chartPosition=(%.6g,%.6g) "
+                "resolvedWorld=(%.6g,%.6g) screenPosition=(%.6g,%.6g) "
+                "pivot=(%.6g,%.6g) rotationRadians=%.6g scale=(%.6g,%.6g) "
+                "scaleMultiplier=%.6g bitmap=(%u,%u) finalScreenRect=(%.6g,%.6g,%.6g,%.6g) "
+                "viewportCoverage=%.6f stickToFloor=%u lockRotation=%u lockScale=%u "
+                "parallax=(%.6g,%.6g) parallaxOffset=(%.6g,%.6g)\n",
+                decoration.source_index,
+                decoration.asset_id,
+                asset_name.empty() ? "<unknown>" : asset_name.c_str(),
+                PlacementName(decoration.relative_mode),
+                decoration.floor,
+                decoration.depth,
+                decoration.opacity,
+                decoration.chart_position_x,
+                decoration.chart_position_y,
+                transform.world_x,
+                transform.world_y,
+                transform.center_x,
+                transform.center_y,
+                decoration.pivot_offset_x,
+                decoration.pivot_offset_y,
+                decoration.rotation_radians,
+                decoration.scale_x,
+                decoration.scale_y,
+                decoration.scale_multiplier,
+                pixels.width,
+                pixels.height,
+                screen_rect.left,
+                screen_rect.top,
+                screen_rect.right,
+                screen_rect.bottom,
+                coverage,
+                (decoration.flags & EE_DECORATION_STICK_TO_FLOOR) != 0u ? 1u : 0u,
+                (decoration.flags & EE_DECORATION_LOCK_ROTATION) != 0u ? 1u : 0u,
+                (decoration.flags & EE_DECORATION_LOCK_SCALE) != 0u ? 1u : 0u,
+                decoration.parallax_x,
+                decoration.parallax_y,
+                decoration.parallax_offset_x,
+                decoration.parallax_offset_y);
         }
 
         d2d_context_->SetTransform(D2D1::Matrix3x2F(

@@ -8,6 +8,8 @@ namespace ee
 {
 struct StaticDecorationScreenTransform
 {
+    float world_x = 0.0f;
+    float world_y = 0.0f;
     float center_x = 0.0f;
     float center_y = 0.0f;
     float m11 = 1.0f;
@@ -15,6 +17,34 @@ struct StaticDecorationScreenTransform
     float m21 = 0.0f;
     float m22 = 1.0f;
 };
+
+struct StaticDecorationScreenRect
+{
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+};
+
+inline StaticDecorationScreenRect CalculateStaticDecorationScreenRect(
+    const StaticDecorationScreenTransform& transform,
+    float bitmap_width,
+    float bitmap_height) noexcept
+{
+    const float half_width =
+        (std::abs(transform.m11) * bitmap_width +
+         std::abs(transform.m21) * bitmap_height) * 0.5f;
+    const float half_height =
+        (std::abs(transform.m12) * bitmap_width +
+         std::abs(transform.m22) * bitmap_height) * 0.5f;
+    return
+    {
+        transform.center_x - half_width,
+        transform.center_y - half_height,
+        transform.center_x + half_width,
+        transform.center_y + half_height
+    };
+}
 
 inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     const EeStaticDecoration& decoration,
@@ -68,6 +98,8 @@ inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     const float view_y = -camera_s * dx + camera_c * dy;
 
     StaticDecorationScreenTransform result;
+    result.world_x = world_x;
+    result.world_y = world_y;
     if (camera_relative)
     {
         float relative_x = decoration.position_x + decoration.pivot_offset_x;

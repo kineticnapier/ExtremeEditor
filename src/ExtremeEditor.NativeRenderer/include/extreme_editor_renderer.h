@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 17u
+#define EE_RENDERER_API_VERSION 18u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -232,6 +232,8 @@ typedef struct EeStaticDecoration
     float parallax_offset_x;
     float parallax_offset_y;
     float scale_multiplier;
+    float chart_position_x;
+    float chart_position_y;
 } EeStaticDecoration;
 
 typedef struct EePlaybackTiming

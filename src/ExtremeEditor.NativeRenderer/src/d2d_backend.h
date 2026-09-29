@@ -19,6 +19,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ee
@@ -231,6 +232,8 @@ private:
     std::unordered_map<std::uint32_t, IconBitmapSet> icon_bitmaps_;
     std::vector<EeStaticDecoration> static_decorations_;
     std::unordered_map<std::uint32_t, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> decoration_bitmaps_;
+    std::unordered_map<std::uint32_t, std::wstring> decoration_asset_paths_;
+    std::unordered_set<std::int32_t> logged_large_decorations_;
     std::uint64_t cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t cached_icon_assets_version_ = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t cached_static_decorations_version_ = std::numeric_limits<std::uint64_t>::max();

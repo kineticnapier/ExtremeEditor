@@ -125,6 +125,8 @@ internal struct NativeStaticDecoration
     public float ParallaxOffsetX;
     public float ParallaxOffsetY;
     public float ScaleMultiplier;
+    public float ChartPositionX;
+    public float ChartPositionY;
 
     public readonly string RelativeTo => RelativeMode switch
     {

@@ -284,7 +284,9 @@ internal static class StaticDecorationSnapshotBuilder
                 ParallaxY = rendererTransform.Parallax.Y,
                 ParallaxOffsetX = rendererTransform.ParallaxOffset.X,
                 ParallaxOffsetY = rendererTransform.ParallaxOffset.Y,
-                ScaleMultiplier = rendererTransform.ScaleMultiplier
+                ScaleMultiplier = rendererTransform.ScaleMultiplier,
+                ChartPositionX = checked((float)initialState.PositionX),
+                ChartPositionY = checked((float)initialState.PositionY)
             };
             int instanceIndex = instances.Count;
             instances.Add(template);
@@ -424,6 +426,8 @@ internal static class StaticDecorationSnapshotBuilder
         template.ParallaxOffsetX = rendererTransform.ParallaxOffset.X;
         template.ParallaxOffsetY = rendererTransform.ParallaxOffset.Y;
         template.ScaleMultiplier = rendererTransform.ScaleMultiplier;
+        template.ChartPositionX = checked((float)state.PositionX);
+        template.ChartPositionY = checked((float)state.PositionY);
         template.RotationRadians = checked((float)state.Rotation) * DegreesToRadians;
         template.ScaleX = checked((float)(state.ScaleX / 100.0));
         template.ScaleY = checked((float)(state.ScaleY / 100.0));

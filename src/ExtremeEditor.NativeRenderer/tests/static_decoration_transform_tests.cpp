@@ -163,5 +163,22 @@ int main()
         return 6;
     }
 
+    ee::StaticDecorationScreenTransform rect_transform{};
+    rect_transform.center_x = 400.0f;
+    rect_transform.center_y = 300.0f;
+    rect_transform.m11 = 1.0f;
+    rect_transform.m12 = 0.0f;
+    rect_transform.m21 = 0.0f;
+    rect_transform.m22 = 1.0f;
+    const ee::StaticDecorationScreenRect screen_rect =
+        ee::CalculateStaticDecorationScreenRect(rect_transform, 800.0f, 600.0f);
+    if (!Near(screen_rect.left, 0.0f) ||
+        !Near(screen_rect.top, 0.0f) ||
+        !Near(screen_rect.right, 800.0f) ||
+        !Near(screen_rect.bottom, 600.0f))
+    {
+        return 7;
+    }
+
     return 0;
 }

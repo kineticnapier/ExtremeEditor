@@ -75,6 +75,7 @@ DecorationAsset DecodeDecorationAsset(const wchar_t* image_path)
     asset.height = height;
     asset.stride = stride;
     asset.pixels = std::move(pixels);
+    asset.source_path = image_path;
     return asset;
 }
 }
