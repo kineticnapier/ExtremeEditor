@@ -183,7 +183,7 @@ Microsoft::WRL::ComPtr<ID2D1Effect> InvertMaskAlpha(
     inverted->SetInputEffect(0, mask);
     if (FAILED(inverted->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix)) ||
         FAILED(inverted->SetValue(
-            D2D1_COLORMATRIX_ALPHA_MODE,
+            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
             D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)))
     {
         return {};
