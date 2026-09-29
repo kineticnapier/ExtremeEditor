@@ -125,6 +125,9 @@ public static partial class AdoFaiLoader
                     Duration = ReadLooseDoubleProperty(action, "duration"),
                     TargetTag = ReadLooseString(action, "tag"),
                     EventTag = ReadLooseString(action, "eventTag"),
+                    SourceProperties = string.Equals(type, "MoveDecorations", StringComparison.Ordinal)
+                        ? JsonNode.Parse(action.GetRawText()) as JsonObject
+                        : null,
                     SourceIndex = sourceIndex
                 });
                 sourceIndex++;

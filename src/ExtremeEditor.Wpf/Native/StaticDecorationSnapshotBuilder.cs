@@ -324,36 +324,39 @@ internal static class StaticDecorationSnapshotBuilder
             ? null
             : new NativeDecorationPlaybackRuntime(instanceArray, animated.ToArray());
         runtime?.Update(timeSeconds);
-        Console.WriteLine(
-            $"[decoration-diagnostic] source={level.DecorationCount} addDecoration={addDecorationCount} " +
-            $"accepted={acceptedCount} excludedNonAddDecoration={excludedNonAddDecoration} " +
-            $"excludedInvisible={excludedInvisible} excludedOpacity={excludedOpacity} " +
-            $"excludedMissingImage={excludedMissingImage} " +
-            $"excludedUnsupportedPlacement={excludedUnsupportedPlacement} " +
-            $"excludedInvalidFloor={excludedInvalidFloor}");
-        Console.WriteLine(
-            $"[decoration-diagnostic] placements Tile={placementTile} Global={placementGlobal} " +
-            $"Camera={placementCamera} CameraAspect={placementCameraAspect} " +
-            $"RedPlanet={placementRedPlanet} BluePlanet={placementBluePlanet} " +
-            $"GreenPlanet={placementGreenPlanet} other={placementOther} " +
-            $"managedSnapshotItems={instanceArray.Length} animated={animated.Count} assets={assets.Count}");
-        Console.WriteLine(
-            $"[decoration-diagnostic] opacityZeroTotal={opacityZeroTotal} " +
-            $"opacityZeroAnimated={opacityZeroAnimated} opacityZeroStatic={opacityZeroStatic}");
-        Console.WriteLine(
-            $"[decoration-diagnostic] moveDecorationsActionCount={moveDecorationsActionCount} " +
-            $"timelineOccurrenceCount={timeline.Occurrences.Count} " +
-            $"taggedMoveOccurrenceCount={taggedMoveOccurrenceCount} " +
-            $"decorationsWithTag={decorationsWithTag} " +
-            $"decorationsMatchedByMove={decorationsMatchedByMove}");
-        Console.WriteLine(
-            $"[decoration-diagnostic] scaleZeroTotal={scaleZeroTotal} " +
-            $"scaleZeroSourceHasScale={scaleZeroSourceHasScale} " +
-            $"scaleZeroSourceMissingScale={scaleZeroSourceMissingScale} " +
-            $"scaleZeroAnimated={scaleZeroAnimated} scaleZeroStatic={scaleZeroStatic} " +
-            $"scaleMissingTotal={scaleMissingTotal} scaleMissingNativeZero={scaleMissingNativeZero}");
-        if (scaleZeroExample is not null)
-            Console.WriteLine(scaleZeroExample);
+        if (DecorationDiagnostics.Enabled)
+        {
+            Console.WriteLine(
+                $"[decoration-diagnostic] source={level.DecorationCount} addDecoration={addDecorationCount} " +
+                $"accepted={acceptedCount} excludedNonAddDecoration={excludedNonAddDecoration} " +
+                $"excludedInvisible={excludedInvisible} excludedOpacity={excludedOpacity} " +
+                $"excludedMissingImage={excludedMissingImage} " +
+                $"excludedUnsupportedPlacement={excludedUnsupportedPlacement} " +
+                $"excludedInvalidFloor={excludedInvalidFloor}");
+            Console.WriteLine(
+                $"[decoration-diagnostic] placements Tile={placementTile} Global={placementGlobal} " +
+                $"Camera={placementCamera} CameraAspect={placementCameraAspect} " +
+                $"RedPlanet={placementRedPlanet} BluePlanet={placementBluePlanet} " +
+                $"GreenPlanet={placementGreenPlanet} other={placementOther} " +
+                $"managedSnapshotItems={instanceArray.Length} animated={animated.Count} assets={assets.Count}");
+            Console.WriteLine(
+                $"[decoration-diagnostic] opacityZeroTotal={opacityZeroTotal} " +
+                $"opacityZeroAnimated={opacityZeroAnimated} opacityZeroStatic={opacityZeroStatic}");
+            Console.WriteLine(
+                $"[decoration-diagnostic] moveDecorationsActionCount={moveDecorationsActionCount} " +
+                $"timelineOccurrenceCount={timeline.Occurrences.Count} " +
+                $"taggedMoveOccurrenceCount={taggedMoveOccurrenceCount} " +
+                $"decorationsWithTag={decorationsWithTag} " +
+                $"decorationsMatchedByMove={decorationsMatchedByMove}");
+            Console.WriteLine(
+                $"[decoration-diagnostic] scaleZeroTotal={scaleZeroTotal} " +
+                $"scaleZeroSourceHasScale={scaleZeroSourceHasScale} " +
+                $"scaleZeroSourceMissingScale={scaleZeroSourceMissingScale} " +
+                $"scaleZeroAnimated={scaleZeroAnimated} scaleZeroStatic={scaleZeroStatic} " +
+                $"scaleMissingTotal={scaleMissingTotal} scaleMissingNativeZero={scaleMissingNativeZero}");
+            if (scaleZeroExample is not null)
+                Console.WriteLine(scaleZeroExample);
+        }
         return new StaticDecorationSnapshotData(instanceArray, assets.ToArray(), runtime);
     }
 

@@ -57,8 +57,11 @@ public sealed record DecorationState(
                 continue;
             }
 
-            JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
+            JsonObject? properties = MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent);
             if (!MoveDecorationsTargeting.Targets(decoration, occurrence))
+                continue;
+
+            if (properties is null)
                 continue;
 
             double durationSeconds = occurrence.DurationSeconds ?? 0;
@@ -67,7 +70,7 @@ public sealed record DecorationState(
 
             double startTime = occurrence.StartTime;
 
-            if (TryReadComponents(properties!["position"], out double? newPositionX, out double? newPositionY))
+            if (TryReadComponents(properties["position"], out double? newPositionX, out double? newPositionY))
             {
                 StartIfSpecified(positionX, newPositionX, startTime, durationSeconds, occurrence.Ease);
                 StartIfSpecified(positionY, newPositionY, startTime, durationSeconds, occurrence.Ease);

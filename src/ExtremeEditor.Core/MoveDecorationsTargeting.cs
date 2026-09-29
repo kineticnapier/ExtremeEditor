@@ -26,7 +26,7 @@ public static class MoveDecorationsTargeting
     }
 
     public static string? GetTargetTag(LevelAction action) =>
-        ReadOverride(action.PropertyOverrides, "tag", action.TargetTag);
+        ReadProperty(action, "tag", action.TargetTag);
 
     public static IReadOnlyList<string> GetTargetTags(LevelAction action)
     {
@@ -35,10 +35,14 @@ public static class MoveDecorationsTargeting
     }
 
     public static string? GetEventTag(LevelAction action) =>
-        ReadOverride(action.PropertyOverrides, "eventTag", action.EventTag);
+        ReadProperty(action, "eventTag", action.EventTag);
 
-    private static string? ReadOverride(JsonObject? properties, string name, string? fallback)
+    public static JsonObject? GetProperties(LevelAction action) =>
+        action.PropertyOverrides ?? action.SourceProperties;
+
+    private static string? ReadProperty(LevelAction action, string name, string? fallback)
     {
+        JsonObject? properties = GetProperties(action);
         if (properties?.TryGetPropertyValue(name, out JsonNode? node) == true)
             return ReadString(node);
         return fallback;

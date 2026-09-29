@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "diagnostic_flags.h"
 #include "static_decoration_transform.h"
 
 #include <algorithm>
@@ -38,9 +39,10 @@ bool D2DBackend::SyncStaticDecorations(
         return false;
 
     const std::size_t input_count = decorations != nullptr ? decorations->size() : 0u;
-    const bool log_sync = logged_decoration_input_ != decorations ||
-                          logged_decoration_input_count_ != input_count ||
-                          logged_decoration_input_version_ != decorations_version;
+    const bool log_sync = DecorationDiagnosticsEnabled() &&
+                          (logged_decoration_input_ != decorations ||
+                           logged_decoration_input_count_ != input_count ||
+                           logged_decoration_input_version_ != decorations_version);
     if (log_sync)
     {
         std::fprintf(
@@ -118,7 +120,7 @@ bool D2DBackend::SyncStaticDecorations(
             {
                 const DecorationAsset& asset = entry.second;
                 if (asset.width == 0u || asset.height == 0u || asset.stride == 0u ||
-                    asset.pixels.empty())
+                    !asset.pixels || asset.pixels->empty())
                 {
                     continue;
                 }
@@ -131,7 +133,7 @@ bool D2DBackend::SyncStaticDecorations(
                         D2D1_ALPHA_MODE_PREMULTIPLIED));
                 HRESULT hr = d2d_context_->CreateBitmap(
                     D2D1::SizeU(asset.width, asset.height),
-                    asset.pixels.data(),
+                    asset.pixels->data(),
                     asset.stride,
                     &properties,
                     bitmap.GetAddressOf());
@@ -160,6 +162,8 @@ void D2DBackend::DrawStaticDecorationsCamera(
         std::size_t draw_count,
         const DecorationDrawRejections& rejected) noexcept
     {
+        if (!DecorationDiagnosticsEnabled())
+            return;
         if (logged_decoration_source_count_ == static_decorations_.size() &&
             logged_decoration_draw_count_ == draw_count &&
             logged_decoration_bitmap_count_ == decoration_bitmaps_.size())

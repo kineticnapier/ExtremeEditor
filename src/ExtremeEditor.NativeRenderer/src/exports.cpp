@@ -1,4 +1,5 @@
 #include "extreme_editor_renderer.h"
+#include "diagnostic_flags.h"
 #include "renderer.h"
 
 #include <cstdio>
@@ -134,7 +135,8 @@ EeResult ee_renderer_set_static_decorations(
 
     static thread_local const EeStaticDecoration* last_logged_decorations = nullptr;
     static thread_local uint32_t last_logged_count = std::numeric_limits<uint32_t>::max();
-    if (last_logged_decorations != decorations || last_logged_count != decoration_count)
+    if (ee::DecorationDiagnosticsEnabled() &&
+        (last_logged_decorations != decorations || last_logged_count != decoration_count))
     {
         std::fprintf(
             stderr,

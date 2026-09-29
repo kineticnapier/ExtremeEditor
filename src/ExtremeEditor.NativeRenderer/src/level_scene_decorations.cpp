@@ -1,4 +1,5 @@
 #include "level_scene.h"
+#include "diagnostic_flags.h"
 
 #include <cstdio>
 #include <limits>
@@ -65,17 +66,15 @@ DecorationAsset DecodeDecorationAsset(const wchar_t* image_path)
     if (height > std::numeric_limits<UINT>::max() / stride)
         return asset;
     const UINT byte_count = stride * height;
-    asset.pixels.resize(byte_count);
-    hr = converter->CopyPixels(nullptr, stride, byte_count, asset.pixels.data());
+    auto pixels = std::make_shared<std::vector<std::uint8_t>>(byte_count);
+    hr = converter->CopyPixels(nullptr, stride, byte_count, pixels->data());
     if (FAILED(hr))
-    {
-        asset.pixels.clear();
         return asset;
-    }
 
     asset.width = width;
     asset.height = height;
     asset.stride = stride;
+    asset.pixels = std::move(pixels);
     return asset;
 }
 }
@@ -97,7 +96,8 @@ bool LevelScene::SetStaticDecorations(
         const std::size_t previous_count = static_decorations_
             ? static_decorations_->size()
             : 0u;
-        if (static_decorations_version_ == 0u || previous_count != decoration_count)
+        if (DecorationDiagnosticsEnabled() &&
+            (static_decorations_version_ == 0u || previous_count != decoration_count))
         {
             std::fprintf(
                 stderr,
@@ -106,7 +106,8 @@ bool LevelScene::SetStaticDecorations(
         }
         static_decorations_ = std::move(next);
         ++static_decorations_version_;
-        if (static_decorations_version_ == 1u || previous_count != decoration_count)
+        if (DecorationDiagnosticsEnabled() &&
+            (static_decorations_version_ == 1u || previous_count != decoration_count))
         {
             std::fprintf(
                 stderr,
@@ -161,7 +162,8 @@ DecorationRenderState LevelScene::GetDecorationRenderState() const noexcept
     state.assets = decoration_assets_;
     state.decorations_version = static_decorations_version_;
     state.assets_version = decoration_assets_version_;
-    if (logged_decoration_handoff_version_ != static_decorations_version_)
+    if (DecorationDiagnosticsEnabled() &&
+        logged_decoration_handoff_version_ != static_decorations_version_)
     {
         std::fprintf(
             stderr,

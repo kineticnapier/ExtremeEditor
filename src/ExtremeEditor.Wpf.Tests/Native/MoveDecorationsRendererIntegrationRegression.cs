@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Text.Json.Nodes;
@@ -79,12 +80,115 @@ internal static class MoveDecorationsRendererIntegrationRegression
                 expectedState);
             if (!Near(expectedWorld.X, 9) || !Near(expectedWorld.Y, 3))
                 throw new InvalidOperationException("MoveDecorations world-position oracle is invalid.");
+
+            RunLoadedFixture(directory);
+
+            string? realFixture = Environment.GetEnvironmentVariable(
+                "EXTREMEEDITOR_DECORATION_REAL_LOAD_FIXTURE");
+            if (!string.IsNullOrWhiteSpace(realFixture) && File.Exists(realFixture))
+                RunRealLoadedFixture(realFixture);
         }
         finally
         {
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static void RunRealLoadedFixture(string path)
+    {
+        var watch = Stopwatch.StartNew();
+        LevelDocument level = WpfLevelLoader.Load(path).Document;
+        TimeSpan loadTime = watch.Elapsed;
+        watch.Restart();
+        VfxTimeline timeline = VfxTimelineBuilder.Build(level);
+        TimeSpan timelineTime = watch.Elapsed;
+        watch.Restart();
+        IReadOnlyList<object> instances = RendererSnapshotContract.Build(level, timeline, 0.0);
+        watch.Stop();
+        Console.WriteLine(
+            $"[real-decoration-fixture] decorations={level.DecorationCount} " +
+            $"actions={level.ActionCount} occurrences={timeline.Occurrences.Count} " +
+            $"snapshotItems={instances.Count} load={loadTime.TotalMilliseconds:N1}ms " +
+            $"timeline={timelineTime.TotalMilliseconds:N1}ms " +
+            $"decorationSnapshot={watch.Elapsed.TotalMilliseconds:N1}ms");
+    }
+
+    private static void RunLoadedFixture(string directory)
+    {
+        string chartPath = Path.Combine(directory, "loaded-renderer-integration.adofai");
+        WriteOnePixelPng(Path.Combine(directory, "loaded.png"));
+        File.WriteAllText(
+            chartPath,
+            """
+            {
+              "angleData": [0, 0],
+              "settings": { "bpm": 60, "pitch": 100 },
+              "actions": [
+                {
+                  "floor": 0,
+                  "eventType": "MoveDecorations",
+                  "active": true,
+                  "duration": 0,
+                  "ease": "Linear",
+                  "tag": "loaded",
+                  "eventTag": "",
+                  "relativeTo": "Global",
+                  "positionOffset": [4, -1],
+                  "rotation": 90,
+                  "scale": [50, 150],
+                  "opacity": 40
+                }
+              ],
+              "decorations": [
+                {
+                  "floor": 0,
+                  "eventType": "AddDecoration",
+                  "decorationImage": "loaded.png",
+                  "tag": "loaded",
+                  "relativeTo": "Global",
+                  "position": [2, 3],
+                  "rotation": 5,
+                  "scale": [100, 100],
+                  "opacity": 100,
+                  "visible": true
+                }
+              ]
+            }
+            """);
+
+        LevelDocument level = AdoFaiLoader.LoadFlatAsync(chartPath).GetAwaiter().GetResult().Document;
+        VfxTimeline timeline = VfxTimelineBuilder.Build(level);
+        VfxOccurrence move = timeline.Occurrences.Single(occurrence =>
+            string.Equals(occurrence.EventType, "MoveDecorations", StringComparison.Ordinal));
+
+        IReadOnlyList<object> instances;
+        try
+        {
+            instances = RendererSnapshotContract.Build(level, timeline, move.StartTime);
+        }
+        catch (NullReferenceException exception)
+        {
+            throw new InvalidOperationException(
+                "Loaded MoveDecorations caused DecorationState.Evaluate to dereference missing source properties.",
+                exception);
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is NullReferenceException)
+        {
+            throw new InvalidOperationException(
+                "Loaded MoveDecorations caused DecorationState.Evaluate to dereference missing source properties.",
+                exception.InnerException);
+        }
+
+        object item = FindBySourceIndex(instances, 0);
+        AssertItem(
+            item,
+            position: (6, 2),
+            pivot: (0, 0),
+            rotationDegrees: 90,
+            scale: (0.5, 1.5),
+            opacity: 0.4,
+            message: "Loaded MoveDecorations properties were not reflected in the renderer snapshot.");
     }
 
     private static LevelDocument CreateFixture(string chartPath)

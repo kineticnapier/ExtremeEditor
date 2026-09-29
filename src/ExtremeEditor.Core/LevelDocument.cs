@@ -50,6 +50,7 @@ public sealed record LevelAction(
     public double? Duration { get; set; }
     public string? TargetTag { get; set; }
     public string? EventTag { get; set; }
+    public JsonObject? SourceProperties { get; set; }
     public JsonObject? PropertyOverrides { get; set; }
     public int PropertyOverridesStructureRevision { get; set; }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using ExtremeEditor.Rendering;
 
@@ -141,6 +142,8 @@ internal sealed class NativeRendererSession : IDisposable
         if (snapshot.Floors.Length == 0 || snapshot.Geometries.Length == 0 || snapshot.Points.Length == 0)
             throw new ArgumentException("Native level snapshot must contain floors and geometry.", nameof(snapshot));
 
+        var totalWatch = Stopwatch.StartNew();
+        var phaseWatch = Stopwatch.StartNew();
         GCHandle floorsHandle = default;
         GCHandle geometriesHandle = default;
         GCHandle pointsHandle = default;
@@ -176,8 +179,15 @@ internal sealed class NativeRendererSession : IDisposable
                 floorsHandle.Free();
         }
 
-        SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
+        phaseWatch.Stop();
+        TimeSpan nativeLevelTime = phaseWatch.Elapsed;
 
+        phaseWatch.Restart();
+        SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
+        phaseWatch.Stop();
+        TimeSpan decorationTime = phaseWatch.Elapsed;
+
+        phaseWatch.Restart();
         NativeRendererNative.ClearDecorationAssets(_renderer);
         foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
         {
@@ -187,6 +197,10 @@ internal sealed class NativeRendererSession : IDisposable
                     $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
         }
 
+        phaseWatch.Stop();
+        TimeSpan decorationAssetTime = phaseWatch.Elapsed;
+
+        phaseWatch.Restart();
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)
         {
@@ -203,6 +217,21 @@ internal sealed class NativeRendererSession : IDisposable
                 throw new InvalidOperationException(
                     $"Native icon asset upload failed for {asset.ImagePath} with result {result}.");
         }
+        phaseWatch.Stop();
+        TimeSpan iconAssetTime = phaseWatch.Elapsed;
+        totalWatch.Stop();
+
+        if (NativeUploadDiagnostics.Enabled)
+        {
+            Console.WriteLine(
+                $"[native-upload] level={nativeLevelTime.TotalMilliseconds:N1}ms " +
+                $"decorations={decorationTime.TotalMilliseconds:N1}ms " +
+                $"decorationAssets={decorationAssetTime.TotalMilliseconds:N1}ms " +
+                $"iconAssets={iconAssetTime.TotalMilliseconds:N1}ms " +
+                $"decorationAssetCount={snapshot.DecorationAssets.Length} " +
+                $"iconAssetCount={snapshot.IconAssets.Length} " +
+                $"total={totalWatch.Elapsed.TotalMilliseconds:N1}ms");
+        }
     }
 
     internal void SetStaticDecorations(
@@ -213,7 +242,7 @@ internal sealed class NativeRendererSession : IDisposable
         if (_renderer == nint.Zero)
             return;
 
-        if (logUpload)
+        if (logUpload && DecorationDiagnostics.Enabled)
         {
             Console.WriteLine(
                 $"[decoration-diagnostic] setStaticDecorationsCount={decorations.Length}");

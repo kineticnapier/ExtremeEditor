@@ -218,7 +218,7 @@ public static class VfxTimelineBuilder
             action.Active,
             angleOffset,
             action.Duration,
-            ReadString(action.PropertyOverrides, "ease"),
+            ReadString(MoveDecorationsTargeting.GetProperties(action), "ease"),
             MoveDecorationsTargeting.GetEventTag(action),
             action,
             RepeatDescriptor: repeatDescriptor,

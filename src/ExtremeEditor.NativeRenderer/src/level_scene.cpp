@@ -1,7 +1,10 @@
 #include "level_scene.h"
+#include "diagnostic_flags.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 namespace ee
@@ -21,6 +24,7 @@ std::shared_ptr<LevelScene> LevelScene::Create(
     float bounds_right,
     float bounds_bottom)
 {
+    const auto total_started = std::chrono::steady_clock::now();
     if (floor_count == 0 || floor_data == nullptr ||
         geometry_count == 0 || geometry_data == nullptr ||
         point_count == 0 || point_data == nullptr)
@@ -28,14 +32,17 @@ std::shared_ptr<LevelScene> LevelScene::Create(
 
     auto scene = std::make_shared<LevelScene>();
     scene->generation = next_generation_.fetch_add(1u, std::memory_order_relaxed);
+    const auto copy_started = std::chrono::steady_clock::now();
     scene->floors.assign(floor_data, floor_data + floor_count);
     scene->geometries.assign(geometry_data, geometry_data + geometry_count);
     scene->points.assign(point_data, point_data + point_count);
+    const auto copy_finished = std::chrono::steady_clock::now();
     scene->bounds_left = bounds_left;
     scene->bounds_top = bounds_top;
     scene->bounds_right = bounds_right;
     scene->bounds_bottom = bounds_bottom;
 
+    const auto validation_started = std::chrono::steady_clock::now();
     for (const EeGeometry& geometry : scene->geometries)
     {
         const std::uint64_t end = static_cast<std::uint64_t>(geometry.point_offset) + geometry.point_count;
@@ -48,9 +55,32 @@ std::shared_ptr<LevelScene> LevelScene::Create(
         if (floor.geometry_id >= geometry_count || !std::isfinite(floor.x) || !std::isfinite(floor.y))
             return nullptr;
     }
+    const auto validation_finished = std::chrono::steady_clock::now();
 
+    const auto cells_started = std::chrono::steady_clock::now();
     scene->RebuildCells();
+    const auto cells_finished = std::chrono::steady_clock::now();
+    const auto transform_base_started = std::chrono::steady_clock::now();
     scene->track_transforms_.ResetBase(scene->floors);
+    const auto finished = std::chrono::steady_clock::now();
+    if (NativeUploadDiagnosticsEnabled())
+    {
+        const auto milliseconds = [](auto from, auto to) noexcept
+        {
+            return std::chrono::duration<double, std::milli>(to - from).count();
+        };
+        std::fprintf(
+            stderr,
+            "[native-upload] sceneCreate floors=%u copy=%.1fms validation=%.1fms "
+            "spatialIndex=%.1fms transformBaseCopy=%.1fms total=%.1fms cells=%zu\n",
+            floor_count,
+            milliseconds(copy_started, copy_finished),
+            milliseconds(validation_started, validation_finished),
+            milliseconds(cells_started, cells_finished),
+            milliseconds(transform_base_started, finished),
+            milliseconds(total_started, finished),
+            scene->cells.size());
+    }
     return scene;
 }
 

@@ -230,6 +230,9 @@ public static partial class AdoFaiLoader
                 case FlatParserMode.Action:
                     AcceptAction(ref reader);
                     break;
+                case FlatParserMode.ActionArray:
+                    AcceptActionArray(ref reader);
+                    break;
                 case FlatParserMode.Decorations:
                     AcceptDecorations(ref reader);
                     break;
@@ -414,6 +417,15 @@ public static partial class AdoFaiLoader
             _actionField = FlatActionField.None;
             if (field == FlatActionField.None)
                 return;
+            if (reader.TokenType == JsonTokenType.StartArray && IsMoveArrayField(field))
+            {
+                _actionArrayField = field;
+                _actionArrayIndex = 0;
+                _actionArrayX = null;
+                _actionArrayY = null;
+                _mode = FlatParserMode.ActionArray;
+                return;
+            }
             if (reader.TokenType is JsonTokenType.StartArray or JsonTokenType.StartObject)
             {
                 BeginSkip(FlatParserMode.Action);
@@ -468,8 +480,65 @@ public static partial class AdoFaiLoader
                 case FlatActionField.EventTag:
                     _action.EventTag = ReadPooledString(ref reader);
                     break;
+                case FlatActionField.Ease:
+                    _action.Ease = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.RelativeTo:
+                    _action.RelativeTo = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.Rotation when TryReadDouble(ref reader, out double rotation):
+                    _action.Rotation = rotation;
+                    break;
+                case FlatActionField.RotationOffset when TryReadDouble(ref reader, out double rotationOffset):
+                    _action.RotationOffset = rotationOffset;
+                    break;
+                case FlatActionField.Opacity when TryReadDouble(ref reader, out double opacity):
+                    _action.Opacity = opacity;
+                    break;
             }
         }
+
+        private FlatActionField _actionArrayField;
+        private int _actionArrayIndex;
+        private double? _actionArrayX;
+        private double? _actionArrayY;
+
+        private void AcceptActionArray(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+            {
+                SetMoveArray(_actionArrayField, new MovePair(_actionArrayX, _actionArrayY));
+                _actionArrayField = FlatActionField.None;
+                _mode = FlatParserMode.Action;
+                return;
+            }
+
+            double? value = TryReadDouble(ref reader, out double number) ? number : null;
+            if (_actionArrayIndex == 0)
+                _actionArrayX = value;
+            else if (_actionArrayIndex == 1)
+                _actionArrayY = value;
+            _actionArrayIndex++;
+        }
+
+        private void SetMoveArray(FlatActionField field, MovePair value)
+        {
+            switch (field)
+            {
+                case FlatActionField.Position: _action.Position = value; break;
+                case FlatActionField.PositionOffset: _action.PositionOffset = value; break;
+                case FlatActionField.Scale: _action.Scale = value; break;
+                case FlatActionField.PivotOffset: _action.PivotOffset = value; break;
+                case FlatActionField.ParallaxOffset: _action.ParallaxOffset = value; break;
+            }
+        }
+
+        private static bool IsMoveArrayField(FlatActionField field) => field is
+            FlatActionField.Position or
+            FlatActionField.PositionOffset or
+            FlatActionField.Scale or
+            FlatActionField.PivotOffset or
+            FlatActionField.ParallaxOffset;
 
         private void AcceptDecorations(ref Utf8JsonReader reader)
         {
@@ -535,11 +604,50 @@ public static partial class AdoFaiLoader
                 Duration = _action.Duration,
                 TargetTag = _action.TargetTag,
                 EventTag = _action.EventTag,
+                SourceProperties = string.Equals(type, "MoveDecorations", StringComparison.Ordinal)
+                    ? BuildMoveProperties(_action)
+                    : null,
                 SourceIndex = _actionCount - 1
             };
             _actions.Add(action);
             if (action.Active && action.Kind == LevelActionKind.SetSpeed)
                 _speedActions.Add(action);
+        }
+
+        private static JsonObject BuildMoveProperties(FlatActionBuilder action)
+        {
+            var properties = new JsonObject();
+            Add(properties, "tag", action.TargetTag);
+            Add(properties, "eventTag", action.EventTag);
+            Add(properties, "ease", action.Ease);
+            Add(properties, "relativeTo", action.RelativeTo);
+            Add(properties, "position", action.Position);
+            Add(properties, "positionOffset", action.PositionOffset);
+            Add(properties, "rotation", action.Rotation);
+            Add(properties, "rotationOffset", action.RotationOffset);
+            Add(properties, "scale", action.Scale);
+            Add(properties, "opacity", action.Opacity);
+            Add(properties, "pivotOffset", action.PivotOffset);
+            Add(properties, "parallaxOffset", action.ParallaxOffset);
+            return properties;
+        }
+
+        private static void Add(JsonObject properties, string name, MovePair? value)
+        {
+            if (value is MovePair pair)
+                properties[name] = new JsonArray(pair.X, pair.Y);
+        }
+
+        private static void Add(JsonObject properties, string name, string? value)
+        {
+            if (value is not null)
+                properties[name] = value;
+        }
+
+        private static void Add(JsonObject properties, string name, double? value)
+        {
+            if (value is double number)
+                properties[name] = number;
         }
 
         private void ComputeSpeedRatios()
@@ -625,6 +733,16 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("duration"u8)) return FlatActionField.Duration;
             if (reader.ValueTextEquals("tag"u8)) return FlatActionField.Tag;
             if (reader.ValueTextEquals("eventTag"u8)) return FlatActionField.EventTag;
+            if (reader.ValueTextEquals("ease"u8)) return FlatActionField.Ease;
+            if (reader.ValueTextEquals("relativeTo"u8)) return FlatActionField.RelativeTo;
+            if (reader.ValueTextEquals("position"u8)) return FlatActionField.Position;
+            if (reader.ValueTextEquals("positionOffset"u8)) return FlatActionField.PositionOffset;
+            if (reader.ValueTextEquals("rotation"u8)) return FlatActionField.Rotation;
+            if (reader.ValueTextEquals("rotationOffset"u8)) return FlatActionField.RotationOffset;
+            if (reader.ValueTextEquals("scale"u8)) return FlatActionField.Scale;
+            if (reader.ValueTextEquals("opacity"u8)) return FlatActionField.Opacity;
+            if (reader.ValueTextEquals("pivotOffset"u8)) return FlatActionField.PivotOffset;
+            if (reader.ValueTextEquals("parallaxOffset"u8)) return FlatActionField.ParallaxOffset;
             return FlatActionField.Unknown;
         }
 
@@ -669,7 +787,7 @@ public static partial class AdoFaiLoader
             _ => null
         };
 
-        private enum FlatParserMode { Root, Angles, Settings, Actions, Action, Decorations, Decoration, Skip }
+        private enum FlatParserMode { Root, Angles, Settings, Actions, Action, ActionArray, Decorations, Decoration, Skip }
         private enum FlatRootField { None, Unknown, AngleData, Settings, Actions, Decorations }
         private enum FlatSettingField
         {
@@ -680,7 +798,9 @@ public static partial class AdoFaiLoader
         {
             None, Unknown, Floor, EventType, Active, SpeedType, BeatsPerMinute,
             BpmMultiplier, Icon, HitSound, HitSoundVolume, GameSound, Planets,
-            AngleOffset, Duration, Tag, EventTag
+            AngleOffset, Duration, Tag, EventTag, Ease, RelativeTo, Position,
+            PositionOffset, Rotation, RotationOffset, Scale, Opacity, PivotOffset,
+            ParallaxOffset
         }
 
         private struct FlatActionBuilder
@@ -701,7 +821,19 @@ public static partial class AdoFaiLoader
             public double? Duration;
             public string? TargetTag;
             public string? EventTag;
+            public string? Ease;
+            public string? RelativeTo;
+            public MovePair? Position;
+            public MovePair? PositionOffset;
+            public double? Rotation;
+            public double? RotationOffset;
+            public MovePair? Scale;
+            public double? Opacity;
+            public MovePair? PivotOffset;
+            public MovePair? ParallaxOffset;
         }
+
+        private readonly record struct MovePair(double? X, double? Y);
     }
 
     private sealed record FlatParseResult(
