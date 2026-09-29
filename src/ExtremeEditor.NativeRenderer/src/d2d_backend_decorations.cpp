@@ -152,6 +152,7 @@ bool D2DBackend::SyncStaticDecorations(
 
 void D2DBackend::DrawStaticDecorationsCamera(
     const LevelScene& scene,
+    const PlaybackVisualState& playback,
     float camera_x,
     float camera_y,
     float zoom,
@@ -226,8 +227,11 @@ void D2DBackend::DrawStaticDecorationsCamera(
             continue;
         }
 
-        float anchor_x = 0.0f;
-        float anchor_y = 0.0f;
+        float anchor_x = decoration.base_anchor_x;
+        float anchor_y = decoration.base_anchor_y;
+        float parent_rotation = 0.0f;
+        float parent_scale_x = 1.0f;
+        float parent_scale_y = 1.0f;
         if (decoration.relative_mode == EE_DECORATION_RELATIVE_TILE)
         {
             if (decoration.floor < 0 ||
@@ -237,10 +241,46 @@ void D2DBackend::DrawStaticDecorationsCamera(
                 continue;
             }
             const EeFloor& floor = scene.floors[static_cast<std::size_t>(decoration.floor)];
-            anchor_x = floor.x;
-            anchor_y = floor.y;
+            if ((decoration.flags & EE_DECORATION_STICK_TO_FLOOR) != 0u)
+            {
+                anchor_x = floor.x;
+                anchor_y = floor.y;
+                parent_rotation = floor.transform_rotation;
+                if ((floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u)
+                {
+                    parent_scale_x = floor.transform_scale_x;
+                    parent_scale_y = floor.transform_scale_y;
+                }
+            }
         }
-        else if (decoration.relative_mode != EE_DECORATION_RELATIVE_GLOBAL)
+        else if (decoration.relative_mode == EE_DECORATION_RELATIVE_RED_PLANET ||
+                 decoration.relative_mode == EE_DECORATION_RELATIVE_BLUE_PLANET ||
+                 decoration.relative_mode == EE_DECORATION_RELATIVE_GREEN_PLANET)
+        {
+            if (!playback.active)
+            {
+                ++rejected.unsupported_placement;
+                continue;
+            }
+            const bool wants_red = decoration.relative_mode == EE_DECORATION_RELATIVE_RED_PLANET;
+            const bool wants_blue = decoration.relative_mode == EE_DECORATION_RELATIVE_BLUE_PLANET;
+            if (wants_red || wants_blue)
+            {
+                const bool use_stationary = playback.stationary_is_red == wants_red;
+                anchor_x = use_stationary ? playback.stationary_x : playback.orbiting_x;
+                anchor_y = use_stationary ? playback.stationary_y : playback.orbiting_y;
+            }
+            else
+            {
+                // The current playback model exposes two planet poses. Preserve GreenPlanet
+                // placement and use their center until the three-planet runtime lands.
+                anchor_x = (playback.stationary_x + playback.orbiting_x) * 0.5f;
+                anchor_y = (playback.stationary_y + playback.orbiting_y) * 0.5f;
+            }
+        }
+        else if (decoration.relative_mode != EE_DECORATION_RELATIVE_GLOBAL &&
+                 decoration.relative_mode != EE_DECORATION_RELATIVE_CAMERA &&
+                 decoration.relative_mode != EE_DECORATION_RELATIVE_CAMERA_ASPECT)
         {
             ++rejected.unsupported_placement;
             continue;
@@ -257,7 +297,12 @@ void D2DBackend::DrawStaticDecorationsCamera(
             camera_rotation,
             width_,
             height_,
-            pixels_per_unit);
+            pixels_per_unit,
+            parent_rotation,
+            parent_scale_x,
+            parent_scale_y,
+            scene.floors.empty() ? 0.0f : scene.floors.front().x,
+            scene.floors.empty() ? 0.0f : scene.floors.front().y);
 
         ID2D1Bitmap1* bitmap = bitmap_it->second.Get();
         const D2D1_SIZE_U pixels = bitmap->GetPixelSize();

@@ -145,6 +145,7 @@ internal static class FlatNativeLevelSnapshotBuilder
                 target.IconAngle += transform.Rotation;
             target.TransformScaleX = transform.ScaleX;
             target.TransformScaleY = transform.ScaleY;
+            target.TransformRotation = transform.Rotation;
             target.TransformOpacity = transform.Opacity;
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);

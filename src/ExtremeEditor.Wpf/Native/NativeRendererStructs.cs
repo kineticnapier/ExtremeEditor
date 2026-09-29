@@ -52,6 +52,7 @@ internal struct NativeFloor
     public uint TrackPulseLength;
     public float TransformScaleX;
     public float TransformScaleY;
+    public float TransformRotation;
     public float TransformOpacity;
     public uint TrackTransformFlags;
 }
@@ -92,7 +93,15 @@ internal struct NativeStaticDecoration
 {
     public const uint RelativeGlobal = 0u;
     public const uint RelativeTile = 1u;
+    public const uint RelativeCamera = 2u;
+    public const uint RelativeCameraAspect = 3u;
+    public const uint RelativeRedPlanet = 4u;
+    public const uint RelativeBluePlanet = 5u;
+    public const uint RelativeGreenPlanet = 6u;
     public const uint FlagVisible = 1u;
+    public const uint FlagStickToFloor = 2u;
+    public const uint FlagLockRotation = 4u;
+    public const uint FlagLockScale = 8u;
 
     public int SourceIndex;
     public int Floor;
@@ -109,8 +118,24 @@ internal struct NativeStaticDecoration
     public float Opacity;
     public int Depth;
     public uint Flags;
+    public float BaseAnchorX;
+    public float BaseAnchorY;
+    public float ParallaxX;
+    public float ParallaxY;
+    public float ParallaxOffsetX;
+    public float ParallaxOffsetY;
+    public float ScaleMultiplier;
 
-    public readonly string RelativeTo => RelativeMode == RelativeTile ? "Tile" : "Global";
+    public readonly string RelativeTo => RelativeMode switch
+    {
+        RelativeTile => "Tile",
+        RelativeCamera => "Camera",
+        RelativeCameraAspect => "CameraAspect",
+        RelativeRedPlanet => "RedPlanet",
+        RelativeBluePlanet => "BluePlanet",
+        RelativeGreenPlanet => "GreenPlanet",
+        _ => "Global"
+    };
     public readonly bool Visible => (Flags & FlagVisible) != 0u;
 }
 

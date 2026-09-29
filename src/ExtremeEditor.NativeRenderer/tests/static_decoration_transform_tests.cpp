@@ -24,6 +24,7 @@ int main()
     decoration.rotation_radians = Pi * 0.5f;
     decoration.scale_x = 1.0f;
     decoration.scale_y = 1.0f;
+    decoration.scale_multiplier = 1.0f;
 
     ee::StaticDecorationScreenTransform unrotated_camera =
         ee::CalculateStaticDecorationScreenTransform(
@@ -106,6 +107,60 @@ int main()
         ordered[2].source_index != 0)
     {
         return 4;
+    }
+
+    EeStaticDecoration camera{};
+    camera.relative_mode = EE_DECORATION_RELATIVE_CAMERA_ASPECT;
+    camera.position_x = 4.0f;
+    camera.position_y = -2.0f;
+    camera.pivot_offset_x = 1.0f;
+    camera.pivot_offset_y = 2.0f;
+    camera.scale_x = 1.0f;
+    camera.scale_y = 1.0f;
+    camera.scale_multiplier = 1.0f;
+    const ee::StaticDecorationScreenTransform camera_transform =
+        ee::CalculateStaticDecorationScreenTransform(
+            camera,
+            0.0f,
+            0.0f,
+            50.0f,
+            -20.0f,
+            100.0f,
+            Pi * 0.25f,
+            800u,
+            400u,
+            100.0f);
+    if (!Near(camera_transform.center_x, 500.0f) ||
+        !Near(camera_transform.center_y, 200.0f))
+    {
+        return 5;
+    }
+
+    EeStaticDecoration runtime = decoration;
+    runtime.rotation_radians = 0.0f;
+    runtime.pivot_offset_x = 0.0f;
+    runtime.flags = EE_DECORATION_LOCK_ROTATION | EE_DECORATION_LOCK_SCALE |
+        EE_DECORATION_STICK_TO_FLOOR;
+    runtime.scale_multiplier = 1.25f;
+    const ee::StaticDecorationScreenTransform runtime_transform =
+        ee::CalculateStaticDecorationScreenTransform(
+            runtime,
+            0.0f,
+            0.0f,
+            0.0f,
+            0.0f,
+            240.0f,
+            0.5f,
+            800u,
+            600u,
+            100.0f,
+            0.25f,
+            2.0f,
+            0.5f);
+    if (!Near(runtime_transform.m11, std::cos(0.25f) * 2.5f) ||
+        !Near(runtime_transform.m22, std::cos(0.25f) * 0.625f))
+    {
+        return 6;
     }
 
     return 0;

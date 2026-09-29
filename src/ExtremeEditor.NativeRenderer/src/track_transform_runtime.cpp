@@ -301,6 +301,7 @@ bool TrackTransformRuntime::EvaluateVisualForFloor(
     value.icon_angle = base.icon_angle;
     value.transform_scale_x = base.transform_scale_x;
     value.transform_scale_y = base.transform_scale_y;
+    value.transform_rotation = base.transform_rotation;
     value.transform_opacity = base.transform_opacity;
     value.track_transform_flags = base.track_transform_flags;
 
@@ -357,6 +358,7 @@ bool TrackTransformRuntime::EvaluateVisualForFloor(
             chart_time);
         value.entry_angle = base.entry_angle + rotation_offset;
         value.icon_angle = base.icon_angle + rotation_offset;
+        value.transform_rotation = base.transform_rotation + rotation_offset;
     }
     if (scale_x_event != nullptr)
         value.transform_scale_x = Evaluate(
@@ -470,6 +472,7 @@ void TrackTransformRuntime::ResolveTrackAtTime(
             chart_time);
         resolved.entry_angle = base.entry_angle + rotation_offset;
         resolved.icon_angle = base.icon_angle + rotation_offset;
+        resolved.transform_rotation = base.transform_rotation + rotation_offset;
     }
     if (scale_x_event != nullptr)
         resolved.transform_scale_x = Evaluate(

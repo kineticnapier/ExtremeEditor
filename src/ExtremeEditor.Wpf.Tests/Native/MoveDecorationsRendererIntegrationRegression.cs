@@ -47,7 +47,7 @@ internal static class MoveDecorationsRendererIntegrationRegression
             object staticItem = FindBySourceIndex(instances, 0);
             AssertItem(
                 staticItem,
-                position: (1, 2),
+                position: (1.5, 3),
                 pivot: (0.25, -0.5),
                 rotationDegrees: 10,
                 scale: (0.8, 1.2),
@@ -64,16 +64,17 @@ internal static class MoveDecorationsRendererIntegrationRegression
             object animatedItem = FindBySourceIndex(instances, 1);
             AssertItem(
                 animatedItem,
-                position: (expectedState.PositionX, expectedState.PositionY),
+                position: (
+                    expectedState.PositionX * PathBuilder.DefaultLongTileSize,
+                    expectedState.PositionY * PathBuilder.DefaultLongTileSize),
                 pivot: (expectedState.PivotOffsetX, expectedState.PivotOffsetY),
                 rotationDegrees: expectedState.Rotation,
                 scale: (expectedState.ScaleX / 100.0, expectedState.ScaleY / 100.0),
                 opacity: expectedState.Opacity / 100.0,
                 message: MissingIntegration);
 
-            // The resolved world position is the oracle for the eventual renderer
-            // transform. The ABI may carry chart-space state plus placement mode or
-            // a pre-resolved position, so this regression does not dictate layout.
+            // The renderer-facing ABI carries the Core-resolved world-unit offset;
+            // placement-specific runtime anchors are composed by native rendering.
             var expectedWorld = DecorationWorldTransformResolver.ResolveWorldPosition(
                 level,
                 animatedDecoration,
@@ -183,7 +184,7 @@ internal static class MoveDecorationsRendererIntegrationRegression
         object item = FindBySourceIndex(instances, 0);
         AssertItem(
             item,
-            position: (6, 2),
+            position: (9, 3),
             pivot: (0, 0),
             rotationDegrees: 90,
             scale: (0.5, 1.5),

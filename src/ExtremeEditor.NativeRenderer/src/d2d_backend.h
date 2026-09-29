@@ -162,6 +162,7 @@ private:
         RenderFrameStats& stats) noexcept;
     void DrawStaticDecorationsCamera(
         const LevelScene& scene,
+        const PlaybackVisualState& playback,
         float camera_x,
         float camera_y,
         float zoom,

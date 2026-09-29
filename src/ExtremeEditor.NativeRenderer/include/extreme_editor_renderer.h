@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 16u
+#define EE_RENDERER_API_VERSION 17u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -50,7 +50,15 @@
 #define EE_TRACK_TRANSFORM_OPACITY 0x20u
 #define EE_DECORATION_RELATIVE_GLOBAL 0u
 #define EE_DECORATION_RELATIVE_TILE 1u
+#define EE_DECORATION_RELATIVE_CAMERA 2u
+#define EE_DECORATION_RELATIVE_CAMERA_ASPECT 3u
+#define EE_DECORATION_RELATIVE_RED_PLANET 4u
+#define EE_DECORATION_RELATIVE_BLUE_PLANET 5u
+#define EE_DECORATION_RELATIVE_GREEN_PLANET 6u
 #define EE_DECORATION_VISIBLE 0x1u
+#define EE_DECORATION_STICK_TO_FLOOR 0x2u
+#define EE_DECORATION_LOCK_ROTATION 0x4u
+#define EE_DECORATION_LOCK_SCALE 0x8u
 
 #ifdef __cplusplus
 extern "C" {
@@ -176,6 +184,7 @@ typedef struct EeFloor
     uint32_t track_pulse_length;
     float transform_scale_x;
     float transform_scale_y;
+    float transform_rotation;
     float transform_opacity;
     uint32_t track_transform_flags;
 } EeFloor;
@@ -216,6 +225,13 @@ typedef struct EeStaticDecoration
     float opacity;
     int32_t depth;
     uint32_t flags;
+    float base_anchor_x;
+    float base_anchor_y;
+    float parallax_x;
+    float parallax_y;
+    float parallax_offset_x;
+    float parallax_offset_y;
+    float scale_multiplier;
 } EeStaticDecoration;
 
 typedef struct EePlaybackTiming

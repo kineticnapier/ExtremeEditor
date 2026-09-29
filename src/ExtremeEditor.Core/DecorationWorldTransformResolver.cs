@@ -3,6 +3,17 @@ using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Core;
 
+public readonly record struct DecorationRendererTransform(
+    string Placement,
+    Vector2 Position,
+    Vector2 PivotOffset,
+    Vector2 Parallax,
+    Vector2 ParallaxOffset,
+    bool StickToFloor,
+    bool LockRotation,
+    bool LockScale,
+    float ScaleMultiplier);
+
 /// <summary>
 /// Converts the chart-space decoration position produced by <see cref="DecorationState"/>
 /// into stock-game world-space placement. Camera/parallax-specific composition remains a
@@ -11,6 +22,43 @@ namespace ExtremeEditor.Core;
 /// </summary>
 public static class DecorationWorldTransformResolver
 {
+    /// <summary>
+    /// Normalizes chart properties for the renderer boundary. Runtime-only references
+    /// (camera, planets and the current floor transform) remain identified by placement
+    /// and flags so the native frame renderer only has to compose current runtime state.
+    /// </summary>
+    public static DecorationRendererTransform ResolveRendererTransform(
+        LevelDecoration decoration,
+        DecorationState state)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        ArgumentNullException.ThrowIfNull(state);
+
+        string placement = ReadString(decoration.Properties["relativeTo"]) ?? "Tile";
+        placement = string.IsNullOrWhiteSpace(placement) ? "Tile" : placement.Trim();
+        bool screenRelative =
+            string.Equals(placement, "Camera", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(placement, "CameraAspect", StringComparison.OrdinalIgnoreCase);
+        float positionScale = screenRelative ? 1f : PathBuilder.DefaultLongTileSize;
+
+        return new DecorationRendererTransform(
+            placement,
+            new Vector2(
+                checked((float)state.PositionX) * positionScale,
+                checked((float)state.PositionY) * positionScale),
+            new Vector2(
+                checked((float)state.PivotOffsetX),
+                checked((float)state.PivotOffsetY)),
+            ReadVector2(decoration.Properties["parallax"], Vector2.Zero) / 100f,
+            new Vector2(
+                checked((float)state.ParallaxOffsetX) * PathBuilder.DefaultLongTileSize,
+                checked((float)state.ParallaxOffsetY) * PathBuilder.DefaultLongTileSize),
+            ReadBool(decoration.Properties["stickToFloor"], false),
+            ReadBool(decoration.Properties["lockRotation"], false),
+            ReadBool(decoration.Properties["lockScale"], false),
+            ReadSingle(decoration.Properties["scaleMultiplier"], 1f));
+    }
+
     public static Vector2 ResolveWorldPosition(
         LevelDocument level,
         LevelDecoration decoration,

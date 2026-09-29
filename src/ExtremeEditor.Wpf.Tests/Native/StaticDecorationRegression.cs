@@ -170,7 +170,7 @@ internal static class StaticDecorationRegression
             contract.AssertInstance(
                 tile,
                 expectedAssetPath: unicodeImagePath,
-                expectedPosition: (2.5, -3.25),
+                expectedPosition: (3.75, -4.875),
                 expectedPivot: (0.25, -0.5),
                 expectedRotationDegrees: 30,
                 expectedScale: (-1.25, 0.8),
@@ -182,7 +182,7 @@ internal static class StaticDecorationRegression
             contract.AssertInstance(
                 global,
                 expectedAssetPath: globalImagePath,
-                expectedPosition: (-4, 6),
+                expectedPosition: (-6, 9),
                 expectedPivot: (1.5, 2),
                 expectedRotationDegrees: -45,
                 expectedScale: (0.5, 1.75),
@@ -194,7 +194,7 @@ internal static class StaticDecorationRegression
             contract.AssertInstance(
                 floorlessGlobal,
                 expectedAssetPath: globalImagePath,
-                expectedPosition: (7.5, -8.5),
+                expectedPosition: (11.25, -12.75),
                 expectedPivot: (-1, 1),
                 expectedRotationDegrees: 90,
                 expectedScale: (1, 1),

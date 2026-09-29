@@ -38,6 +38,7 @@ internal sealed class NativeDecorationPlaybackRuntime
                 chartTime);
             _instances[binding.InstanceIndex] = StaticDecorationSnapshotBuilder.ApplyState(
                 binding.Template,
+                binding.Decoration,
                 state);
         }
 
@@ -188,24 +189,17 @@ internal static class StaticDecorationSnapshotBuilder
                 continue;
             }
 
-            uint relativeMode;
-            if (string.Equals(relativeTo, "Tile", StringComparison.OrdinalIgnoreCase))
+            uint relativeMode = ResolveRelativeMode(relativeTo);
+            if (relativeMode == NativeStaticDecoration.RelativeTile)
             {
-                relativeMode = NativeStaticDecoration.RelativeTile;
                 if (decoration.Floor is not int floor || (uint)floor >= (uint)level.Positions.Length)
                 {
                     excludedInvalidFloor++;
                     continue;
                 }
             }
-            else if (string.Equals(relativeTo, "Global", StringComparison.OrdinalIgnoreCase))
+            else if (relativeMode == uint.MaxValue)
             {
-                relativeMode = NativeStaticDecoration.RelativeGlobal;
-            }
-            else
-            {
-                // Camera/CameraAspect/planets/LastPosition require runtime reference
-                // state and intentionally remain outside the #14 static subset.
                 excludedUnsupportedPlacement++;
                 continue;
             }
@@ -241,13 +235,31 @@ internal static class StaticDecorationSnapshotBuilder
                 assets.Add(new NativeDecorationAsset(assetId, imagePath));
             }
 
-            (float positionX, float positionY) = ReadPair(properties["position"], 0f, 0f);
-            (float pivotX, float pivotY) = ReadPair(properties["pivotOffset"], 0f, 0f);
+            DecorationState initialState = DecorationState.CreateInitial(decoration);
+            DecorationRendererTransform rendererTransform =
+                DecorationWorldTransformResolver.ResolveRendererTransform(decoration, initialState);
             bool sourceHasScale = properties.ContainsKey("scale");
-            (float scaleX, float scaleY) = ReadPair(properties["scale"], 100f, 100f);
-            float rotationDegrees = ReadFloat(properties["rotation"], 0f);
+            float scaleX = checked((float)initialState.ScaleX);
+            float scaleY = checked((float)initialState.ScaleY);
+            float rotationDegrees = checked((float)initialState.Rotation);
             int depth = ReadInt(properties["depth"], 0);
             uint color = ReadColor(properties["color"]);
+            float baseAnchorX = 0f;
+            float baseAnchorY = 0f;
+            if (decoration.Floor is int anchorFloor &&
+                (uint)anchorFloor < (uint)level.Positions.Length)
+            {
+                baseAnchorX = level.Positions[anchorFloor].X;
+                baseAnchorY = level.Positions[anchorFloor].Y;
+            }
+
+            uint flags = NativeStaticDecoration.FlagVisible;
+            if (rendererTransform.StickToFloor)
+                flags |= NativeStaticDecoration.FlagStickToFloor;
+            if (rendererTransform.LockRotation)
+                flags |= NativeStaticDecoration.FlagLockRotation;
+            if (rendererTransform.LockScale)
+                flags |= NativeStaticDecoration.FlagLockScale;
 
             var template = new NativeStaticDecoration
             {
@@ -255,17 +267,24 @@ internal static class StaticDecorationSnapshotBuilder
                 Floor = decoration.Floor ?? -1,
                 AssetId = assetId,
                 RelativeMode = relativeMode,
-                PositionX = positionX,
-                PositionY = positionY,
-                PivotOffsetX = pivotX,
-                PivotOffsetY = pivotY,
+                PositionX = rendererTransform.Position.X,
+                PositionY = rendererTransform.Position.Y,
+                PivotOffsetX = rendererTransform.PivotOffset.X,
+                PivotOffsetY = rendererTransform.PivotOffset.Y,
                 RotationRadians = rotationDegrees * DegreesToRadians,
                 ScaleX = scaleX / 100f,
                 ScaleY = scaleY / 100f,
                 Color = color,
-                Opacity = opacity,
+                Opacity = Math.Clamp(checked((float)(initialState.Opacity / 100.0)), 0f, 1f),
                 Depth = depth,
-                Flags = NativeStaticDecoration.FlagVisible
+                Flags = flags,
+                BaseAnchorX = baseAnchorX,
+                BaseAnchorY = baseAnchorY,
+                ParallaxX = rendererTransform.Parallax.X,
+                ParallaxY = rendererTransform.Parallax.Y,
+                ParallaxOffsetX = rendererTransform.ParallaxOffset.X,
+                ParallaxOffsetY = rendererTransform.ParallaxOffset.Y,
+                ScaleMultiplier = rendererTransform.ScaleMultiplier
             };
             int instanceIndex = instances.Count;
             instances.Add(template);
@@ -391,17 +410,44 @@ internal static class StaticDecorationSnapshotBuilder
 
     internal static NativeStaticDecoration ApplyState(
         NativeStaticDecoration template,
+        LevelDecoration decoration,
         DecorationState state)
     {
-        template.PositionX = checked((float)state.PositionX);
-        template.PositionY = checked((float)state.PositionY);
-        template.PivotOffsetX = checked((float)state.PivotOffsetX);
-        template.PivotOffsetY = checked((float)state.PivotOffsetY);
+        DecorationRendererTransform rendererTransform =
+            DecorationWorldTransformResolver.ResolveRendererTransform(decoration, state);
+        template.PositionX = rendererTransform.Position.X;
+        template.PositionY = rendererTransform.Position.Y;
+        template.PivotOffsetX = rendererTransform.PivotOffset.X;
+        template.PivotOffsetY = rendererTransform.PivotOffset.Y;
+        template.ParallaxX = rendererTransform.Parallax.X;
+        template.ParallaxY = rendererTransform.Parallax.Y;
+        template.ParallaxOffsetX = rendererTransform.ParallaxOffset.X;
+        template.ParallaxOffsetY = rendererTransform.ParallaxOffset.Y;
+        template.ScaleMultiplier = rendererTransform.ScaleMultiplier;
         template.RotationRadians = checked((float)state.Rotation) * DegreesToRadians;
         template.ScaleX = checked((float)(state.ScaleX / 100.0));
         template.ScaleY = checked((float)(state.ScaleY / 100.0));
         template.Opacity = Math.Clamp(checked((float)(state.Opacity / 100.0)), 0f, 1f);
         return template;
+    }
+
+    private static uint ResolveRelativeMode(string relativeTo)
+    {
+        if (string.Equals(relativeTo, "Tile", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeTile;
+        if (string.Equals(relativeTo, "Global", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeGlobal;
+        if (string.Equals(relativeTo, "Camera", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeCamera;
+        if (string.Equals(relativeTo, "CameraAspect", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeCameraAspect;
+        if (string.Equals(relativeTo, "RedPlanet", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeRedPlanet;
+        if (string.Equals(relativeTo, "BluePlanet", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeBluePlanet;
+        if (string.Equals(relativeTo, "GreenPlanet", StringComparison.OrdinalIgnoreCase))
+            return NativeStaticDecoration.RelativeGreenPlanet;
+        return uint.MaxValue;
     }
 
     private static Dictionary<string, List<(int Order, VfxOccurrence Occurrence)>> BuildMoveIndex(

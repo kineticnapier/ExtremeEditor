@@ -230,6 +230,7 @@ HRESULT D2DBackend::RenderFrame(
 
         DrawStaticDecorationsCamera(
             *scene,
+            playback,
             camera_x,
             camera_y,
             zoom,

@@ -22,6 +22,12 @@ public sealed record DecorationState(
     public (double X, double Y) PivotOffset => (PivotOffsetX, PivotOffsetY);
     public (double X, double Y) ParallaxOffset => (ParallaxOffsetX, ParallaxOffsetY);
 
+    public static DecorationState CreateInitial(LevelDecoration decoration)
+    {
+        ArgumentNullException.ThrowIfNull(decoration);
+        return FromDecoration(decoration);
+    }
+
     public static DecorationState Evaluate(
         LevelDecoration decoration,
         VfxTimeline timeline,
