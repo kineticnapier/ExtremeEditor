@@ -1,3 +1,5 @@
+#include "decoration_blend.h"
+#include "decoration_masking.h"
 #include "static_decoration_transform.h"
 
 #include <algorithm>
@@ -179,6 +181,47 @@ int main()
     {
         return 7;
     }
+
+    D2D1_BLEND_MODE blend_mode{};
+    EeStaticDecoration blend{};
+    if (ee::TryGetDecorationD2DBlendMode(blend, blend_mode))
+        return 8;
+
+    struct BlendCase
+    {
+        std::uint32_t flags;
+        D2D1_BLEND_MODE expected;
+    };
+    constexpr std::array<BlendCase, 6> blend_cases =
+    {{
+        {ee::kDecorationBlendLinearDodge, D2D1_BLEND_MODE_LINEAR_DODGE},
+        {ee::kDecorationBlendMultiply, D2D1_BLEND_MODE_MULTIPLY},
+        {ee::kDecorationBlendScreen, D2D1_BLEND_MODE_SCREEN},
+        {ee::kDecorationBlendOverlay, D2D1_BLEND_MODE_OVERLAY},
+        {ee::kDecorationBlendSoftLight, D2D1_BLEND_MODE_SOFT_LIGHT},
+        {ee::kDecorationBlendDifference, D2D1_BLEND_MODE_DIFFERENCE}
+    }};
+    for (const BlendCase& blend_case : blend_cases)
+    {
+        blend.flags = blend_case.flags;
+        if (!ee::TryGetDecorationD2DBlendMode(blend, blend_mode) ||
+            blend_mode != blend_case.expected)
+        {
+            return 9;
+        }
+    }
+
+    blend.flags = ee::kDecorationBlendOverlay | ee::kDecorationMaskingVisibleInside;
+    if (ee::DecorationMaskingType(blend) != ee::kDecorationMaskingVisibleInside ||
+        !ee::TryGetDecorationD2DBlendMode(blend, blend_mode) ||
+        blend_mode != D2D1_BLEND_MODE_OVERLAY)
+    {
+        return 10;
+    }
+
+    blend.flags = ee::kDecorationBlendModeBits;
+    if (ee::TryGetDecorationD2DBlendMode(blend, blend_mode))
+        return 11;
 
     return 0;
 }
