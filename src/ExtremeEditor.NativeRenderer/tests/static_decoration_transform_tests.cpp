@@ -1,5 +1,4 @@
 #include "decoration_blend.h"
-#include "decoration_masking.h"
 #include "static_decoration_transform.h"
 
 #include <algorithm>
@@ -211,8 +210,10 @@ int main()
         }
     }
 
-    blend.flags = ee::kDecorationBlendOverlay | ee::kDecorationMaskingVisibleInside;
-    if (ee::DecorationMaskingType(blend) != ee::kDecorationMaskingVisibleInside ||
+    constexpr std::uint32_t masking_type_bits = 0x300u;
+    constexpr std::uint32_t masking_visible_inside = 0x200u;
+    blend.flags = ee::kDecorationBlendOverlay | masking_visible_inside;
+    if ((blend.flags & masking_type_bits) != masking_visible_inside ||
         !ee::TryGetDecorationD2DBlendMode(blend, blend_mode) ||
         blend_mode != D2D1_BLEND_MODE_OVERLAY)
     {
