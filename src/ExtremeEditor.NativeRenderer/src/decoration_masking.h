@@ -54,17 +54,22 @@ constexpr bool DecorationMaskDepthApplies(
     int back_depth,
     int target_depth) noexcept
 {
+    (void)mask_depth;
+
     if ((flags & kDecorationMaskingUseDepth) == 0u)
     {
-        // ADOFAI scrVisualDecoration.SetMaskingDepth(customRange=false, ...)
-        // disables SpriteMask.isCustomRangeActive. Unity's default SpriteMask
-        // range affects sprites behind the mask. ADOFAI maps decoration depth to
-        // sortingOrder as -depth, so "behind" means a larger ADOFAI depth.
-        return target_depth > mask_depth;
+        // ADOFAI calls SpriteMask.isCustomRangeActive=false here. Unity's
+        // SpriteMask default is not "behind this mask only": it affects every
+        // sorting layer/order whose SpriteRenderer opts into maskInteraction.
+        // Therefore depth must not filter the target when no custom range is
+        // active.
+        return true;
     }
 
-    // ADOFAI forwards maskingFrontDepth/maskingBackDepth to SpriteMask's custom
-    // sorting range. With one sorting layer this is the inclusive depth interval.
+    // ADOFAI forwards maskingFrontDepth/maskingBackDepth to the SpriteMask
+    // custom sorting range. ADOFAI depth and Unity sortingOrder have opposite
+    // signs, but negating all three values only reverses the interval, so the
+    // inclusive test is equivalent in ADOFAI depth space.
     const int low = std::min(front_depth, back_depth);
     const int high = std::max(front_depth, back_depth);
     return target_depth >= low && target_depth <= high;
@@ -83,10 +88,12 @@ constexpr bool DecorationMaskAppliesTo(
                target.depth);
 }
 
-// Default range: only decorations behind the mask participate.
+// Unity SpriteMask without a custom range affects opted-in sprites regardless
+// of their sorting order/depth.
 static_assert(DecorationMaskDepthApplies(0u, 10, -1, -1, 11));
-static_assert(!DecorationMaskDepthApplies(0u, 10, -1, -1, 10));
-static_assert(!DecorationMaskDepthApplies(0u, 10, -1, -1, 9));
+static_assert(DecorationMaskDepthApplies(0u, 10, -1, -1, 10));
+static_assert(DecorationMaskDepthApplies(0u, 10, -1, -1, 9));
+static_assert(DecorationMaskDepthApplies(0u, -350, -1, -1, 1234));
 // Custom range follows the explicit front/back depths regardless of ordering.
 static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 999, -10, 10, 0));
 static_assert(DecorationMaskDepthApplies(kDecorationMaskingUseDepth, 999, 10, -10, -10));
