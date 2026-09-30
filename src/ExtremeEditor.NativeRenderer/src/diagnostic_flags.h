@@ -27,6 +27,12 @@ inline bool DecorationDiagnosticsEnabled() noexcept
     return enabled;
 }
 
+inline bool DecorationVerboseDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = EnvironmentFlagEnabled("EXTREMEEDITOR_DECORATION_VERBOSE_DIAGNOSTICS");
+    return enabled;
+}
+
 inline bool NativeUploadDiagnosticsEnabled() noexcept
 {
     static const bool enabled = EnvironmentFlagEnabled("EXTREMEEDITOR_NATIVE_UPLOAD_DIAGNOSTICS");
