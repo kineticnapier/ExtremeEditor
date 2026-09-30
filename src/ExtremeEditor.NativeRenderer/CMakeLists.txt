@@ -18,6 +18,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/d2d_backend_compat.cpp
     src/d2d_backend_camera.cpp
     src/d2d_backend_decorations.cpp
+    src/decoration_mask_effects.cpp
     src/d2d_backend_editor.cpp
     src/floor_instanced_renderer.cpp
     src/floor_instanced_renderer_camera_transform.cpp
@@ -103,6 +104,24 @@ add_executable(static_decoration_transform_tests
 
 add_executable(decoration_scene_switch_cache_tests
     tests/decoration_scene_switch_cache_tests.cpp
+)
+
+add_executable(decoration_mask_viewport_tests
+    tests/decoration_mask_viewport_tests.cpp
+    src/decoration_mask_effects.cpp
+)
+
+target_compile_features(decoration_mask_viewport_tests PRIVATE cxx_std_20)
+target_compile_definitions(decoration_mask_viewport_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(decoration_mask_viewport_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(decoration_mask_viewport_tests PRIVATE
+    d3d11
+    dxgi
+    d2d1
+    ole32
+    dxguid
 )
 
 target_compile_features(decoration_scene_switch_cache_tests PRIVATE cxx_std_20)
@@ -202,6 +221,7 @@ add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_te
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
 add_test(NAME static_decoration_transform_tests COMMAND static_decoration_transform_tests)
 add_test(NAME decoration_scene_switch_cache_tests COMMAND decoration_scene_switch_cache_tests)
+add_test(NAME decoration_mask_viewport_tests COMMAND decoration_mask_viewport_tests)
 add_test(NAME track_transform_phase_diagnostics_tests COMMAND track_transform_phase_diagnostics_tests)
 add_test(NAME track_transform_visual_lazy_tests COMMAND track_transform_visual_lazy_tests)
 add_test(NAME track_transform_visual_cull_tests COMMAND track_transform_visual_cull_tests)

@@ -1,5 +1,6 @@
 #include "d2d_backend.h"
 #include "decoration_blend.h"
+#include "decoration_mask_effects.h"
 #include "decoration_masking.h"
 #include "diagnostic_flags.h"
 #include "static_decoration_transform.h"
@@ -202,33 +203,6 @@ Microsoft::WRL::ComPtr<ID2D1Effect> BuildMaskUnion(
     if (FAILED(composite->SetValue(D2D1_COMPOSITE_PROP_MODE, D2D1_COMPOSITE_MODE_SOURCE_OVER)))
         return {};
     return composite;
-}
-
-Microsoft::WRL::ComPtr<ID2D1Effect> InvertMaskAlpha(
-    ID2D1DeviceContext* context,
-    ID2D1Effect* mask) noexcept
-{
-    Microsoft::WRL::ComPtr<ID2D1Effect> inverted;
-    if (!context || !mask || FAILED(context->CreateEffect(CLSID_D2D1ColorMatrix, inverted.GetAddressOf())))
-        return {};
-
-    const D2D1_MATRIX_5X4_F matrix =
-    {
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, -1.0f,
-        0.0f, 0.0f, 0.0f, 1.0f
-    };
-    inverted->SetInputEffect(0, mask);
-    if (FAILED(inverted->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix)) ||
-        FAILED(inverted->SetValue(
-            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
-            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)))
-    {
-        return {};
-    }
-    return inverted;
 }
 
 bool EnsureBlendBackground(
@@ -813,17 +787,20 @@ void D2DBackend::DrawStaticDecorationsCamera(
             if ((visible_inside || visible_outside) && mask_union)
             {
                 retained_blend_effects.push_back(mask_union);
-                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
-                if (visible_outside)
+                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask =
+                    CreateDecorationMaskCoverage(
+                        d2d_context_.Get(),
+                        mask_union.Get(),
+                        width_,
+                        height_,
+                        visible_outside);
+                if (!effective_mask)
                 {
-                    effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
-                    if (!effective_mask)
-                    {
-                        ++rejected.other;
-                        continue;
-                    }
-                    retained_blend_effects.push_back(effective_mask);
+                    ++rejected.other;
+                    continue;
                 }
+                if (visible_outside)
+                    retained_blend_effects.push_back(effective_mask);
 
                 Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
                 if (FAILED(d2d_context_->CreateEffect(CLSID_D2D1AlphaMask, alpha_mask.GetAddressOf())))
@@ -884,15 +861,17 @@ void D2DBackend::DrawStaticDecorationsCamera(
                     continue;
                 }
 
-                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
-                if (visible_outside)
+                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask =
+                    CreateDecorationMaskCoverage(
+                        d2d_context_.Get(),
+                        mask_union.Get(),
+                        width_,
+                        height_,
+                        visible_outside);
+                if (!effective_mask)
                 {
-                    effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
-                    if (!effective_mask)
-                    {
-                        ++rejected.other;
-                        continue;
-                    }
+                    ++rejected.other;
+                    continue;
                 }
 
                 Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
