@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_VFX_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackVisualCompatibilityRegression.Run();
+                Console.WriteLine("PASS: Track VFX compatibility regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SHUTDOWN_ONLY"),
                 "1",
                 StringComparison.Ordinal))
