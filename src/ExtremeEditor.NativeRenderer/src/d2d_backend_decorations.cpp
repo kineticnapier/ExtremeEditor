@@ -147,15 +147,11 @@ Microsoft::WRL::ComPtr<ID2D1Effect> CreateColorizedImage(
     const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
     const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
     const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
-    // Decoration bitmaps are uploaded as premultiplied BGRA. Tint opacity must
-    // therefore scale RGB together with alpha; changing alpha alone leaves
-    // invalid RGB > A pixels, which become huge opaque-looking bands under
-    // Overlay/LinearDodge and the other blend effects.
     const D2D1_MATRIX_5X4_F matrix =
     {
-        red * alpha, 0.0f, 0.0f, 0.0f,
-        0.0f, green * alpha, 0.0f, 0.0f,
-        0.0f, 0.0f, blue * alpha, 0.0f,
+        red, 0.0f, 0.0f, 0.0f,
+        0.0f, green, 0.0f, 0.0f,
+        0.0f, 0.0f, blue, 0.0f,
         0.0f, 0.0f, 0.0f, alpha,
         0.0f, 0.0f, 0.0f, 0.0f
     };
@@ -862,9 +858,9 @@ void D2DBackend::DrawStaticDecorationsCamera(
             const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
             const D2D1_MATRIX_5X4_F matrix =
             {
-                red * alpha, 0.0f, 0.0f, 0.0f,
-                0.0f, green * alpha, 0.0f, 0.0f,
-                0.0f, 0.0f, blue * alpha, 0.0f,
+                red, 0.0f, 0.0f, 0.0f,
+                0.0f, green, 0.0f, 0.0f,
+                0.0f, 0.0f, blue, 0.0f,
                 0.0f, 0.0f, 0.0f, alpha,
                 0.0f, 0.0f, 0.0f, 0.0f
             };
