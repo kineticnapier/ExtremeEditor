@@ -109,7 +109,7 @@ inline ResolvedTrackVisual ResolveTrackVisual(
     float phase = TrackFract(time_seconds / duration);
     const float pulse_length = static_cast<float>(std::max<std::uint32_t>(1u, floor.track_pulse_length));
     const float tile_phase =
-        (static_cast<float>(floor_index) - static_cast<float>(floor.track_start_floor)) / pulse_length;
+        static_cast<float>(floor_index % static_cast<std::uint32_t>(pulse_length)) / pulse_length;
     if (pulse == 1u) // Forward
         phase = TrackFract(phase - tile_phase);
     else if (pulse == 2u) // Backward
@@ -122,7 +122,7 @@ inline ResolvedTrackVisual ResolveTrackVisual(
         mix = ((static_cast<std::int64_t>(floor_index) - floor.track_start_floor) & 1ll) != 0 ? 1.0f : 0.0f;
         break;
     case 2u: // Glow: primary -> secondary -> primary
-        mix = 1.0f - std::abs(phase * 2.0f - 1.0f);
+        mix = (1.0f - std::cos(2.0f * 3.14159265358979323846f * phase)) * 0.5f;
         break;
     case 3u: // Blink
         mix = phase;
@@ -136,7 +136,7 @@ inline ResolvedTrackVisual ResolveTrackVisual(
         float s = 0.0f;
         float v = 0.0f;
         RgbToHsv(r1, g1, b1, h, s, v);
-        HsvToRgb(h + phase, s, v, result.r, result.g, result.b);
+        HsvToRgb(phase, s, v, result.r, result.g, result.b);
         result.style_glow = static_cast<float>(style) +
             std::clamp(floor.track_glow_intensity, 0.0f, 0.999f);
         return result;

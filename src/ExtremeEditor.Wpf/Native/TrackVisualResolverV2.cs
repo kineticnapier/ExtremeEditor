@@ -58,6 +58,15 @@ internal readonly record struct NativeTrackVisual(
     int StartFloor,
     uint PulseLength);
 
+internal readonly record struct ResolvedTrackVisualRange(int Start, int End, int Step)
+{
+    internal IEnumerable<int> Floors()
+    {
+        for (int floor = Start; floor <= End; floor += Step)
+            yield return floor;
+    }
+}
+
 internal static class TrackVisualMetadataCache
 {
     private static readonly ConditionalWeakTable<LevelDocument, TrackVisualSourceData> Cache = new();
@@ -673,33 +682,26 @@ internal static class TrackVisualResolver
             styles[floor] = floorStyle;
         }
 
-        foreach (TrackVisualSourceEvent item in live.Where(static item => item.Active && item.EventType == "RecolorTrack"))
-        {
-            int start = ResolveReference(item.StartTile, item.Floor, floorCount);
-            int end = ResolveReference(item.EndTile, item.Floor, floorCount);
-            if (end < start)
-                (start, end) = (end, start);
-            start = Math.Clamp(start, 0, floorCount - 1);
-            end = Math.Clamp(end, 0, floorCount - 1);
-            int gap = Math.Max(0, item.GapLength);
-            int skipped = 0;
-            for (int floor = start; floor <= end; floor++)
-            {
-                if (floor == start || skipped == gap)
-                {
-                    styles[floor] = ApplyStyle(styles[floor], item, item.Floor);
-                    skipped = 0;
-                }
-                else
-                {
-                    skipped++;
-                }
-            }
-        }
-
+        double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
         for (int floor = 0; floor < floorCount; floor++)
-            output[floor] = Pack(styles[floor]);
+            output[floor] = Pack(styles[floor], pitch);
         return output;
+    }
+
+    internal static ResolvedTrackVisualRange ResolveRecolorRange(
+        TrackVisualSourceEvent item,
+        int floorCount)
+    {
+        if (floorCount <= 0)
+            return new ResolvedTrackVisualRange(0, -1, 1);
+
+        int start = ResolveReference(item.StartTile, item.Floor, floorCount);
+        int end = ResolveReference(item.EndTile, item.Floor, floorCount);
+        if (end < start)
+            (start, end) = (end, start);
+        start = Math.Clamp(start, 0, floorCount - 1);
+        end = Math.Clamp(end, 0, floorCount - 1);
+        return new ResolvedTrackVisualRange(start, end, 1 + Math.Max(0, item.GapLength));
     }
 
     private static TrackVisualStyle ApplyStyle(
@@ -718,7 +720,7 @@ internal static class TrackVisualResolver
             Math.Max(double.Epsilon, item.TrackTextureScale ?? fallback.TrackTextureScale),
             startFloor);
 
-    private static NativeTrackVisual Pack(TrackVisualStyle style)
+    private static NativeTrackVisual Pack(TrackVisualStyle style, double pitch)
     {
         uint flags = FlagEnabled |
                      ParseColorType(style.ColorType) |
@@ -734,7 +736,7 @@ internal static class TrackVisualResolver
             ParseColor(style.PrimaryColor, 0xFF7BBBDEu),
             ParseColor(style.SecondaryColor, 0xFFFFFFFFu),
             flags,
-            (float)Math.Clamp(style.AnimDuration, 0.000001, 1000.0),
+            (float)Math.Clamp(style.AnimDuration / pitch, 0.000001, 1000.0),
             (float)(Math.Clamp(style.GlowIntensity, 0.0, 100.0) * 0.01),
             style.StartFloor,
             checked((uint)Math.Clamp(style.PulseLength, 1, 1_000_000)));

@@ -94,71 +94,33 @@ internal static class TrackVisualCompatibilityRegression
 
     private static void VerifyRangeAndGap()
     {
-        LevelDocument level = LevelDocument.CreateSynthetic(7);
-        level.ReplaceActions([Action(3, 20, "RecolorTrack")]);
-        TrackVisualMetadataCache.Attach(level, new TrackVisualSourceData(
-            InitialStyle("Single", "ff0000", "ffffff", 2.0, "None", 4, 0),
-            [SourceEvent(
-                20, 3, "RecolorTrack", "Single", "0000ff", "ffffff",
-                start: new TrackTileReference(5, "Start"),
-                end: new TrackTileReference(1, "Start"),
-                gapLength: 1)]));
-
-        NativeTrackVisual[] result = TrackVisualResolver.Resolve(level);
-        const uint red = 0xFF0000FFu;
-        const uint blue = 0xFFFF0000u;
-        uint[] expected = [red, blue, red, blue, red, blue, red];
-        for (int floor = 0; floor < expected.Length; floor++)
-        {
-            if (result[floor].PrimaryColor != expected[floor])
-            {
-                throw new InvalidOperationException(
-                    $"range/gap mismatch at floor {floor}; expected=0x{expected[floor]:X8} " +
-                    $"actual=0x{result[floor].PrimaryColor:X8}");
-            }
-        }
+        TrackVisualSourceEvent source = SourceEvent(
+            20, 3, "RecolorTrack", "Single", "0000ff", "ffffff",
+            start: new TrackTileReference(5, "Start"),
+            end: new TrackTileReference(1, "Start"),
+            gapLength: 1);
+        int[] actual = TrackVisualResolver.ResolveRecolorRange(source, 7).Floors().ToArray();
+        AssertSequence([1, 3, 5], actual, "reversed range/gap selection");
     }
 
     private static void VerifyContiguousInclusiveRange()
     {
-        LevelDocument level = LevelDocument.CreateSynthetic(6);
-        level.ReplaceActions([Action(2, 19, "RecolorTrack")]);
-        TrackVisualMetadataCache.Attach(level, new TrackVisualSourceData(
-            InitialStyle("Single", "ff0000", "ffffff", 2.0, "None", 4, 0),
-            [SourceEvent(
-                19, 2, "RecolorTrack", "Single", "0000ff", "ffffff",
-                start: new TrackTileReference(1, "Start"),
-                end: new TrackTileReference(4, "Start"),
-                gapLength: 0)]));
-
-        NativeTrackVisual[] result = TrackVisualResolver.Resolve(level);
-        const uint red = 0xFF0000FFu;
-        const uint blue = 0xFFFF0000u;
-        uint[] expected = [red, blue, blue, blue, blue, red];
-        for (int floor = 0; floor < expected.Length; floor++)
-        {
-            if (result[floor].PrimaryColor != expected[floor])
-            {
-                throw new InvalidOperationException(
-                    $"inclusive gap=0 mismatch at floor {floor}; expected=0x{expected[floor]:X8} " +
-                    $"actual=0x{result[floor].PrimaryColor:X8}");
-            }
-        }
+        TrackVisualSourceEvent source = SourceEvent(
+            19, 2, "RecolorTrack", "Single", "0000ff", "ffffff",
+            start: new TrackTileReference(1, "Start"),
+            end: new TrackTileReference(4, "Start"),
+            gapLength: 0);
+        int[] actual = TrackVisualResolver.ResolveRecolorRange(source, 6).Floors().ToArray();
+        AssertSequence([1, 2, 3, 4], actual, "inclusive gap=0 selection");
     }
 
     private static void VerifyStripesRangeStart()
     {
-        LevelDocument level = LevelDocument.CreateSynthetic(8);
-        level.ReplaceActions([Action(4, 30, "RecolorTrack")]);
-        TrackVisualMetadataCache.Attach(level, new TrackVisualSourceData(
-            InitialStyle("Single", "ff0000", "ffffff", 2.0, "None", 4, 0),
-            [SourceEvent(
-                30, 4, "RecolorTrack", "Stripes", "ff0000", "0000ff",
-                start: new TrackTileReference(1, "Start"),
-                end: new TrackTileReference(5, "Start"))]));
-
-        NativeTrackVisual[] result = TrackVisualResolver.Resolve(level);
-        int actual = result[1].StartFloor;
+        TrackVisualSourceEvent source = SourceEvent(
+            30, 4, "RecolorTrack", "Stripes", "ff0000", "0000ff",
+            start: new TrackTileReference(1, "Start"),
+            end: new TrackTileReference(5, "Start"));
+        int actual = TrackVisualResolver.ResolveRecolorRange(source, 8).Start;
         if (actual != 1)
         {
             throw new InvalidOperationException(
@@ -273,5 +235,14 @@ internal static class TrackVisualCompatibilityRegression
     {
         if (Math.Abs(expected - actual) > Tolerance)
             throw new InvalidOperationException(message);
+    }
+
+    private static void AssertSequence(int[] expected, int[] actual, string message)
+    {
+        if (!expected.SequenceEqual(actual))
+        {
+            throw new InvalidOperationException(
+                $"{message}; expected=[{string.Join(',', expected)}] actual=[{string.Join(',', actual)}]");
+        }
     }
 }
