@@ -198,7 +198,11 @@ internal static class StaticDecorationSnapshotBuilder
                     opacityZeroStatic++;
             }
 
-            if (!ReadBool(properties["visible"], defaultValue: true))
+            bool initialVisible = ReadBool(properties["visible"], defaultValue: true);
+            // A decoration that starts hidden can be enabled later by MoveDecorations.
+            // Keep animated instances in the snapshot so runtime visibility can flip
+            // without rebuilding assets or changing native instance indices.
+            if (!initialVisible && !isAnimated)
             {
                 excludedInvisible++;
                 continue;
@@ -287,7 +291,9 @@ internal static class StaticDecorationSnapshotBuilder
             int maskingBackDepth = ReadInt(properties["maskingBackDepth"], -1);
             uint blendMode = ResolveBlendMode(ReadString(properties["blendMode"]));
 
-            uint flags = NativeStaticDecoration.FlagVisible | maskingType | blendMode;
+            uint flags = maskingType | blendMode;
+            if (initialState.Visible)
+                flags |= NativeStaticDecoration.FlagVisible;
             if (useMaskingDepth && maskingType == MaskingMask)
                 flags |= MaskingUseDepth;
             if (rendererTransform.StickToFloor)
@@ -478,6 +484,10 @@ internal static class StaticDecorationSnapshotBuilder
         template.ScaleY = checked((float)(state.ScaleY / 100.0));
         template.Opacity = Math.Clamp(checked((float)(state.Opacity / 100.0)), 0f, 1f);
         template.Color = state.Color;
+        if (state.Visible)
+            template.Flags |= NativeStaticDecoration.FlagVisible;
+        else
+            template.Flags &= ~NativeStaticDecoration.FlagVisible;
         return template;
     }
 
@@ -540,7 +550,7 @@ internal static class StaticDecorationSnapshotBuilder
 
             foreach (string tag in MoveDecorationsTargeting.GetTargetTags(occurrence.SourceEvent))
             {
-                if (!result.TryGetValue(tag, out List<(int, VfxOccurrence)>? entries))
+                if (!result.TryGetValue(tag, out List<(int Order, VfxOccurrence Occurrence)>? entries))
                 {
                     entries = [];
                     result.Add(tag, entries);
