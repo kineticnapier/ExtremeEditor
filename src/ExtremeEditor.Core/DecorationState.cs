@@ -17,6 +17,7 @@ public sealed record DecorationState(
     public double ParallaxOffsetX { get; init; }
     public double ParallaxOffsetY { get; init; }
     public uint Color { get; init; } = 0x00FF_FFFFu;
+    public bool Visible { get; init; } = true;
 
     public (double X, double Y) Position => (PositionX, PositionY);
     public (double X, double Y) Scale => (ScaleX, ScaleY);
@@ -54,6 +55,7 @@ public sealed record DecorationState(
         var colorR = new ScalarTweenState((state.Color >> 16) & 0xffu);
         var colorG = new ScalarTweenState((state.Color >> 8) & 0xffu);
         var colorB = new ScalarTweenState(state.Color & 0xffu);
+        bool visible = state.Visible;
 
         foreach (VfxOccurrence occurrence in timeline.Occurrences)
         {
@@ -131,6 +133,12 @@ public sealed record DecorationState(
             if (TryReadDouble(properties["opacity"], out double newOpacity))
                 opacity.Start(newOpacity, startTime, durationSeconds, occurrence.Ease);
 
+            // ADOFAI visibility is a renderer enable/disable switch, not a tweenable
+            // scalar. It takes effect at the event start while the other properties
+            // continue their independent tweens.
+            if (TryReadBool(properties["visible"], out bool newVisible))
+                visible = newVisible;
+
             if (TryReadColor(properties["color"], out uint newColor))
             {
                 colorR.Start((newColor >> 16) & 0xffu, startTime, durationSeconds, occurrence.Ease);
@@ -169,7 +177,8 @@ public sealed record DecorationState(
             Color = PackColor(
                 colorR.ValueAt(timeSeconds),
                 colorG.ValueAt(timeSeconds),
-                colorB.ValueAt(timeSeconds))
+                colorB.ValueAt(timeSeconds)),
+            Visible = visible
         };
     }
 
@@ -194,7 +203,8 @@ public sealed record DecorationState(
             PivotOffsetY = pivotOffsetY,
             ParallaxOffsetX = parallaxOffsetX,
             ParallaxOffsetY = parallaxOffsetY,
-            Color = ReadColor(properties["color"], 0x00FF_FFFFu)
+            Color = ReadColor(properties["color"], 0x00FF_FFFFu),
+            Visible = ReadBool(properties["visible"], defaultValue: true)
         };
     }
 
@@ -214,6 +224,23 @@ public sealed record DecorationState(
         if (node is JsonValue value && value.TryGetValue(out string? text))
             return text;
         return null;
+    }
+
+    private static bool ReadBool(JsonNode? node, bool defaultValue) =>
+        TryReadBool(node, out bool value) ? value : defaultValue;
+
+    private static bool TryReadBool(JsonNode? node, out bool value)
+    {
+        if (node is JsonValue jsonValue)
+        {
+            if (jsonValue.TryGetValue(out value))
+                return true;
+            if (jsonValue.TryGetValue(out string? text) && bool.TryParse(text, out value))
+                return true;
+        }
+
+        value = false;
+        return false;
     }
 
     private static (double X, double Y) ReadPair(
