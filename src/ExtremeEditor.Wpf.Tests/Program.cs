@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SHUTDOWN_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                NativeRendererHostRegression.Run();
+                Console.WriteLine("PASS: native renderer shutdown lifecycle regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_DECORATION_TRANSFORM_INTEGRATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))

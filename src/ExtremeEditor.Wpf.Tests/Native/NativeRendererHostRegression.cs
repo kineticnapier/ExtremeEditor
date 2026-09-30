@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Interop;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -8,6 +10,8 @@ internal static class NativeRendererHostRegression
 {
     public static void Run()
     {
+        ShutdownDiagnostics.Activate();
+        var shutdownTimer = new Stopwatch();
         using var source = new HwndSource(new HwndSourceParameters("NativeRendererHostRegression")
         {
             Width = 320,
@@ -43,9 +47,19 @@ internal static class NativeRendererHostRegression
         finally
         {
             if (session is IDisposable disposable)
+            {
+                shutdownTimer.Start();
                 disposable.Dispose();
+                shutdownTimer.Stop();
+            }
             else
                 throw new InvalidOperationException("NativeRendererSession must implement IDisposable.");
+        }
+
+        if (shutdownTimer.Elapsed > TimeSpan.FromSeconds(10))
+        {
+            throw new InvalidOperationException(
+                $"Native renderer shutdown lifecycle exceeded 10 seconds: {shutdownTimer.Elapsed.TotalMilliseconds:F1} ms.");
         }
     }
 }

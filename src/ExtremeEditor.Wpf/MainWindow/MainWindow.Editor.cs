@@ -39,10 +39,7 @@ public partial class MainWindow
             {
                 base.OnClosing(e);
                 if (!e.Cancel)
-                {
                     ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
-                    StartShutdownWatchdog();
-                }
                 return;
             }
 
@@ -80,10 +77,7 @@ public partial class MainWindow
             _allowClose = true;
             base.OnClosing(e);
             if (!e.Cancel)
-            {
                 ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
-                StartShutdownWatchdog();
-            }
         }
         finally
         {
