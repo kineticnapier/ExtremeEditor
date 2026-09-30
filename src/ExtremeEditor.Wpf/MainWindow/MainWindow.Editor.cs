@@ -34,6 +34,8 @@ public partial class MainWindow
         if (_allowClose || _editor is null || !_editor.IsDirty)
         {
             base.OnClosing(e);
+            if (!e.Cancel)
+                StartShutdownWatchdog();
             return;
         }
 
@@ -66,6 +68,8 @@ public partial class MainWindow
 
         _allowClose = true;
         base.OnClosing(e);
+        if (!e.Cancel)
+            StartShutdownWatchdog();
     }
 
     private async Task SaveAndCloseAsync()
