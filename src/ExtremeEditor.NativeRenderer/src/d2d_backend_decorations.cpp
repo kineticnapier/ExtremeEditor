@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "decoration_blend.h"
 #include "decoration_masking.h"
 #include "diagnostic_flags.h"
 #include "static_decoration_transform.h"
@@ -16,6 +17,9 @@ namespace ee
 namespace
 {
 thread_local ID2D1DeviceContext* last_decoration_context = nullptr;
+thread_local Microsoft::WRL::ComPtr<ID2D1Bitmap1> decoration_blend_background;
+thread_local std::uint32_t decoration_blend_background_width = 0u;
+thread_local std::uint32_t decoration_blend_background_height = 0u;
 
 struct DecorationDrawRejections
 {
@@ -127,6 +131,42 @@ Microsoft::WRL::ComPtr<ID2D1Effect> CreateTransformedImage(
         bitmap_height);
 }
 
+Microsoft::WRL::ComPtr<ID2D1Effect> CreateColorizedImage(
+    ID2D1DeviceContext* context,
+    ID2D1Effect* input,
+    const EeStaticDecoration& decoration) noexcept
+{
+    if (!context || !input)
+        return {};
+
+    Microsoft::WRL::ComPtr<ID2D1Effect> color_effect;
+    if (FAILED(context->CreateEffect(CLSID_D2D1ColorMatrix, color_effect.GetAddressOf())))
+        return {};
+
+    const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
+    const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
+    const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
+    const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
+    const D2D1_MATRIX_5X4_F matrix =
+    {
+        red, 0.0f, 0.0f, 0.0f,
+        0.0f, green, 0.0f, 0.0f,
+        0.0f, 0.0f, blue, 0.0f,
+        0.0f, 0.0f, 0.0f, alpha,
+        0.0f, 0.0f, 0.0f, 0.0f
+    };
+
+    color_effect->SetInputEffect(0, input);
+    if (FAILED(color_effect->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix)) ||
+        FAILED(color_effect->SetValue(
+            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)))
+    {
+        return {};
+    }
+    return color_effect;
+}
+
 Microsoft::WRL::ComPtr<ID2D1Effect> BuildMaskUnion(
     ID2D1DeviceContext* context,
     const std::vector<PreparedDecorationMask>& masks,
@@ -190,6 +230,87 @@ Microsoft::WRL::ComPtr<ID2D1Effect> InvertMaskAlpha(
     }
     return inverted;
 }
+
+bool EnsureBlendBackground(
+    ID2D1DeviceContext* context,
+    ID2D1Bitmap1* target,
+    std::uint32_t width,
+    std::uint32_t height) noexcept
+{
+    if (!context || !target || width == 0u || height == 0u)
+        return false;
+
+    if (decoration_blend_background &&
+        decoration_blend_background_width == width &&
+        decoration_blend_background_height == height)
+    {
+        return true;
+    }
+
+    decoration_blend_background.Reset();
+    decoration_blend_background_width = 0u;
+    decoration_blend_background_height = 0u;
+
+    const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        target->GetPixelFormat(),
+        96.0f,
+        96.0f);
+    if (FAILED(context->CreateBitmap(
+            D2D1::SizeU(width, height),
+            nullptr,
+            0u,
+            &properties,
+            decoration_blend_background.GetAddressOf())))
+    {
+        return false;
+    }
+
+    decoration_blend_background_width = width;
+    decoration_blend_background_height = height;
+    return true;
+}
+
+bool AppendDecorationLayer(
+    ID2D1DeviceContext* context,
+    const EeStaticDecoration& decoration,
+    ID2D1Image* foreground,
+    Microsoft::WRL::ComPtr<ID2D1Image>& composition,
+    std::vector<Microsoft::WRL::ComPtr<ID2D1Effect>>& retained_effects) noexcept
+{
+    if (!context || !foreground || !composition)
+        return false;
+
+    Microsoft::WRL::ComPtr<ID2D1Effect> effect;
+    D2D1_BLEND_MODE blend_mode{};
+    if (TryGetDecorationD2DBlendMode(decoration, blend_mode))
+    {
+        if (FAILED(context->CreateEffect(CLSID_D2D1Blend, effect.GetAddressOf())))
+            return false;
+        effect->SetInput(0, composition.Get());
+        effect->SetInput(1, foreground);
+        if (FAILED(effect->SetValue(D2D1_BLEND_PROP_MODE, blend_mode)))
+            return false;
+    }
+    else
+    {
+        if (FAILED(context->CreateEffect(CLSID_D2D1Composite, effect.GetAddressOf())))
+            return false;
+        effect->SetInput(0, composition.Get());
+        effect->SetInput(1, foreground);
+        if (FAILED(effect->SetValue(D2D1_COMPOSITE_PROP_MODE, D2D1_COMPOSITE_MODE_SOURCE_OVER)))
+            return false;
+    }
+
+    Microsoft::WRL::ComPtr<ID2D1Image> output;
+    effect->GetOutput(output.GetAddressOf());
+    if (!output)
+        return false;
+
+    retained_effects.push_back(effect);
+    composition = std::move(output);
+    return true;
+}
 }
 
 bool D2DBackend::SyncStaticDecorations(
@@ -230,6 +351,9 @@ bool D2DBackend::SyncStaticDecorations(
         decoration_color_effect_.Reset();
         decoration_bitmaps_.clear();
         cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
+        decoration_blend_background.Reset();
+        decoration_blend_background_width = 0u;
+        decoration_blend_background_height = 0u;
     }
 
     if (!decoration_color_effect_)
@@ -499,6 +623,36 @@ void D2DBackend::DrawStaticDecorationsCamera(
             prepared_masks.push_back({&decoration, std::move(transformed)});
     }
 
+    bool use_blend_graph = false;
+    for (const EeStaticDecoration& decoration : static_decorations_)
+    {
+        if (!DecorationIsMask(decoration) &&
+            (decoration.flags & EE_DECORATION_VISIBLE) != 0u &&
+            std::isfinite(decoration.opacity) && decoration.opacity > 0.0f &&
+            DecorationHasCustomBlend(decoration))
+        {
+            use_blend_graph = true;
+            break;
+        }
+    }
+
+    Microsoft::WRL::ComPtr<ID2D1Image> blend_composition;
+    std::vector<Microsoft::WRL::ComPtr<ID2D1Effect>> retained_blend_effects;
+    if (use_blend_graph)
+    {
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+        if (!EnsureBlendBackground(d2d_context_.Get(), target_bitmap_.Get(), width_, height_) ||
+            FAILED(decoration_blend_background->CopyFromRenderTarget(
+                nullptr,
+                d2d_context_.Get(),
+                nullptr)) ||
+            FAILED(decoration_blend_background.As(&blend_composition)))
+        {
+            use_blend_graph = false;
+            blend_composition.Reset();
+        }
+    }
+
     for (const EeStaticDecoration& decoration : static_decorations_)
     {
         if (DecorationIsMask(decoration))
@@ -617,24 +771,6 @@ void D2DBackend::DrawStaticDecorationsCamera(
                 decoration.parallax_offset_y);
         }
 
-        const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
-        const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
-        const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
-        const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
-        const D2D1_MATRIX_5X4_F matrix =
-        {
-            red, 0.0f, 0.0f, 0.0f,
-            0.0f, green, 0.0f, 0.0f,
-            0.0f, 0.0f, blue, 0.0f,
-            0.0f, 0.0f, 0.0f, alpha,
-            0.0f, 0.0f, 0.0f, 0.0f
-        };
-        decoration_color_effect_->SetInput(0, bitmap);
-        decoration_color_effect_->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix);
-        decoration_color_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
-            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED);
-
         const bool visible_inside = DecorationIsVisibleInsideMask(decoration);
         const bool visible_outside = DecorationIsVisibleOutsideMask(decoration);
         Microsoft::WRL::ComPtr<ID2D1Effect> mask_union;
@@ -648,11 +784,11 @@ void D2DBackend::DrawStaticDecorationsCamera(
             continue;
         }
 
-        if ((visible_inside || visible_outside) && mask_union)
+        if (use_blend_graph)
         {
             Microsoft::WRL::ComPtr<ID2D1Effect> transformed_target = CreateTransformedImage(
                 d2d_context_.Get(),
-                decoration_color_effect_.Get(),
+                bitmap,
                 transform,
                 static_cast<float>(pixels.width),
                 static_cast<float>(pixels.height));
@@ -661,64 +797,167 @@ void D2DBackend::DrawStaticDecorationsCamera(
                 ++rejected.other;
                 continue;
             }
+            retained_blend_effects.push_back(transformed_target);
 
-            Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
-            if (visible_outside)
-            {
-                effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
-                if (!effective_mask)
-                {
-                    ++rejected.other;
-                    continue;
-                }
-            }
-
-            Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
-            if (FAILED(d2d_context_->CreateEffect(CLSID_D2D1AlphaMask, alpha_mask.GetAddressOf())))
+            Microsoft::WRL::ComPtr<ID2D1Effect> foreground_effect = CreateColorizedImage(
+                d2d_context_.Get(),
+                transformed_target.Get(),
+                decoration);
+            if (!foreground_effect)
             {
                 ++rejected.other;
                 continue;
             }
-            alpha_mask->SetInputEffect(0, transformed_target.Get());
-            alpha_mask->SetInputEffect(1, effective_mask.Get());
+            retained_blend_effects.push_back(foreground_effect);
 
-            d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-            d2d_context_->DrawImage(
-                alpha_mask.Get(),
-                nullptr,
-                nullptr,
-                D2D1_INTERPOLATION_MODE_LINEAR,
-                D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            if ((visible_inside || visible_outside) && mask_union)
+            {
+                retained_blend_effects.push_back(mask_union);
+                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
+                if (visible_outside)
+                {
+                    effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
+                    if (!effective_mask)
+                    {
+                        ++rejected.other;
+                        continue;
+                    }
+                    retained_blend_effects.push_back(effective_mask);
+                }
+
+                Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
+                if (FAILED(d2d_context_->CreateEffect(CLSID_D2D1AlphaMask, alpha_mask.GetAddressOf())))
+                {
+                    ++rejected.other;
+                    continue;
+                }
+                alpha_mask->SetInputEffect(0, foreground_effect.Get());
+                alpha_mask->SetInputEffect(1, effective_mask.Get());
+                foreground_effect = alpha_mask;
+                retained_blend_effects.push_back(alpha_mask);
+            }
+
+            Microsoft::WRL::ComPtr<ID2D1Image> foreground;
+            foreground_effect->GetOutput(foreground.GetAddressOf());
+            if (!foreground || !AppendDecorationLayer(
+                    d2d_context_.Get(),
+                    decoration,
+                    foreground.Get(),
+                    blend_composition,
+                    retained_blend_effects))
+            {
+                ++rejected.other;
+                continue;
+            }
         }
         else
         {
-            // None, or VisibleOutsideMask with no applicable mask: normal sprite.
-            d2d_context_->SetTransform(D2D1::Matrix3x2F(
-                transform.m11,
-                transform.m12,
-                transform.m21,
-                transform.m22,
-                transform.center_x,
-                transform.center_y));
+            const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
+            const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
+            const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
+            const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
+            const D2D1_MATRIX_5X4_F matrix =
+            {
+                red, 0.0f, 0.0f, 0.0f,
+                0.0f, green, 0.0f, 0.0f,
+                0.0f, 0.0f, blue, 0.0f,
+                0.0f, 0.0f, 0.0f, alpha,
+                0.0f, 0.0f, 0.0f, 0.0f
+            };
+            decoration_color_effect_->SetInput(0, bitmap);
+            decoration_color_effect_->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix);
+            decoration_color_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+                D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED);
 
-            const D2D1_POINT_2F offset = D2D1::Point2F(
-                -static_cast<float>(pixels.width) * 0.5f,
-                -static_cast<float>(pixels.height) * 0.5f);
-            const D2D1_RECT_F source = D2D1::RectF(
-                0.0f,
-                0.0f,
-                static_cast<float>(pixels.width),
-                static_cast<float>(pixels.height));
-            d2d_context_->DrawImage(
-                decoration_color_effect_.Get(),
-                &offset,
-                &source,
-                D2D1_INTERPOLATION_MODE_LINEAR,
-                D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            if ((visible_inside || visible_outside) && mask_union)
+            {
+                Microsoft::WRL::ComPtr<ID2D1Effect> transformed_target = CreateTransformedImage(
+                    d2d_context_.Get(),
+                    decoration_color_effect_.Get(),
+                    transform,
+                    static_cast<float>(pixels.width),
+                    static_cast<float>(pixels.height));
+                if (!transformed_target)
+                {
+                    ++rejected.other;
+                    continue;
+                }
+
+                Microsoft::WRL::ComPtr<ID2D1Effect> effective_mask = mask_union;
+                if (visible_outside)
+                {
+                    effective_mask = InvertMaskAlpha(d2d_context_.Get(), mask_union.Get());
+                    if (!effective_mask)
+                    {
+                        ++rejected.other;
+                        continue;
+                    }
+                }
+
+                Microsoft::WRL::ComPtr<ID2D1Effect> alpha_mask;
+                if (FAILED(d2d_context_->CreateEffect(CLSID_D2D1AlphaMask, alpha_mask.GetAddressOf())))
+                {
+                    ++rejected.other;
+                    continue;
+                }
+                alpha_mask->SetInputEffect(0, transformed_target.Get());
+                alpha_mask->SetInputEffect(1, effective_mask.Get());
+
+                d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+                d2d_context_->DrawImage(
+                    alpha_mask.Get(),
+                    nullptr,
+                    nullptr,
+                    D2D1_INTERPOLATION_MODE_LINEAR,
+                    D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            }
+            else
+            {
+                // None, or VisibleOutsideMask with no applicable mask: normal sprite.
+                d2d_context_->SetTransform(D2D1::Matrix3x2F(
+                    transform.m11,
+                    transform.m12,
+                    transform.m21,
+                    transform.m22,
+                    transform.center_x,
+                    transform.center_y));
+
+                const D2D1_POINT_2F offset = D2D1::Point2F(
+                    -static_cast<float>(pixels.width) * 0.5f,
+                    -static_cast<float>(pixels.height) * 0.5f);
+                const D2D1_RECT_F source = D2D1::RectF(
+                    0.0f,
+                    0.0f,
+                    static_cast<float>(pixels.width),
+                    static_cast<float>(pixels.height));
+                d2d_context_->DrawImage(
+                    decoration_color_effect_.Get(),
+                    &offset,
+                    &source,
+                    D2D1_INTERPOLATION_MODE_LINEAR,
+                    D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            }
         }
 
         ++draw_target_count;
         ++stats.draw_calls;
+    }
+
+    if (use_blend_graph && draw_target_count > 0u && blend_composition)
+    {
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+        const D2D1_RECT_F viewport = D2D1::RectF(
+            0.0f,
+            0.0f,
+            static_cast<float>(width_),
+            static_cast<float>(height_));
+        d2d_context_->DrawImage(
+            blend_composition.Get(),
+            nullptr,
+            &viewport,
+            D2D1_INTERPOLATION_MODE_LINEAR,
+            D2D1_COMPOSITE_MODE_SOURCE_COPY);
     }
 
     log_draw_targets(draw_target_count, rejected);
