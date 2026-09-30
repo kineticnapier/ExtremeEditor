@@ -57,17 +57,23 @@ internal static class StaticDecorationSnapshotBuilder
 {
     private const float DegreesToRadians = MathF.PI / 180f;
 
-    // Native API v18 has four low flag bits in use. Masking is packed into the
-    // next bits without widening the hot decoration ABI. For Mask instances only,
-    // ChartPositionX/Y carry the masking front/back depth; Mask decorations are
-    // never rendered as ordinary sprites, so their diagnostic chart-position slots
-    // are otherwise unused by the renderer.
+    // Native API v18 keeps the 96-byte hot decoration ABI. The low four flag
+    // bits are runtime transform flags, masking occupies 0x100..0x400, and the
+    // fixed AddDecoration blend mode occupies bits 12..14.
     internal const uint MaskingTypeBits = 0x300u;
     internal const uint MaskingNone = 0x000u;
     internal const uint MaskingMask = 0x100u;
     internal const uint MaskingVisibleInside = 0x200u;
     internal const uint MaskingVisibleOutside = 0x300u;
     internal const uint MaskingUseDepth = 0x400u;
+    internal const uint BlendModeBits = 0x7000u;
+    internal const uint BlendNone = 0x0000u;
+    internal const uint BlendLinearDodge = 0x1000u;
+    internal const uint BlendMultiply = 0x2000u;
+    internal const uint BlendScreen = 0x3000u;
+    internal const uint BlendOverlay = 0x4000u;
+    internal const uint BlendSoftLight = 0x5000u;
+    internal const uint BlendDifference = 0x6000u;
 
     internal static StaticDecorationSnapshotData Build(LevelDocument level)
     {
@@ -279,8 +285,9 @@ internal static class StaticDecorationSnapshotBuilder
             bool useMaskingDepth = ReadBool(properties["useMaskingDepth"], defaultValue: false);
             int maskingFrontDepth = ReadInt(properties["maskingFrontDepth"], -1);
             int maskingBackDepth = ReadInt(properties["maskingBackDepth"], -1);
+            uint blendMode = ResolveBlendMode(ReadString(properties["blendMode"]));
 
-            uint flags = NativeStaticDecoration.FlagVisible | maskingType;
+            uint flags = NativeStaticDecoration.FlagVisible | maskingType | blendMode;
             if (useMaskingDepth && maskingType == MaskingMask)
                 flags |= MaskingUseDepth;
             if (rendererTransform.StickToFloor)
@@ -502,6 +509,23 @@ internal static class StaticDecorationSnapshotBuilder
         if (string.Equals(maskingType, "VisibleOutsideMask", StringComparison.OrdinalIgnoreCase))
             return MaskingVisibleOutside;
         return MaskingNone;
+    }
+
+    private static uint ResolveBlendMode(string? blendMode)
+    {
+        if (string.Equals(blendMode, "LinearDodge", StringComparison.OrdinalIgnoreCase))
+            return BlendLinearDodge;
+        if (string.Equals(blendMode, "Multiply", StringComparison.OrdinalIgnoreCase))
+            return BlendMultiply;
+        if (string.Equals(blendMode, "Screen", StringComparison.OrdinalIgnoreCase))
+            return BlendScreen;
+        if (string.Equals(blendMode, "Overlay", StringComparison.OrdinalIgnoreCase))
+            return BlendOverlay;
+        if (string.Equals(blendMode, "SoftLight", StringComparison.OrdinalIgnoreCase))
+            return BlendSoftLight;
+        if (string.Equals(blendMode, "Difference", StringComparison.OrdinalIgnoreCase))
+            return BlendDifference;
+        return BlendNone;
     }
 
     private static Dictionary<string, List<(int Order, VfxOccurrence Occurrence)>> BuildMoveIndex(
