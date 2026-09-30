@@ -280,9 +280,11 @@ public sealed class AudioPlayer : IDisposable
 
     public void Dispose()
     {
+        ShutdownDiagnostics.Begin("AudioPlayer.Dispose");
         DisposePlayback();
         _hitSoundPrerender.Dispose();
         GC.SuppressFinalize(this);
+        ShutdownDiagnostics.Complete("AudioPlayer.Dispose");
     }
 
     private BuildGraphMetrics BuildGraph()

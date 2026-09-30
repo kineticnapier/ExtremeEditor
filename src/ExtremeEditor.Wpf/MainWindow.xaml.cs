@@ -88,15 +88,33 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        ShutdownDiagnostics.Begin("MainWindow.OnClosed");
         _isClosed = true;
         _loadGeneration++;
+
+        ShutdownDiagnostics.Begin("PlaybackTimer.Stop");
         _playbackTimer.Stop();
+        ShutdownDiagnostics.Complete("PlaybackTimer.Stop");
+
+        ShutdownDiagnostics.Begin("EditorPlaybackTimer.Stop");
         _editorPlaybackRefreshTimer?.Stop();
+        ShutdownDiagnostics.Complete("EditorPlaybackTimer.Stop");
+
+        ShutdownDiagnostics.Begin("CompositionTarget.Rendering.Unsubscribe");
         CompositionTarget.Rendering -= PlaybackCompositionRendering;
+        ShutdownDiagnostics.Complete("CompositionTarget.Rendering.Unsubscribe");
+
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
         _audio.Dispose();
+
+        ShutdownDiagnostics.Begin("PlaybackDiagnosticLogger.Dispose");
         _playbackDiagnosticLogger.Dispose();
+        ShutdownDiagnostics.Complete("PlaybackDiagnosticLogger.Dispose");
+
+        ShutdownDiagnostics.Begin("MainWindow.BaseOnClosed");
         base.OnClosed(e);
+        ShutdownDiagnostics.Complete("MainWindow.BaseOnClosed");
+        ShutdownDiagnostics.Complete("MainWindow.OnClosed");
     }
 
     private void ExitClick(object sender, RoutedEventArgs e)

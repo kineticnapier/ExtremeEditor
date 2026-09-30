@@ -1,4 +1,5 @@
 using System.Threading;
+using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
 
@@ -17,7 +18,9 @@ public partial class MainWindow
         var watchdog = new Thread(static () =>
         {
             Thread.Sleep(TimeSpan.FromSeconds(3));
-            Console.Error.WriteLine("[shutdown] cleanup exceeded 3 s; forcing process exit");
+            ShutdownDiagnostics.WriteOnce(
+                "ShutdownWatchdog.ForceExit",
+                $"lastCompleted={ShutdownDiagnostics.LastCompletedPhase}");
             Environment.Exit(0);
         })
         {
@@ -29,6 +32,8 @@ public partial class MainWindow
 
     internal void ShutdownNativeRenderer()
     {
+        ShutdownDiagnostics.Begin("MainWindow.ShutdownNativeRenderer");
         NativeViewport.ShutdownRenderer();
+        ShutdownDiagnostics.Complete("MainWindow.ShutdownNativeRenderer");
     }
 }

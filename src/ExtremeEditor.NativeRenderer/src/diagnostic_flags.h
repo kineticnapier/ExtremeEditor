@@ -38,4 +38,10 @@ inline bool NativeUploadDiagnosticsEnabled() noexcept
     static const bool enabled = EnvironmentFlagEnabled("EXTREMEEDITOR_NATIVE_UPLOAD_DIAGNOSTICS");
     return enabled;
 }
+
+inline bool ShutdownDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = EnvironmentFlagEnabled("EXTREMEEDITOR_SHUTDOWN_DIAGNOSTICS");
+    return enabled;
+}
 }

@@ -64,7 +64,7 @@ public:
 
 private:
     void RenderLoop() noexcept;
-    void StopRenderThread() noexcept;
+    void StopRenderThread(bool shutdown_diagnostic = false) noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;

@@ -31,45 +31,66 @@ public partial class MainWindow
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (_allowClose || _editor is null || !_editor.IsDirty)
+        ShutdownDiagnostics.Activate();
+        ShutdownDiagnostics.Begin("MainWindow.OnClosing");
+        try
         {
+            if (_allowClose || _editor is null || !_editor.IsDirty)
+            {
+                base.OnClosing(e);
+                if (!e.Cancel)
+                {
+                    ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
+                    StartShutdownWatchdog();
+                }
+                return;
+            }
+
+            if (_saveBeforeCloseInProgress)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            ShutdownDiagnostics.Begin("MainWindow.SaveDiscardConfirmation");
+            MessageBoxResult result = MessageBox.Show(
+                this,
+                "Save changes before closing?",
+                "ExtremeEditor",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+            ShutdownDiagnostics.Complete(
+                "MainWindow.SaveDiscardConfirmation",
+                $"result={result}");
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            if (result == MessageBoxResult.Yes)
+            {
+                e.Cancel = true;
+                _saveBeforeCloseInProgress = true;
+                _ = SaveAndCloseAsync();
+                return;
+            }
+
+            _allowClose = true;
             base.OnClosing(e);
             if (!e.Cancel)
+            {
+                ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
                 StartShutdownWatchdog();
-            return;
+            }
         }
-
-        if (_saveBeforeCloseInProgress)
+        finally
         {
-            e.Cancel = true;
-            return;
+            ShutdownDiagnostics.Complete(
+                "MainWindow.OnClosing",
+                $"cancel={e.Cancel}");
         }
-
-        MessageBoxResult result = MessageBox.Show(
-            this,
-            "Save changes before closing?",
-            "ExtremeEditor",
-            MessageBoxButton.YesNoCancel,
-            MessageBoxImage.Question);
-
-        if (result == MessageBoxResult.Cancel)
-        {
-            e.Cancel = true;
-            return;
-        }
-
-        if (result == MessageBoxResult.Yes)
-        {
-            e.Cancel = true;
-            _saveBeforeCloseInProgress = true;
-            _ = SaveAndCloseAsync();
-            return;
-        }
-
-        _allowClose = true;
-        base.OnClosing(e);
-        if (!e.Cancel)
-            StartShutdownWatchdog();
     }
 
     private async Task SaveAndCloseAsync()

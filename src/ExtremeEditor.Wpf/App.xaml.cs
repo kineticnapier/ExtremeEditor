@@ -1,4 +1,5 @@
 using System.Windows;
+using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
 
@@ -14,5 +15,12 @@ public partial class App : Application
         if (e.Args.Length > 0)
             window.ScheduleInitialOpen(e.Args[0]);
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        ShutdownDiagnostics.Begin("Application.OnExit");
+        base.OnExit(e);
+        ShutdownDiagnostics.Complete("Application.OnExit");
     }
 }

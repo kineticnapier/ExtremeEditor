@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using ExtremeEditor.Core;
 using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.Wpf.Native;
@@ -474,9 +475,13 @@ internal sealed class NativeRendererSession : IDisposable
 
     public void Dispose()
     {
+        ShutdownDiagnostics.Begin("NativeRendererSession.Dispose");
         nint renderer = _renderer;
         if (renderer == nint.Zero)
+        {
+            ShutdownDiagnostics.Complete("NativeRendererSession.Dispose", "renderer=null");
             return;
+        }
 
         NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
         NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
@@ -485,5 +490,6 @@ internal sealed class NativeRendererSession : IDisposable
         ChildHwnd = nint.Zero;
         NativeRendererNative.Destroy(renderer);
         GC.SuppressFinalize(this);
+        ShutdownDiagnostics.Complete("NativeRendererSession.Dispose");
     }
 }

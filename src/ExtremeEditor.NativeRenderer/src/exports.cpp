@@ -1,6 +1,7 @@
 #include "extreme_editor_renderer.h"
 #include "diagnostic_flags.h"
 #include "renderer.h"
+#include "shutdown_diagnostics.h"
 
 #include <cstdio>
 #include <limits>
@@ -64,7 +65,13 @@ EeResult ee_renderer_create(
 
 void ee_renderer_destroy(EeRendererHandle renderer)
 {
+    ee::ShutdownDiagnosticLogOnce(
+        ee::ShutdownDiagnosticPhase::RendererDestroyEntry,
+        "ee_renderer_destroy.begin");
     delete static_cast<ee::Renderer*>(renderer);
+    ee::ShutdownDiagnosticLogOnce(
+        ee::ShutdownDiagnosticPhase::RendererDestroyExit,
+        "ee_renderer_destroy.end");
 }
 
 HWND ee_renderer_get_child_hwnd(EeRendererHandle renderer)

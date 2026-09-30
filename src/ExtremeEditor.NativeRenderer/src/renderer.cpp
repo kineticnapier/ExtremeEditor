@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
 #include "renderer_camera.h"
 
@@ -250,7 +251,13 @@ struct FollowCameraState
 
 Renderer::~Renderer()
 {
-    StopRenderThread();
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RendererDestructorEntry,
+        "Renderer.destructor.begin");
+    StopRenderThread(true);
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RendererDestructorExit,
+        "Renderer.destructor.end");
 }
 
 bool Renderer::Initialize(HWND parent, std::uint32_t width, std::uint32_t height) noexcept
@@ -876,16 +883,53 @@ void Renderer::RenderLoop() noexcept
         frame_counter_.fetch_add(1, std::memory_order_relaxed);
     }
 
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RenderLoopStopObserved,
+        "RenderLoop.stopObserved");
+    ShutdownD2DDiagnosticsActive = true;
     backend.Shutdown();
+    ShutdownD2DDiagnosticsActive = false;
     if (com_initialized)
         CoUninitialize();
 }
 
-void Renderer::StopRenderThread() noexcept
+void Renderer::StopRenderThread(bool shutdown_diagnostic) noexcept
 {
     stop_requested_.store(true, std::memory_order_release);
+    if (shutdown_diagnostic)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::StopFlagSet,
+            "StopRenderThread.stopFlagSet");
+    }
     if (render_thread_.joinable())
+    {
+        if (shutdown_diagnostic)
+        {
+            ShutdownDiagnosticLogOnce(
+                ShutdownDiagnosticPhase::RenderThreadJoinEntry,
+                "StopRenderThread.join.begin");
+        }
         render_thread_.join();
+        if (shutdown_diagnostic)
+        {
+            ShutdownDiagnosticLogOnce(
+                ShutdownDiagnosticPhase::RenderThreadJoinExit,
+                "StopRenderThread.join.end");
+        }
+    }
+    if (shutdown_diagnostic)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::ChildWindowDestroyEntry,
+            "StopRenderThread.childWindowDestroy.begin");
+    }
     window_.Destroy();
+    if (shutdown_diagnostic)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::ChildWindowDestroyExit,
+            "StopRenderThread.childWindowDestroy.end");
+    }
 }
 }

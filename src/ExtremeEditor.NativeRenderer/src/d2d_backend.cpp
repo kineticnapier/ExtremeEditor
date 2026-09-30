@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "shutdown_diagnostics.h"
 
 #include <algorithm>
 #include <chrono>
@@ -24,6 +25,12 @@ bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height
 
 void D2DBackend::Shutdown() noexcept
 {
+    if (ShutdownD2DDiagnosticsActive)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::D2DBackendShutdownEntry,
+            "D2DBackend.Shutdown.begin");
+    }
     icon_renderer_.Shutdown();
     floor_renderer_.Shutdown();
     icon_bitmaps_.clear();
@@ -48,6 +55,12 @@ void D2DBackend::Shutdown() noexcept
     swap_chain_.Reset();
     d3d_context_.Reset();
     d3d_device_.Reset();
+    if (ShutdownD2DDiagnosticsActive)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::D2DBackendShutdownExit,
+            "D2DBackend.Shutdown.end");
+    }
 }
 
 bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept
