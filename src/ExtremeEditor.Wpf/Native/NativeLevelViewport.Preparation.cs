@@ -24,6 +24,9 @@ public sealed partial class NativeLevelViewport
         Console.WriteLine(
             $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
 
+        if (DecorationDiagnostics.Enabled)
+            DecorationBlendDiagnostics.Log(level);
+
         var totalWatch = Stopwatch.StartNew();
         var phaseWatch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
