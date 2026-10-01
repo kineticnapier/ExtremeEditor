@@ -12,6 +12,7 @@ internal readonly record struct PreparedNativePlayback(
     NativePlaybackTiming[] PlaybackTimeline,
     NativeCameraEvent[] CameraTimeline,
     NativeTrackTransformEvent[] TrackTransformTimeline,
+    NativeTrackVisualEvent[] TrackVisualTimeline,
     TimeSpan BuildTime);
 
 public sealed partial class NativeLevelViewport
@@ -60,12 +61,14 @@ public sealed partial class NativeLevelViewport
             level,
             timingMap,
             staticTransforms);
+        NativeTrackVisualEvent[] trackVisualTimeline = TrackVisualTimelineBuilder.Build(level, timingMap);
         watch.Stop();
 
         return new PreparedNativePlayback(
             playbackTimeline,
             cameraTimeline,
             trackTransformTimeline,
+            trackVisualTimeline,
             watch.Elapsed);
     }
 
@@ -82,6 +85,7 @@ public sealed partial class NativeLevelViewport
             _primarySelection = -1;
             _cameraTimeline = [];
             _trackTransformTimeline = [];
+            _trackVisualTimeline = [];
         }
 
         var uploadWatch = Stopwatch.StartNew();
@@ -109,11 +113,13 @@ public sealed partial class NativeLevelViewport
         _playbackTimeline = prepared.PlaybackTimeline;
         _cameraTimeline = prepared.CameraTimeline;
         _trackTransformTimeline = prepared.TrackTransformTimeline;
+        _trackVisualTimeline = prepared.TrackVisualTimeline;
 
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
+        UploadPendingTrackVisualTimeline();
         watch.Stop();
 
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(

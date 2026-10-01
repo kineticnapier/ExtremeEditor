@@ -704,7 +704,7 @@ internal static class TrackVisualResolver
         return new ResolvedTrackVisualRange(start, end, 1 + Math.Max(0, item.GapLength));
     }
 
-    private static TrackVisualStyle ApplyStyle(
+    internal static TrackVisualStyle ApplyStyle(
         TrackVisualStyle fallback,
         TrackVisualSourceEvent item,
         int startFloor) => new(
@@ -720,7 +720,7 @@ internal static class TrackVisualResolver
             Math.Max(double.Epsilon, item.TrackTextureScale ?? fallback.TrackTextureScale),
             startFloor);
 
-    private static NativeTrackVisual Pack(TrackVisualStyle style, double pitch)
+    internal static NativeTrackVisual Pack(TrackVisualStyle style, double pitch)
     {
         uint flags = FlagEnabled |
                      ParseColorType(style.ColorType) |
@@ -798,7 +798,7 @@ internal static class TrackVisualResolver
         };
     }
 
-    private static List<TrackVisualSourceEvent> BuildLiveEvents(
+    internal static List<TrackVisualSourceEvent> BuildLiveEvents(
         LevelDocument level,
         IReadOnlyList<TrackVisualSourceEvent> sourceEvents)
     {

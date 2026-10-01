@@ -7,7 +7,8 @@ namespace ExtremeEditor.Wpf.Tests;
 
 internal static class RecolorTrackRuntimeSemanticsRegression
 {
-    private const float Tolerance = 0.0001f;
+    // Renderer-facing colors are packed to 8-bit RGBA in EeFloor/EeTrackVisualEvent.
+    private const float Tolerance = (1f / 255f) + 0.0001f;
     private static readonly Vector3 Red = new(1, 0, 0);
     private static readonly Vector3 Blue = new(0, 0, 1);
     private static readonly Vector3 Green = new(0, 1, 0);
@@ -95,7 +96,7 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         SpecEvent item = Event(10, 4, Blue, ease, 2);
         const double time = 11;
         Vector3 expected = EvaluateReference(Red, [item], time);
-        Vector3 actual = CurrentRendererFacingColor(0);
+        Vector3 actual = CurrentRendererFacingColor(0, time, [item]);
         AssertColor(expected, actual,
             $"{ease} at raw progress 0.25 expected={Format(expected)} actual={Format(actual)}");
     }
@@ -106,8 +107,8 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         Vector3 expectedPaused = EvaluateReference(Red, [item], 12);
         Vector3 afterWallTimeOnly = EvaluateReference(Red, [item], 12);
         AssertColor(expectedPaused, afterWallTimeOnly, "wall time advanced a paused chart tween");
-        AssertColor(expectedPaused, CurrentRendererFacingColor(0),
-            $"paused midpoint expected={Format(expectedPaused)} actual={Format(CurrentRendererFacingColor(0))}");
+        AssertColor(expectedPaused, CurrentRendererFacingColor(0, 12, [item]),
+            $"paused midpoint expected={Format(expectedPaused)} actual={Format(CurrentRendererFacingColor(0, 12, [item]))}");
 
         Vector3 expectedResumed = EvaluateReference(Red, [item], 13);
         if (Close(expectedPaused, expectedResumed))
@@ -120,8 +121,8 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         Vector3 expected = Vector3.Lerp(Red, Blue, progress);
         Vector3 reference = EvaluateReference(Red, [item], chartTime);
         AssertColor(expected, reference, "reference seek fixture is invalid");
-        AssertColor(expected, CurrentRendererFacingColor(0),
-            $"seek={chartTime} expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0))}");
+        AssertColor(expected, CurrentRendererFacingColor(0, chartTime, [item]),
+            $"seek={chartTime} expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0, chartTime, [item]))}");
     }
 
     private static void VerifyOverlapAt(double time, Vector3 expected, string phase)
@@ -137,13 +138,20 @@ internal static class RecolorTrackRuntimeSemanticsRegression
     private static void VerifyStripes()
     {
         const int resolvedStart = 1;
+        NativeTrackVisualEvent stripes = RuntimeEvent(0, 0, Blue, "Linear", 10) with
+        {
+            StartFloor = 1,
+            EndFloor = 4,
+            SecondaryColor = Pack(Green),
+            VisualFlags = TrackVisualResolver.FlagEnabled | 1u
+        };
         int[] floors = [1, 2, 3, 4];
         foreach (int floor in floors)
         {
             Vector3 target = ((floor - resolvedStart) & 1) == 0 ? Blue : Green;
-            AssertColor(target, CurrentRendererFacingColor(floor),
+            AssertColor(target, CurrentRendererFacingColor(floor, 0, nativeEvents: [stripes]),
                 $"floor={floor} resolvedStart={resolvedStart} expected={Format(target)} " +
-                $"actual={Format(CurrentRendererFacingColor(floor))}");
+                $"actual={Format(CurrentRendererFacingColor(floor, 0, nativeEvents: [stripes]))}");
         }
     }
 
@@ -159,9 +167,15 @@ internal static class RecolorTrackRuntimeSemanticsRegression
 
         foreach (int floor in selected)
         {
-            AssertColor(Blue, CurrentRendererFacingColor(floor),
+            NativeTrackVisualEvent runtime = RuntimeEvent(0, 0, Blue, "Linear", 11) with
+            {
+                StartFloor = Math.Min(start, end),
+                EndFloor = Math.Max(start, end),
+                GapLength = checked((uint)gap)
+            };
+            AssertColor(Blue, CurrentRendererFacingColor(floor, 0, nativeEvents: [runtime]),
                 $"selected floor {floor} remained unchanged; expected={Format(Blue)} " +
-                $"actual={Format(CurrentRendererFacingColor(floor))}");
+                $"actual={Format(CurrentRendererFacingColor(floor, 0, nativeEvents: [runtime]))}");
         }
     }
 
@@ -199,7 +213,7 @@ internal static class RecolorTrackRuntimeSemanticsRegression
     {
         SpecEvent inactive = Event(0, 0, Blue, "Linear", 22) with { Active = false };
         AssertColor(Red, EvaluateReference(Red, [inactive], 10), "inactive event changed reference state");
-        AssertColor(Red, CurrentRendererFacingColor(0), "inactive event changed renderer-facing base");
+        AssertColor(Red, CurrentRendererFacingColor(0, 10), "inactive event changed renderer-facing base");
     }
 
     private static void VerifySameTimeOrdering()
@@ -211,8 +225,8 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         ];
         Vector3 expected = EvaluateReference(Red, events, 10);
         AssertColor(Green, expected, "same-time reference did not preserve source ordering");
-        AssertColor(expected, CurrentRendererFacingColor(0),
-            $"same-time final expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0))}");
+        AssertColor(expected, CurrentRendererFacingColor(0, 10, events),
+            $"same-time final expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0, 10, events))}");
     }
 
     private static void VerifyPayload()
@@ -260,6 +274,16 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         {
             throw new InvalidOperationException("runtime payload lost a required visual/timing field");
         }
+
+        NativeTrackVisualEvent native = TrackVisualTimelineBuilder.Build(level).Single();
+        if (native.SourceIndex != 40 || native.StartFloor != 1 || native.EndFloor != 6 ||
+            native.GapLength != 2 || native.Ease != NativeCameraEvent.EaseInOutQuad ||
+            Math.Abs(native.StartTime - occurrence.StartTime) > 1e-9 ||
+            Math.Abs(native.TransitionDuration - occurrence.DurationSeconds.Value) > 1e-9 ||
+            Math.Abs(native.AnimDuration - 1.75f) > 0.0001f || native.PulseLength != 7u)
+        {
+            throw new InvalidOperationException("managed native timeline builder lost required payload fields");
+        }
     }
 
     private static void VerifyPitchAndBpm()
@@ -290,7 +314,7 @@ internal static class RecolorTrackRuntimeSemanticsRegression
     private static void AssertActualMatchesReference(double time, SpecEvent[] events, string phase)
     {
         Vector3 expected = EvaluateReference(Red, events, time);
-        Vector3 actual = CurrentRendererFacingColor(0);
+        Vector3 actual = CurrentRendererFacingColor(0, time, events);
         AssertColor(expected, actual,
             $"{phase} t={time} expected={Format(expected)} actual={Format(actual)}");
     }
@@ -299,8 +323,8 @@ internal static class RecolorTrackRuntimeSemanticsRegression
     {
         Vector3 reference = EvaluateReference(Red, events, time);
         AssertColor(expected, reference, $"invalid overlap reference for {phase}");
-        AssertColor(expected, CurrentRendererFacingColor(0),
-            $"{phase} expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0))}");
+        AssertColor(expected, CurrentRendererFacingColor(0, time, events),
+            $"{phase} expected={Format(expected)} actual={Format(CurrentRendererFacingColor(0, time, events))}");
     }
 
     private static Vector3 EvaluateReference(Vector3 initial, IEnumerable<SpecEvent> source, double time)
@@ -340,7 +364,11 @@ internal static class RecolorTrackRuntimeSemanticsRegression
         return Vector3.Lerp(tween.Start, tween.Target, progress);
     }
 
-    private static Vector3 CurrentRendererFacingColor(int floor)
+    private static Vector3 CurrentRendererFacingColor(
+        int floor,
+        double chartTime = 0,
+        SpecEvent[]? events = null,
+        NativeTrackVisualEvent[]? nativeEvents = null)
     {
         LevelDocument level = LevelDocument.CreateSynthetic(8);
         level.ReplaceActions([new LevelAction(0, "RecolorTrack", true, null, null, null, null)
@@ -356,11 +384,53 @@ internal static class RecolorTrackRuntimeSemanticsRegression
                 "None", 4, "Standard", 100, string.Empty, 1, false, 0,
                 new TrackTileReference(0, "Start"), new TrackTileReference(7, "Start"))]));
         NativeTrackVisual visual = TrackVisualResolver.Resolve(level)[floor];
+        NativeTrackVisualEvent[] runtime = nativeEvents ?? (events ?? [])
+            .Where(static item => item.Active)
+            .Select(item => RuntimeEvent(
+                item.StartTime, item.DurationSeconds, item.Target, item.Ease, item.SourceIndex))
+            .ToArray();
+        visual = TrackVisualRuntimeEvaluator.Evaluate(visual, runtime, floor, chartTime);
         return new Vector3(
             (visual.PrimaryColor & 0xffu) / 255f,
             ((visual.PrimaryColor >> 8) & 0xffu) / 255f,
             ((visual.PrimaryColor >> 16) & 0xffu) / 255f);
     }
+
+    private static NativeTrackVisualEvent RuntimeEvent(
+        double start,
+        double duration,
+        Vector3 target,
+        string ease,
+        int sourceIndex) => new()
+        {
+            StartTime = start,
+            TransitionDuration = duration,
+            StartFloor = 0,
+            EndFloor = 7,
+            PrimaryColor = Pack(target),
+            SecondaryColor = Pack(target),
+            VisualFlags = TrackVisualResolver.FlagEnabled,
+            AnimDuration = 2,
+            GlowIntensity = 1,
+            PulseLength = 4,
+            Ease = ease switch
+            {
+                "InSine" => NativeCameraEvent.EaseInSine,
+                "OutSine" => NativeCameraEvent.EaseOutSine,
+                "InOutSine" => NativeCameraEvent.EaseInOutSine,
+                "InQuad" => NativeCameraEvent.EaseInQuad,
+                "OutQuad" => NativeCameraEvent.EaseOutQuad,
+                "InOutQuad" => NativeCameraEvent.EaseInOutQuad,
+                _ => NativeCameraEvent.EaseLinear
+            },
+            SourceIndex = sourceIndex
+        };
+
+    private static uint Pack(Vector3 color) =>
+        checked((uint)MathF.Round(color.X * 255f)) |
+        (checked((uint)MathF.Round(color.Y * 255f)) << 8) |
+        (checked((uint)MathF.Round(color.Z * 255f)) << 16) |
+        0xff000000u;
 
     private static SpecEvent Event(double start, double duration, Vector3 target, string ease, int sourceIndex) =>
         new(start, duration, target, ease, sourceIndex, true);

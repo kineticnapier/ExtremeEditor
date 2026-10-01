@@ -1,6 +1,6 @@
 namespace ExtremeEditor.Core;
 
-internal static class DotweenEaseEvaluator
+public static class DotweenEaseEvaluator
 {
     private enum SupportedEase : byte
     {

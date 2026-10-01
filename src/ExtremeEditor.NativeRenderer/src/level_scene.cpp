@@ -62,6 +62,7 @@ std::shared_ptr<LevelScene> LevelScene::Create(
     const auto cells_finished = std::chrono::steady_clock::now();
     const auto transform_base_started = std::chrono::steady_clock::now();
     scene->track_transforms_.ResetBase(scene->floors);
+    scene->track_visuals_.ResetBase(scene->floors);
     const auto finished = std::chrono::steady_clock::now();
     if (NativeUploadDiagnosticsEnabled())
     {
@@ -215,6 +216,14 @@ bool LevelScene::SetTrackTransformTimeline(
     return accepted;
 }
 
+bool LevelScene::SetTrackVisualTimeline(
+    const EeTrackVisualEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    return track_visuals_.SetTimeline(events, event_count);
+}
+
 void LevelScene::SetTrackPlaybackAnchor(
     double chart_time,
     double chart_rate,
@@ -243,6 +252,7 @@ void LevelScene::SetTrackPlaybackAnchor(
     }
 
     track_transforms_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
+    track_visuals_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
 
     if (active)
     {
@@ -274,6 +284,12 @@ void LevelScene::UpdateTrackTransforms() noexcept
         std::lock_guard lock(transform_metrics_mutex_);
         last_track_transform_metrics_ = metrics;
     }
+}
+
+void LevelScene::UpdateTrackVisuals() noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    track_visuals_.Update(floors);
 }
 
 void LevelScene::EvaluateVisibleTrackVisuals(

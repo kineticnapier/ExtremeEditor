@@ -16,8 +16,21 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 18u)
+        if (version != 19u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
+
+        Type trackVisualEvent = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackVisualEvent")
+            ?? throw new InvalidOperationException("NativeTrackVisualEvent is missing.");
+        foreach (string name in new[]
+                 {
+                     "StartTime", "TransitionDuration", "StartFloor", "EndFloor", "GapLength",
+                     "PrimaryColor", "SecondaryColor", "VisualFlags", "AnimDuration",
+                     "GlowIntensity", "PulseLength", "Ease", "SourceIndex"
+                 })
+        {
+            if (trackVisualEvent.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is null)
+                throw new InvalidOperationException($"Native track-visual ABI is missing {name}.");
+        }
 
         Type staticDecoration = assembly.GetType("ExtremeEditor.Wpf.Native.NativeStaticDecoration")
             ?? throw new InvalidOperationException("NativeStaticDecoration is missing.");

@@ -27,6 +27,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/level_scene.cpp
     src/level_scene_decorations.cpp
     src/track_transform_runtime.cpp
+    src/track_visual_runtime.cpp
 )
 
 target_compile_features(ExtremeEditor.NativeRenderer PRIVATE cxx_std_20)
@@ -207,10 +208,23 @@ add_executable(track_transform_anchor_jitter_scaling_tests
     tests/track_transform_anchor_jitter_scaling_tests.cpp
     src/level_scene.cpp
     src/track_transform_runtime.cpp
+    src/track_visual_runtime.cpp
 )
 
 add_executable(track_visual_compatibility_tests
     tests/track_visual_compatibility_tests.cpp
+)
+
+add_executable(track_visual_runtime_tests
+    tests/track_visual_runtime_tests.cpp
+    src/track_visual_runtime.cpp
+)
+
+target_compile_features(track_visual_runtime_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_visual_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(track_visual_runtime_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(track_visual_compatibility_tests PRIVATE cxx_std_20)
@@ -241,3 +255,4 @@ add_test(NAME track_transform_update_scaling_tests COMMAND track_transform_updat
 add_test(NAME track_transform_finished_scaling_tests COMMAND track_transform_finished_scaling_tests)
 add_test(NAME track_transform_anchor_jitter_scaling_tests COMMAND track_transform_anchor_jitter_scaling_tests)
 add_test(NAME track_visual_compatibility_tests COMMAND track_visual_compatibility_tests)
+add_test(NAME track_visual_runtime_tests COMMAND track_visual_runtime_tests)

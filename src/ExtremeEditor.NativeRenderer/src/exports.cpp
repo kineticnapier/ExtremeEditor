@@ -29,6 +29,7 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->sprite_metadata_size = sizeof(EeSpriteMetadata);
     info->static_decoration_size = sizeof(EeStaticDecoration);
     info->floor_icon_state_size = sizeof(EeFloorIconState);
+    info->track_visual_event_size = sizeof(EeTrackVisualEvent);
     return EE_OK;
 }
 
@@ -332,6 +333,18 @@ EeResult ee_renderer_set_track_transform_timeline(
     return static_cast<ee::Renderer*>(renderer)->SetTrackTransformTimeline(events, event_count)
         ? EE_OK
         : EE_ERROR_INITIALIZATION;
+}
+
+EeResult ee_renderer_set_track_visual_timeline(
+    EeRendererHandle renderer,
+    const EeTrackVisualEvent* events,
+    std::uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0u && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->SetTrackVisualTimeline(events, event_count)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
 }
 
 void ee_renderer_set_playback_anchor(

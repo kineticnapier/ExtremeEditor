@@ -788,7 +788,10 @@ void Renderer::RenderLoop() noexcept
             // consumers (track drawing, planets, Follow Player) see the same
             // transformed floor positions for this frame.
             if (scene != nullptr)
+            {
                 scene->UpdateTrackTransforms();
+                scene->UpdateTrackVisuals();
+            }
 
             PlaybackVisualState playback;
             if (playback_active)

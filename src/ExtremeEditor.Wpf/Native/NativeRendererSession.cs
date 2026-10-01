@@ -22,7 +22,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 18;
+    private const uint ExpectedApiVersion = 19;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -89,6 +89,11 @@ internal sealed class NativeRendererSession : IDisposable
         if (abiInfo.TrackTransformEventSize != managedTrackTransformEventSize)
             throw new InvalidOperationException(
                 $"Native track-transform ABI mismatch. Managed {managedTrackTransformEventSize}, native {abiInfo.TrackTransformEventSize}.");
+
+        uint managedTrackVisualEventSize = checked((uint)Marshal.SizeOf<NativeTrackVisualEvent>());
+        if (abiInfo.TrackVisualEventSize != managedTrackVisualEventSize)
+            throw new InvalidOperationException(
+                $"Native track-visual ABI mismatch. Managed {managedTrackVisualEventSize}, native {abiInfo.TrackVisualEventSize}.");
 
         uint managedCameraEventSize = checked((uint)Marshal.SizeOf<NativeCameraEvent>());
         if (abiInfo.CameraEventSize != managedCameraEventSize)
@@ -384,6 +389,34 @@ internal sealed class NativeRendererSession : IDisposable
                 checked((uint)events.Length));
             if (result != 0)
                 throw new InvalidOperationException($"Native track-transform timeline upload failed with result {result}.");
+        }
+        finally
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+    }
+
+    internal void SetTrackVisualTimeline(NativeTrackVisualEvent[] events)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        if (_renderer == nint.Zero)
+            throw new ObjectDisposedException(nameof(NativeRendererSession));
+
+        GCHandle handle = default;
+        try
+        {
+            nint pointer = nint.Zero;
+            if (events.Length > 0)
+            {
+                handle = GCHandle.Alloc(events, GCHandleType.Pinned);
+                pointer = handle.AddrOfPinnedObject();
+            }
+
+            int result = NativeRendererNative.SetTrackVisualTimeline(
+                _renderer, pointer, checked((uint)events.Length));
+            if (result != 0)
+                throw new InvalidOperationException($"Native track-visual timeline upload failed with result {result}.");
         }
         finally
         {

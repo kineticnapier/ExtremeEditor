@@ -16,6 +16,7 @@ internal struct NativeAbiInfo
     public uint SpriteMetadataSize;
     public uint StaticDecorationSize;
     public uint FloorIconStateSize;
+    public uint TrackVisualEventSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -242,6 +243,25 @@ internal struct NativeTrackTransformEvent
     public float StartOpacity;
     public float TargetOpacity;
     public uint Ease;
+    public uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeTrackVisualEvent
+{
+    public double StartTime;
+    public double TransitionDuration;
+    public int StartFloor;
+    public int EndFloor;
+    public uint GapLength;
+    public uint PrimaryColor;
+    public uint SecondaryColor;
+    public uint VisualFlags;
+    public float AnimDuration;
+    public float GlowIntensity;
+    public uint PulseLength;
+    public uint Ease;
+    public int SourceIndex;
     public uint Reserved;
 }
 

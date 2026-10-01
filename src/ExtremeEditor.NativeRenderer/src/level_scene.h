@@ -3,6 +3,7 @@
 #include "decoration_assets.h"
 #include "extreme_editor_renderer.h"
 #include "track_transform_runtime.h"
+#include "track_visual_runtime.h"
 
 #include <chrono>
 #include <atomic>
@@ -49,8 +50,10 @@ struct LevelScene
         float bottom,
         std::vector<std::uint32_t>& output) const;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
+    bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void UpdateTrackTransforms() noexcept;
+    void UpdateTrackVisuals() noexcept;
     void EvaluateVisibleTrackVisuals(const std::vector<std::uint32_t>& visible_floors) noexcept;
     TrackTransformUpdateMetrics TrackTransformMetrics() const noexcept;
 
@@ -85,6 +88,7 @@ private:
     static std::int64_t Key(int x, int y) noexcept;
 
     TrackTransformRuntime track_transforms_;
+    TrackVisualRuntime track_visuals_;
     mutable std::mutex transform_mutex_;
     mutable std::mutex transform_metrics_mutex_;
     TrackTransformUpdateMetrics last_track_transform_metrics_{};

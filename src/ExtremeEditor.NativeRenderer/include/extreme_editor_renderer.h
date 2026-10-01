@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 18u
+#define EE_RENDERER_API_VERSION 19u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -139,6 +139,7 @@ typedef struct EeAbiInfo
     uint32_t sprite_metadata_size;
     uint32_t static_decoration_size;
     uint32_t floor_icon_state_size;
+    uint32_t track_visual_event_size;
 } EeAbiInfo;
 
 typedef struct EeSpriteMetadata
@@ -287,6 +288,24 @@ typedef struct EeTrackTransformEvent
     uint32_t reserved;
 } EeTrackTransformEvent;
 
+typedef struct EeTrackVisualEvent
+{
+    double start_time;
+    double transition_duration;
+    int32_t start_floor;
+    int32_t end_floor;
+    uint32_t gap_length;
+    uint32_t primary_color;
+    uint32_t secondary_color;
+    uint32_t visual_flags;
+    float anim_duration;
+    float glow_intensity;
+    uint32_t pulse_length;
+    uint32_t ease;
+    int32_t source_index;
+    uint32_t reserved;
+} EeTrackVisualEvent;
+
 typedef struct EeRendererDiagnostics
 {
     uint32_t struct_size;
@@ -394,6 +413,10 @@ EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(
     EeRendererHandle renderer,
     const EeTrackTransformEvent* events,
+    uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(
+    EeRendererHandle renderer,
+    const EeTrackVisualEvent* events,
     uint32_t event_count);
 EE_RENDERER_API void ee_renderer_set_playback_anchor(
     EeRendererHandle renderer,

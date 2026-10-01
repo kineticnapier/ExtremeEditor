@@ -72,6 +72,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     private NativePlaybackTiming[] _playbackTimeline = [];
     private NativeCameraEvent[] _cameraTimeline = [];
     private NativeTrackTransformEvent[] _trackTransformTimeline = [];
+    private NativeTrackVisualEvent[] _trackVisualTimeline = [];
     private int[] _selectedFloors = [];
     private int _primarySelection = -1;
     private bool _frameAllPending;
@@ -115,6 +116,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             _primarySelection = -1;
             _cameraTimeline = [];
             _trackTransformTimeline = [];
+            _trackVisualTimeline = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
     }
@@ -181,6 +183,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             _cameraTimeline = [];
             _trackTransformTimeline = [];
+            _trackVisualTimeline = [];
         }
         else
         {
@@ -191,6 +194,7 @@ public sealed partial class NativeLevelViewport : HwndHost
                 _level,
                 timingMap,
                 staticTransforms);
+            _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
         }
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
@@ -199,6 +203,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
+        UploadPendingTrackVisualTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
             buildTime,
@@ -262,6 +267,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
+        UploadPendingTrackVisualTimeline();
         watch.Stop();
         LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
         {
@@ -411,6 +417,13 @@ public sealed partial class NativeLevelViewport : HwndHost
             return;
 
         _session.SetTrackTransformTimeline(_trackTransformTimeline);
+    }
+
+    private void UploadPendingTrackVisualTimeline()
+    {
+        if (_session is null)
+            return;
+        _session.SetTrackVisualTimeline(_trackVisualTimeline);
     }
 
     private void ResizeNativeChild()

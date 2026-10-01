@@ -60,8 +60,21 @@ public static class VfxTimelineBuilder
     public static VfxTimeline Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
-
         TimingMap timing = TimingMapBuilder.Build(level);
+        return Build(level, timing);
+    }
+
+    public static VfxTimeline Build(LevelDocument level, TimingMap timing)
+        => Build(level, timing, static _ => true);
+
+    public static VfxTimeline Build(
+        LevelDocument level,
+        TimingMap timing,
+        Func<LevelAction, bool> includeEvent)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timing);
+        ArgumentNullException.ThrowIfNull(includeEvent);
         double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
         double[] entryBeats = BuildEntryBeats(timing);
         var occurrences = new List<VfxOccurrence>();
@@ -88,7 +101,8 @@ public static class VfxTimelineBuilder
                 continue;
             }
 
-            sourceActions.Add(action);
+            if (includeEvent(action))
+                sourceActions.Add(action);
         }
 
         var usedRepeats = new HashSet<VfxRepeatDescriptor>();

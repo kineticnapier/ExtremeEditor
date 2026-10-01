@@ -15,6 +15,14 @@ bool Renderer::SetTrackTransformTimeline(
     return scene_->SetTrackTransformTimeline(events, event_count);
 }
 
+bool Renderer::SetTrackVisualTimeline(
+    const EeTrackVisualEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    return scene_ != nullptr && scene_->SetTrackVisualTimeline(events, event_count);
+}
+
 void Renderer::SetTrackPlaybackAnchor(
     double chart_time,
     double chart_rate,
