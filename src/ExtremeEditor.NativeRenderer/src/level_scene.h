@@ -2,6 +2,7 @@
 
 #include "decoration_assets.h"
 #include "extreme_editor_renderer.h"
+#include "track_animation_runtime.h"
 #include "track_transform_runtime.h"
 #include "track_visual_runtime.h"
 
@@ -51,11 +52,17 @@ struct LevelScene
         std::vector<std::uint32_t>& output) const;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
+    bool SetTrackAnimationTimeline(
+        const EeTrackAnimationSegment* segments,
+        std::uint32_t segment_count,
+        const EeTrackAnimationTiming* timings,
+        std::uint32_t timing_count) noexcept;
     void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void UpdateTrackTransforms() noexcept;
     void UpdateTrackVisuals() noexcept;
     void EvaluateVisibleTrackVisuals(const std::vector<std::uint32_t>& visible_floors) noexcept;
     TrackTransformUpdateMetrics TrackTransformMetrics() const noexcept;
+    TrackAnimationFloorState TrackAnimationState(std::uint32_t floor) const noexcept;
 
     bool SetStaticDecorations(const EeStaticDecoration* decorations, std::uint32_t decoration_count) noexcept;
     void ClearDecorationAssets() noexcept;
@@ -89,6 +96,7 @@ private:
 
     TrackTransformRuntime track_transforms_;
     TrackVisualRuntime track_visuals_;
+    TrackAnimationRuntime track_animations_;
     mutable std::mutex transform_mutex_;
     mutable std::mutex transform_metrics_mutex_;
     TrackTransformUpdateMetrics last_track_transform_metrics_{};
