@@ -13,6 +13,8 @@ internal readonly record struct PreparedNativePlayback(
     NativeCameraEvent[] CameraTimeline,
     NativeTrackTransformEvent[] TrackTransformTimeline,
     NativeTrackVisualEvent[] TrackVisualTimeline,
+    NativeTrackAnimationSegment[] TrackAnimationTimeline,
+    NativeTrackAnimationTiming[] TrackAnimationTimings,
     TimeSpan BuildTime);
 
 public sealed partial class NativeLevelViewport
@@ -62,6 +64,8 @@ public sealed partial class NativeLevelViewport
             timingMap,
             staticTransforms);
         NativeTrackVisualEvent[] trackVisualTimeline = TrackVisualTimelineBuilder.Build(level, timingMap);
+        (NativeTrackAnimationSegment[] trackAnimationTimeline, NativeTrackAnimationTiming[] trackAnimationTimings) =
+            TrackAnimationTimelineBuilder.Build(level, timingMap);
         watch.Stop();
 
         return new PreparedNativePlayback(
@@ -69,6 +73,8 @@ public sealed partial class NativeLevelViewport
             cameraTimeline,
             trackTransformTimeline,
             trackVisualTimeline,
+            trackAnimationTimeline,
+            trackAnimationTimings,
             watch.Elapsed);
     }
 
@@ -86,6 +92,8 @@ public sealed partial class NativeLevelViewport
             _cameraTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
+            _trackAnimationTimeline = [];
+            _trackAnimationTimings = [];
         }
 
         var uploadWatch = Stopwatch.StartNew();
@@ -114,12 +122,15 @@ public sealed partial class NativeLevelViewport
         _cameraTimeline = prepared.CameraTimeline;
         _trackTransformTimeline = prepared.TrackTransformTimeline;
         _trackVisualTimeline = prepared.TrackVisualTimeline;
+        _trackAnimationTimeline = prepared.TrackAnimationTimeline;
+        _trackAnimationTimings = prepared.TrackAnimationTimings;
 
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
+        UploadPendingTrackAnimationTimeline();
         watch.Stop();
 
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
