@@ -47,11 +47,6 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 
 public sealed partial class NativeLevelViewport : HwndHost
 {
-    // Native playback originally used a fixed 56 px/world baseline. That is
-    // exactly ADOFAI's orthographic camera only for a 560 px-high viewport:
-    // orthographicSize = 5 * zoomSize, so px/world = H / (10 * zoomSize).
-    // Keep the native ABI untouched and compensate its zoom multiplier against
-    // this reference height before upload.
     private const float PlaybackReferenceHeight = 560f;
 
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
@@ -97,7 +92,6 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             if (_followPlayer == value)
                 return;
-
             _followPlayer = value;
             _session?.SetFollowPlayer(value);
         }
@@ -117,6 +111,8 @@ public sealed partial class NativeLevelViewport : HwndHost
             _cameraTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
+            _trackAnimationTimeline = [];
+            _trackAnimationTimings = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
     }
@@ -126,9 +122,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         ArgumentNullException.ThrowIfNull(level);
         if (_snapshot is null ||
             !FloorIconResolver.TryResolveFrom(level, _snapshot, startFloor, out FloorIconSuffixResolution resolved))
-        {
             return false;
-        }
 
         if (_session is not null && !_session.UpdateFloorIcons(startFloor, resolved.States))
             return false;
@@ -184,17 +178,17 @@ public sealed partial class NativeLevelViewport : HwndHost
             _cameraTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
+            _trackAnimationTimeline = [];
+            _trackAnimationTimings = [];
         }
         else
         {
             _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
             NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
             StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
-            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
-                _level,
-                timingMap,
-                staticTransforms);
+            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(_level, timingMap, staticTransforms);
             _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
+            (_trackAnimationTimeline, _trackAnimationTimings) = TrackAnimationTimelineBuilder.Build(_level, timingMap);
         }
         watch.Stop();
         TimeSpan buildTime = watch.Elapsed;
@@ -204,10 +198,9 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
+        UploadPendingTrackAnimationTimeline();
         watch.Stop();
-        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
-            buildTime,
-            watch.Elapsed);
+        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(buildTime, watch.Elapsed);
     }
 
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
@@ -226,7 +219,6 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (_session is not null)
             return _session.TryGetDiagnostics(out diagnostics);
-
         diagnostics = default;
         return false;
     }
@@ -238,7 +230,6 @@ public sealed partial class NativeLevelViewport : HwndHost
             _frameAllPending = true;
             return;
         }
-
         _session.FrameAll();
         _frameAllPending = false;
     }
@@ -247,7 +238,6 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (_snapshot is null || (uint)floor >= (uint)_snapshot.Floors.Length)
             return;
-
         NativeFloor target = _snapshot.Floors[floor];
         _session?.CenterAt(target.X, target.Y);
     }
@@ -268,11 +258,9 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingCameraTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
+        UploadPendingTrackAnimationTimeline();
         watch.Stop();
-        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
-        {
-            NativeUpload = watch.Elapsed
-        };
+        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with { NativeUpload = watch.Elapsed };
 
         if (_frameAllPending)
         {
@@ -296,8 +284,6 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     private void NativeSelectionChanged(int floor, uint nativeModifiers)
     {
-        // The native child HWND owns mouse input. Carry the modifier snapshot from
-        // WM_LBUTTONDOWN itself rather than asking WPF for state after the callback.
         ModifierKeys modifiers = ToModifierKeys(nativeModifiers);
         void RaiseSelection()
         {
@@ -316,7 +302,6 @@ public sealed partial class NativeLevelViewport : HwndHost
     private void NativeEditorActionRequested(NativeEditorActionRequest request)
     {
         void RaiseAction() => RaiseEvent(new NativeEditorActionRequestedEventArgs(EditorActionRequestedEvent, request));
-
         if (Dispatcher.CheckAccess())
             RaiseAction();
         else
@@ -327,7 +312,6 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (_followPlayer == enabled)
             return;
-
         _followPlayer = enabled;
         FollowPlayerChanged?.Invoke(enabled);
     }
@@ -373,19 +357,14 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (_snapshot?.DecorationPlayback is not NativeDecorationPlaybackRuntime playback ||
             !playback.Update(chartTime))
-        {
             return;
-        }
-
         _session?.SetStaticDecorations(_snapshot.StaticDecorations);
     }
 
     private void UploadPendingPlaybackTimeline()
     {
-        if (_session is null)
-            return;
-
-        _session.SetPlaybackTimeline(_playbackTimeline);
+        if (_session is not null)
+            _session.SetPlaybackTimeline(_playbackTimeline);
     }
 
     private void UploadPendingCameraTimeline()
@@ -413,39 +392,29 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     private void UploadPendingTrackTransformTimeline()
     {
-        if (_session is null)
-            return;
-
-        _session.SetTrackTransformTimeline(_trackTransformTimeline);
+        if (_session is not null)
+            _session.SetTrackTransformTimeline(_trackTransformTimeline);
     }
 
     private void UploadPendingTrackVisualTimeline()
     {
-        if (_session is null)
-            return;
-        _session.SetTrackVisualTimeline(_trackVisualTimeline);
+        if (_session is not null)
+            _session.SetTrackVisualTimeline(_trackVisualTimeline);
     }
 
     private void ResizeNativeChild()
     {
         _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
-        // Playback zoom depends on viewport height in the original orthographic
-        // camera, so a resize must update the zoom factor even though the level
-        // and MoveCamera timeline itself did not change.
         UploadPendingCameraTimeline();
     }
 
     private static ModifierKeys ToModifierKeys(uint nativeModifiers)
     {
         ModifierKeys result = ModifierKeys.None;
-        if ((nativeModifiers & NativeRendererNative.InputModifierShift) != 0)
-            result |= ModifierKeys.Shift;
-        if ((nativeModifiers & NativeRendererNative.InputModifierControl) != 0)
-            result |= ModifierKeys.Control;
-        if ((nativeModifiers & NativeRendererNative.InputModifierAlt) != 0)
-            result |= ModifierKeys.Alt;
-        if ((nativeModifiers & NativeRendererNative.InputModifierWindows) != 0)
-            result |= ModifierKeys.Windows;
+        if ((nativeModifiers & NativeRendererNative.InputModifierShift) != 0) result |= ModifierKeys.Shift;
+        if ((nativeModifiers & NativeRendererNative.InputModifierControl) != 0) result |= ModifierKeys.Control;
+        if ((nativeModifiers & NativeRendererNative.InputModifierAlt) != 0) result |= ModifierKeys.Alt;
+        if ((nativeModifiers & NativeRendererNative.InputModifierWindows) != 0) result |= ModifierKeys.Windows;
         return result;
     }
 
@@ -453,7 +422,6 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (!double.IsFinite(value) || value <= 0d)
             return 1u;
-
         return checked((uint)Math.Clamp(Math.Ceiling(value), 1d, uint.MaxValue));
     }
 }
