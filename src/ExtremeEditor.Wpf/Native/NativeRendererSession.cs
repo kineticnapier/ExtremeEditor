@@ -22,7 +22,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 19;
+    private const uint ExpectedApiVersion = 20;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -134,10 +134,8 @@ internal sealed class NativeRendererSession : IDisposable
 
     internal void Resize(uint width, uint height)
     {
-        if (_renderer == nint.Zero)
-            return;
-
-        NativeRendererNative.Resize(_renderer, Math.Max(1u, width), Math.Max(1u, height));
+        if (_renderer != nint.Zero)
+            NativeRendererNative.Resize(_renderer, Math.Max(1u, width), Math.Max(1u, height));
     }
 
     internal void SetLevel(NativeLevelSnapshot snapshot)
@@ -158,36 +156,24 @@ internal sealed class NativeRendererSession : IDisposable
             floorsHandle = GCHandle.Alloc(snapshot.Floors, GCHandleType.Pinned);
             geometriesHandle = GCHandle.Alloc(snapshot.Geometries, GCHandleType.Pinned);
             pointsHandle = GCHandle.Alloc(snapshot.Points, GCHandleType.Pinned);
-
             int result = NativeRendererNative.SetLevel(
                 _renderer,
-                floorsHandle.AddrOfPinnedObject(),
-                checked((uint)snapshot.Floors.Length),
-                geometriesHandle.AddrOfPinnedObject(),
-                checked((uint)snapshot.Geometries.Length),
-                pointsHandle.AddrOfPinnedObject(),
-                checked((uint)snapshot.Points.Length),
-                snapshot.BoundsLeft,
-                snapshot.BoundsTop,
-                snapshot.BoundsRight,
-                snapshot.BoundsBottom);
-
+                floorsHandle.AddrOfPinnedObject(), checked((uint)snapshot.Floors.Length),
+                geometriesHandle.AddrOfPinnedObject(), checked((uint)snapshot.Geometries.Length),
+                pointsHandle.AddrOfPinnedObject(), checked((uint)snapshot.Points.Length),
+                snapshot.BoundsLeft, snapshot.BoundsTop, snapshot.BoundsRight, snapshot.BoundsBottom);
             if (result != 0)
                 throw new InvalidOperationException($"Native level upload failed with result {result}.");
         }
         finally
         {
-            if (pointsHandle.IsAllocated)
-                pointsHandle.Free();
-            if (geometriesHandle.IsAllocated)
-                geometriesHandle.Free();
-            if (floorsHandle.IsAllocated)
-                floorsHandle.Free();
+            if (pointsHandle.IsAllocated) pointsHandle.Free();
+            if (geometriesHandle.IsAllocated) geometriesHandle.Free();
+            if (floorsHandle.IsAllocated) floorsHandle.Free();
         }
 
         phaseWatch.Stop();
         TimeSpan nativeLevelTime = phaseWatch.Elapsed;
-
         phaseWatch.Restart();
         SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
         phaseWatch.Stop();
@@ -202,7 +188,6 @@ internal sealed class NativeRendererSession : IDisposable
                 throw new InvalidOperationException(
                     $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
         }
-
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
 
@@ -213,12 +198,8 @@ internal sealed class NativeRendererSession : IDisposable
             NativeSpriteMetadata imageMetadata = asset.ImageMetadata;
             NativeSpriteMetadata outlineMetadata = asset.OutlineMetadata;
             int result = NativeRendererNative.SetIconAsset(
-                _renderer,
-                asset.Id,
-                asset.ImagePath,
-                asset.OutlinePath,
-                ref imageMetadata,
-                ref outlineMetadata);
+                _renderer, asset.Id, asset.ImagePath, asset.OutlinePath,
+                ref imageMetadata, ref outlineMetadata);
             if (result != 0)
                 throw new InvalidOperationException(
                     $"Native icon asset upload failed for {asset.ImagePath} with result {result}.");
@@ -240,41 +221,32 @@ internal sealed class NativeRendererSession : IDisposable
         }
     }
 
-    internal void SetStaticDecorations(
-        NativeStaticDecoration[] decorations,
-        bool logUpload = false)
+    internal void SetStaticDecorations(NativeStaticDecoration[] decorations, bool logUpload = false)
     {
         ArgumentNullException.ThrowIfNull(decorations);
         if (_renderer == nint.Zero)
             return;
 
         if (logUpload && DecorationDiagnostics.Enabled)
-        {
-            Console.WriteLine(
-                $"[decoration-diagnostic] setStaticDecorationsCount={decorations.Length}");
-        }
+            Console.WriteLine($"[decoration-diagnostic] setStaticDecorationsCount={decorations.Length}");
 
-        GCHandle decorationsHandle = default;
+        GCHandle handle = default;
         try
         {
-            nint decorationPointer = nint.Zero;
+            nint pointer = nint.Zero;
             if (decorations.Length > 0)
             {
-                decorationsHandle = GCHandle.Alloc(decorations, GCHandleType.Pinned);
-                decorationPointer = decorationsHandle.AddrOfPinnedObject();
+                handle = GCHandle.Alloc(decorations, GCHandleType.Pinned);
+                pointer = handle.AddrOfPinnedObject();
             }
-
             int result = NativeRendererNative.SetStaticDecorations(
-                _renderer,
-                decorationPointer,
-                checked((uint)decorations.Length));
+                _renderer, pointer, checked((uint)decorations.Length));
             if (result != 0)
                 throw new InvalidOperationException($"Native static-decoration upload failed with result {result}.");
         }
         finally
         {
-            if (decorationsHandle.IsAllocated)
-                decorationsHandle.Free();
+            if (handle.IsAllocated) handle.Free();
         }
     }
 
@@ -282,7 +254,6 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer == nint.Zero)
             return;
-
         floors ??= [];
         GCHandle handle = default;
         try
@@ -293,53 +264,72 @@ internal sealed class NativeRendererSession : IDisposable
                 handle = GCHandle.Alloc(floors, GCHandleType.Pinned);
                 pointer = handle.AddrOfPinnedObject();
             }
-
-            NativeRendererNative.SetSelection(
-                _renderer,
-                pointer,
-                checked((uint)floors.Length),
-                primaryFloor);
+            NativeRendererNative.SetSelection(_renderer, pointer, checked((uint)floors.Length), primaryFloor);
         }
         finally
         {
-            if (handle.IsAllocated)
-                handle.Free();
+            if (handle.IsAllocated) handle.Free();
         }
     }
 
-    internal void SetPlaybackTimeline(NativePlaybackTiming[] timings)
+    internal void SetPlaybackTimeline(NativePlaybackTiming[] timings) =>
+        UploadArray(timings, NativeRendererNative.SetPlaybackTimeline, "playback");
+
+    internal void SetCameraTimeline(NativeCameraEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetCameraTimeline, "camera");
+
+    internal void SetTrackTransformTimeline(NativeTrackTransformEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
+
+    internal void SetTrackVisualTimeline(NativeTrackVisualEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetTrackVisualTimeline, "track-visual");
+
+    internal void SetTrackAnimationTimeline(
+        NativeTrackAnimationSegment[] segments,
+        NativeTrackAnimationTiming[] timings)
     {
+        ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(timings);
         if (_renderer == nint.Zero)
             throw new ObjectDisposedException(nameof(NativeRendererSession));
 
-        GCHandle handle = default;
+        GCHandle segmentHandle = default;
+        GCHandle timingHandle = default;
         try
         {
-            nint pointer = nint.Zero;
+            nint segmentPointer = nint.Zero;
+            nint timingPointer = nint.Zero;
+            if (segments.Length > 0)
+            {
+                segmentHandle = GCHandle.Alloc(segments, GCHandleType.Pinned);
+                segmentPointer = segmentHandle.AddrOfPinnedObject();
+            }
             if (timings.Length > 0)
             {
-                handle = GCHandle.Alloc(timings, GCHandleType.Pinned);
-                pointer = handle.AddrOfPinnedObject();
+                timingHandle = GCHandle.Alloc(timings, GCHandleType.Pinned);
+                timingPointer = timingHandle.AddrOfPinnedObject();
             }
-
-            int result = NativeRendererNative.SetPlaybackTimeline(
+            int result = NativeRendererNative.SetTrackAnimationTimeline(
                 _renderer,
-                pointer,
+                segmentPointer,
+                checked((uint)segments.Length),
+                timingPointer,
                 checked((uint)timings.Length));
             if (result != 0)
-                throw new InvalidOperationException($"Native playback timeline upload failed with result {result}.");
+                throw new InvalidOperationException($"Native track-animation timeline upload failed with result {result}.");
         }
         finally
         {
-            if (handle.IsAllocated)
-                handle.Free();
+            if (timingHandle.IsAllocated) timingHandle.Free();
+            if (segmentHandle.IsAllocated) segmentHandle.Free();
         }
     }
 
-    internal void SetCameraTimeline(NativeCameraEvent[] events)
+    private delegate int NativeArraySetter(nint renderer, nint pointer, uint count);
+
+    private void UploadArray<T>(T[] values, NativeArraySetter setter, string label) where T : struct
     {
-        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(values);
         if (_renderer == nint.Zero)
             throw new ObjectDisposedException(nameof(NativeRendererSession));
 
@@ -347,81 +337,18 @@ internal sealed class NativeRendererSession : IDisposable
         try
         {
             nint pointer = nint.Zero;
-            if (events.Length > 0)
+            if (values.Length > 0)
             {
-                handle = GCHandle.Alloc(events, GCHandleType.Pinned);
+                handle = GCHandle.Alloc(values, GCHandleType.Pinned);
                 pointer = handle.AddrOfPinnedObject();
             }
-
-            int result = NativeRendererNative.SetCameraTimeline(
-                _renderer,
-                pointer,
-                checked((uint)events.Length));
+            int result = setter(_renderer, pointer, checked((uint)values.Length));
             if (result != 0)
-                throw new InvalidOperationException($"Native camera timeline upload failed with result {result}.");
+                throw new InvalidOperationException($"Native {label} timeline upload failed with result {result}.");
         }
         finally
         {
-            if (handle.IsAllocated)
-                handle.Free();
-        }
-    }
-
-    internal void SetTrackTransformTimeline(NativeTrackTransformEvent[] events)
-    {
-        ArgumentNullException.ThrowIfNull(events);
-        if (_renderer == nint.Zero)
-            throw new ObjectDisposedException(nameof(NativeRendererSession));
-
-        GCHandle handle = default;
-        try
-        {
-            nint pointer = nint.Zero;
-            if (events.Length > 0)
-            {
-                handle = GCHandle.Alloc(events, GCHandleType.Pinned);
-                pointer = handle.AddrOfPinnedObject();
-            }
-
-            int result = NativeRendererNative.SetTrackTransformTimeline(
-                _renderer,
-                pointer,
-                checked((uint)events.Length));
-            if (result != 0)
-                throw new InvalidOperationException($"Native track-transform timeline upload failed with result {result}.");
-        }
-        finally
-        {
-            if (handle.IsAllocated)
-                handle.Free();
-        }
-    }
-
-    internal void SetTrackVisualTimeline(NativeTrackVisualEvent[] events)
-    {
-        ArgumentNullException.ThrowIfNull(events);
-        if (_renderer == nint.Zero)
-            throw new ObjectDisposedException(nameof(NativeRendererSession));
-
-        GCHandle handle = default;
-        try
-        {
-            nint pointer = nint.Zero;
-            if (events.Length > 0)
-            {
-                handle = GCHandle.Alloc(events, GCHandleType.Pinned);
-                pointer = handle.AddrOfPinnedObject();
-            }
-
-            int result = NativeRendererNative.SetTrackVisualTimeline(
-                _renderer, pointer, checked((uint)events.Length));
-            if (result != 0)
-                throw new InvalidOperationException($"Native track-visual timeline upload failed with result {result}.");
-        }
-        finally
-        {
-            if (handle.IsAllocated)
-                handle.Free();
+            if (handle.IsAllocated) handle.Free();
         }
     }
 
@@ -429,13 +356,9 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer == nint.Zero)
             return;
-
         uint flags = 0u;
-        if (active)
-            flags |= NativeRendererNative.PlaybackFlagActive;
-        if (active && playing)
-            flags |= NativeRendererNative.PlaybackFlagPlaying;
-
+        if (active) flags |= NativeRendererNative.PlaybackFlagActive;
+        if (active && playing) flags |= NativeRendererNative.PlaybackFlagPlaying;
         NativeRendererNative.SetPlaybackAnchor(_renderer, chartTime, chartRate, flags);
         NativeRendererNative.SetTrackPlaybackAnchor(_renderer, chartTime, chartRate, flags);
     }
@@ -452,7 +375,6 @@ internal sealed class NativeRendererSession : IDisposable
         {
             StructSize = checked((uint)Marshal.SizeOf<NativeRendererDiagnostics>())
         };
-
         return _renderer != nint.Zero &&
                NativeRendererNative.GetDiagnostics(_renderer, ref diagnostics) == 0;
     }
@@ -467,21 +389,17 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer == nint.Zero || startFloor < 0 || states.Length == 0)
             return false;
-
         GCHandle handle = default;
         try
         {
             handle = GCHandle.Alloc(states, GCHandleType.Pinned);
             return NativeRendererNative.UpdateFloorIcons(
-                _renderer,
-                checked((uint)startFloor),
-                handle.AddrOfPinnedObject(),
+                _renderer, checked((uint)startFloor), handle.AddrOfPinnedObject(),
                 checked((uint)states.Length)) == 0;
         }
         finally
         {
-            if (handle.IsAllocated)
-                handle.Free();
+            if (handle.IsAllocated) handle.Free();
         }
     }
 
@@ -491,20 +409,14 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.CenterAt(_renderer, worldX, worldY);
     }
 
-    private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers)
-    {
+    private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers) =>
         SelectionChanged?.Invoke(floor, modifiers);
-    }
 
-    private void OnNativeFollowPlayerChanged(nint userData, int enabled)
-    {
+    private void OnNativeFollowPlayerChanged(nint userData, int enabled) =>
         FollowPlayerChanged?.Invoke(enabled != 0);
-    }
 
-    private void OnNativeEditorAction(nint userData, uint action, int floor, double value)
-    {
+    private void OnNativeEditorAction(nint userData, uint action, int floor, double value) =>
         EditorActionRequested?.Invoke(new NativeEditorActionRequest((NativeEditorAction)action, floor, value));
-    }
 
     public void Dispose()
     {
