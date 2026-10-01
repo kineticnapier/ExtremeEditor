@@ -23,6 +23,20 @@ bool Renderer::SetTrackVisualTimeline(
     return scene_ != nullptr && scene_->SetTrackVisualTimeline(events, event_count);
 }
 
+bool Renderer::SetTrackAnimationTimeline(
+    const EeTrackAnimationSegment* segments,
+    std::uint32_t segment_count,
+    const EeTrackAnimationTiming* timings,
+    std::uint32_t timing_count) noexcept
+{
+    if ((segment_count > 0u && segments == nullptr) ||
+        (timing_count > 0u && timings == nullptr))
+        return false;
+    std::lock_guard lock(scene_mutex_);
+    return scene_ != nullptr && scene_->SetTrackAnimationTimeline(
+        segments, segment_count, timings, timing_count);
+}
+
 void Renderer::SetTrackPlaybackAnchor(
     double chart_time,
     double chart_rate,
