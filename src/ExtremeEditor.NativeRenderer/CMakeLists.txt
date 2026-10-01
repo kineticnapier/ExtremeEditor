@@ -6,6 +6,7 @@ enable_testing()
 
 add_library(ExtremeEditor.NativeRenderer SHARED
     src/exports.cpp
+    src/exports_track_animation.cpp
     src/native_window.cpp
     src/renderer.cpp
     src/renderer_camera.cpp
@@ -26,6 +27,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/icon_instanced_renderer_camera.cpp
     src/level_scene.cpp
     src/level_scene_decorations.cpp
+    src/track_animation_runtime.cpp
     src/track_transform_runtime.cpp
     src/track_visual_runtime.cpp
 )
@@ -60,186 +62,87 @@ if(MSVC)
     target_compile_options(ExtremeEditor.NativeRenderer PRIVATE /W4 /permissive-)
 endif()
 
-add_executable(native_renderer_tests
-    tests/native_renderer_tests.cpp
-)
-
+add_executable(native_renderer_tests tests/native_renderer_tests.cpp)
 target_compile_features(native_renderer_tests PRIVATE cxx_std_20)
 target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(native_renderer_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
-add_executable(camera_runtime_reference_tests
-    tests/camera_runtime_reference_tests.cpp
-    src/renderer_camera.cpp
-)
-
+add_executable(camera_runtime_reference_tests tests/camera_runtime_reference_tests.cpp src/renderer_camera.cpp)
 target_compile_features(camera_runtime_reference_tests PRIVATE cxx_std_20)
 target_compile_definitions(camera_runtime_reference_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(camera_runtime_reference_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(camera_runtime_reference_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(camera_runtime_reference_tests PRIVATE user32 d3d11 d3dcompiler dxgi d2d1 dwrite windowscodecs ole32)
 
-target_link_libraries(camera_runtime_reference_tests PRIVATE
-    user32
-    d3d11
-    d3dcompiler
-    dxgi
-    d2d1
-    dwrite
-    windowscodecs
-    ole32
-)
-
-add_executable(camera_cull_transform_purity_tests
-    tests/camera_cull_transform_purity_tests.cpp
-)
-
-add_executable(static_decoration_transform_tests
-    tests/static_decoration_transform_tests.cpp
-)
-
-add_executable(decoration_scene_switch_cache_tests
-    tests/decoration_scene_switch_cache_tests.cpp
-)
-
-add_executable(decoration_mask_viewport_tests
-    tests/decoration_mask_viewport_tests.cpp
-    src/decoration_mask_effects.cpp
-)
+add_executable(camera_cull_transform_purity_tests tests/camera_cull_transform_purity_tests.cpp)
+add_executable(static_decoration_transform_tests tests/static_decoration_transform_tests.cpp)
+add_executable(decoration_scene_switch_cache_tests tests/decoration_scene_switch_cache_tests.cpp)
+add_executable(decoration_mask_viewport_tests tests/decoration_mask_viewport_tests.cpp src/decoration_mask_effects.cpp)
 
 target_compile_features(decoration_mask_viewport_tests PRIVATE cxx_std_20)
 target_compile_definitions(decoration_mask_viewport_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(decoration_mask_viewport_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-target_link_libraries(decoration_mask_viewport_tests PRIVATE
-    d3d11
-    dxgi
-    d2d1
-    ole32
-    dxguid
-)
+target_include_directories(decoration_mask_viewport_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(decoration_mask_viewport_tests PRIVATE d3d11 dxgi d2d1 ole32 dxguid)
 
 target_compile_features(decoration_scene_switch_cache_tests PRIVATE cxx_std_20)
-target_include_directories(decoration_scene_switch_cache_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
+target_include_directories(decoration_scene_switch_cache_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(static_decoration_transform_tests PRIVATE cxx_std_20)
-target_include_directories(static_decoration_transform_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
+target_include_directories(static_decoration_transform_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(camera_cull_transform_purity_tests PRIVATE cxx_std_20)
-target_compile_definitions(camera_cull_transform_purity_tests PRIVATE
-    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
+target_compile_definitions(camera_cull_transform_purity_tests PRIVATE EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(track_transform_phase_diagnostics_tests
-    tests/track_transform_phase_diagnostics_tests.cpp
-)
-
+add_executable(track_transform_phase_diagnostics_tests tests/track_transform_phase_diagnostics_tests.cpp)
 target_compile_features(track_transform_phase_diagnostics_tests PRIVATE cxx_std_20)
-target_compile_definitions(track_transform_phase_diagnostics_tests PRIVATE
-    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
+target_compile_definitions(track_transform_phase_diagnostics_tests PRIVATE EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(track_transform_visual_lazy_tests
-    tests/track_transform_visual_lazy_tests.cpp
-)
-
+add_executable(track_transform_visual_lazy_tests tests/track_transform_visual_lazy_tests.cpp)
 target_compile_features(track_transform_visual_lazy_tests PRIVATE cxx_std_20)
-target_compile_definitions(track_transform_visual_lazy_tests PRIVATE
-    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
+target_compile_definitions(track_transform_visual_lazy_tests PRIVATE EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(track_transform_visual_cull_tests
-    tests/track_transform_visual_cull_tests.cpp
-)
-
+add_executable(track_transform_visual_cull_tests tests/track_transform_visual_cull_tests.cpp)
 target_compile_features(track_transform_visual_cull_tests PRIVATE cxx_std_20)
-target_compile_definitions(track_transform_visual_cull_tests PRIVATE
-    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
+target_compile_definitions(track_transform_visual_cull_tests PRIVATE EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(track_transform_timeline_scaling_tests
-    tests/track_transform_timeline_scaling_tests.cpp
-    src/track_transform_runtime.cpp
-)
-
+add_executable(track_transform_timeline_scaling_tests tests/track_transform_timeline_scaling_tests.cpp src/track_transform_runtime.cpp)
 target_compile_features(track_transform_timeline_scaling_tests PRIVATE cxx_std_20)
 target_compile_definitions(track_transform_timeline_scaling_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(track_transform_timeline_scaling_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(track_transform_timeline_scaling_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(track_transform_update_scaling_tests
-    tests/track_transform_update_scaling_tests.cpp
-    src/track_transform_runtime.cpp
-)
-
+add_executable(track_transform_update_scaling_tests tests/track_transform_update_scaling_tests.cpp src/track_transform_runtime.cpp)
 target_compile_features(track_transform_update_scaling_tests PRIVATE cxx_std_20)
 target_compile_definitions(track_transform_update_scaling_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(track_transform_update_scaling_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(track_transform_update_scaling_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(track_transform_finished_scaling_tests
-    tests/track_transform_finished_scaling_tests.cpp
-    src/track_transform_runtime.cpp
-)
-
+add_executable(track_transform_finished_scaling_tests tests/track_transform_finished_scaling_tests.cpp src/track_transform_runtime.cpp)
 target_compile_features(track_transform_finished_scaling_tests PRIVATE cxx_std_20)
 target_compile_definitions(track_transform_finished_scaling_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(track_transform_finished_scaling_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(track_transform_finished_scaling_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_executable(track_transform_anchor_jitter_scaling_tests
     tests/track_transform_anchor_jitter_scaling_tests.cpp
     src/level_scene.cpp
+    src/track_animation_runtime.cpp
     src/track_transform_runtime.cpp
     src/track_visual_runtime.cpp
 )
-
-add_executable(track_visual_compatibility_tests
-    tests/track_visual_compatibility_tests.cpp
-)
-
-add_executable(track_visual_runtime_tests
-    tests/track_visual_runtime_tests.cpp
-    src/track_visual_runtime.cpp
-)
-
-target_compile_features(track_visual_runtime_tests PRIVATE cxx_std_20)
-target_compile_definitions(track_visual_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(track_visual_runtime_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-target_compile_features(track_visual_compatibility_tests PRIVATE cxx_std_20)
-target_compile_definitions(track_visual_compatibility_tests PRIVATE NOMINMAX)
-target_include_directories(track_visual_compatibility_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
 target_compile_features(track_transform_anchor_jitter_scaling_tests PRIVATE cxx_std_20)
 target_compile_definitions(track_transform_anchor_jitter_scaling_tests PRIVATE UNICODE _UNICODE NOMINMAX)
-target_include_directories(track_transform_anchor_jitter_scaling_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(track_transform_anchor_jitter_scaling_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(track_visual_compatibility_tests tests/track_visual_compatibility_tests.cpp)
+target_compile_features(track_visual_compatibility_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_visual_compatibility_tests PRIVATE NOMINMAX)
+target_include_directories(track_visual_compatibility_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(track_visual_runtime_tests tests/track_visual_runtime_tests.cpp src/track_visual_runtime.cpp)
+target_compile_features(track_visual_runtime_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_visual_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(track_visual_runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(track_animation_runtime_tests tests/track_animation_runtime_tests.cpp src/track_animation_runtime.cpp)
+target_compile_features(track_animation_runtime_tests PRIVATE cxx_std_20)
+target_compile_definitions(track_animation_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(track_animation_runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
@@ -256,3 +159,4 @@ add_test(NAME track_transform_finished_scaling_tests COMMAND track_transform_fin
 add_test(NAME track_transform_anchor_jitter_scaling_tests COMMAND track_transform_anchor_jitter_scaling_tests)
 add_test(NAME track_visual_compatibility_tests COMMAND track_visual_compatibility_tests)
 add_test(NAME track_visual_runtime_tests COMMAND track_visual_runtime_tests)
+add_test(NAME track_animation_runtime_tests COMMAND track_animation_runtime_tests)
