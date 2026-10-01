@@ -63,6 +63,7 @@ std::shared_ptr<LevelScene> LevelScene::Create(
     const auto transform_base_started = std::chrono::steady_clock::now();
     scene->track_transforms_.ResetBase(scene->floors);
     scene->track_visuals_.ResetBase(scene->floors);
+    scene->track_animations_.ResetBase(scene->floors);
     const auto finished = std::chrono::steady_clock::now();
     if (NativeUploadDiagnosticsEnabled())
     {
@@ -117,16 +118,12 @@ void LevelScene::Query(
                     const auto found = cells.find(Key(x, y));
                     if (found == cells.end())
                         continue;
-
                     output.insert(output.end(), found->second.begin(), found->second.end());
                 }
             }
         }
     }
 
-    // Center-based spatial culling is insufficient for a lazy visual-only scale:
-    // the floor center can remain outside the viewport while its transformed
-    // geometry reaches into it. Supplement with the conservative scale index.
     AppendVisualTransformCandidates(left, top, right, bottom, output);
     std::sort(output.begin(), output.end());
     output.erase(std::unique(output.begin(), output.end()), output.end());
@@ -147,16 +144,13 @@ void LevelScene::AppendVisualTransformCandidates(
     {
         if (floor >= floors.size() || floor >= visual_transform_cull_radius_.size())
             return;
-
         const float radius = visual_transform_cull_radius_[floor];
         if (!(radius > BaseCullMargin) || !std::isfinite(radius))
             return;
-
         const EeFloor& item = floors[floor];
         if (item.x + radius < left || item.x - radius > right ||
             item.y + radius < top || item.y - radius > bottom)
             return;
-
         output.push_back(floor);
     };
 
@@ -172,9 +166,6 @@ void LevelScene::AppendVisualTransformCandidates(
     const std::int64_t cells_wide = static_cast<std::int64_t>(max_x) - min_x + 1;
     const std::int64_t cells_high = static_cast<std::int64_t>(max_y) - min_y + 1;
 
-    // A deliberately enormous scale can make the expanded cell rectangle huge.
-    // Falling back to the compact list of scale-sensitive floors preserves
-    // correctness without walking millions of empty cells.
     if (cells_wide <= 0 || cells_high <= 0 || cells_wide * cells_high > 2000000)
     {
         for (const std::uint32_t floor : visual_transform_floors_)
@@ -189,7 +180,6 @@ void LevelScene::AppendVisualTransformCandidates(
             const auto found = visual_transform_cells_.find(Key(x, y));
             if (found == visual_transform_cells_.end())
                 continue;
-
             for (const std::uint32_t floor : found->second)
                 append_if_intersects(floor);
         }
@@ -224,6 +214,17 @@ bool LevelScene::SetTrackVisualTimeline(
     return track_visuals_.SetTimeline(events, event_count);
 }
 
+bool LevelScene::SetTrackAnimationTimeline(
+    const EeTrackAnimationSegment* segments,
+    std::uint32_t segment_count,
+    const EeTrackAnimationTiming* timings,
+    std::uint32_t timing_count) noexcept
+{
+    std::lock_guard lock(transform_mutex_);
+    track_animations_.ResetBase(floors);
+    return track_animations_.SetTimeline(segments, segment_count, timings, timing_count);
+}
+
 void LevelScene::SetTrackPlaybackAnchor(
     double chart_time,
     double chart_rate,
@@ -253,6 +254,7 @@ void LevelScene::SetTrackPlaybackAnchor(
 
     track_transforms_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
     track_visuals_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
+    track_animations_.SetPlaybackAnchor(safe_chart_time, safe_rate, flags);
 
     if (active)
     {
@@ -277,6 +279,7 @@ void LevelScene::UpdateTrackTransforms() noexcept
     {
         std::lock_guard lock(transform_mutex_);
         metrics = track_transforms_.Update(floors, cells);
+        track_animations_.Update(floors, cells);
     }
     metrics.total_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - total_started).count();
@@ -302,6 +305,10 @@ void LevelScene::EvaluateVisibleTrackVisuals(
             continue;
         track_transforms_.EvaluateVisualForFloor(floor, floors[floor]);
     }
+    // Visual-only MoveTrack evaluation happens lazily for visible floors. Reapply
+    // AnimateTrack afterwards so its combined Position/Scale and shared
+    // Rotation/Opacity channels compose against the final MoveTrack state.
+    track_animations_.Update(floors, cells);
 }
 
 TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept
@@ -317,6 +324,11 @@ TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept
     metrics.active_visual_only_count = classification.visual_only_count;
     metrics.active_single_event_count = classification.single_event_count;
     return metrics;
+}
+
+TrackAnimationFloorState LevelScene::TrackAnimationState(std::uint32_t floor) const noexcept
+{
+    return track_animations_.FloorState(floor);
 }
 
 void LevelScene::RebuildCells() noexcept
@@ -385,8 +397,6 @@ void LevelScene::RebuildVisualTransformCullIndex(
 
     for (std::uint32_t floor = 0; floor < floors.size(); ++floor)
     {
-        // Position-bearing tracks stay eager and are kept in the main spatial
-        // index. This supplemental index is only needed by lazy visual-only tracks.
         if ((combined_flags[floor] & position_mask) != 0u ||
             (combined_flags[floor] & scale_mask) == 0u ||
             !has_scale[floor])
