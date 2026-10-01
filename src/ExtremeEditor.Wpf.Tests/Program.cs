@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ANIMATE_TRACK_RUNTIME_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                AnimateTrackRuntimeSemanticsRegression.Run();
+                Console.WriteLine("PASS: AnimateTrack runtime semantics regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_RECOLOR_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))
