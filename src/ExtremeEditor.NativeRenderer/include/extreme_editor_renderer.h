@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 19u
+#define EE_RENDERER_API_VERSION 20u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -60,6 +60,23 @@
 #define EE_DECORATION_LOCK_ROTATION 0x4u
 #define EE_DECORATION_LOCK_SCALE 0x8u
 
+#define EE_TRACK_APPEAR_NONE 0u
+#define EE_TRACK_APPEAR_ASSEMBLE 1u
+#define EE_TRACK_APPEAR_ASSEMBLE_FAR 2u
+#define EE_TRACK_APPEAR_EXTEND 3u
+#define EE_TRACK_APPEAR_GROW 4u
+#define EE_TRACK_APPEAR_GROW_SPIN 5u
+#define EE_TRACK_APPEAR_FADE 6u
+#define EE_TRACK_APPEAR_DROP 7u
+#define EE_TRACK_APPEAR_RISE 8u
+#define EE_TRACK_DISAPPEAR_NONE 0u
+#define EE_TRACK_DISAPPEAR_SCATTER 1u
+#define EE_TRACK_DISAPPEAR_SCATTER_FAR 2u
+#define EE_TRACK_DISAPPEAR_RETRACT 3u
+#define EE_TRACK_DISAPPEAR_SHRINK 4u
+#define EE_TRACK_DISAPPEAR_SHRINK_SPIN 5u
+#define EE_TRACK_DISAPPEAR_FADE 6u
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -67,11 +84,7 @@ extern "C" {
 typedef void* EeRendererHandle;
 typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor, uint32_t modifiers);
 typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
-typedef void (__cdecl *EeEditorActionCallback)(
-    void* user_data,
-    uint32_t action,
-    int32_t floor,
-    double value);
+typedef void (__cdecl *EeEditorActionCallback)(void* user_data, uint32_t action, int32_t floor, double value);
 
 typedef enum EeEditorAction
 {
@@ -306,6 +319,29 @@ typedef struct EeTrackVisualEvent
     uint32_t reserved;
 } EeTrackVisualEvent;
 
+typedef struct EeTrackAnimationSegment
+{
+    int32_t start_floor;
+    int32_t end_floor;
+    uint32_t appear_type;
+    uint32_t disappear_type;
+    float beats_ahead;
+    float beats_behind;
+    float appear_reference_speed;
+    float disappear_reference_speed;
+    float pitch;
+    int32_t source_index;
+    uint32_t flags;
+    uint32_t reserved;
+} EeTrackAnimationSegment;
+
+typedef struct EeTrackAnimationTiming
+{
+    double entry_time;
+    float beat_seconds_no_pitch;
+    float speed;
+} EeTrackAnimationTiming;
+
 typedef struct EeRendererDiagnostics
 {
     uint32_t struct_size;
@@ -345,10 +381,7 @@ typedef struct EeRendererDiagnostics
 
 EE_RENDERER_API uint32_t ee_renderer_get_api_version(void);
 EE_RENDERER_API EeResult ee_renderer_get_abi_info(EeAbiInfo* info);
-EE_RENDERER_API EeResult ee_renderer_create(
-    HWND parent,
-    const EeRendererCreateInfo* info,
-    EeRendererHandle* out_renderer);
+EE_RENDERER_API EeResult ee_renderer_create(HWND parent, const EeRendererCreateInfo* info, EeRendererHandle* out_renderer);
 EE_RENDERER_API void ee_renderer_destroy(EeRendererHandle renderer);
 EE_RENDERER_API HWND ee_renderer_get_child_hwnd(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t height);
@@ -364,20 +397,10 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_top,
     float bounds_right,
     float bounds_bottom);
-EE_RENDERER_API EeResult ee_renderer_update_floor_icons(
-    EeRendererHandle renderer,
-    uint32_t start_floor,
-    const EeFloorIconState* states,
-    uint32_t state_count);
-EE_RENDERER_API EeResult ee_renderer_set_static_decorations(
-    EeRendererHandle renderer,
-    const EeStaticDecoration* decorations,
-    uint32_t decoration_count);
+EE_RENDERER_API EeResult ee_renderer_update_floor_icons(EeRendererHandle renderer, uint32_t start_floor, const EeFloorIconState* states, uint32_t state_count);
+EE_RENDERER_API EeResult ee_renderer_set_static_decorations(EeRendererHandle renderer, const EeStaticDecoration* decorations, uint32_t decoration_count);
 EE_RENDERER_API void ee_renderer_clear_decoration_assets(EeRendererHandle renderer);
-EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(
-    EeRendererHandle renderer,
-    uint32_t asset_id,
-    const wchar_t* image_path);
+EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_center_at(EeRendererHandle renderer, float world_x, float world_y);
 EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
@@ -389,53 +412,24 @@ EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     const EeSpriteMetadata* image_metadata,
     const EeSpriteMetadata* outline_metadata);
 EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer);
-EE_RENDERER_API void ee_renderer_set_selection(
+EE_RENDERER_API void ee_renderer_set_selection(EeRendererHandle renderer, const int32_t* floors, uint32_t floor_count, int32_t primary_floor);
+EE_RENDERER_API void ee_renderer_set_selection_changed_callback(EeRendererHandle renderer, EeSelectionChangedCallback callback, void* user_data);
+EE_RENDERER_API void ee_renderer_set_editor_action_callback(EeRendererHandle renderer, EeEditorActionCallback callback, void* user_data);
+EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(EeRendererHandle renderer, const EePlaybackTiming* timings, uint32_t timing_count);
+EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(EeRendererHandle renderer, const EeCameraEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(
     EeRendererHandle renderer,
-    const int32_t* floors,
-    uint32_t floor_count,
-    int32_t primary_floor);
-EE_RENDERER_API void ee_renderer_set_selection_changed_callback(
-    EeRendererHandle renderer,
-    EeSelectionChangedCallback callback,
-    void* user_data);
-EE_RENDERER_API void ee_renderer_set_editor_action_callback(
-    EeRendererHandle renderer,
-    EeEditorActionCallback callback,
-    void* user_data);
-EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(
-    EeRendererHandle renderer,
-    const EePlaybackTiming* timings,
+    const EeTrackAnimationSegment* segments,
+    uint32_t segment_count,
+    const EeTrackAnimationTiming* timings,
     uint32_t timing_count);
-EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(
-    EeRendererHandle renderer,
-    const EeCameraEvent* events,
-    uint32_t event_count);
-EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(
-    EeRendererHandle renderer,
-    const EeTrackTransformEvent* events,
-    uint32_t event_count);
-EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(
-    EeRendererHandle renderer,
-    const EeTrackVisualEvent* events,
-    uint32_t event_count);
-EE_RENDERER_API void ee_renderer_set_playback_anchor(
-    EeRendererHandle renderer,
-    double chart_time,
-    double chart_rate,
-    uint32_t flags);
-EE_RENDERER_API void ee_renderer_set_track_playback_anchor(
-    EeRendererHandle renderer,
-    double chart_time,
-    double chart_rate,
-    uint32_t flags);
+EE_RENDERER_API void ee_renderer_set_playback_anchor(EeRendererHandle renderer, double chart_time, double chart_rate, uint32_t flags);
+EE_RENDERER_API void ee_renderer_set_track_playback_anchor(EeRendererHandle renderer, double chart_time, double chart_rate, uint32_t flags);
 EE_RENDERER_API void ee_renderer_set_follow_player(EeRendererHandle renderer, int32_t enabled);
-EE_RENDERER_API void ee_renderer_set_follow_player_changed_callback(
-    EeRendererHandle renderer,
-    EeFollowPlayerChangedCallback callback,
-    void* user_data);
-EE_RENDERER_API EeResult ee_renderer_get_diagnostics(
-    EeRendererHandle renderer,
-    EeRendererDiagnostics* diagnostics);
+EE_RENDERER_API void ee_renderer_set_follow_player_changed_callback(EeRendererHandle renderer, EeFollowPlayerChangedCallback callback, void* user_data);
+EE_RENDERER_API EeResult ee_renderer_get_diagnostics(EeRendererHandle renderer, EeRendererDiagnostics* diagnostics);
 
 #ifdef __cplusplus
 }
