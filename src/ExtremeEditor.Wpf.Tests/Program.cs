@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_RECOLOR_RUNTIME_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                RecolorTrackRuntimeSemanticsRegression.Run();
+                Console.WriteLine("PASS: RecolorTrack runtime semantics regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_VFX_ONLY"),
                 "1",
                 StringComparison.Ordinal))
