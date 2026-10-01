@@ -68,7 +68,7 @@ private:
         float new_y,
         TrackTransformRuntime::CellMap& cells) noexcept;
 
-    mutable std::mutex mutex_;
+    mutable std::recursive_mutex mutex_;
     std::vector<EeFloor> base_floors_;
     std::vector<EeTrackAnimationSegment> segments_;
     std::vector<EeTrackAnimationTiming> timings_;
