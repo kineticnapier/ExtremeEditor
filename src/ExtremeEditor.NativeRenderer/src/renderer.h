@@ -52,6 +52,11 @@ public:
     bool SetCameraTimeline(const EeCameraEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
+    bool SetTrackAnimationTimeline(
+        const EeTrackAnimationSegment* segments,
+        std::uint32_t segment_count,
+        const EeTrackAnimationTiming* timings,
+        std::uint32_t timing_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetTrackPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void SetFollowPlayer(bool enabled) noexcept;
