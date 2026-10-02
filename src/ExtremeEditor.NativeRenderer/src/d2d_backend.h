@@ -62,8 +62,10 @@ public:
     ~D2DBackend();
 
     bool Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept;
+    bool InitializeOffscreen(std::uint32_t width, std::uint32_t height) noexcept;
     void Shutdown() noexcept;
     bool Resize(std::uint32_t width, std::uint32_t height) noexcept;
+    bool ResizeOffscreen(std::uint32_t width, std::uint32_t height) noexcept;
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -105,6 +107,21 @@ public:
         std::int32_t selected_floor,
         const PlaybackVisualState& playback,
         RenderFrameStats& stats) noexcept;
+    HRESULT RenderFrameOffscreen(
+        double visual_time,
+        const LevelScene* scene,
+        std::uint64_t scene_version,
+        const IconAssetTable* icon_assets,
+        std::uint64_t icon_assets_version,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        const PlaybackVisualState& playback) noexcept;
+    bool ReadbackRgb(
+        std::uint8_t* rgb,
+        std::uint32_t rgb_size,
+        std::uint32_t row_stride) noexcept;
 
 private:
     struct IconBitmapSet
@@ -118,6 +135,7 @@ private:
 
     bool CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept;
     bool CreateTargetBitmap() noexcept;
+    bool CreateOffscreenTargetBitmap() noexcept;
     void ReleaseTargetBitmap() noexcept;
     bool SyncSceneGeometry(const LevelScene* scene, std::uint64_t scene_version) noexcept;
     void SyncIconAssets(std::uint64_t icon_assets_version) noexcept;
@@ -195,6 +213,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> offscreen_texture_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> render_target_view_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> depth_texture_;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depth_stencil_view_;
