@@ -31,6 +31,18 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_create", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int Create(nint parent, ref NativeRendererCreateInfo info, out nint renderer);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_create_headless", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int CreateHeadless(ref NativeRendererCreateInfo info, out nint renderer);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_render_rgb", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int RenderRgb(
+        nint renderer,
+        double sceneTime,
+        double visualTime,
+        nint rgb,
+        uint rgbSize,
+        uint rowStride);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_destroy", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void Destroy(nint renderer);
 
