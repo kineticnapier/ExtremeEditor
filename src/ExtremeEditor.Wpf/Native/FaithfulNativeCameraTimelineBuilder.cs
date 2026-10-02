@@ -7,7 +7,10 @@ using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
 
-internal readonly record struct CameraEventPresence(bool RelativeToSpecified, bool PositionSpecified);
+internal readonly record struct CameraEventPresence(
+    bool RelativeToSpecified,
+    bool RelativeToEnabled,
+    bool PositionSpecified);
 
 internal sealed class CameraEventPresenceData
 {
@@ -147,6 +150,8 @@ internal static class CameraEventPresenceReader
         private int _nextSourceIndex;
         private int _sourceIndex;
         private bool _relativeTo;
+        private bool _relativeToEnabled;
+        private bool _relativeToValuePending;
         private bool _position;
         private readonly Dictionary<int, CameraEventPresence> _result = new();
 
@@ -190,6 +195,8 @@ internal static class CameraEventPresenceReader
                     {
                         _sourceIndex = _nextSourceIndex++;
                         _relativeTo = false;
+                        _relativeToEnabled = false;
+                        _relativeToValuePending = false;
                         _position = false;
                         _mode = Mode.Action;
                     }
@@ -202,17 +209,31 @@ internal static class CameraEventPresenceReader
                 case Mode.Action:
                     if (reader.TokenType == JsonTokenType.EndObject)
                     {
-                        _result[_sourceIndex] = new CameraEventPresence(_relativeTo, _position);
+                        _result[_sourceIndex] = new CameraEventPresence(
+                            _relativeTo,
+                            _relativeToEnabled,
+                            _position);
                         _mode = Mode.Actions;
                     }
                     else if (reader.TokenType == JsonTokenType.PropertyName)
                     {
-                        if (reader.ValueTextEquals("relativeTo"u8)) _relativeTo = true;
+                        if (reader.ValueTextEquals("relativeTo"u8))
+                        {
+                            _relativeTo = true;
+                            _relativeToValuePending = true;
+                        }
                         if (reader.ValueTextEquals("position"u8)) _position = true;
                     }
-                    else if (reader.TokenType is JsonTokenType.StartArray or JsonTokenType.StartObject)
+                    else
                     {
-                        BeginSkip(Mode.Action);
+                        if (_relativeToValuePending)
+                        {
+                            _relativeToEnabled = reader.TokenType == JsonTokenType.String;
+                            _relativeToValuePending = false;
+                        }
+
+                        if (reader.TokenType is JsonTokenType.StartArray or JsonTokenType.StartObject)
+                            BeginSkip(Mode.Action);
                     }
                     break;
             }
@@ -285,6 +306,10 @@ internal static class FaithfulNativeCameraTimelineBuilder
         CameraEventPresenceData presence = CameraEventPresenceReader.Get(level);
         List<LiveEvent> live = BuildLiveEvents(level, metadata.Events, presence);
         var pending = new List<PendingEvent>(live.Count);
+        double rawPitch = level.PitchPercent * 0.01;
+        double pitch = double.IsFinite(rawPitch) && rawPitch > 0.0
+            ? rawPitch
+            : 0.000001;
 
         foreach (LiveEvent liveEvent in live)
         {
@@ -298,7 +323,7 @@ internal static class FaithfulNativeCameraTimelineBuilder
             pending.Add(new PendingEvent(
                 liveEvent,
                 timing.EntryTime + item.AngleOffset / 180.0 * beatSeconds,
-                Math.Max(0.0, item.Duration) * beatSeconds));
+                Math.Max(0.0, item.Duration) * beatSeconds / pitch));
         }
 
         pending.Sort(static (a, b) =>
@@ -374,7 +399,7 @@ internal static class FaithfulNativeCameraTimelineBuilder
             float playerY = pose.StationaryPlanet.Y;
 
             bool positionUsed = fields.PositionSpecified;
-            bool movementTypeUsed = fields.RelativeToSpecified;
+            bool movementTypeUsed = fields.RelativeToSpecified && fields.RelativeToEnabled;
             string requestedMovement = NormalizeMovement(item.RelativeTo);
             bool xSpecified = item.Position.X is double;
             bool ySpecified = item.Position.Y is double;
@@ -599,7 +624,14 @@ internal static class FaithfulNativeCameraTimelineBuilder
 
             if (action.PropertyOverrides is JsonObject obj)
             {
-                if (obj.ContainsKey("relativeTo")) presence = presence with { RelativeToSpecified = true };
+                if (obj.ContainsKey("relativeTo"))
+                {
+                    presence = presence with
+                    {
+                        RelativeToSpecified = true,
+                        RelativeToEnabled = GetString(obj["relativeTo"]) is not null
+                    };
+                }
                 if (obj.ContainsKey("position")) presence = presence with { PositionSpecified = true };
                 live = Overlay(live, obj, action);
             }
