@@ -1,8 +1,12 @@
 #include "extreme_editor_renderer.h"
+#include "extreme_editor_headless.h"
 #include "icon_assets.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
+#include <vector>
 
 int main()
 {
@@ -106,6 +110,163 @@ int main()
         return 1;
     }
 
-    std::cout << "PASS: native renderer ABI smoke test.\n";
+    // DMDOD B0 contract: no HWND, explicit scene/visual clocks, tightly packed
+    // 320x180 RGB888 output, and order-independent deterministic seeking.
+    EeRendererCreateInfo create_info{};
+    create_info.struct_size = sizeof(EeRendererCreateInfo);
+    create_info.width = 320u;
+    create_info.height = 180u;
+
+    EeRendererHandle headless = nullptr;
+    if (ee_renderer_create_headless(&create_info, &headless) != EE_OK || headless == nullptr)
+    {
+        std::cerr << "Headless renderer creation failed.\n";
+        return 1;
+    }
+
+    const auto destroy_headless = [&headless]()
+    {
+        ee_renderer_destroy(headless);
+        headless = nullptr;
+    };
+
+    if (ee_renderer_get_child_hwnd(headless) != nullptr)
+    {
+        std::cerr << "Headless renderer unexpectedly created a child HWND.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EePoint points[] =
+    {
+        {-0.55f, -0.55f},
+        { 0.55f, -0.55f},
+        { 0.55f,  0.55f},
+        {-0.55f,  0.55f}
+    };
+    EeGeometry geometry{};
+    geometry.point_offset = 0u;
+    geometry.point_count = 4u;
+
+    EeFloor floors[2]{};
+    for (std::uint32_t i = 0; i < 2u; ++i)
+    {
+        floors[i].x = static_cast<float>(i) * 1.5f;
+        floors[i].y = 0.0f;
+        floors[i].entry_angle = 0.0f;
+        floors[i].geometry_id = 0u;
+        floors[i].icon_id = EE_ICON_NONE;
+        floors[i].track_primary_color = 0xff0000ffu;   // red
+        floors[i].track_secondary_color = 0xffff0000u; // blue
+        floors[i].track_visual_flags = EE_TRACK_VISUAL_ENABLED | 2u; // Glow
+        floors[i].track_anim_duration = 1.0f;
+        floors[i].track_pulse_length = 1u;
+        floors[i].transform_scale_x = 1.0f;
+        floors[i].transform_scale_y = 1.0f;
+        floors[i].transform_opacity = 1.0f;
+        floors[i].track_extend_anim = 1.0f;
+    }
+
+    if (ee_renderer_set_level(
+            headless,
+            floors,
+            2u,
+            &geometry,
+            1u,
+            points,
+            4u,
+            -1.0f,
+            -1.0f,
+            2.5f,
+            1.0f) != EE_OK)
+    {
+        std::cerr << "Headless level upload failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EePlaybackTiming timings[2]{};
+    timings[0].entry_time = 0.0;
+    timings[0].exit_time = 1.0;
+    timings[0].entry_angle = 0.0f;
+    timings[0].angle_moved = 3.14159265358979323846f;
+    timings[1].entry_time = 1.0;
+    timings[1].exit_time = 2.0;
+    timings[1].entry_angle = 3.14159265358979323846f;
+    timings[1].angle_moved = 3.14159265358979323846f;
+    if (ee_renderer_set_playback_timeline(headless, timings, 2u) != EE_OK)
+    {
+        std::cerr << "Headless playback upload failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    constexpr std::uint32_t row_stride = 320u * 3u;
+    constexpr std::uint32_t frame_bytes = row_stride * 180u;
+    std::vector<std::uint8_t> first(frame_bytes);
+    std::vector<std::uint8_t> same(frame_bytes);
+    std::vector<std::uint8_t> changed(frame_bytes);
+    std::vector<std::uint8_t> rewind(frame_bytes);
+
+    if (ee_renderer_render_rgb(headless, 0.25, 0.25, first.data(), frame_bytes, row_stride) != EE_OK ||
+        ee_renderer_render_rgb(headless, 0.25, 0.25, same.data(), frame_bytes, row_stride) != EE_OK)
+    {
+        std::cerr << "Headless RGB render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    if (first != same)
+    {
+        std::cerr << "Identical explicit times produced different RGB frames.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    bool has_scene_signal = false;
+    for (std::size_t i = 0; i + 2u < first.size(); i += 3u)
+    {
+        if (first[i] > 80u || first[i + 2u] > 80u)
+        {
+            has_scene_signal = true;
+            break;
+        }
+    }
+    if (!has_scene_signal)
+    {
+        std::cerr << "Headless RGB frame did not contain rendered scene signal.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    if (ee_renderer_render_rgb(headless, 0.25, 0.75, changed.data(), frame_bytes, row_stride) != EE_OK)
+    {
+        std::cerr << "Headless visual-time render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (first == changed)
+    {
+        std::cerr << "visual_time did not affect animated track pixels.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    if (ee_renderer_render_rgb(headless, 1.25, 1.25, changed.data(), frame_bytes, row_stride) != EE_OK ||
+        ee_renderer_render_rgb(headless, 0.25, 0.25, rewind.data(), frame_bytes, row_stride) != EE_OK)
+    {
+        std::cerr << "Headless seek reconstruction failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (first != rewind)
+    {
+        std::cerr << "Rewinding to the same explicit time changed RGB output.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    destroy_headless();
+    std::cout << "PASS: native renderer ABI + deterministic headless RGB smoke test.\n";
     return 0;
 }
