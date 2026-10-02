@@ -61,5 +61,7 @@ internal static class NativeRendererHostRegression
             throw new InvalidOperationException(
                 $"Native renderer shutdown lifecycle exceeded 10 seconds: {shutdownTimer.Elapsed.TotalMilliseconds:F1} ms.");
         }
+
+        ChartFrameRendererRegression.Run();
     }
 }
