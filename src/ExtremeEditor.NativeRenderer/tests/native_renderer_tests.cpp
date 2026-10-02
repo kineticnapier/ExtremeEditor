@@ -239,7 +239,9 @@ int main()
         return 1;
     }
 
-    if (ee_renderer_render_rgb(headless, 0.25, 0.75, changed.data(), frame_bytes, row_stride) != EE_OK)
+    // Glow uses a cosine loop, so quarter and three-quarter phases are equal.
+    // Compare quarter against half phase to prove visual_time reaches pixels.
+    if (ee_renderer_render_rgb(headless, 0.25, 0.50, changed.data(), frame_bytes, row_stride) != EE_OK)
     {
         std::cerr << "Headless visual-time render failed.\n";
         destroy_headless();
