@@ -364,6 +364,16 @@ internal static class Program
                 return 0;
             }
 
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_RUNTIME_SEMANTICS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CameraRuntimeSemanticsRegression.Run();
+                Console.WriteLine("PASS: camera runtime semantics regression is valid.");
+                return 0;
+            }
+
             WinFormsHostRemovalRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
