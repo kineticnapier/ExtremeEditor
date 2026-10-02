@@ -77,6 +77,12 @@ target_compile_definitions(camera_runtime_reference_tests PRIVATE UNICODE _UNICO
 target_include_directories(camera_runtime_reference_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(camera_runtime_reference_tests PRIVATE user32 d3d11 d3dcompiler dxgi d2d1 dwrite windowscodecs ole32)
 
+add_executable(follow_camera_midspin_tests tests/follow_camera_midspin_tests.cpp)
+target_compile_features(follow_camera_midspin_tests PRIVATE cxx_std_20)
+target_compile_definitions(follow_camera_midspin_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(follow_camera_midspin_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(follow_camera_midspin_tests PRIVATE user32 d3d11 d3dcompiler dxgi d2d1 dwrite windowscodecs ole32)
+
 add_executable(camera_cull_transform_purity_tests tests/camera_cull_transform_purity_tests.cpp)
 add_executable(static_decoration_transform_tests tests/static_decoration_transform_tests.cpp)
 add_executable(decoration_scene_switch_cache_tests tests/decoration_scene_switch_cache_tests.cpp)
@@ -149,6 +155,7 @@ target_include_directories(track_animation_runtime_tests PRIVATE ${CMAKE_CURRENT
 
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
+add_test(NAME follow_camera_midspin_tests COMMAND follow_camera_midspin_tests)
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
 add_test(NAME static_decoration_transform_tests COMMAND static_decoration_transform_tests)
 add_test(NAME decoration_scene_switch_cache_tests COMMAND decoration_scene_switch_cache_tests)

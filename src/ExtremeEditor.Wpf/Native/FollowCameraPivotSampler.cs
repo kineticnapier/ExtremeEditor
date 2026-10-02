@@ -39,13 +39,27 @@ internal static class FollowCameraPivotSampler
             if (timing.EntryTime > chartTime + 1e-9)
                 break;
 
+            // A Midspin can give itself and the following floor the same entry
+            // time. Stock follow-camera state observes that passage as one floor
+            // change, rather than restarting the tween for every timing row.
+            int equalTimeEnd = floor;
+            while (equalTimeEnd < lastFloor &&
+                   Math.Abs(timingMap.Floors[equalTimeEnd + 1].EntryTime - timing.EntryTime) <= 1e-9)
+            {
+                equalTimeEnd++;
+            }
+
             EvaluateAt(timing.EntryTime);
             from = current;
             to = level.Positions[floor];
             startTime = timing.EntryTime;
 
-            double bpm = timing.Bpm > 0.0 ? timing.Bpm : Math.Max(level.InitialBpm, 0.000001);
+            FloorTiming durationTiming = timingMap.Floors[equalTimeEnd];
+            double bpm = durationTiming.Bpm > 0.0
+                ? durationTiming.Bpm
+                : Math.Max(level.InitialBpm, 0.000001);
             duration = 120.0 / bpm;
+            floor = equalTimeEnd;
         }
 
         EvaluateAt(chartTime);

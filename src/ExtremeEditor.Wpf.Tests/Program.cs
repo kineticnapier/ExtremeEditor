@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_MIDSPIN_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CameraMidspinFollowRegression.Run();
+                Console.WriteLine("PASS: Midspin follow-camera regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_ANIMATE_TRACK_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))

@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "follow_camera_state.h"
 #include "d2d_backend.h"
 #include "renderer_camera.h"
 
@@ -193,14 +194,23 @@ bool Renderer::RenderHeadlessRgb(
 
     if (follow_player && playback.active)
     {
-        // B0 uses the existing camera event evaluator but intentionally omits the
-        // stateful realtime follow-glide layer. This makes arbitrary seeks exact
-        // and deterministic; B1 can reconstruct that glide as a pure scene-time
-        // function for stock screenshot comparison.
+        // Reconstruct the follow glide from explicit scene time so headless
+        // rendering and the realtime WPF renderer share the same Player frame.
+        FollowCameraState follow_camera;
+        follow_camera.Update(
+            scene.get(),
+            playback_timings.get(),
+            playback,
+            scene_time,
+            scene_version);
+        PlaybackVisualState camera_playback = playback;
+        camera_playback.stationary_x = follow_camera.x;
+        camera_playback.stationary_y = follow_camera.y;
+
         const CameraVisualState camera_visual = CalculateCameraVisual(
             scene.get(),
             camera_events.get(),
-            playback,
+            camera_playback,
             scene_time);
         if (camera_visual.active)
         {
@@ -214,8 +224,8 @@ bool Renderer::RenderHeadlessRgb(
         }
         else
         {
-            render_camera_x = playback.stationary_x;
-            render_camera_y = playback.stationary_y;
+            render_camera_x = follow_camera.x;
+            render_camera_y = follow_camera.y;
         }
     }
 
