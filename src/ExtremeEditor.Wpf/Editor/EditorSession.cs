@@ -639,12 +639,7 @@ internal sealed class EditorSession
                 ["decorations"] = new JsonArray()
             };
 
-        JsonNode? node = JsonNode.Parse(File.ReadAllText(Document.SourcePath), documentOptions: new JsonDocumentOptions
-        {
-            AllowTrailingCommas = true,
-            CommentHandling = JsonCommentHandling.Skip
-        });
-        return _sourceRoot = node as JsonObject ?? throw new InvalidDataException("ADOFAI root must be a JSON object.");
+        return _sourceRoot = LooseAdoFaiJson.ParseObject(Document.SourcePath);
     }
 
     private void EnsureSourceMapping()

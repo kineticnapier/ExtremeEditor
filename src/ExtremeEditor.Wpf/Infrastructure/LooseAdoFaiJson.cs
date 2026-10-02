@@ -1,9 +1,27 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Wpf;
 
 internal static class LooseAdoFaiJson
 {
+    internal static JsonObject ParseObject(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+        byte[] normalized = NormalizeToUtf8(File.ReadAllBytes(sourcePath));
+        return JsonNode.Parse(
+                   normalized,
+                   new JsonNodeOptions { PropertyNameCaseInsensitive = false },
+                   new JsonDocumentOptions
+                   {
+                       AllowTrailingCommas = true,
+                       CommentHandling = JsonCommentHandling.Skip
+                   }) as JsonObject
+               ?? throw new InvalidDataException("ADOFAI root must be a JSON object.");
+    }
+
     internal static string CreateNormalizedTempCopy(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
@@ -18,7 +36,7 @@ internal static class LooseAdoFaiJson
         return path;
     }
 
-    private static byte[] NormalizeToUtf8(byte[] bytes)
+    internal static byte[] NormalizeToUtf8(byte[] bytes)
     {
         byte[] utf8;
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)

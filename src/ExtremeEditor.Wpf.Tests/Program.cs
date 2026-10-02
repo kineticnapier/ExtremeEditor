@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOOSE_SOURCE_ROOT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                LooseSourceRootRegression.Run();
+                Console.WriteLine("PASS: loose ADOFAI source-root regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_MIDSPIN_ONLY"),
                 "1",
                 StringComparison.Ordinal))
