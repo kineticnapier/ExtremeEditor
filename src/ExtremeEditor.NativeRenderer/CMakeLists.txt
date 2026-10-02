@@ -6,9 +6,11 @@ enable_testing()
 
 add_library(ExtremeEditor.NativeRenderer SHARED
     src/exports.cpp
+    src/exports_headless.cpp
     src/exports_track_animation.cpp
     src/native_window.cpp
     src/renderer.cpp
+    src/renderer_headless.cpp
     src/renderer_camera.cpp
     src/renderer_camera_runtime_context.cpp
     src/renderer_track.cpp
@@ -17,6 +19,7 @@ add_library(ExtremeEditor.NativeRenderer SHARED
     src/renderer_decorations.cpp
     src/d2d_backend.cpp
     src/d2d_backend_compat.cpp
+    src/d2d_backend_offscreen.cpp
     src/d2d_backend_camera.cpp
     src/d2d_backend_decorations.cpp
     src/decoration_mask_effects.cpp
