@@ -18,11 +18,51 @@ struct ResolvedTrackVisual
     float style_glow = 0.0f;
 };
 
-inline float TrackVisualTimeSeconds() noexcept
+namespace detail
+{
+inline thread_local bool track_visual_time_override_active = false;
+inline thread_local float track_visual_time_override_seconds = 0.0f;
+}
+
+class ScopedTrackVisualTime
+{
+public:
+    explicit ScopedTrackVisualTime(double seconds) noexcept
+        : previous_active_(detail::track_visual_time_override_active),
+          previous_seconds_(detail::track_visual_time_override_seconds)
+    {
+        detail::track_visual_time_override_active = true;
+        detail::track_visual_time_override_seconds = std::isfinite(seconds)
+            ? static_cast<float>(seconds)
+            : 0.0f;
+    }
+
+    ScopedTrackVisualTime(const ScopedTrackVisualTime&) = delete;
+    ScopedTrackVisualTime& operator=(const ScopedTrackVisualTime&) = delete;
+
+    ~ScopedTrackVisualTime()
+    {
+        detail::track_visual_time_override_active = previous_active_;
+        detail::track_visual_time_override_seconds = previous_seconds_;
+    }
+
+private:
+    bool previous_active_ = false;
+    float previous_seconds_ = 0.0f;
+};
+
+inline float TrackVisualRealtimeSeconds() noexcept
 {
     static const auto origin = std::chrono::steady_clock::now();
     return static_cast<float>(
         std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count());
+}
+
+inline float TrackVisualTimeSeconds() noexcept
+{
+    return detail::track_visual_time_override_active
+        ? detail::track_visual_time_override_seconds
+        : TrackVisualRealtimeSeconds();
 }
 
 inline float TrackFract(float value) noexcept

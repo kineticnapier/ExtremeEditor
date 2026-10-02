@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "track_visual.h"
 
 #include <algorithm>
 #include <chrono>
@@ -64,6 +65,12 @@ HRESULT D2DBackend::RenderFrame(
     std::int32_t selected_floor,
     const PlaybackVisualState& playback) noexcept
 {
+    // `seconds` is the visual/unscaled clock for this frame. The scene/chart
+    // clock is evaluated separately by Renderer before entering the backend.
+    // Pinning it here makes animated track colors deterministic for headless
+    // callers while preserving realtime GUI behavior when GUI passes elapsed time.
+    const ScopedTrackVisualTime visual_time_scope(seconds);
+
     RenderFrameStats stats{};
     if (!d2d_context_ || !swap_chain_ || !target_bitmap_ ||
         !render_target_view_ || !depth_stencil_view_)

@@ -57,6 +57,28 @@ int main()
 {
     std::vector<std::string> failures;
 
+    // Headless rendering supplies visualTime explicitly. The override must be
+    // deterministic, nest safely, and restore the previous frame clock.
+    {
+        ee::ScopedTrackVisualTime outer(0.25);
+        Check(failures, "Explicit visual time", ee::TrackVisualTimeSeconds(), 0.25f);
+
+        {
+            ee::ScopedTrackVisualTime inner(0.75);
+            Check(failures, "Nested visual time", ee::TrackVisualTimeSeconds(), 0.75f);
+        }
+
+        Check(failures, "Visual time restore", ee::TrackVisualTimeSeconds(), 0.25f);
+
+        EeFloor deterministic_blink = MakeFloor(3u);
+        Check(failures, "Explicit visual time drives track loop",
+            ee::ResolveTrackVisual(
+                deterministic_blink,
+                0u,
+                ee::TrackVisualTimeSeconds()).r,
+            0.25f);
+    }
+
     // Glow uses DOTween's cosine-shaped loop, not a triangle wave.
     EeFloor glow = MakeFloor(2u);
     ee::ResolvedTrackVisual glow_result = ee::ResolveTrackVisual(glow, 0u, 0.125f);
