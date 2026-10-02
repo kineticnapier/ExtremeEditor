@@ -18,6 +18,8 @@
 
 namespace ee
 {
+struct HeadlessRendererState;
+
 class Renderer
 {
 public:
@@ -27,6 +29,13 @@ public:
     ~Renderer();
 
     bool Initialize(HWND parent, std::uint32_t width, std::uint32_t height) noexcept;
+    bool InitializeHeadless(std::uint32_t width, std::uint32_t height) noexcept;
+    bool RenderHeadlessRgb(
+        double scene_time,
+        double visual_time,
+        std::uint8_t* rgb,
+        std::uint32_t rgb_size,
+        std::uint32_t row_stride) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
     bool UpdateFloorIcons(
@@ -80,6 +89,7 @@ private:
 
     NativeWindow window_;
     std::thread render_thread_;
+    std::shared_ptr<HeadlessRendererState> headless_state_;
     std::atomic_bool stop_requested_{false};
     std::atomic_bool resize_pending_{false};
     std::atomic_uint32_t width_{1};
