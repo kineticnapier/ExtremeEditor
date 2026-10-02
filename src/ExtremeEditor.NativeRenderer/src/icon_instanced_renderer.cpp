@@ -481,7 +481,10 @@ bool IconInstancedRenderer::Draw(
         const bool is_floor_icon = (floor.icon_flags & EE_ICON_FLAG_FLOOR) != 0;
         const bool flipped = (floor.icon_flags & EE_ICON_FLAG_FLIPPED) != 0;
         const float base_requested = zoom * (is_floor_icon ? 0.78f : 0.62f);
-        const float floor_depth = (static_cast<float>(floor_index) + 1.0f) * depth_step;
+        const float floor_depth = std::clamp(
+            (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) * depth_step,
+            0.0f,
+            1.0f);
         const float cosine = std::cos(floor.icon_angle);
         const float sine = std::sin(floor.icon_angle);
 

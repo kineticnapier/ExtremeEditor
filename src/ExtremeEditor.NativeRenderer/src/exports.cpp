@@ -30,6 +30,8 @@ EeResult ee_renderer_get_abi_info(EeAbiInfo* info)
     info->static_decoration_size = sizeof(EeStaticDecoration);
     info->floor_icon_state_size = sizeof(EeFloorIconState);
     info->track_visual_event_size = sizeof(EeTrackVisualEvent);
+    info->track_animation_segment_size = sizeof(EeTrackAnimationSegment);
+    info->track_animation_timing_size = sizeof(EeTrackAnimationTiming);
     return EE_OK;
 }
 

@@ -17,6 +17,8 @@ internal struct NativeAbiInfo
     public uint StaticDecorationSize;
     public uint FloorIconStateSize;
     public uint TrackVisualEventSize;
+    public uint TrackAnimationSegmentSize;
+    public uint TrackAnimationTimingSize;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -56,6 +58,8 @@ internal struct NativeFloor
     public float TransformRotation;
     public float TransformOpacity;
     public uint TrackTransformFlags;
+    public float TrackExtendAnim;
+    public int TrackSortingOffset;
 }
 
 [StructLayout(LayoutKind.Sequential)]

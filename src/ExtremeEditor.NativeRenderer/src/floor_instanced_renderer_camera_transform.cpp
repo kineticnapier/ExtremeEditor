@@ -42,7 +42,7 @@ struct VSInput
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
     float4 color : INSTANCECOLOR;
-    // xy = floor scale, z = opacity, w reserved.
+    // xy = floor scale, z = opacity, w = AnimateTrack Extend mesh fraction.
     float4 transform : INSTANCETRANSFORM;
 };
 
@@ -70,7 +70,8 @@ VSOutput VSMain(VSInput input)
     VSOutput output;
     float c = input.rotation.x;
     float s = input.rotation.y;
-    float2 scaledLocal = input.localPosition * input.transform.xy;
+    float2 extendedLocal = float2(input.localPosition.x * saturate(input.transform.w), input.localPosition.y);
+    float2 scaledLocal = extendedLocal * input.transform.xy;
     float2 localWorld = float2(
         c * scaledLocal.x - s * scaledLocal.y,
         s * scaledLocal.x + c * scaledLocal.y);
@@ -362,7 +363,11 @@ bool FloorInstancedRenderer::DrawCamera(
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
-            (static_cast<float>(floor_index) + 1.0f) / depth_denominator,
+            std::clamp(
+                (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) /
+                    depth_denominator,
+                0.0f,
+                1.0f),
             visual.r,
             visual.g,
             visual.b,
@@ -370,7 +375,7 @@ bool FloorInstancedRenderer::DrawCamera(
             scale_x,
             scale_y,
             opacity,
-            0.0f});
+            std::clamp(floor.track_extend_anim, 0.0f, 1.0f)});
         ++valid_instances;
     }
 

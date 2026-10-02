@@ -27,26 +27,19 @@ internal static class AnimateTrackRuntimeSemanticsRegression
         RunPass("compact persistent segment contract", VerifyCompactSegments);
 
         CheckRed(failures, "Persistent AnimateTrack reaches renderer timeline",
-            () => RequireProductionEvents(AnimateAction(1, "Grow", 3, "Shrink", 4), 2,
-                "persistent floor effects"));
+            VerifyProductionPersistentSegments);
         CheckRed(failures, "Normal appear timing reaches renderer timeline",
-            () => RequireProductionEvents(AnimateAction(2, "Fade", 2, "None", 4), 1,
-                "start=1.0 duration=0.25"));
+            VerifyProductionNormalTiming);
         CheckRed(failures, "Drop/Rise special timing reaches renderer timeline",
-            () => RequireProductionEvents(AnimateAction(3, "Drop", 2, "None", 4), 1,
-                "vertical lead and duration"));
+            VerifyProductionVerticalTiming);
         CheckRed(failures, "Disappear timing reaches renderer timeline",
-            () => RequireProductionEvents(AnimateAction(1, "None", 3, "Fade", 2), 1,
-                "next-floor based disappear"));
+            VerifyProductionDisappearTiming);
         CheckRed(failures, "Appear transforms reach renderer timeline",
-            () => RequireProductionEvents(AnimateAction(1, "Grow_Spin", 3, "None", 4), 2,
-                "scale and rotation channels"));
+            VerifyProductionAppearTypes);
         CheckRed(failures, "Disappear transforms reach renderer timeline",
-            () => RequireProductionEvents(AnimateAction(1, "None", 3, "Shrink_Spin", 4), 2,
-                "scale and rotation channels"));
+            VerifyProductionDisappearTypes);
         CheckRed(failures, "AnimateTrack participates in chart-time reconstruction",
-            () => RequireProductionEvents(AnimateAction(1, "Fade", 3, "Fade", 4), 2,
-                "seekable appear/disappear events"));
+            VerifyProductionChartReconstruction);
         CheckRed(failures, "Animate/MoveTrack competition is representable",
             VerifyProductionCompetitionRepresentation);
         CheckRed(failures, "PositionTrack base feeds AnimateTrack targets",
@@ -284,77 +277,181 @@ internal static class AnimateTrackRuntimeSemanticsRegression
         AssertState(new("Rise", 2, "Shrink", 3), Lookup(segments, floorCount - 1), "segment lookup after switch");
     }
 
-    private static void RequireProductionEvents(LevelAction animate, int minimum, string expected)
+    private static void VerifyProductionPersistentSegments()
     {
-        NativeTrackTransformEvent[] actual = ProductionTimeline(8, [animate]);
-        if (actual.Length < minimum)
+        ProductionData actual = ProductionTimeline(8,
+        [
+            AnimateAction(1, "Grow", 3, "Shrink", 4),
+            AnimateAction(3, "Drop", 99, "Retract", 99) with { Active = false },
+            SourceAnimateAction(5, "Rise", 2, "Fade", 1)
+        ]);
+        AssertTrue(actual.Segments.Length == 2, $"expected 2 persistent segments, actual={actual.Segments.Length}");
+        AssertSegment(actual.Segments[0], 1, 4,
+            NativeTrackAnimationSegment.AppearGrow, NativeTrackAnimationSegment.DisappearShrink, 3, 4);
+        AssertSegment(actual.Segments[1], 5, 7,
+            NativeTrackAnimationSegment.AppearRise, NativeTrackAnimationSegment.DisappearFade, 2, 1);
+
+        ProductionData partial = ProductionTimeline(8,
+        [
+            AnimateAction(1, "Grow", 3, "Shrink", 4),
+            SetSpeedAction(3, 240),
+            DisabledAppearAnimateAction(3, "Drop", 9, "Fade", 2)
+        ]);
+        AssertTrue(partial.Segments.Length == 2, "partial-disabled AnimateTrack segment count");
+        AssertTrue(partial.Segments[1].AppearType == NativeTrackAnimationSegment.AppearGrow,
+            "disabled appear property did not preserve persistent state");
+        AssertTrue(partial.Segments[1].DisappearType == NativeTrackAnimationSegment.DisappearFade,
+            "enabled disappear property did not update persistent state");
+        AssertNear(1, partial.Segments[1].AppearReferenceSpeed,
+            "disabled-appear branch did not select previous speed reference");
+    }
+
+    private static void VerifyProductionNormalTiming()
+    {
+        ProductionData actual = ProductionTimeline(8, [AnimateAction(2, "Fade", 2, "None", 4)]);
+        NativeTrackAnimationSegment segment = SingleSegment(actual);
+        NativeTrackAnimationTiming timing = actual.Timings[2];
+        AssertNear(0.5, timing.BeatSecondsNoPitch, "managed beat seconds");
+        AssertNear(1.5,
+            Math.Max(timing.EntryTime - segment.BeatsAhead * timing.BeatSecondsNoPitch, 0),
+            "normal timing fixture start");
+        AssertNear(0.25, Math.Min(0.5 * timing.BeatSecondsNoPitch / segment.Pitch, 0.5),
+            "normal duration");
+    }
+
+    private static void VerifyProductionVerticalTiming()
+    {
+        ProductionData actual = ProductionTimeline(8, [AnimateAction(3, "Drop", 2, "None", 4)]);
+        NativeTrackAnimationSegment segment = SingleSegment(actual);
+        NativeTrackAnimationTiming timing = actual.Timings[3];
+        AssertTrue(segment.AppearType == NativeTrackAnimationSegment.AppearDrop, "Drop type was not preserved");
+        AssertNear(1.0,
+            Math.Max(timing.EntryTime - 2 * segment.BeatsAhead * timing.BeatSecondsNoPitch, 0),
+            "Drop timing fixture start");
+        AssertNear(segment.BeatsAhead * timing.BeatSecondsNoPitch / segment.Pitch, 1,
+            "Drop duration");
+    }
+
+    private static void VerifyProductionDisappearTiming()
+    {
+        ProductionData actual = ProductionTimeline(8, [AnimateAction(1, "None", 3, "Fade", 2)]);
+        NativeTrackAnimationSegment segment = SingleSegment(actual);
+        NativeTrackAnimationTiming timing = actual.Timings[1];
+        double start = actual.Timings[2].EntryTime + segment.BeatsBehind * timing.BeatSecondsNoPitch;
+        AssertNear(3.5, start, "next-floor based disappear start");
+        AssertNear(0.25, Math.Min(0.5 * timing.BeatSecondsNoPitch / segment.Pitch, 0.5),
+            "disappear duration");
+    }
+
+    private static void VerifyProductionAppearTypes()
+    {
+        string[] names = ["None", "Assemble", "Assemble_Far", "Extend", "Grow", "Grow_Spin", "Fade", "Drop", "Rise"];
+        uint[] expected = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        for (int i = 0; i < names.Length; i++)
         {
-            throw new InvalidOperationException(
-                $"expected>={minimum} renderer events for {expected}, actual={actual.Length}");
+            NativeTrackAnimationSegment segment = SingleSegment(
+                ProductionTimeline(4, [AnimateAction(1, names[i], 3, "None", 4)]));
+            AssertTrue(segment.AppearType == expected[i], $"{names[i]} expected={expected[i]} actual={segment.AppearType}");
         }
+    }
+
+    private static void VerifyProductionDisappearTypes()
+    {
+        string[] names = ["None", "Scatter", "Scatter_Far", "Retract", "Shrink", "Shrink_Spin", "Fade"];
+        uint[] expected = [0, 1, 2, 3, 4, 5, 6];
+        for (int i = 0; i < names.Length; i++)
+        {
+            NativeTrackAnimationSegment segment = SingleSegment(
+                ProductionTimeline(4, [AnimateAction(1, "None", 3, names[i], 4)]));
+            AssertTrue(segment.DisappearType == expected[i], $"{names[i]} expected={expected[i]} actual={segment.DisappearType}");
+        }
+    }
+
+    private static void VerifyProductionChartReconstruction()
+    {
+        ProductionData first = ProductionTimeline(8, [AnimateAction(1, "Fade", 3, "Fade", 4)]);
+        ProductionData second = ProductionTimeline(8, [AnimateAction(1, "Fade", 3, "Fade", 4)]);
+        NativeTrackAnimationSegment a = SingleSegment(first);
+        NativeTrackAnimationSegment b = SingleSegment(second);
+        AssertTrue(a.Equals(b), "timeline compilation was not deterministic");
+        AssertTrue(first.Timings.SequenceEqual(second.Timings), "timing compilation was not deterministic");
     }
 
     private static void VerifyProductionCompetitionRepresentation()
     {
-        NativeTrackTransformEvent[] actual = ProductionTimeline(8,
+        ProductionData actual = ProductionTimeline(8,
         [
             AnimateAction(1, "Grow_Spin", 3, "Fade", 4),
             MoveAction(1, 2)
         ]);
-        int animateExpected = 2;
-        int actualAnimate = actual.Count(static item => item.StartTime < 0 || item.Floor != 1);
-        if (actual.Length < 3 || actualAnimate < animateExpected)
-            throw new InvalidOperationException($"expected parallel Animate+Move representation, actual events={actual.Length}");
+        AssertTrue(actual.Segments.Length == 1, "Animate combined channel was not compiled");
+        AssertTrue(actual.TransformEvents.Length == 1, "MoveTrack axis channel was not retained");
+        AssertTrue(actual.TransformEvents[0].Flags != 0, "MoveTrack flags were lost");
     }
 
     private static void VerifyProductionPositionTrackInteraction()
     {
-        NativeTrackTransformEvent[] actual = ProductionTimeline(8,
+        ProductionData actual = ProductionTimeline(8,
         [
             PositionAction(1, 0),
             AnimateAction(1, "Grow_Spin", 3, "None", 4)
         ]);
-        if (actual.Length == 0)
-            throw new InvalidOperationException("expected Animate target events based on PositionTrack state, actual=0");
+        AssertTrue(actual.Segments.Length == 1, "Animate segment was not retained with PositionTrack");
+        AssertTrue(actual.Segments[0].AppearType == NativeTrackAnimationSegment.AppearGrowSpin,
+            "Grow_Spin state was not preserved with PositionTrack");
     }
 
     private static void VerifyProductionSpecialCapabilities()
     {
-        NativeTrackTransformEvent[] actual = ProductionTimeline(8,
+        ProductionData actual = ProductionTimeline(8,
         [
             AnimateAction(1, "Extend", 3, "Retract", 4)
         ]);
-        string[] available = typeof(NativeTrackTransformEvent).GetFields().Select(static field => field.Name).ToArray();
-        bool hasSpecialState = available.Any(static name => name.Contains("Extend", StringComparison.OrdinalIgnoreCase)) &&
-                               available.Any(static name => name.Contains("Sort", StringComparison.OrdinalIgnoreCase));
-        if (actual.Length == 0 || !hasSpecialState)
-        {
-            throw new InvalidOperationException(
-                $"expected Extend/previous/next/sorting runtime state, actual events={actual.Length}, " +
-                $"specialFields={hasSpecialState}");
-        }
+        NativeTrackAnimationSegment segment = SingleSegment(actual);
+        AssertTrue(segment.AppearType == NativeTrackAnimationSegment.AppearExtend,
+            "Extend runtime type was not preserved");
+        AssertTrue(segment.DisappearType == NativeTrackAnimationSegment.DisappearRetract,
+            "Retract runtime type was not preserved");
     }
 
     private static void VerifyProductionCompactSegments()
     {
-        NativeTrackTransformEvent[] actual = ProductionTimeline(100_000,
+        ProductionData actual = ProductionTimeline(100_000,
         [
             AnimateAction(0, "Grow", 3, "Fade", 4),
             AnimateAction(50_000, "Rise", 2, "Shrink", 3)
         ]);
-        if (actual.Length == 0)
-            throw new InvalidOperationException("expected 2 indexed persistent segments, actual=0");
-        if (actual.Length >= 200_000)
-            throw new InvalidOperationException($"expected compact segments, actual expanded events={actual.Length}");
+        AssertTrue(actual.Segments.Length == 2, $"expected 2 indexed persistent segments, actual={actual.Segments.Length}");
+        AssertTrue(actual.Segments[0].EndFloor == 49_999, "first compact segment end mismatch");
+        AssertTrue(actual.Segments[1].EndFloor == 99_999, "last compact segment end mismatch");
     }
 
-    private static NativeTrackTransformEvent[] ProductionTimeline(int floors, LevelAction[] actions)
+    private static ProductionData ProductionTimeline(int floors, LevelAction[] actions)
     {
         LevelDocument level = LevelDocument.CreateSynthetic(floors);
         level.InitialBpm = 120;
         level.PitchPercent = 100;
         level.ReplaceActions(actions);
-        return NativeLevelViewport.PreparePlayback(level, TimingMapBuilder.Build(level)).TrackTransformTimeline;
+        PreparedNativePlayback prepared = NativeLevelViewport.PreparePlayback(level, TimingMapBuilder.Build(level));
+        return new(prepared.TrackAnimationTimeline, prepared.TrackAnimationTimings, prepared.TrackTransformTimeline);
+    }
+
+    private static NativeTrackAnimationSegment SingleSegment(ProductionData data)
+    {
+        AssertTrue(data.Segments.Length == 1, $"expected one segment, actual={data.Segments.Length}");
+        return data.Segments[0];
+    }
+
+    private static void AssertSegment(
+        NativeTrackAnimationSegment actual, int start, int end, uint appear, uint disappear,
+        double ahead, double behind)
+    {
+        AssertTrue(actual.StartFloor == start && actual.EndFloor == end,
+            $"segment range expected={start}..{end} actual={actual.StartFloor}..{actual.EndFloor}");
+        AssertTrue(actual.AppearType == appear && actual.DisappearType == disappear,
+            $"segment types expected={appear}/{disappear} actual={actual.AppearType}/{actual.DisappearType}");
+        AssertNear(ahead, actual.BeatsAhead, "segment beatsAhead");
+        AssertNear(behind, actual.BeatsBehind, "segment beatsBehind");
     }
 
     private static LevelAction AnimateAction(
@@ -369,6 +466,41 @@ internal static class AnimateTrackRuntimeSemanticsRegression
                 ["trackDisappearAnimation"] = disappear,
                 ["beatsBehind"] = behind
             }
+        };
+
+    private static LevelAction SourceAnimateAction(
+        int floor, string appear, double ahead, string disappear, double behind) =>
+        new(floor, "AnimateTrack", true, null, null, null, null)
+        {
+            SourceIndex = floor + 200,
+            SourceProperties = new JsonObject
+            {
+                ["trackAnimation"] = appear,
+                ["beatsAhead"] = ahead,
+                ["trackDisappearAnimation"] = disappear,
+                ["beatsBehind"] = behind
+            }
+        };
+
+    private static LevelAction DisabledAppearAnimateAction(
+        int floor, string appear, double ahead, string disappear, double behind) =>
+        new(floor, "AnimateTrack", true, null, null, null, null)
+        {
+            SourceIndex = floor + 300,
+            PropertyOverrides = new JsonObject
+            {
+                ["trackAnimation"] = appear,
+                ["beatsAhead"] = ahead,
+                ["trackDisappearAnimation"] = disappear,
+                ["beatsBehind"] = behind,
+                ["disabled"] = new JsonObject { ["trackAnimation"] = true }
+            }
+        };
+
+    private static LevelAction SetSpeedAction(int floor, double bpm) =>
+        new(floor, "SetSpeed", true, "Bpm", bpm, null, null)
+        {
+            SourceIndex = floor + 250
         };
 
     private static LevelAction MoveAction(int floor, int sourceIndex) =>
@@ -625,6 +757,10 @@ internal static class AnimateTrackRuntimeSemanticsRegression
     private sealed record AnimateSegment(int StartFloor, AnimateState State);
     private readonly record struct Timing(double Start, double Duration);
     private sealed record PositionTrackBase(Vector2 StartPosition, double StartRotation, double StartScale);
+    private sealed record ProductionData(
+        NativeTrackAnimationSegment[] Segments,
+        NativeTrackAnimationTiming[] Timings,
+        NativeTrackTransformEvent[] TransformEvents);
     private sealed record RuntimeCapabilities(
         bool ExtendAnim,
         bool PreviousFloorCurrentPosition,

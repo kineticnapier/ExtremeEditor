@@ -102,10 +102,11 @@ void LevelScene::Query(
     {
         std::lock_guard lock(transform_mutex_);
 
-        const int min_x = FastFloor(left / CellSize);
-        const int max_x = FastFloor(right / CellSize);
-        const int min_y = FastFloor(top / CellSize);
-        const int max_y = FastFloor(bottom / CellSize);
+        const float animation_margin = track_animations_.CullMargin();
+        const int min_x = FastFloor((left - animation_margin) / CellSize);
+        const int max_x = FastFloor((right + animation_margin) / CellSize);
+        const int min_y = FastFloor((top - animation_margin) / CellSize);
+        const int max_y = FastFloor((bottom + animation_margin) / CellSize);
 
         const std::int64_t cells_wide = static_cast<std::int64_t>(max_x) - min_x + 1;
         const std::int64_t cells_high = static_cast<std::int64_t>(max_y) - min_y + 1;
@@ -199,6 +200,7 @@ bool LevelScene::SetTrackTransformTimeline(
     track_playback_anchor_steady_ = {};
 
     const bool accepted = track_transforms_.SetTimeline(events, event_count);
+    track_animations_.SetCompetingTimeline(events, event_count);
     if (accepted)
         RebuildVisualTransformCullIndex(events, event_count);
     else
@@ -221,7 +223,6 @@ bool LevelScene::SetTrackAnimationTimeline(
     std::uint32_t timing_count) noexcept
 {
     std::lock_guard lock(transform_mutex_);
-    track_animations_.ResetBase(floors);
     return track_animations_.SetTimeline(segments, segment_count, timings, timing_count);
 }
 
@@ -279,7 +280,6 @@ void LevelScene::UpdateTrackTransforms() noexcept
     {
         std::lock_guard lock(transform_mutex_);
         metrics = track_transforms_.Update(floors, cells);
-        track_animations_.Update(floors, cells);
     }
     metrics.total_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - total_started).count();
@@ -308,7 +308,7 @@ void LevelScene::EvaluateVisibleTrackVisuals(
     // Visual-only MoveTrack evaluation happens lazily for visible floors. Reapply
     // AnimateTrack afterwards so its combined Position/Scale and shared
     // Rotation/Opacity channels compose against the final MoveTrack state.
-    track_animations_.Update(floors, cells);
+    track_animations_.UpdateVisible(floors, cells, visible_floors);
 }
 
 TrackTransformUpdateMetrics LevelScene::TrackTransformMetrics() const noexcept

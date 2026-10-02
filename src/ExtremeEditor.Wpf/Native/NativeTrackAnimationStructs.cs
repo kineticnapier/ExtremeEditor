@@ -5,6 +5,8 @@ namespace ExtremeEditor.Wpf.Native;
 [StructLayout(LayoutKind.Sequential)]
 internal struct NativeTrackAnimationSegment
 {
+    public const uint FlagAppearPropertyEnabled = 1u;
+    public const uint FlagDisappearPropertyEnabled = 2u;
     public const uint AppearNone = 0u;
     public const uint AppearAssemble = 1u;
     public const uint AppearAssembleFar = 2u;

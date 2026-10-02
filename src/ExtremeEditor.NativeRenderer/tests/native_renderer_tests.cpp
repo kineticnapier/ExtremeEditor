@@ -32,7 +32,9 @@ int main()
         info.sprite_metadata_size != sizeof(EeSpriteMetadata) ||
         info.static_decoration_size != sizeof(EeStaticDecoration) ||
         info.floor_icon_state_size != sizeof(EeFloorIconState) ||
-        info.track_visual_event_size != sizeof(EeTrackVisualEvent))
+        info.track_visual_event_size != sizeof(EeTrackVisualEvent) ||
+        info.track_animation_segment_size != sizeof(EeTrackAnimationSegment) ||
+        info.track_animation_timing_size != sizeof(EeTrackAnimationTiming))
     {
         std::cerr << "ABI struct size mismatch.\n";
         return 1;

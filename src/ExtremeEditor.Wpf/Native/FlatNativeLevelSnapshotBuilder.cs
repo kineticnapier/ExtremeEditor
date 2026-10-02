@@ -149,6 +149,8 @@ internal static class FlatNativeLevelSnapshotBuilder
             target.TransformOpacity = transform.Opacity;
             target.TrackTransformFlags = NativeFloor.TransformFlagEnabled |
                 (transform.StickToFloors ? NativeFloor.TransformFlagStickToFloors : 0u);
+            target.TrackExtendAnim = 1f;
+            target.TrackSortingOffset = 0;
         }
         phaseWatch.Stop();
         TimeSpan transformPassTime = phaseWatch.Elapsed;

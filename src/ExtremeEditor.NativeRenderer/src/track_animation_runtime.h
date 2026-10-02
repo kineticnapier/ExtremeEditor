@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace ee
@@ -30,9 +31,17 @@ public:
         std::uint32_t segment_count,
         const EeTrackAnimationTiming* timings,
         std::uint32_t timing_count) noexcept;
+    void SetCompetingTimeline(
+        const EeTrackTransformEvent* events,
+        std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Update(std::vector<EeFloor>& floors, TrackTransformRuntime::CellMap& cells) noexcept;
+    void UpdateVisible(
+        std::vector<EeFloor>& floors,
+        TrackTransformRuntime::CellMap& cells,
+        const std::vector<std::uint32_t>& visible_floors) noexcept;
     TrackAnimationFloorState FloorState(std::uint32_t floor) const noexcept;
+    float CullMargin() const noexcept;
     bool EvaluateForFloor(
         std::uint32_t floor,
         double chart_time,
@@ -67,6 +76,14 @@ private:
         float new_x,
         float new_y,
         TrackTransformRuntime::CellMap& cells) noexcept;
+    static bool SameTransformState(const EeFloor& left, const EeFloor& right) noexcept;
+    EeFloor CaptureMoveResolved(std::size_t floor, const EeFloor& candidate) noexcept;
+    bool OwnsSharedChannel(
+        std::uint32_t floor,
+        double animation_start,
+        std::int32_t animation_source_index,
+        std::uint32_t channel,
+        double chart_time) const noexcept;
 
     mutable std::recursive_mutex mutex_;
     std::vector<EeFloor> base_floors_;
@@ -74,7 +91,12 @@ private:
     std::vector<EeTrackAnimationTiming> timings_;
     std::vector<std::size_t> segment_by_floor_;
     std::vector<TrackAnimationFloorState> floor_states_;
+    std::vector<EeFloor> move_resolved_floors_;
+    std::vector<EeFloor> last_outputs_;
+    std::vector<bool> has_last_output_;
+    std::unordered_map<std::uint32_t, std::vector<EeTrackTransformEvent>> competing_events_by_floor_;
     bool active_ = false;
+    float cull_margin_ = 0.0f;
     bool playing_ = false;
     double anchor_chart_time_ = 0.0;
     double chart_rate_ = 1.0;

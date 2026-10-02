@@ -863,7 +863,8 @@ internal static class TrackTransformResolver
                     TargetScaleY = targetScaleY,
                     StartOpacity = opacity.Current,
                     TargetOpacity = targetOpacity,
-                    Ease = MapEase(item.Ease)
+                    Ease = MapEase(item.Ease),
+                    Reserved = item.SourceIndex >= 0 ? checked((uint)item.SourceIndex) : 0u
                 });
 
                 if (useX) x.Start(targetX, move.Duration);
@@ -879,7 +880,9 @@ internal static class TrackTransformResolver
         {
             int floor = a.Floor.CompareTo(b.Floor);
             if (floor != 0) return floor;
-            return a.StartTime.CompareTo(b.StartTime);
+            int time = a.StartTime.CompareTo(b.StartTime);
+            if (time != 0) return time;
+            return a.Reserved.CompareTo(b.Reserved);
         });
         return output.ToArray();
     }

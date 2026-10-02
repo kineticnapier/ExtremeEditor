@@ -95,6 +95,16 @@ internal sealed class NativeRendererSession : IDisposable
             throw new InvalidOperationException(
                 $"Native track-visual ABI mismatch. Managed {managedTrackVisualEventSize}, native {abiInfo.TrackVisualEventSize}.");
 
+        uint managedTrackAnimationSegmentSize = checked((uint)Marshal.SizeOf<NativeTrackAnimationSegment>());
+        if (abiInfo.TrackAnimationSegmentSize != managedTrackAnimationSegmentSize)
+            throw new InvalidOperationException(
+                $"Native track-animation segment ABI mismatch. Managed {managedTrackAnimationSegmentSize}, native {abiInfo.TrackAnimationSegmentSize}.");
+
+        uint managedTrackAnimationTimingSize = checked((uint)Marshal.SizeOf<NativeTrackAnimationTiming>());
+        if (abiInfo.TrackAnimationTimingSize != managedTrackAnimationTimingSize)
+            throw new InvalidOperationException(
+                $"Native track-animation timing ABI mismatch. Managed {managedTrackAnimationTimingSize}, native {abiInfo.TrackAnimationTimingSize}.");
+
         uint managedCameraEventSize = checked((uint)Marshal.SizeOf<NativeCameraEvent>());
         if (abiInfo.CameraEventSize != managedCameraEventSize)
             throw new InvalidOperationException(

@@ -16,8 +16,29 @@ internal static class NativeRendererAbiRegression
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 19u)
+        if (version != 20u)
             throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
+
+        Type trackAnimationSegment = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackAnimationSegment")
+            ?? throw new InvalidOperationException("NativeTrackAnimationSegment is missing.");
+        foreach (string name in new[]
+                 {
+                     "StartFloor", "EndFloor", "AppearType", "DisappearType", "BeatsAhead",
+                     "BeatsBehind", "AppearReferenceSpeed", "DisappearReferenceSpeed", "Pitch",
+                     "SourceIndex", "Flags"
+                 })
+        {
+            if (trackAnimationSegment.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is null)
+                throw new InvalidOperationException($"Native track-animation ABI is missing {name}.");
+        }
+
+        Type trackAnimationTiming = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackAnimationTiming")
+            ?? throw new InvalidOperationException("NativeTrackAnimationTiming is missing.");
+        foreach (string name in new[] { "EntryTime", "BeatSecondsNoPitch", "Speed" })
+        {
+            if (trackAnimationTiming.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is null)
+                throw new InvalidOperationException($"Native track-animation timing ABI is missing {name}.");
+        }
 
         Type trackVisualEvent = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackVisualEvent")
             ?? throw new InvalidOperationException("NativeTrackVisualEvent is missing.");

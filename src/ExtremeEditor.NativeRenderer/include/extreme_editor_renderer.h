@@ -153,6 +153,8 @@ typedef struct EeAbiInfo
     uint32_t static_decoration_size;
     uint32_t floor_icon_state_size;
     uint32_t track_visual_event_size;
+    uint32_t track_animation_segment_size;
+    uint32_t track_animation_timing_size;
 } EeAbiInfo;
 
 typedef struct EeSpriteMetadata
@@ -201,6 +203,8 @@ typedef struct EeFloor
     float transform_rotation;
     float transform_opacity;
     uint32_t track_transform_flags;
+    float track_extend_anim;
+    int32_t track_sorting_offset;
 } EeFloor;
 
 typedef struct EeFloorIconState

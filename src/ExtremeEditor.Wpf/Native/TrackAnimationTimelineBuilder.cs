@@ -45,21 +45,32 @@ internal static class TrackAnimationTimelineBuilder
         string disappear = "None";
         double beatsAhead = 3.0;
         double beatsBehind = 4.0;
-        var pending = new List<(LevelAction Action, string Appear, string Disappear, double Ahead, double Behind)>();
+        var pending = new List<(LevelAction Action, string Appear, string Disappear, double Ahead, double Behind,
+            float ReferenceSpeed, uint Flags)>();
 
         foreach (LevelAction action in actions)
         {
-            JsonObject? obj = action.PropertyOverrides;
-            if (TryString(obj, "trackAnimation", out string? nextAppear))
+            bool appearDisabled = IsDisabled(action, "trackAnimation");
+            bool disappearDisabled = IsDisabled(action, "trackDisappearAnimation");
+            if (!appearDisabled && TryString(action, "trackAnimation", out string? nextAppear))
                 appear = nextAppear!;
-            if (TryString(obj, "trackDisappearAnimation", out string? nextDisappear))
+            if (!disappearDisabled && TryString(action, "trackDisappearAnimation", out string? nextDisappear))
                 disappear = nextDisappear!;
-            if (TryDouble(obj, "beatsAhead", out double nextAhead))
+            if (!appearDisabled && TryDouble(action, "beatsAhead", out double nextAhead))
                 beatsAhead = Math.Max(0.0, nextAhead);
-            if (TryDouble(obj, "beatsBehind", out double nextBehind))
+            if (!disappearDisabled && TryDouble(action, "beatsBehind", out double nextBehind))
                 beatsBehind = Math.Max(0.0, nextBehind);
 
-            pending.Add((action, appear, disappear, beatsAhead, beatsBehind));
+            float currentSpeed = timings[action.Floor].Speed > 0f ? timings[action.Floor].Speed : 1f;
+            float previousSpeed = action.Floor > 0 && timings[action.Floor - 1].Speed > 0f
+                ? timings[action.Floor - 1].Speed
+                : currentSpeed;
+            // Stock selects the same speed reference for both beatsAhead and beatsBehind.
+            // The branch is controlled by trackAnimation's disabled flag, even for disappear.
+            float selectedReference = appearDisabled ? previousSpeed : currentSpeed;
+            uint flags = (appearDisabled ? 0u : NativeTrackAnimationSegment.FlagAppearPropertyEnabled) |
+                         (disappearDisabled ? 0u : NativeTrackAnimationSegment.FlagDisappearPropertyEnabled);
+            pending.Add((action, appear, disappear, beatsAhead, beatsBehind, selectedReference, flags));
         }
 
         var result = new NativeTrackAnimationSegment[pending.Count];
@@ -70,7 +81,6 @@ internal static class TrackAnimationTimelineBuilder
             int end = i + 1 < pending.Count
                 ? Math.Max(start, pending[i + 1].Action.Floor - 1)
                 : floorCount - 1;
-            float referenceSpeed = timings[start].Speed > 0f ? timings[start].Speed : 1f;
             result[i] = new NativeTrackAnimationSegment
             {
                 StartFloor = start,
@@ -79,10 +89,11 @@ internal static class TrackAnimationTimelineBuilder
                 DisappearType = MapDisappear(item.Disappear),
                 BeatsAhead = (float)item.Ahead,
                 BeatsBehind = (float)item.Behind,
-                AppearReferenceSpeed = referenceSpeed,
-                DisappearReferenceSpeed = referenceSpeed,
+                AppearReferenceSpeed = item.ReferenceSpeed,
+                DisappearReferenceSpeed = item.ReferenceSpeed,
                 Pitch = pitch,
-                SourceIndex = item.Action.SourceIndex
+                SourceIndex = item.Action.SourceIndex,
+                Flags = item.Flags
             };
         }
 
@@ -129,6 +140,10 @@ internal static class TrackAnimationTimelineBuilder
         }
     }
 
+    private static bool TryString(LevelAction action, string name, out string? value) =>
+        TryString(action.PropertyOverrides, name, out value) ||
+        TryString(action.SourceProperties, name, out value);
+
     private static bool TryDouble(JsonObject? obj, string name, out double value)
     {
         value = 0.0;
@@ -148,6 +163,28 @@ internal static class TrackAnimationTimelineBuilder
                 return true;
             }
             return false;
+        }
+    }
+
+    private static bool TryDouble(LevelAction action, string name, out double value) =>
+        TryDouble(action.PropertyOverrides, name, out value) ||
+        TryDouble(action.SourceProperties, name, out value);
+
+    private static bool IsDisabled(LevelAction action, string property)
+    {
+        JsonNode? value = (action.PropertyOverrides?["disabled"] as JsonObject)?[property] ??
+                          (action.SourceProperties?["disabled"] as JsonObject)?[property];
+        if (value is null)
+            return false;
+        try
+        {
+            return value.GetValue<bool>();
+        }
+        catch
+        {
+            string text = value.ToString();
+            return string.Equals(text, "Enabled", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

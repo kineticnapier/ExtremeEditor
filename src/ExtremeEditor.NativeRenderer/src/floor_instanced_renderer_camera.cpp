@@ -191,7 +191,11 @@ bool FloorInstancedRenderer::DrawCamera(
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
-            (static_cast<float>(floor_index) + 1.0f) / depth_denominator,
+            std::clamp(
+                (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) /
+                    depth_denominator,
+                0.0f,
+                1.0f),
             visual.r,
             visual.g,
             visual.b,
