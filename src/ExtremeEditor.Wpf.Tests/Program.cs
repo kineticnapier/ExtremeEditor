@@ -15,6 +15,36 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SELECTION_VISUALIZATION_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                EditorSelectionVisualizationRegression.Run();
+                Console.WriteLine("PASS: selection visualization regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CLIPBOARD_SAFETY_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                EditorClipboardSafetyRegression.Run();
+                Console.WriteLine("PASS: clipboard safety regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MIDSPIN_REVERSE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                EditorMidspinReverseRegression.Run();
+                Console.WriteLine("PASS: Midspin reverse-input regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SONG_SETTINGS_ONLY"),
                 "1",
                 StringComparison.Ordinal))
