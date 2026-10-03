@@ -17,7 +17,7 @@ internal readonly record struct FloorStructureEdit(
     int Count,
     int BeforeFloorCount);
 
-internal sealed class EditorSession
+internal sealed partial class EditorSession
 {
     private static readonly bool ManagedMutationProfilingEnabled = string.Equals(
         Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDIT_MANAGED_PROFILING"),
