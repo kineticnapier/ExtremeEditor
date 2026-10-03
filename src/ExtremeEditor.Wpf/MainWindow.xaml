@@ -271,7 +271,13 @@
                                       Content="♫"
                                       Height="40"
                                       IsChecked="True"
-                                      ToolTip="Song Settings" />
+                                      ToolTip="Song Settings"
+                                      Click="SongSettingsCategoryClick" />
+                        <ToggleButton x:Name="CameraSettingsCategoryButton"
+                                      Content="◎"
+                                      Height="40"
+                                      ToolTip="Camera Settings"
+                                      Click="CameraSettingsCategoryClick" />
                     </StackPanel>
                 </Border>
 
@@ -336,6 +342,58 @@
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <Border x:Name="CameraSettingsPane"
+                        Grid.Column="1"
+                        Visibility="Collapsed"
+                        Background="#1A1D22"
+                        BorderBrush="#30343B"
+                        BorderThickness="0,0,1,0"
+                        Padding="12">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <TextBlock Text="Camera Settings"
+                                       Foreground="#F0F0F4"
+                                       FontWeight="SemiBold"
+                                       FontSize="14"
+                                       Margin="0,0,0,12" />
+
+                            <TextBlock Text="Relative to" Foreground="#AEB4C0" />
+                            <ComboBox x:Name="CameraRelativeToComboBox"
+                                      Margin="0,3,0,10"
+                                      SelectionChanged="CameraRelativeToSelectionChanged">
+                                <ComboBoxItem Content="Player" />
+                                <ComboBoxItem Content="Tile" />
+                                <ComboBoxItem Content="Global" />
+                            </ComboBox>
+
+                            <TextBlock Text="Position X" Foreground="#AEB4C0" />
+                            <TextBox x:Name="CameraPositionXTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Position Y" Foreground="#AEB4C0" />
+                            <TextBox x:Name="CameraPositionYTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Rotation (°)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="CameraRotationTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Zoom (%)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="CameraZoomTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
