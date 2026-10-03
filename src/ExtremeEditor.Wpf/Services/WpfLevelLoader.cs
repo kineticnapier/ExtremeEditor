@@ -26,6 +26,7 @@ internal static class WpfLevelLoader
         TrackVisualSourceBundle trackVisuals;
         TrackTransformSourceData trackTransforms;
         ScaleRadiusSourceData scaleRadius;
+        CameraSourceData cameraSource;
         CameraSourceData cameraEvents;
         try
         {
@@ -38,8 +39,8 @@ internal static class WpfLevelLoader
             trackVisuals = TrackVisualSourceReader.Load(path, cancellationToken);
             trackTransforms = TrackTransformSourceReader.Load(path, cancellationToken);
             scaleRadius = ScaleRadiusSourceReader.Load(path, cancellationToken);
-            cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
-                CameraSourceReader.Load(path, cancellationToken));
+            cameraSource = CameraSourceReader.Load(path, cancellationToken);
+            cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(cameraSource);
         }
         catch (JsonException)
         {
@@ -56,8 +57,8 @@ internal static class WpfLevelLoader
                 trackVisuals = TrackVisualSourceReader.Load(normalizedPath, cancellationToken);
                 trackTransforms = TrackTransformSourceReader.Load(normalizedPath, cancellationToken);
                 scaleRadius = ScaleRadiusSourceReader.Load(normalizedPath, cancellationToken);
-                cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(
-                    CameraSourceReader.Load(normalizedPath, cancellationToken));
+                cameraSource = CameraSourceReader.Load(normalizedPath, cancellationToken);
+                cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(cameraSource);
             }
             finally
             {
@@ -73,6 +74,13 @@ internal static class WpfLevelLoader
                 }
             }
         }
+
+        loaded.Document.CameraSettings = new LevelCameraSettings(
+            cameraSource.InitialRelativeTo,
+            cameraSource.InitialPosition.X ?? 0.0,
+            cameraSource.InitialPosition.Y ?? 0.0,
+            cameraSource.InitialRotation,
+            cameraSource.InitialZoom);
 
         // Narrow renderer passes stay out of the core model while still sharing
         // their parsed metadata across every native snapshot/timeline rebuild.
