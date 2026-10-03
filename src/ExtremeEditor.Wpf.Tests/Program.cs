@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SONG_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                SongSettingsSliceRegression.Run();
+                Console.WriteLine("PASS: Song Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_OPERATIONS_ONLY"),
                 "1",
                 StringComparison.Ordinal))
