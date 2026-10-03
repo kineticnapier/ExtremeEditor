@@ -96,8 +96,20 @@ public partial class MainWindow
 
         JsonObject draft = (JsonObject)_eventPropertyDraft.DeepClone();
         JsonObject current = AdoFaiEditorSaveService.BuildEditableActionJson(editor, before);
+        bool setSpeedDraftSynchronized = _level is not null &&
+            SetSpeedEditorConversion.SynchronizeDraft(_level, before, current, draft);
+        if (setSpeedDraftSynchronized)
+        {
+            _eventPropertyDraft = (JsonObject)draft.DeepClone();
+            SyncEventDraftToRawJson();
+        }
+
         if (JsonNode.DeepEquals(current, draft))
+        {
+            if (setSpeedDraftSynchronized)
+                RefreshEventPropertyEditor();
             return;
+        }
 
         _eventAutoApplyInProgress = true;
         try
@@ -107,6 +119,8 @@ public partial class MainWindow
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             editor.ReplaceAction(before, updated);
             RefreshAfterEventPropertyCommit(before, updated);
+            if (setSpeedDraftSynchronized)
+                RefreshEventPropertyEditor();
         }
         finally
         {
