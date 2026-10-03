@@ -10,6 +10,8 @@ internal static class TrackPositionEditorOnlyRegression
 {
     internal static void Run()
     {
+        SetSpeedEditorConversionRegression.Run();
+
         LevelDocument level = LevelDocument.CreateSynthetic(4);
         var action = new LevelAction(1, "PositionTrack", true, null, null, null, null)
         {
