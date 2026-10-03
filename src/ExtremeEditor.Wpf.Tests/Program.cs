@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLAYBACK_SPEED_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                PlaybackSpeedRegression.Run();
+                Console.WriteLine("PASS: playback speed regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOOSE_SOURCE_ROOT_ONLY"),
                 "1",
                 StringComparison.Ordinal))

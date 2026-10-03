@@ -282,6 +282,7 @@ public partial class MainWindow : Window
                 NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
 
             preparedAudio.Player.HitSoundsEnabled = HitSoundsToggle.IsChecked == true;
+            preparedAudio.Player.PlaybackSpeed = _playbackSpeed;
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
             previousAudio.Dispose();
@@ -463,7 +464,8 @@ public partial class MainWindow : Window
         UpdatePlaybackDisplay();
     }
 
-    private double EditorChartRate => Math.Max(0.000001, (_level?.PitchPercent ?? 100.0) * 0.01);
+    private double EditorChartRate =>
+        Math.Max(0.000001, (_level?.PitchPercent ?? 100.0) * 0.01) * _playbackSpeed;
 
     private double CurrentSilentChartTime
     {

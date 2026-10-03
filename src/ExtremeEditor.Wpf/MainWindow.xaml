@@ -205,6 +205,25 @@
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Stop}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
+                <TextBlock Text="Speed"
+                           VerticalAlignment="Center"
+                           Margin="8,0,4,0"
+                           Foreground="#D9DCE3" />
+                <TextBox x:Name="PlaybackSpeedTextBox"
+                         Width="54"
+                         Height="24"
+                         Text="1x"
+                         VerticalContentAlignment="Center"
+                         HorizontalContentAlignment="Right"
+                         ToolTip="Playback speed (0.01x–10x)"
+                         PreviewKeyDown="PlaybackSpeedTextBoxPreviewKeyDown"
+                         LostKeyboardFocus="PlaybackSpeedTextBoxLostKeyboardFocus" />
+                <Button Content="1x"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        Margin="3,0,4,0"
+                        Padding="6,1"
+                        ToolTip="Reset playback speed"
+                        Click="ResetPlaybackSpeedClick" />
                 <ToggleButton x:Name="FollowPlayerToggle"
                               Content="Follow"
                               Style="{StaticResource ToolbarToggleButtonStyle}"

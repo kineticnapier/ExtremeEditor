@@ -329,7 +329,7 @@ internal static class PlaybackDiagnosticsLayoutRegression
 
         Button[] toolbarButtons = toolbar.Children.OfType<Button>().ToArray();
         ToggleButton[] toolbarToggles = toolbar.Children.OfType<ToggleButton>().ToArray();
-        if (toolbarButtons.Length != 5 || toolbarToggles.Length != 2)
+        if (toolbarButtons.Length != 6 || toolbarToggles.Length != 2)
             throw new InvalidOperationException("The toolbar button/toggle composition changed.");
 
         foreach (Button button in toolbarButtons)
