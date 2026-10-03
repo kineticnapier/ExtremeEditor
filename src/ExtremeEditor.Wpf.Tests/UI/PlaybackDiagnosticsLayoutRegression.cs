@@ -154,9 +154,9 @@ internal static class PlaybackDiagnosticsLayoutRegression
 
             RequireKeyBinding(window, Key.Z, ModifierKeys.Control, EditorCommands.Undo);
             RequireKeyBinding(window, Key.Y, ModifierKeys.Control, EditorCommands.Redo);
-            RequireKeyBinding(window, Key.C, ModifierKeys.Control, EditorCommands.Copy);
-            RequireKeyBinding(window, Key.X, ModifierKeys.Control, EditorCommands.Cut);
-            RequireKeyBinding(window, Key.V, ModifierKeys.Control, EditorCommands.Paste);
+            RequireKeyBinding(window, Key.C, ModifierKeys.Control, ApplicationCommands.Copy);
+            RequireKeyBinding(window, Key.X, ModifierKeys.Control, ApplicationCommands.Cut);
+            RequireKeyBinding(window, Key.V, ModifierKeys.Control, ApplicationCommands.Paste);
 
             MethodInfo initializeBindings = typeof(MainWindow).GetMethod(
                 "InitializeEditorCommandBindings",

@@ -111,6 +111,9 @@ public partial class MainWindow
         AddBinding(EditorCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Paste, ExecutePaste, CanExecutePaste);
+        AddBinding(ApplicationCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
+        AddBinding(ApplicationCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
+        AddBinding(ApplicationCommands.Paste, ExecutePaste, CanExecutePaste);
         AddBinding(EditorCommands.Delete, ExecuteDelete, CanExecuteFloorSelection);
         AddBinding(EditorCommands.InsertAngle, ExecuteInsertAngle, CanExecutePrimarySelection);
         AddBinding(EditorCommands.InsertMidspin, ExecuteInsertMidspin, CanExecutePrimarySelection);
@@ -298,9 +301,9 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _selection.PrimaryFloor < 0)
             return;
-        int newFloor = _selection.PrimaryFloor + 1;
-        editor.PasteFloors(_selection.PrimaryFloor);
-        RefreshEditorAfterMutation(newFloor);
+        EditorPasteResult? pasted = editor.PasteFloors(_selection.PrimaryFloor);
+        if (pasted is EditorPasteResult result)
+            RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
         e.Handled = true;
     }
 

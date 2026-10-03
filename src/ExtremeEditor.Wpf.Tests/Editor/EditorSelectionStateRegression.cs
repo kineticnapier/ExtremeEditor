@@ -55,11 +55,20 @@ internal static class EditorSelectionStateRegression
         selectFloor.Invoke(state, [5, ModifierKeys.Shift]);
         AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [3, 4, 5], 5, 3);
 
+        selectFloor.Invoke(state, [8, ModifierKeys.Shift]);
+        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [3, 4, 5, 6, 7, 8], 8, 3);
+
+        selectFloor.Invoke(state, [1, ModifierKeys.Shift]);
+        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [1, 2, 3], 1, 3);
+
+        selectFloor.Invoke(state, [5, ModifierKeys.None]);
+        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [5], 5, 5);
+
         selectFloor.Invoke(state, [4, ModifierKeys.Control]);
-        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [3, 5], 5, 5);
+        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [4, 5], 4, 4);
 
         selectFloor.Invoke(state, [1, ModifierKeys.Control]);
-        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [1, 3, 5], 1, 1);
+        AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [1, 4, 5], 1, 1);
 
         moveSelection.Invoke(state, [4, true]);
         AssertSelection(state, selectedFloorsProperty, primaryFloorProperty, anchorFloorProperty, [1, 2, 3, 4], 4, 1);

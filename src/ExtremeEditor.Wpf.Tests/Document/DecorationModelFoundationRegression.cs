@@ -295,7 +295,7 @@ internal static class DecorationModelFoundationRegression
             throw new InvalidOperationException("Pasted decorations did not appear immediately in LevelDocument.");
 
         DecorationSnapshot created = pasted.Single(item =>
-            item.Floor == 6 && string.Equals(item.EventType, copied.EventType, StringComparison.Ordinal));
+            item.Floor == 5 && string.Equals(item.EventType, copied.EventType, StringComparison.Ordinal));
         if (created.SourceIndex == copied.SourceIndex ||
             original.Any(item => item.SourceIndex == created.SourceIndex))
         {

@@ -27,9 +27,9 @@
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{x:Static local:EditorCommands.SaveAs}" />
         <KeyBinding Key="Z" Modifiers="Control" Command="{x:Static local:EditorCommands.Undo}" />
         <KeyBinding Key="Y" Modifiers="Control" Command="{x:Static local:EditorCommands.Redo}" />
-        <KeyBinding Key="C" Modifiers="Control" Command="{x:Static local:EditorCommands.Copy}" />
-        <KeyBinding Key="X" Modifiers="Control" Command="{x:Static local:EditorCommands.Cut}" />
-        <KeyBinding Key="V" Modifiers="Control" Command="{x:Static local:EditorCommands.Paste}" />
+        <KeyBinding Key="C" Modifiers="Control" Command="{x:Static ApplicationCommands.Copy}" />
+        <KeyBinding Key="X" Modifiers="Control" Command="{x:Static ApplicationCommands.Cut}" />
+        <KeyBinding Key="V" Modifiers="Control" Command="{x:Static ApplicationCommands.Paste}" />
     </Window.InputBindings>
 
     <DockPanel LastChildFill="True">

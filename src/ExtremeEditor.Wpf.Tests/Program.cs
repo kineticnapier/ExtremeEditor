@@ -15,6 +15,18 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_OPERATIONS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackPositionEditorOnlyRegression.Run();
+                EditorSelectionStateRegression.Run();
+                EditorFloorClipboardRegression.Run();
+                Console.WriteLine("PASS: editor operations regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLAYBACK_SPEED_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -406,6 +418,8 @@ internal static class Program
             }
 
             WinFormsHostRemovalRegression.Run();
+            TrackPositionEditorOnlyRegression.Run();
+            EditorFloorClipboardRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             NativeOnlyViewportRegression.Run();

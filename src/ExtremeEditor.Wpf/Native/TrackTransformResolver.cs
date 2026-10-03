@@ -56,6 +56,12 @@ internal sealed class TrackTransformResolveDiagnostics
     internal void RecordWorkItem() => WorkItemCount = checked(WorkItemCount + 1);
 }
 
+internal enum TrackTransformResolveContext
+{
+    EditorPreview,
+    Runtime
+}
+
 internal static class TrackTransformMetadataCache
 {
     private static readonly ConditionalWeakTable<LevelDocument, TrackTransformSourceData> Cache = new();
@@ -619,10 +625,21 @@ internal static class TrackTransformResolver
     private const float DegToRad = MathF.PI / 180f;
 
     internal static StaticTrackTransform[] ResolveStatic(LevelDocument level) =>
-        ResolveStatic(level, diagnostics: null);
+        ResolveStatic(level, TrackTransformResolveContext.EditorPreview, diagnostics: null);
 
     internal static StaticTrackTransform[] ResolveStatic(
         LevelDocument level,
+        TrackTransformResolveContext context) =>
+        ResolveStatic(level, context, diagnostics: null);
+
+    internal static StaticTrackTransform[] ResolveStatic(
+        LevelDocument level,
+        TrackTransformResolveDiagnostics? diagnostics)
+        => ResolveStatic(level, TrackTransformResolveContext.EditorPreview, diagnostics);
+
+    private static StaticTrackTransform[] ResolveStatic(
+        LevelDocument level,
+        TrackTransformResolveContext context,
         TrackTransformResolveDiagnostics? diagnostics)
     {
         ArgumentNullException.ThrowIfNull(level);
@@ -657,7 +674,9 @@ internal static class TrackTransformResolver
             while (eventCursor < live.Count && live[eventCursor].Floor == floor)
             {
                 TrackTransformSourceEvent item = live[eventCursor++];
-                if (!item.Active || item.EventType != "PositionTrack")
+                if (!item.Active ||
+                    item.EventType != "PositionTrack" ||
+                    (item.EditorOnly && context == TrackTransformResolveContext.Runtime))
                     continue;
 
                 if (item.PositionOffset is TrackTransformVector2 offset &&

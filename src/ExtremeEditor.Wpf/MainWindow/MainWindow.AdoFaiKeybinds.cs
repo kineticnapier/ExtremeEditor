@@ -29,7 +29,7 @@ public partial class MainWindow
             return;
         }
 
-        if (Keyboard.FocusedElement is TextBox or PasswordBox)
+        if (!EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
             return;
 
         // EditorKeybind(..., true) is an edge-triggered action in ADOFAI. WPF emits
@@ -163,9 +163,9 @@ public partial class MainWindow
                 case Key.V:
                     if (editor.HasClipboard)
                     {
-                        int inserted = primary + 1;
-                        editor.PasteFloors(primary);
-                        RefreshAfterAdoFaiMutation(inserted);
+                        EditorPasteResult? pasted = editor.PasteFloors(primary);
+                        if (pasted is EditorPasteResult result)
+                            RefreshAfterAdoFaiMutation(result.FirstFloor, result.Floors);
                     }
                     e.Handled = true;
                     return;

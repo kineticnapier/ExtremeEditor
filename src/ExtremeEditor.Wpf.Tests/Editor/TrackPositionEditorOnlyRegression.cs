@@ -1,0 +1,92 @@
+using System.IO;
+using System.Reflection;
+using System.Text.Json.Nodes;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
+
+namespace ExtremeEditor.Wpf.Tests;
+
+internal static class TrackPositionEditorOnlyRegression
+{
+    internal static void Run()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
+        var action = new LevelAction(1, "PositionTrack", true, null, null, null, null)
+        {
+            SourceIndex = -2,
+            PropertyOverrides = new JsonObject
+            {
+                ["floor"] = 1,
+                ["eventType"] = "PositionTrack",
+                ["positionOffset"] = new JsonArray(2.0, 0.0),
+                ["relativeTo"] = new JsonArray(0, "ThisTile"),
+                ["editorOnly"] = true,
+                ["unknownEditorPayload"] = "preserve-me"
+            }
+        };
+        level.ReplaceActions([action]);
+
+        StaticTrackTransform[] editor = TrackTransformResolver.ResolveStatic(level);
+        float expectedX = level.Positions[1].X + 2f * PathBuilder.DefaultLongTileSize;
+        AssertNear(expectedX, editor[1].X, "editor preview PositionTrack.editorOnly");
+
+        Type resolver = typeof(TrackTransformResolver);
+        Type? contextType = resolver.Assembly.GetType("ExtremeEditor.Wpf.Native.TrackTransformResolveContext");
+        MethodInfo? contextual = contextType is null
+            ? null
+            : resolver.GetMethod(
+                "ResolveStatic",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                types: [typeof(LevelDocument), contextType],
+                modifiers: null);
+        if (contextType is null || contextual is null)
+        {
+            throw new InvalidOperationException(
+                "PositionTrack.editorOnly has no explicit editor/runtime resolution boundary.");
+        }
+
+        object runtimeContext = Enum.Parse(contextType, "Runtime");
+        var runtime = (StaticTrackTransform[])(contextual.Invoke(null, [level, runtimeContext])
+            ?? throw new InvalidOperationException("Runtime PositionTrack resolution returned null."));
+        AssertNear(level.Positions[1].X, runtime[1].X, "runtime excludes editor-only PositionTrack");
+
+        var editorSession = new EditorSession(level);
+        JsonObject editable = AdoFaiEditorSaveService.BuildEditableActionJson(editorSession, action);
+        if (editable["editorOnly"]?.GetValue<bool>() != true ||
+            editable["unknownEditorPayload"]?.GetValue<string>() != "preserve-me")
+        {
+            throw new InvalidOperationException("PositionTrack editor-only/unknown properties were not preserved for save.");
+        }
+
+        string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor.TrackPosition", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "editor-only.adofai");
+        try
+        {
+            editorSession.SaveAsync(path).GetAwaiter().GetResult();
+            JsonObject saved = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+                ?? throw new InvalidOperationException("Saved PositionTrack fixture was not a JSON object.");
+            JsonObject savedAction = saved["actions"]?.AsArray()
+                .OfType<JsonObject>()
+                .Single(item => item["eventType"]?.GetValue<string>() == "PositionTrack")
+                ?? throw new InvalidOperationException("Saved PositionTrack action is missing.");
+            if (savedAction["editorOnly"]?.GetValue<bool>() != true ||
+                savedAction["unknownEditorPayload"]?.GetValue<string>() != "preserve-me")
+            {
+                throw new InvalidOperationException("PositionTrack save round-trip lost editor-only/unknown properties.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void AssertNear(float expected, float actual, string label)
+    {
+        if (Math.Abs(expected - actual) > 0.0001f)
+            throw new InvalidOperationException($"{label}: expected={expected}, actual={actual}.");
+    }
+}

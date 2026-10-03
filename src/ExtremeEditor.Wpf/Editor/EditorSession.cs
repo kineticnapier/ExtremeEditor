@@ -52,6 +52,7 @@ internal sealed class EditorSession
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool HasClipboard => _clipboard is { Angles.Length: > 0 };
+    public int ClipboardFloorCount => _clipboard?.Angles.Length ?? 0;
     public bool IsDirty => _historyPosition != _savedHistoryPosition;
     public string? UndoName => _undo.TryPeek(out IEditorCommand? command) ? command.Name : null;
     public string? RedoName => _redo.TryPeek(out IEditorCommand? command) ? command.Name : null;
@@ -156,9 +157,20 @@ internal sealed class EditorSession
                 continue;
 
             JsonObject? template = GetSourceActionTemplate(root, action.SourceIndex);
+            LevelAction copied = action with
+            {
+                Floor = action.Floor - firstFloor,
+                SourceIndex = -1,
+                SourceProperties = action.SourceProperties is null
+                    ? null
+                    : (JsonObject)action.SourceProperties.DeepClone(),
+                PropertyOverrides = action.PropertyOverrides is null
+                    ? null
+                    : (JsonObject)action.PropertyOverrides.DeepClone()
+            };
             actions.Add(new ClipboardAction(
                 action.Floor - firstFloor,
-                action with { Floor = action.Floor - firstFloor, SourceIndex = -1 },
+                copied,
                 template));
         }
 
@@ -184,18 +196,20 @@ internal sealed class EditorSession
         DeleteFloors(floors);
     }
 
-    public void PasteFloors(int afterFloor)
+    public EditorPasteResult? PasteFloors(int startFloor)
     {
         if (_clipboard is not { Angles.Length: > 0 } clipboard)
-            return;
+            return null;
 
         EnsureSourceMapping();
+        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - 1));
         Execute(new InsertFloorsCommand(
-            afterFloor,
+            firstFloor - 1,
             clipboard.Angles,
             clipboard.Actions,
             clipboard.Decorations,
             "Paste floors"));
+        return new EditorPasteResult(firstFloor, clipboard.Angles.Length);
     }
 
     public void AddAction(int floor, string eventType)
@@ -839,6 +853,10 @@ internal sealed record EditorClipboard(
 
 internal sealed record ClipboardAction(int RelativeFloor, LevelAction Action, JsonObject? Template);
 internal sealed record ClipboardDecoration(int RelativeFloor, string EventType, JsonObject Properties);
+internal readonly record struct EditorPasteResult(int FirstFloor, int Count)
+{
+    internal IEnumerable<int> Floors => Enumerable.Range(FirstFloor, Count);
+}
 internal sealed record DeletedDecoration(int Index, LevelDecoration Decoration);
 internal sealed record DeletedRange(
     int FirstFloor,
