@@ -42,7 +42,21 @@ internal sealed class HitSoundLibrary
             return;
         }
 
-        string[] paths = Directory.GetFiles(directory, "*.wav", SearchOption.TopDirectoryOnly);
+        string[] paths;
+        try
+        {
+            paths = Directory.GetFiles(directory, "*.wav", SearchOption.TopDirectoryOnly);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            log?.Write("hitsounds.directory_unavailable", $"path={directory} message={ex.Message}");
+            return;
+        }
+        catch (IOException ex)
+        {
+            log?.Write("hitsounds.directory_unavailable", $"path={directory} message={ex.Message}");
+            return;
+        }
         log?.Write("hitsounds.enumerated", $"path={directory} count={paths.Length}");
         foreach (string path in paths)
         {

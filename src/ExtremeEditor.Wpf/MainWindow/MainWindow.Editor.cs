@@ -260,8 +260,13 @@ public partial class MainWindow
         if (editor is null)
             return;
         int primary = _selection.PrimaryFloor;
+        LevelSettingsSnapshot before = editor.GetLevelSettings();
         editor.Undo();
-        RefreshEditorAfterMutation(primary);
+        LevelSettingsSnapshot after = editor.GetLevelSettings();
+        if (before != after)
+            RefreshAfterSongSettingsChange(before, after);
+        else
+            RefreshEditorAfterMutation(primary);
         e.Handled = true;
     }
 
@@ -271,8 +276,13 @@ public partial class MainWindow
         if (editor is null)
             return;
         int primary = _selection.PrimaryFloor;
+        LevelSettingsSnapshot before = editor.GetLevelSettings();
         editor.Redo();
-        RefreshEditorAfterMutation(primary);
+        LevelSettingsSnapshot after = editor.GetLevelSettings();
+        if (before != after)
+            RefreshAfterSongSettingsChange(before, after);
+        else
+            RefreshEditorAfterMutation(primary);
         e.Handled = true;
     }
 
@@ -498,6 +508,7 @@ public partial class MainWindow
     private void RefreshInspector()
     {
         EditorSession? editor = EnsureEditorSession();
+        RefreshSongSettings();
         int primary = _selection.PrimaryFloor;
         int count = _selection.SelectedFloors.Count;
         SelectionSummaryText.Text = primary < 0

@@ -182,6 +182,7 @@ internal static class SongSettingsSliceRegression
     {
         SettingsContract contract = SettingsContract.Discover();
         LevelDocument document = LevelDocument.CreateSynthetic(3);
+        document.SeparateCountdownTime = false;
         var session = new EditorSession(document);
         contract.Edit(session, contract.Create(null, 120.0, 100.0, 250.0, 200.0, "Kick", 100.0));
 

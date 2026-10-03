@@ -34,7 +34,8 @@ internal sealed class PreparedAudioLoad : IDisposable
 
         var player = new AudioPlayer
         {
-            HitSoundsEnabled = hitSoundsEnabled
+            HitSoundsEnabled = hitSoundsEnabled,
+            SongVolumePercent = level.SongVolumePercent
         };
 
         try

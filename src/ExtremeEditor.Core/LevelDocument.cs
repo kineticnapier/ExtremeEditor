@@ -98,6 +98,7 @@ public sealed class LevelDocument
         new Dictionary<string, int>(StringComparer.Ordinal);
     public required double InitialBpm { get; set; }
     public required string? SongFilename { get; set; }
+    public double SongVolumePercent { get; set; } = 100.0;
     public required double OffsetMilliseconds { get; set; }
     public required double PitchPercent { get; set; }
     public required int CountdownTicks { get; set; }
@@ -181,6 +182,7 @@ public sealed class LevelDocument
             ActionStore = LevelActionStore.Empty,
             InitialBpm = 100.0,
             SongFilename = null,
+            SongVolumePercent = 100.0,
             OffsetMilliseconds = 0,
             PitchPercent = 100,
             CountdownTicks = 4,

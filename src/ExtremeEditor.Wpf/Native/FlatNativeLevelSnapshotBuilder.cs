@@ -29,6 +29,7 @@ internal static class FlatNativeLevelSnapshotBuilder
             ActionStore = empty,
             InitialBpm = level.InitialBpm,
             SongFilename = level.SongFilename,
+            SongVolumePercent = level.SongVolumePercent,
             OffsetMilliseconds = level.OffsetMilliseconds,
             PitchPercent = level.PitchPercent,
             CountdownTicks = level.CountdownTicks,

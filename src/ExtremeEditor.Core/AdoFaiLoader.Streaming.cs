@@ -159,6 +159,7 @@ public static partial class AdoFaiLoader
                 ActionsByFloor = parsed.ActionsByFloor,
                 InitialBpm = parsed.InitialBpm,
                 SongFilename = parsed.SongFilename,
+                SongVolumePercent = parsed.SongVolumePercent,
                 OffsetMilliseconds = parsed.OffsetMilliseconds,
                 PitchPercent = parsed.PitchPercent,
                 CountdownTicks = parsed.CountdownTicks,
@@ -217,6 +218,7 @@ public static partial class AdoFaiLoader
 
         private double _initialBpm = 100.0;
         private string? _songFilename;
+        private double _songVolumePercent = 100.0;
         private double? _offsetMilliseconds;
         private double? _songOffsetMilliseconds;
         private double _pitchPercent = 100.0;
@@ -277,6 +279,7 @@ public static partial class AdoFaiLoader
                 _actionsByFloor,
                 _initialBpm,
                 _songFilename,
+                _songVolumePercent,
                 _offsetMilliseconds ?? _songOffsetMilliseconds ?? 0.0,
                 _pitchPercent,
                 _countdownTicks,
@@ -377,6 +380,10 @@ public static partial class AdoFaiLoader
                     break;
                 case SettingField.SongFilename:
                     _songFilename = ReadLooseStringToken(ref reader);
+                    break;
+                case SettingField.Volume:
+                    if (TryReadDoubleToken(ref reader, out double songVolume))
+                        _songVolumePercent = songVolume;
                     break;
                 case SettingField.Offset:
                     if (TryReadDoubleToken(ref reader, out double offset))
@@ -679,6 +686,7 @@ public static partial class AdoFaiLoader
         {
             if (reader.ValueTextEquals("bpm"u8)) return SettingField.Bpm;
             if (reader.ValueTextEquals("songFilename"u8)) return SettingField.SongFilename;
+            if (reader.ValueTextEquals("volume"u8)) return SettingField.Volume;
             if (reader.ValueTextEquals("offset"u8)) return SettingField.Offset;
             if (reader.ValueTextEquals("songOffset"u8)) return SettingField.SongOffset;
             if (reader.ValueTextEquals("pitch"u8)) return SettingField.Pitch;
@@ -787,6 +795,7 @@ public static partial class AdoFaiLoader
             Unknown,
             Bpm,
             SongFilename,
+            Volume,
             Offset,
             SongOffset,
             Pitch,
@@ -845,6 +854,7 @@ public static partial class AdoFaiLoader
         IReadOnlyDictionary<int, LevelAction[]> ActionsByFloor,
         double InitialBpm,
         string? SongFilename,
+        double SongVolumePercent,
         double OffsetMilliseconds,
         double PitchPercent,
         int CountdownTicks,

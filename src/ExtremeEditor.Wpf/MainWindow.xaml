@@ -240,14 +240,112 @@
 
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="40" />
+                <ColumnDefinition x:Name="SettingsContentColumn" Width="280" MaxWidth="300" />
+                <ColumnDefinition x:Name="EditorViewportColumn" Width="*" MinWidth="350" />
                 <ColumnDefinition Width="330" />
             </Grid.ColumnDefinitions>
 
-            <native:NativeLevelViewport x:Name="NativeViewport"
-                                        Grid.Column="0" />
+            <Grid x:Name="SettingsSidebarHost"
+                  Grid.Column="0"
+                  Grid.ColumnSpan="2"
+                  Background="#181B20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="1"
+                <Border x:Name="SettingsCategoryRail"
+                        Grid.Column="0"
+                        Width="40"
+                        Background="#121419"
+                        BorderBrush="#30343B"
+                        BorderThickness="0,0,1,0">
+                    <StackPanel>
+                        <Button x:Name="SettingsSidebarCollapseButton"
+                                Content="‹"
+                                Height="36"
+                                ToolTip="Collapse settings"
+                                Click="SettingsSidebarCollapseClick" />
+                        <ToggleButton x:Name="SongSettingsCategoryButton"
+                                      Content="♫"
+                                      Height="40"
+                                      IsChecked="True"
+                                      ToolTip="Song Settings" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="SongSettingsPane"
+                        Grid.Column="1"
+                        Background="#1A1D22"
+                        BorderBrush="#30343B"
+                        BorderThickness="0,0,1,0"
+                        Padding="12">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <TextBlock Text="Song Settings"
+                                       Foreground="#F0F0F4"
+                                       FontWeight="SemiBold"
+                                       FontSize="14"
+                                       Margin="0,0,0,12" />
+
+                            <TextBlock Text="Song filename" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongFilenameTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Initial BPM" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongBpmTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Song volume (%)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongVolumeTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Offset (ms)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongOffsetTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Pitch (%)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongPitchTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Hitsound" Foreground="#AEB4C0" />
+                            <ComboBox x:Name="SongHitSoundComboBox"
+                                      Margin="0,3,0,10"
+                                      SelectionChanged="SongHitSoundSelectionChanged">
+                                <ComboBoxItem Content="Kick" />
+                                <ComboBoxItem Content="Hat" />
+                                <ComboBoxItem Content="Shaker" />
+                                <ComboBoxItem Content="Sizzle" />
+                                <ComboBoxItem Content="Chuck" />
+                            </ComboBox>
+
+                            <TextBlock Text="Hitsound volume (%)" Foreground="#AEB4C0" />
+                            <TextBox x:Name="SongHitSoundVolumeTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+
+            <native:NativeLevelViewport x:Name="NativeViewport"
+                                        Grid.Column="2" />
+
+            <Border x:Name="EventInspectorHost"
+                    Grid.Column="3"
                     Background="#1A1D22"
                     BorderBrush="#30343B"
                     BorderThickness="1,0,0,0"

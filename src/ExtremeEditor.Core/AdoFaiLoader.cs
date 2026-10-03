@@ -52,6 +52,7 @@ public static partial class AdoFaiLoader
 
         double initialBpm = 100.0;
         string? songFilename = null;
+        double songVolumePercent = 100.0;
         double offsetMilliseconds = 0.0;
         double pitchPercent = 100.0;
         int countdownTicks = 4;
@@ -65,6 +66,7 @@ public static partial class AdoFaiLoader
             if (bpm is > 0) initialBpm = bpm.Value;
 
             songFilename = ReadLooseString(settings, "songFilename");
+            songVolumePercent = ReadLooseDoubleProperty(settings, "volume") ?? 100.0;
             // `offset` is the stock key. A few generators have emitted
             // `songOffset`, so accept it as a compatibility fallback.
             offsetMilliseconds = ReadLooseDoubleProperty(settings, "offset")
@@ -172,6 +174,7 @@ public static partial class AdoFaiLoader
             ActionsByFloor = actionsByFloor,
             InitialBpm = initialBpm,
             SongFilename = songFilename,
+            SongVolumePercent = songVolumePercent,
             OffsetMilliseconds = offsetMilliseconds,
             PitchPercent = pitchPercent,
             CountdownTicks = countdownTicks,

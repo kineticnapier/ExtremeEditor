@@ -135,6 +135,7 @@ public static partial class AdoFaiLoader
                 ActionStore = actionStore,
                 InitialBpm = parsed.InitialBpm,
                 SongFilename = parsed.SongFilename,
+                SongVolumePercent = parsed.SongVolumePercent,
                 OffsetMilliseconds = parsed.OffsetMilliseconds,
                 PitchPercent = parsed.PitchPercent,
                 CountdownTicks = parsed.CountdownTicks,
@@ -192,6 +193,7 @@ public static partial class AdoFaiLoader
 
         private double _initialBpm = 100.0;
         private string? _songFilename;
+        private double _songVolumePercent = 100.0;
         private double? _offsetMilliseconds;
         private double? _songOffsetMilliseconds;
         private double _pitchPercent = 100.0;
@@ -257,6 +259,7 @@ public static partial class AdoFaiLoader
                 store,
                 _initialBpm,
                 _songFilename,
+                _songVolumePercent,
                 _offsetMilliseconds ?? _songOffsetMilliseconds ?? 0.0,
                 _pitchPercent,
                 _countdownTicks,
@@ -353,6 +356,9 @@ public static partial class AdoFaiLoader
                     break;
                 case FlatSettingField.SongFilename:
                     _songFilename = ReadString(ref reader);
+                    break;
+                case FlatSettingField.Volume when TryReadDouble(ref reader, out double songVolume):
+                    _songVolumePercent = songVolume;
                     break;
                 case FlatSettingField.Offset when TryReadDouble(ref reader, out double offset):
                     _offsetMilliseconds = offset;
@@ -706,6 +712,7 @@ public static partial class AdoFaiLoader
         {
             if (reader.ValueTextEquals("bpm"u8)) return FlatSettingField.Bpm;
             if (reader.ValueTextEquals("songFilename"u8)) return FlatSettingField.SongFilename;
+            if (reader.ValueTextEquals("volume"u8)) return FlatSettingField.Volume;
             if (reader.ValueTextEquals("offset"u8)) return FlatSettingField.Offset;
             if (reader.ValueTextEquals("songOffset"u8)) return FlatSettingField.SongOffset;
             if (reader.ValueTextEquals("pitch"u8)) return FlatSettingField.Pitch;
@@ -791,7 +798,7 @@ public static partial class AdoFaiLoader
         private enum FlatRootField { None, Unknown, AngleData, Settings, Actions, Decorations }
         private enum FlatSettingField
         {
-            None, Unknown, Bpm, SongFilename, Offset, SongOffset, Pitch,
+            None, Unknown, Bpm, SongFilename, Volume, Offset, SongOffset, Pitch,
             CountdownTicks, SeparateCountdownTime, HitSound, HitSoundVolume
         }
         private enum FlatActionField
@@ -843,6 +850,7 @@ public static partial class AdoFaiLoader
         LevelActionStore ActionStore,
         double InitialBpm,
         string? SongFilename,
+        double SongVolumePercent,
         double OffsetMilliseconds,
         double PitchPercent,
         int CountdownTicks,

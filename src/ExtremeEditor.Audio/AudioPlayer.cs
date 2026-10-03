@@ -35,6 +35,7 @@ public sealed class AudioPlayer : IDisposable
     private WaveStream? _reader;
     private UnifiedAudioSampleProvider? _graph;
     private VariableRateSampleProvider? _songRateProvider;
+    private VolumeSampleProvider? _songVolumeProvider;
     private TransportHitSoundSampleProvider? _transportHitSoundProvider;
     private SilentSampleProvider? _silentSong;
     private SampleAccurateHitSoundProvider? _hitSoundProvider;
@@ -50,6 +51,7 @@ public sealed class AudioPlayer : IDisposable
     private bool _clockReady;
     private bool _hitSoundsEnabled = true;
     private double _playbackSpeed = 1.0;
+    private double _songVolumePercent = 100.0;
 
     public AudioPlayer()
     {
@@ -81,6 +83,18 @@ public sealed class AudioPlayer : IDisposable
             }
 
             ReanchorPlaybackSpeed(normalized);
+        }
+    }
+    public double SongVolumePercent
+    {
+        get => _songVolumePercent;
+        set
+        {
+            if (!double.IsFinite(value))
+                return;
+            _songVolumePercent = Math.Clamp(value, 0.0, 100.0);
+            if (_songVolumeProvider is not null)
+                _songVolumeProvider.Volume = (float)(_songVolumePercent * 0.01);
         }
     }
     public string? LoadedPath { get; private set; }
@@ -385,7 +399,11 @@ public sealed class AudioPlayer : IDisposable
             }
         }
 
-        _songRateProvider = new VariableRateSampleProvider(song, _playbackSpeed);
+        _songVolumeProvider = new VolumeSampleProvider(song)
+        {
+            Volume = (float)(_songVolumePercent * 0.01)
+        };
+        _songRateProvider = new VariableRateSampleProvider(_songVolumeProvider, _playbackSpeed);
         _transportHitSoundProvider = hitSounds is null
             ? null
             : new TransportHitSoundSampleProvider(hitSounds, _playbackSpeed);
@@ -465,6 +483,7 @@ public sealed class AudioPlayer : IDisposable
         _output = null;
         _graph = null;
         _songRateProvider = null;
+        _songVolumeProvider = null;
         _transportHitSoundProvider = null;
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(position.TotalSeconds, _reader.TotalTime.TotalSeconds));
@@ -568,6 +587,7 @@ public sealed class AudioPlayer : IDisposable
         _reader = null;
         _graph = null;
         _songRateProvider = null;
+        _songVolumeProvider = null;
         _transportHitSoundProvider = null;
         _silentSong = null;
         _outputFormat = null;

@@ -20,6 +20,7 @@ internal static class AdoFaiEditorSaveService
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         JsonObject root = session.GetSourceRootForSave();
+        ReplaceSettings(root, session.Document);
         ReplaceAngles(root, session.Document.Angles);
         ReplaceActions(root, session);
         ReplaceDecorations(root, session.Document.Decorations);
@@ -43,6 +44,21 @@ internal static class AdoFaiEditorSaveService
         }
 
         File.Move(tempPath, fullPath, overwrite: true);
+    }
+
+    private static void ReplaceSettings(JsonObject root, LevelDocument document)
+    {
+        JsonObject settings = root["settings"] is JsonObject source
+            ? (JsonObject)source.DeepClone()
+            : new JsonObject();
+        settings["songFilename"] = document.SongFilename;
+        settings["bpm"] = document.InitialBpm;
+        settings["volume"] = document.SongVolumePercent;
+        settings["offset"] = document.OffsetMilliseconds;
+        settings["pitch"] = document.PitchPercent;
+        settings["hitsound"] = document.DefaultHitSound;
+        settings["hitsoundVolume"] = document.HitSoundVolumePercent;
+        root["settings"] = settings;
     }
 
     internal static JsonObject BuildEditableActionJson(EditorSession session, LevelAction action)

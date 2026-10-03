@@ -61,6 +61,25 @@ internal sealed class EditorSession
 
     public event EventHandler? Changed;
 
+    public LevelSettingsSnapshot GetLevelSettings() => new(
+        Document.SongFilename,
+        Document.InitialBpm,
+        Document.SongVolumePercent,
+        Document.OffsetMilliseconds,
+        Document.PitchPercent,
+        Document.DefaultHitSound,
+        Document.HitSoundVolumePercent);
+
+    public void EditLevelSettings(LevelSettingsSnapshot settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        LevelSettingsSnapshot normalized = NormalizeLevelSettings(settings);
+        LevelSettingsSnapshot before = GetLevelSettings();
+        if (before == normalized)
+            return;
+        Execute(new EditLevelSettingsCommand(before, normalized));
+    }
+
     public IReadOnlyList<LevelAction> GetActionsAtFloor(int floor)
     {
         if (!Document.ActionStore.TryGetActions(floor, out ReadOnlySpan<LevelAction> actions))
@@ -276,6 +295,19 @@ internal sealed class EditorSession
     }
 
     internal JsonObject GetSourceRootForSave() => (JsonObject)EnsureSourceRoot().DeepClone();
+
+    internal void ApplyLevelSettingsRaw(LevelSettingsSnapshot settings)
+    {
+        Document.SongFilename = settings.SongFilename;
+        Document.InitialBpm = settings.InitialBpm;
+        Document.SongVolumePercent = settings.SongVolumePercent;
+        Document.OffsetMilliseconds = settings.OffsetMilliseconds;
+        Document.PitchPercent = settings.PitchPercent;
+        Document.DefaultHitSound = settings.DefaultHitSound;
+        Document.HitSoundVolumePercent = settings.HitSoundVolumePercent;
+        RecomputeSpeedRatios();
+        Document.ReplaceActions(_actions);
+    }
 
     internal void InsertRaw(
         int afterFloor,
@@ -589,6 +621,25 @@ internal sealed class EditorSession
                before.Duration == after.Duration;
     }
 
+    private static LevelSettingsSnapshot NormalizeLevelSettings(LevelSettingsSnapshot settings)
+    {
+        static double FiniteOr(double value, double fallback) => double.IsFinite(value) ? value : fallback;
+        return settings with
+        {
+            SongFilename = string.IsNullOrWhiteSpace(settings.SongFilename)
+                ? null
+                : settings.SongFilename.Trim(),
+            InitialBpm = Math.Max(0.000001, FiniteOr(settings.InitialBpm, 100.0)),
+            SongVolumePercent = Math.Clamp(FiniteOr(settings.SongVolumePercent, 100.0), 0.0, 100.0),
+            OffsetMilliseconds = FiniteOr(settings.OffsetMilliseconds, 0.0),
+            PitchPercent = Math.Max(0.000001, FiniteOr(settings.PitchPercent, 100.0)),
+            DefaultHitSound = string.IsNullOrWhiteSpace(settings.DefaultHitSound)
+                ? "Kick"
+                : settings.DefaultHitSound.Trim(),
+            HitSoundVolumePercent = Math.Clamp(FiniteOr(settings.HitSoundVolumePercent, 100.0), 0.0, 100.0)
+        };
+    }
+
     private void RecomputeSpeedRatios()
     {
         double bpm = Document.InitialBpm > 0 ? Document.InitialBpm : 100.0;
@@ -843,6 +894,15 @@ internal sealed class EditorSession
         public string Name => "Edit event";
         public void Execute(EditorSession session) => session.ReplaceActionRaw(before, after);
         public void Undo(EditorSession session) => session.ReplaceActionRaw(after, before);
+    }
+
+    private sealed class EditLevelSettingsCommand(
+        LevelSettingsSnapshot before,
+        LevelSettingsSnapshot after) : IEditorCommand
+    {
+        public string Name => "Edit song settings";
+        public void Execute(EditorSession session) => session.ApplyLevelSettingsRaw(after);
+        public void Undo(EditorSession session) => session.ApplyLevelSettingsRaw(before);
     }
 }
 
