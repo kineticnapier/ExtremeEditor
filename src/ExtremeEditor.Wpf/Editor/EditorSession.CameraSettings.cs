@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
@@ -33,6 +34,14 @@ internal sealed partial class EditorSession
             settings.PositionY,
             settings.Rotation,
             settings.Zoom);
+
+        JsonObject root = EnsureSourceRoot();
+        JsonObject sourceSettings = root["settings"] as JsonObject ?? new JsonObject();
+        sourceSettings["relativeTo"] = settings.RelativeTo;
+        sourceSettings["position"] = new JsonArray(settings.PositionX, settings.PositionY);
+        sourceSettings["rotation"] = settings.Rotation;
+        sourceSettings["zoom"] = settings.Zoom;
+        root["settings"] = sourceSettings;
     }
 
     private static CameraSettingsSnapshot NormalizeCameraSettings(CameraSettingsSnapshot settings)
