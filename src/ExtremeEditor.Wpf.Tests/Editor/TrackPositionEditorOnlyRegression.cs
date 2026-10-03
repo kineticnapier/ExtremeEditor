@@ -10,6 +10,8 @@ internal static class TrackPositionEditorOnlyRegression
 {
     internal static void Run()
     {
+        VerifySetSpeedEditorConversionContract();
+
         LevelDocument level = LevelDocument.CreateSynthetic(4);
         var action = new LevelAction(1, "PositionTrack", true, null, null, null, null)
         {
@@ -82,6 +84,62 @@ internal static class TrackPositionEditorOnlyRegression
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static void VerifySetSpeedEditorConversionContract()
+    {
+        AssertNear(0.5, BpmToMultiplier(200.0, 100.0), "SetSpeed 200 BPM -> 100 BPM");
+        AssertNear(100.0, MultiplierToBpm(200.0, 0.5), "SetSpeed 200 BPM x 0.5");
+
+        double previousEffectiveBpm = 100.0 * 2.0;
+        AssertNear(200.0, previousEffectiveBpm, "SetSpeed previous effective BPM");
+        AssertNear(100.0, MultiplierToBpm(previousEffectiveBpm, 0.5), "SetSpeed chained multiplier");
+
+        double roundTrip = MultiplierToBpm(200.0, BpmToMultiplier(200.0, 137.5));
+        AssertNear(137.5, roundTrip, "SetSpeed Bpm -> Multiplier -> Bpm round-trip");
+
+        Type? helper = typeof(EditorSession).Assembly.GetType("ExtremeEditor.Wpf.SetSpeedEditorConversion");
+        if (helper is null)
+        {
+            throw new InvalidOperationException(
+                "SetSpeed BPM/multiplier editor conversion helper is not available.");
+        }
+
+        RequireSetSpeedMethod(helper, "TryGetPreviousEffectiveBpm");
+        RequireSetSpeedMethod(helper, "TryConvertBpmToMultiplier");
+        RequireSetSpeedMethod(helper, "TryConvertMultiplierToBpm");
+    }
+
+    private static void RequireSetSpeedMethod(Type helper, string name)
+    {
+        MethodInfo? method = helper.GetMethod(
+            name,
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        if (method is null)
+            throw new InvalidOperationException($"SetSpeed editor conversion helper is missing {name}.");
+    }
+
+    private static double BpmToMultiplier(double previousBpm, double targetBpm)
+    {
+        if (!IsValidSpeedValue(previousBpm) || !IsValidSpeedValue(targetBpm))
+            throw new InvalidOperationException("SetSpeed reference BPM conversion received an invalid value.");
+        return targetBpm / previousBpm;
+    }
+
+    private static double MultiplierToBpm(double previousBpm, double multiplier)
+    {
+        if (!IsValidSpeedValue(previousBpm) || !IsValidSpeedValue(multiplier))
+            throw new InvalidOperationException("SetSpeed reference multiplier conversion received an invalid value.");
+        return previousBpm * multiplier;
+    }
+
+    private static bool IsValidSpeedValue(double value) =>
+        double.IsFinite(value) && value > 0.0;
+
+    private static void AssertNear(double expected, double actual, string label)
+    {
+        if (Math.Abs(expected - actual) > 1e-9)
+            throw new InvalidOperationException($"{label}: expected={expected}, actual={actual}.");
     }
 
     private static void AssertNear(float expected, float actual, string label)
