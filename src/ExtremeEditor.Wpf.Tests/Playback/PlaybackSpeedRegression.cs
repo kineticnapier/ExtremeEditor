@@ -1,5 +1,7 @@
 using System.Reflection;
+using System.Windows.Controls;
 using ExtremeEditor.Audio;
+using ExtremeEditor.Wpf;
 using NAudio.Wave;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -19,8 +21,10 @@ internal static class PlaybackSpeedRegression
         VerifyPauseResume();
         VerifyUnifiedGraphUsesOneRate();
         VerifyProductionRateProvider();
+        VerifyWheelStepSpecification();
 
         VerifyProductionPlaybackSpeedSurface();
+        VerifyProductionWheelIntegration();
     }
 
     private static void VerifyUnitSpeed()
@@ -169,6 +173,105 @@ internal static class PlaybackSpeedRegression
             throw new InvalidOperationException(
                 "Playback speed transport is not available: AudioPlayer.PlaybackSpeed must expose the shared unified-graph rate.");
         }
+    }
+
+    private static void VerifyWheelStepSpecification()
+    {
+        AssertNear(1.05, ReferenceWheelStep(1.0, 120, controlPressed: true), "Ctrl+wheel up");
+        AssertNear(0.95, ReferenceWheelStep(1.0, -120, controlPressed: true), "Ctrl+wheel down");
+        AssertNear(0.01, ReferenceWheelStep(0.01, -120, controlPressed: true), "minimum wheel clamp");
+        AssertNear(10.0, ReferenceWheelStep(10.0, 120, controlPressed: true), "maximum wheel clamp");
+        AssertNear(1.0, ReferenceWheelStep(1.0, 120, controlPressed: false), "unmodified wheel");
+
+        double speed = 1.0;
+        for (int i = 0; i < 7; i++)
+            speed = ReferenceWheelStep(speed, 120, controlPressed: true);
+        AssertNear(1.35, speed, "continuous 0.05 wheel steps");
+    }
+
+    private static void VerifyProductionWheelIntegration()
+    {
+        Type helperType = typeof(MainWindow).Assembly.GetType("ExtremeEditor.Wpf.PlaybackSpeedWheel")
+            ?? throw new InvalidOperationException("Ctrl+MouseWheel playback-speed step helper is not available.");
+        MethodInfo tryStep = helperType.GetMethod(
+            "TryStep",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PlaybackSpeedWheel.TryStep is not available.");
+
+        VerifyProductionWheelStep(tryStep, 1.0, 120, true, true, 1.05);
+        VerifyProductionWheelStep(tryStep, 1.0, -120, true, true, 0.95);
+        VerifyProductionWheelStep(tryStep, 0.01, -120, true, true, 0.01);
+        VerifyProductionWheelStep(tryStep, 10.0, 120, true, true, 10.0);
+        VerifyProductionWheelStep(tryStep, 1.0, 120, false, false, 1.0);
+
+        var window = new MainWindow();
+        try
+        {
+            MethodInfo handler = typeof(MainWindow).GetMethod(
+                "TryHandlePlaybackSpeedWheel",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow Ctrl+MouseWheel routing is not available.");
+            FieldInfo speedField = typeof(MainWindow).GetField(
+                "_playbackSpeed",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow playback speed state is missing.");
+            FieldInfo audioField = typeof(MainWindow).GetField(
+                "_audio",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("MainWindow audio player is missing.");
+            if (window.FindName("PlaybackSpeedTextBox") is not TextBox textBox)
+                throw new InvalidOperationException("Playback speed toolbar text box is missing.");
+
+            bool handled = (bool)(handler.Invoke(window, [120, true]) ?? false);
+            if (!handled)
+                throw new InvalidOperationException("Ctrl+wheel was not marked handled.");
+
+            double internalSpeed = (double)(speedField.GetValue(window) ?? 0.0);
+            var audio = (AudioPlayer)(audioField.GetValue(window)
+                ?? throw new InvalidOperationException("MainWindow audio player is null."));
+            AssertNear(1.05, internalSpeed, "window wheel speed");
+            AssertNear(internalSpeed, audio.PlaybackSpeed, "window/audio wheel synchronization");
+            if (!string.Equals(textBox.Text, "1.05x", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Toolbar speed was not synchronized. actual={textBox.Text}.");
+
+            handled = (bool)(handler.Invoke(window, [-120, false]) ?? true);
+            if (handled)
+                throw new InvalidOperationException("Unmodified wheel was consumed by playback speed routing.");
+            AssertNear(1.05, (double)(speedField.GetValue(window) ?? 0.0), "unmodified wheel window state");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static void VerifyProductionWheelStep(
+        MethodInfo tryStep,
+        double current,
+        int delta,
+        bool controlPressed,
+        bool expectedHandled,
+        double expectedSpeed)
+    {
+        object?[] arguments = [current, delta, controlPressed, 0.0];
+        bool handled = (bool)(tryStep.Invoke(null, arguments) ?? false);
+        if (handled != expectedHandled)
+        {
+            throw new InvalidOperationException(
+                $"Wheel handled mismatch. current={current}, delta={delta}, control={controlPressed}, expected={expectedHandled}, actual={handled}.");
+        }
+
+        AssertNear(expectedSpeed, (double)(arguments[3] ?? 0.0),
+            $"production wheel step current={current} delta={delta}");
+    }
+
+    private static double ReferenceWheelStep(double current, int delta, bool controlPressed)
+    {
+        if (!controlPressed || delta == 0)
+            return current;
+
+        decimal stepped = (decimal)current + (delta > 0 ? 0.05m : -0.05m);
+        return (double)Math.Clamp(stepped, 0.01m, 10.0m);
     }
 
     private static double SourcePositionAfter(double sourcePosition, double realSeconds, double playbackSpeed) =>

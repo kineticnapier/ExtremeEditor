@@ -10,7 +10,8 @@
         WindowStartupLocation="CenterScreen"
         Background="#14161A"
         Loaded="AssetSetupWindowLoaded"
-        PreviewKeyDown="AdoFaiPreviewKeyDown">
+        PreviewKeyDown="AdoFaiPreviewKeyDown"
+        PreviewMouseWheel="MainWindowPreviewMouseWheel">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>

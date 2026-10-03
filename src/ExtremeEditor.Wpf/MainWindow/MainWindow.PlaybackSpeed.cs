@@ -32,6 +32,22 @@ public partial class MainWindow
         SetPlaybackSpeed(1.0);
     }
 
+    private void MainWindowPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        bool controlPressed = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        if (TryHandlePlaybackSpeedWheel(e.Delta, controlPressed))
+            e.Handled = true;
+    }
+
+    private bool TryHandlePlaybackSpeedWheel(int delta, bool controlPressed)
+    {
+        if (!PlaybackSpeedWheel.TryStep(_playbackSpeed, delta, controlPressed, out double nextSpeed))
+            return false;
+
+        SetPlaybackSpeed(nextSpeed);
+        return true;
+    }
+
     private void CommitPlaybackSpeedText()
     {
         string text = PlaybackSpeedTextBox.Text.Trim();
@@ -101,5 +117,28 @@ public partial class MainWindow
     {
         PlaybackSpeedTextBox.Text = $"{_playbackSpeed:0.##}x";
         PlaybackSpeedTextBox.ToolTip = $"Playback speed ({MinimumPlaybackSpeed:0.##}x–{MaximumPlaybackSpeed:0.##}x)";
+    }
+}
+
+internal static class PlaybackSpeedWheel
+{
+    private const decimal Step = 0.05m;
+    private const decimal Minimum = 0.01m;
+    private const decimal Maximum = 10.0m;
+
+    public static bool TryStep(
+        double currentSpeed,
+        int wheelDelta,
+        bool controlPressed,
+        out double nextSpeed)
+    {
+        nextSpeed = currentSpeed;
+        if (!controlPressed || wheelDelta == 0)
+            return false;
+
+        decimal current = (decimal)Math.Clamp(currentSpeed, (double)Minimum, (double)Maximum);
+        decimal stepped = current + (wheelDelta > 0 ? Step : -Step);
+        nextSpeed = (double)Math.Clamp(stepped, Minimum, Maximum);
+        return true;
     }
 }

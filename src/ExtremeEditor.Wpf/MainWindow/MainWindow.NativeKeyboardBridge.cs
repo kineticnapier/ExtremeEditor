@@ -13,6 +13,8 @@ public partial class MainWindow
     private const int WmKeyUp = 0x0101;
     private const int WmSysKeyDown = 0x0104;
     private const int WmSysKeyUp = 0x0105;
+    private const int WmMouseWheel = 0x020A;
+    private const int MkControl = 0x0008;
     private const string NativeRendererWindowClass = "ExtremeEditor.NativeRenderer.Window";
 
     private readonly HashSet<Key> _nativeKeysDown = [];
@@ -29,6 +31,16 @@ public partial class MainWindow
     {
         if (NativeViewport.Visibility != Visibility.Visible || !IsNativeRendererWindow(msg.hwnd))
             return;
+
+        if (msg.message == WmMouseWheel)
+        {
+            int keyState = unchecked((int)(msg.wParam.ToInt64() & 0xFFFF));
+            bool controlPressed = (keyState & MkControl) != 0;
+            int delta = unchecked((short)((msg.wParam.ToInt64() >> 16) & 0xFFFF));
+            if (TryHandlePlaybackSpeedWheel(delta, controlPressed))
+                handled = true;
+            return;
+        }
 
         if (msg.message == WmKillFocus)
         {
