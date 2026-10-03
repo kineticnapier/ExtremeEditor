@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf;
 
@@ -42,6 +43,17 @@ internal sealed partial class EditorSession
         sourceSettings["rotation"] = settings.Rotation;
         sourceSettings["zoom"] = settings.Zoom;
         root["settings"] = sourceSettings;
+
+        CameraSourceData current = CameraMetadataCache.Get(Document);
+        CameraMetadataCache.Attach(Document, current with
+        {
+            InitialRelativeTo = settings.RelativeTo,
+            InitialPosition = new CameraSourcePosition(
+                settings.PositionX * PathBuilder.DefaultLongTileSize,
+                settings.PositionY * PathBuilder.DefaultLongTileSize),
+            InitialRotation = settings.Rotation,
+            InitialZoom = settings.Zoom
+        });
     }
 
     private static CameraSettingsSnapshot NormalizeCameraSettings(CameraSettingsSnapshot settings)
