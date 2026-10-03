@@ -81,6 +81,7 @@ public:
         float camera_x,
         float camera_y,
         float zoom,
+        const std::vector<std::int32_t>& selected_floors,
         std::int32_t selected_floor,
         const PlaybackVisualState& playback) noexcept;
     HRESULT RenderFrame(
@@ -93,6 +94,7 @@ public:
         float camera_y,
         float zoom,
         float camera_rotation,
+        const std::vector<std::int32_t>& selected_floors,
         std::int32_t selected_floor,
         const PlaybackVisualState& playback) noexcept;
     HRESULT RenderFrame(
@@ -104,6 +106,7 @@ public:
         float camera_x,
         float camera_y,
         float zoom,
+        const std::vector<std::int32_t>& selected_floors,
         std::int32_t selected_floor,
         const PlaybackVisualState& playback,
         RenderFrameStats& stats) noexcept;
@@ -168,6 +171,7 @@ private:
         float camera_x,
         float camera_y,
         float zoom,
+        const std::vector<std::int32_t>& selected_floors,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
     void DrawSceneOverlaysCamera(
@@ -177,6 +181,7 @@ private:
         float camera_y,
         float zoom,
         float camera_rotation,
+        const std::vector<std::int32_t>& selected_floors,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
     void DrawStaticDecorationsCamera(
@@ -234,7 +239,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_edge_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selection_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selection_range_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selection_primary_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_red_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;

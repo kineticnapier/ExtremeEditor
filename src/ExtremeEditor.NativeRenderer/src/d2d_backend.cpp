@@ -42,7 +42,8 @@ void D2DBackend::Shutdown() noexcept
     planet_outline_brush_.Reset();
     planet_blue_brush_.Reset();
     planet_red_brush_.Reset();
-    selection_brush_.Reset();
+    selection_range_brush_.Reset();
+    selection_primary_brush_.Reset();
     floor_edge_brush_.Reset();
     floor_brush_.Reset();
     border_brush_.Reset();
@@ -198,8 +199,14 @@ bool D2DBackend::CreateDeviceResources(HWND hwnd, std::uint32_t width, std::uint
         return false;
 
     hr = d2d_context_->CreateSolidColorBrush(
+        D2D1::ColorF(0x52B7FF, 0.92f),
+        selection_range_brush_.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = d2d_context_->CreateSolidColorBrush(
         D2D1::ColorF(0xFFD250),
-        selection_brush_.GetAddressOf());
+        selection_primary_brush_.GetAddressOf());
     if (FAILED(hr))
         return false;
 
@@ -521,40 +528,53 @@ void D2DBackend::DrawSceneOverlays(
     float camera_x,
     float camera_y,
     float zoom,
+    const std::vector<std::int32_t>& selected_floors,
     std::int32_t selected_floor,
     RenderFrameStats& stats) noexcept
 {
     zoom = std::clamp(zoom, 0.05f, 400.0f);
-    const float selection_world = 2.0f / zoom;
+    const float range_world = 2.0f / zoom;
+    const float primary_outer_world = 5.0f / zoom;
+    const float primary_inner_world = 2.5f / zoom;
     const float screen_center_x = static_cast<float>(width_) * 0.5f;
     const float screen_center_y = static_cast<float>(height_) * 0.5f;
 
-    if (selected_floor >= 0)
+    for (const std::uint32_t candidate : visible_candidates_)
     {
-        const std::uint32_t selected = static_cast<std::uint32_t>(selected_floor);
-        if (std::find(visible_candidates_.begin(), visible_candidates_.end(), selected) != visible_candidates_.end() &&
-            selected < scene.floors.size())
+        const std::int32_t floor_index = static_cast<std::int32_t>(candidate);
+        if (!std::binary_search(selected_floors.begin(), selected_floors.end(), floor_index) ||
+            candidate >= scene.floors.size())
+            continue;
+
+        const EeFloor& floor = scene.floors[candidate];
+        if (floor.geometry_id >= floor_geometries_.size())
+            continue;
+
+        const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
+        const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
+        const float cosine = std::cos(floor.entry_angle);
+        const float sine = std::sin(floor.entry_angle);
+        d2d_context_->SetTransform(D2D1::Matrix3x2F(
+            zoom * cosine,
+            -zoom * sine,
+            -zoom * sine,
+            -zoom * cosine,
+            center_x,
+            center_y));
+
+        const bool primary = floor_index == selected_floor;
+        d2d_context_->DrawGeometry(
+            floor_geometries_[floor.geometry_id].Get(),
+            selection_range_brush_.Get(),
+            primary ? primary_outer_world : range_world);
+        ++stats.draw_calls;
+        if (primary)
         {
-            const EeFloor& floor = scene.floors[selected];
-            if (floor.geometry_id < floor_geometries_.size())
-            {
-                const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
-                const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
-                const float cosine = std::cos(floor.entry_angle);
-                const float sine = std::sin(floor.entry_angle);
-                d2d_context_->SetTransform(D2D1::Matrix3x2F(
-                    zoom * cosine,
-                    -zoom * sine,
-                    -zoom * sine,
-                    -zoom * cosine,
-                    center_x,
-                    center_y));
-                d2d_context_->DrawGeometry(
-                    floor_geometries_[floor.geometry_id].Get(),
-                    selection_brush_.Get(),
-                    selection_world);
-                ++stats.draw_calls;
-            }
+            d2d_context_->DrawGeometry(
+                floor_geometries_[floor.geometry_id].Get(),
+                selection_primary_brush_.Get(),
+                primary_inner_world);
+            ++stats.draw_calls;
         }
     }
 
@@ -664,6 +684,7 @@ HRESULT D2DBackend::RenderFrame(
     float camera_x,
     float camera_y,
     float zoom,
+    const std::vector<std::int32_t>& selected_floors,
     std::int32_t selected_floor,
     const PlaybackVisualState& playback,
     RenderFrameStats& stats) noexcept
@@ -766,6 +787,7 @@ HRESULT D2DBackend::RenderFrame(
             camera_x,
             camera_y,
             zoom,
+            selected_floors,
             selected_floor,
             stats);
         DrawPlaybackPlanets(playback, camera_x, camera_y, zoom);

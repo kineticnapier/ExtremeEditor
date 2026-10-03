@@ -115,7 +115,8 @@ private:
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
     std::int32_t selected_floor_ = -1;
-    std::vector<std::int32_t> selected_floors_;
+    std::shared_ptr<const std::vector<std::int32_t>> selected_floors_ =
+        std::make_shared<std::vector<std::int32_t>>();
     int hover_hud_button_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;

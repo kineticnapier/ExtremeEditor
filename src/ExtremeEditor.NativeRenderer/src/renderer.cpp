@@ -579,6 +579,7 @@ void Renderer::RenderLoop() noexcept
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
+        std::shared_ptr<const std::vector<std::int32_t>> selected_floors;
         std::int32_t selected_floor = -1;
         std::uint64_t scene_version = 0;
         std::uint64_t icon_assets_version = 0;
@@ -610,6 +611,7 @@ void Renderer::RenderLoop() noexcept
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
+            selected_floors = selected_floors_;
             selected_floor = selected_floor_;
             scene_version = scene_version_;
             icon_assets_version = icon_assets_version_;
@@ -706,6 +708,7 @@ void Renderer::RenderLoop() noexcept
                 render_camera_y,
                 render_zoom,
                 render_camera_rotation,
+                *selected_floors,
                 selected_floor,
                 playback);
             const auto render_finished = std::chrono::steady_clock::now();

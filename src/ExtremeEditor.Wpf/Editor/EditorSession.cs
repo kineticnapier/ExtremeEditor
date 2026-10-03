@@ -160,8 +160,14 @@ internal sealed class EditorSession
             .Distinct()
             .OrderBy(floor => floor)
             .ToArray();
-        if (floors.Length == 0)
+        if (floors.Length == 0 || !IsContinuousFloorRange(floors))
+        {
+            bool hadClipboard = _clipboard is not null;
+            _clipboard = null;
+            if (hadClipboard)
+                Changed?.Invoke(this, EventArgs.Empty);
             return;
+        }
 
         EnsureSourceMapping();
         JsonObject root = EnsureSourceRoot();
@@ -210,7 +216,17 @@ internal sealed class EditorSession
 
     public void CutFloors(IEnumerable<int> selectedFloors)
     {
-        int[] floors = selectedFloors.ToArray();
+        int[] floors = selectedFloors
+            .Where(floor => floor > 0 && floor < Document.FloorCount)
+            .Distinct()
+            .OrderBy(floor => floor)
+            .ToArray();
+        if (floors.Length == 0 || !IsContinuousFloorRange(floors))
+        {
+            _clipboard = null;
+            Changed?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         CopyFloors(floors);
         DeleteFloors(floors);
     }
@@ -222,6 +238,14 @@ internal sealed class EditorSession
 
         EnsureSourceMapping();
         int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - 1));
+        if (AdoFaiPathDirection.PointsBackwards(
+                _angles,
+                firstFloor,
+                clipboard.Angles[0]))
+        {
+            return null;
+        }
+
         Execute(new InsertFloorsCommand(
             firstFloor - 1,
             clipboard.Angles,
@@ -229,6 +253,16 @@ internal sealed class EditorSession
             clipboard.Decorations,
             "Paste floors"));
         return new EditorPasteResult(firstFloor, clipboard.Angles.Length);
+    }
+
+    private static bool IsContinuousFloorRange(IReadOnlyList<int> floors)
+    {
+        for (int i = 1; i < floors.Count; i++)
+        {
+            if (floors[i] != floors[i - 1] + 1)
+                return false;
+        }
+        return true;
     }
 
     public void AddAction(int floor, string eventType)

@@ -13,10 +13,10 @@ void Renderer::SetSelection(
 {
     std::lock_guard lock(scene_mutex_);
 
-    selected_floors_.clear();
+    auto selected_floors = std::make_shared<std::vector<std::int32_t>>();
     if (floors != nullptr && floor_count > 0)
     {
-        selected_floors_.reserve(floor_count);
+        selected_floors->reserve(floor_count);
         for (std::uint32_t i = 0; i < floor_count; ++i)
         {
             const std::int32_t floor = floors[i];
@@ -24,28 +24,29 @@ void Renderer::SetSelection(
                 continue;
             if (scene_ && static_cast<std::size_t>(floor) >= scene_->floors.size())
                 continue;
-            selected_floors_.push_back(floor);
+            selected_floors->push_back(floor);
         }
-        std::sort(selected_floors_.begin(), selected_floors_.end());
-        selected_floors_.erase(
-            std::unique(selected_floors_.begin(), selected_floors_.end()),
-            selected_floors_.end());
+        std::sort(selected_floors->begin(), selected_floors->end());
+        selected_floors->erase(
+            std::unique(selected_floors->begin(), selected_floors->end()),
+            selected_floors->end());
     }
 
     if (primary_floor >= 0 &&
         (!scene_ || static_cast<std::size_t>(primary_floor) < scene_->floors.size()))
     {
         selected_floor_ = primary_floor;
-        if (!std::binary_search(selected_floors_.begin(), selected_floors_.end(), primary_floor))
+        if (!std::binary_search(selected_floors->begin(), selected_floors->end(), primary_floor))
         {
-            selected_floors_.push_back(primary_floor);
-            std::sort(selected_floors_.begin(), selected_floors_.end());
+            selected_floors->push_back(primary_floor);
+            std::sort(selected_floors->begin(), selected_floors->end());
         }
     }
     else
     {
-        selected_floor_ = selected_floors_.empty() ? -1 : selected_floors_.back();
+        selected_floor_ = selected_floors->empty() ? -1 : selected_floors->back();
     }
+    selected_floors_ = std::move(selected_floors);
 
     // ADOFAI's editor keeps the active tile under the camera while stepping through
     // or extending the path. Do the same in edit mode. Playback owns the camera when

@@ -35,6 +35,7 @@ HRESULT D2DBackend::RenderFrame(
     float camera_x,
     float camera_y,
     float zoom,
+    const std::vector<std::int32_t>& selected_floors,
     std::int32_t selected_floor,
     const PlaybackVisualState& playback) noexcept
 {
@@ -48,6 +49,7 @@ HRESULT D2DBackend::RenderFrame(
         camera_y,
         zoom,
         0.0f,
+        selected_floors,
         selected_floor,
         playback);
 }
@@ -62,6 +64,7 @@ HRESULT D2DBackend::RenderFrame(
     float camera_y,
     float zoom,
     float camera_rotation,
+    const std::vector<std::int32_t>& selected_floors,
     std::int32_t selected_floor,
     const PlaybackVisualState& playback) noexcept
 {
@@ -232,6 +235,7 @@ HRESULT D2DBackend::RenderFrame(
             camera_y,
             zoom,
             camera_rotation,
+            selected_floors,
             selected_floor,
             stats);
 

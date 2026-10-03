@@ -70,43 +70,56 @@ void D2DBackend::DrawSceneOverlaysCamera(
     float camera_y,
     float zoom,
     float camera_rotation,
+    const std::vector<std::int32_t>& selected_floors,
     std::int32_t selected_floor,
     RenderFrameStats& stats) noexcept
 {
     zoom = std::clamp(zoom, 0.05f, 400.0f);
-    const float selection_world = 2.0f / zoom;
+    const float range_world = 2.0f / zoom;
+    const float primary_outer_world = 5.0f / zoom;
+    const float primary_inner_world = 2.5f / zoom;
     const float cc = std::cos(camera_rotation);
     const float cs = std::sin(camera_rotation);
 
-    if (selected_floor >= 0)
+    for (const std::uint32_t candidate : visible_candidates_)
     {
-        const std::uint32_t selected = static_cast<std::uint32_t>(selected_floor);
-        if (std::find(visible_candidates_.begin(), visible_candidates_.end(), selected) != visible_candidates_.end() &&
-            selected < scene.floors.size())
+        const std::int32_t floor_index = static_cast<std::int32_t>(candidate);
+        if (!std::binary_search(selected_floors.begin(), selected_floors.end(), floor_index) ||
+            candidate >= scene.floors.size())
+            continue;
+
+        const EeFloor& floor = scene.floors[candidate];
+        if (floor.geometry_id >= floor_geometries_.size())
+            continue;
+
+        const D2D1_POINT_2F center = WorldToScreen(
+            floor.x, floor.y, camera_x, camera_y, zoom, camera_rotation, width_, height_);
+        const float fc = std::cos(floor.entry_angle);
+        const float fs = std::sin(floor.entry_angle);
+        const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
+        const float sx = transformed ? floor.transform_scale_x : 1.0f;
+        const float sy = transformed ? floor.transform_scale_y : 1.0f;
+        d2d_context_->SetTransform(D2D1::Matrix3x2F(
+            zoom * sx * (cc * fc + cs * fs),
+            zoom * sx * (cs * fc - cc * fs),
+            zoom * sy * (-cc * fs + cs * fc),
+            zoom * sy * (-cs * fs - cc * fc),
+            center.x,
+            center.y));
+
+        const bool primary = floor_index == selected_floor;
+        d2d_context_->DrawGeometry(
+            floor_geometries_[floor.geometry_id].Get(),
+            selection_range_brush_.Get(),
+            primary ? primary_outer_world : range_world);
+        ++stats.draw_calls;
+        if (primary)
         {
-            const EeFloor& floor = scene.floors[selected];
-            if (floor.geometry_id < floor_geometries_.size())
-            {
-                const D2D1_POINT_2F center = WorldToScreen(
-                    floor.x, floor.y, camera_x, camera_y, zoom, camera_rotation, width_, height_);
-                const float fc = std::cos(floor.entry_angle);
-                const float fs = std::sin(floor.entry_angle);
-                const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
-                const float sx = transformed ? floor.transform_scale_x : 1.0f;
-                const float sy = transformed ? floor.transform_scale_y : 1.0f;
-                d2d_context_->SetTransform(D2D1::Matrix3x2F(
-                    zoom * sx * (cc * fc + cs * fs),
-                    zoom * sx * (cs * fc - cc * fs),
-                    zoom * sy * (-cc * fs + cs * fc),
-                    zoom * sy * (-cs * fs - cc * fc),
-                    center.x,
-                    center.y));
-                d2d_context_->DrawGeometry(
-                    floor_geometries_[floor.geometry_id].Get(),
-                    selection_brush_.Get(),
-                    selection_world);
-                ++stats.draw_calls;
-            }
+            d2d_context_->DrawGeometry(
+                floor_geometries_[floor.geometry_id].Get(),
+                selection_primary_brush_.Get(),
+                primary_inner_world);
+            ++stats.draw_calls;
         }
     }
 

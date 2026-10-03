@@ -438,20 +438,8 @@ public partial class MainWindow
 
     private bool AdoFaiDirectionPointsBackwards(int primary, double direction)
     {
-        if (_level is null || primary <= 0 || primary - 1 >= _level.Angles.Length)
-            return false;
-
-        // A selected Midspin is exempt from ADOFAI's backtracking delete rule.
-        // For a normal floor, angleData[primary-1] is the absolute direction of
-        // the segment that created that floor; the reverse direction is +180°.
-        double incoming = _level.Angles[primary - 1];
-        if (Math.Abs(incoming - 999.0) < 0.000001)
-            return false;
-
-        double backwards = NormalizeAdoFaiAngle(incoming + 180.0);
-        double delta = Math.Abs(NormalizeAdoFaiAngle(direction - backwards));
-        delta = Math.Min(delta, 360.0 - delta);
-        return delta <= 0.0001;
+        return _level is not null &&
+            AdoFaiPathDirection.PointsBackwards(_level.Angles, primary, direction);
     }
 
     private void InsertAdoFaiRelativeFloor(EditorSession editor, int primary, double delta)
