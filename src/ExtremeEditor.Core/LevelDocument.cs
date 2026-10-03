@@ -67,6 +67,7 @@ public sealed class LevelDocument
     private IReadOnlyDictionary<int, LevelAction[]> _actionsByFloor =
         LevelActionStore.Empty.DictionaryView;
     private IReadOnlyList<LevelDecoration> _decorations = Array.Empty<LevelDecoration>();
+    private LevelCameraSettings? _cameraSettings;
 
     public required string SourcePath { get; set; }
     public required double[] Angles { get; set; }
@@ -105,6 +106,11 @@ public sealed class LevelDocument
     public required bool SeparateCountdownTime { get; set; }
     public required string DefaultHitSound { get; set; }
     public required double HitSoundVolumePercent { get; set; }
+    public LevelCameraSettings CameraSettings
+    {
+        get => _cameraSettings ??= LevelCameraSettings.LoadFromSource(SourcePath);
+        set => _cameraSettings = value ?? LevelCameraSettings.Default;
+    }
     public required WorldRect Bounds { get; set; }
 
     public int FloorCount => Positions.Length;
@@ -189,6 +195,7 @@ public sealed class LevelDocument
             SeparateCountdownTime = true,
             DefaultHitSound = "Kick",
             HitSoundVolumePercent = 100,
+            CameraSettings = LevelCameraSettings.Default,
             Bounds = PathBuilder.CalculateBounds(positions)
         };
     }
