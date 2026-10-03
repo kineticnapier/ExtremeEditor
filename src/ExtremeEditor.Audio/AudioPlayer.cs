@@ -34,7 +34,9 @@ public sealed class AudioPlayer : IDisposable
     private WaveOutEvent? _output;
     private WaveStream? _reader;
     private UnifiedAudioSampleProvider? _graph;
-    private VariableRateSampleProvider? _rateProvider;
+    private VariableRateSampleProvider? _songRateProvider;
+    private TransportHitSoundSampleProvider? _transportHitSoundProvider;
+    private SilentSampleProvider? _silentSong;
     private SampleAccurateHitSoundProvider? _hitSoundProvider;
     private LevelDocument? _level;
     private TimingMap? _timingMap;
@@ -72,7 +74,7 @@ public sealed class AudioPlayer : IDisposable
                 return;
             }
 
-            if (_output is null || _graph is null || _outputFormat is null || _rateProvider is null)
+            if (_output is null || _graph is null || _outputFormat is null || _songRateProvider is null)
             {
                 _playbackSpeed = normalized;
                 return;
@@ -218,9 +220,9 @@ public sealed class AudioPlayer : IDisposable
     }
 
     /// <summary>
-    /// Builds the normal unified playback graph with silence in place of the song.
-    /// This is intentionally not a metronome path: the exact hit-sound timeline is
-    /// pre-rendered and mixed exactly as it is when a song is present.
+    /// Builds the normal playback graph with silence in place of the song.
+    /// This is intentionally not a metronome path: the exact hit-sound schedule is
+    /// mixed at the device rate exactly as it is when a song is present.
     /// </summary>
     public void LoadHitSoundsOnly()
     {
@@ -275,7 +277,8 @@ public sealed class AudioPlayer : IDisposable
             _reader.CurrentTime = TimeSpan.Zero;
         RestartHitSoundPrerender(0);
         _graph.Seek(0);
-        _rateProvider?.Reset();
+        _silentSong?.Seek(0);
+        _songRateProvider?.Reset();
         ResetClock(0.0);
     }
 
@@ -291,8 +294,9 @@ public sealed class AudioPlayer : IDisposable
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(seconds, _outputFormat.SampleRate);
         RestartHitSoundPrerender(frame);
+        _silentSong?.Seek(frame);
         _graph.Seek(frame);
-        _rateProvider?.Reset();
+        _songRateProvider?.Reset();
         ResetClock(seconds);
 
         if (previousState == PlaybackState.Playing)
@@ -332,7 +336,8 @@ public sealed class AudioPlayer : IDisposable
         else
         {
             _outputFormat = WaveFormat.CreateIeeeFloatWaveFormat(HitSoundOnlySampleRate, 2);
-            song = new SilentSampleProvider(_outputFormat);
+            _silentSong = new SilentSampleProvider(_outputFormat);
+            song = _silentSong;
         }
 
         log?.Write("audio_player.output_format",
@@ -357,6 +362,8 @@ public sealed class AudioPlayer : IDisposable
         _transportDurationSeconds = totalFrames <= 0
             ? 0.0
             : (double)totalFrames / _outputFormat.SampleRate;
+        if (_silentSong is not null)
+            _silentSong.TotalFrames = totalFrames;
 
         HitSoundRenderMetrics renderMetrics = default;
         SampleAccurateHitSoundProvider? hitSounds = null;
@@ -374,25 +381,18 @@ public sealed class AudioPlayer : IDisposable
                     totalFrames);
 
                 _hitSoundProvider = hitSounds;
-                long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
-                long cacheBudgetBytes = AudioPcmCachePolicy.CalculateAutoBudgetBytes(availableMemoryBytes);
-                log?.Write("audio_player.hitsound_pcm_cache",
-                    $"available_bytes={availableMemoryBytes} budget_bytes={cacheBudgetBytes} " +
-                    $"prime_frames={AudioPcmCachePolicy.CalculateInitialPrimeFrames(_outputFormat.SampleRate)}");
-                _hitSoundPrerender.Start(
-                    hitSounds,
-                    _outputFormat.SampleRate,
-                    0,
-                    availableMemoryBytes);
                 renderMetrics = hitSounds.Metrics;
             }
         }
 
-        _graph = new UnifiedAudioSampleProvider(song, hitSounds, totalFrames)
+        _songRateProvider = new VariableRateSampleProvider(song, _playbackSpeed);
+        _transportHitSoundProvider = hitSounds is null
+            ? null
+            : new TransportHitSoundSampleProvider(hitSounds, _playbackSpeed);
+        _graph = new UnifiedAudioSampleProvider(_songRateProvider, _transportHitSoundProvider)
         {
             HitSoundsEnabled = _hitSoundsEnabled
         };
-        _rateProvider = new VariableRateSampleProvider(_graph, _playbackSpeed);
         _output = new WaveOutEvent { DesiredLatency = 80 };
 
         // Keep the graph itself in IEEE float so hit-sound mixing and the master
@@ -401,13 +401,13 @@ public sealed class AudioPlayer : IDisposable
         // transport converts only its final device feed to conventional PCM16.
         // Real-song playback retains its existing output path unchanged.
         IWaveProvider deviceProvider = _reader is null
-            ? _rateProvider.ToWaveProvider16()
-            : _rateProvider.ToWaveProvider();
+            ? _graph.ToWaveProvider16()
+            : _graph.ToWaveProvider();
         _deviceBytesPerSecond = deviceProvider.WaveFormat.AverageBytesPerSecond;
 
         log?.Write("audio_player.waveout_init_before",
-            $"provider={_rateProvider.GetType().FullName} rate={_rateProvider.WaveFormat.SampleRate} " +
-            $"channels={_rateProvider.WaveFormat.Channels} total_frames={totalFrames} " +
+            $"provider={_graph.GetType().FullName} rate={_graph.WaveFormat.SampleRate} " +
+            $"channels={_graph.WaveFormat.Channels} total_frames={totalFrames} " +
             $"device_encoding={deviceProvider.WaveFormat.Encoding} " +
             $"device_bits={deviceProvider.WaveFormat.BitsPerSample}");
 
@@ -464,7 +464,8 @@ public sealed class AudioPlayer : IDisposable
         _output?.Dispose();
         _output = null;
         _graph = null;
-        _rateProvider = null;
+        _songRateProvider = null;
+        _transportHitSoundProvider = null;
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(position.TotalSeconds, _reader.TotalTime.TotalSeconds));
 
@@ -473,8 +474,9 @@ public sealed class AudioPlayer : IDisposable
         long restoredFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
             restoredSeconds, _outputFormat!.SampleRate);
         RestartHitSoundPrerender(restoredFrame);
+        _silentSong?.Seek(restoredFrame);
         _graph!.Seek(restoredFrame);
-        _rateProvider!.Reset();
+        _songRateProvider!.Reset();
         ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
@@ -526,7 +528,7 @@ public sealed class AudioPlayer : IDisposable
         _output.Stop();
 
         _playbackSpeed = normalized;
-        _rateProvider!.PlaybackSpeed = normalized;
+        _songRateProvider!.PlaybackSpeed = normalized;
         if (_reader is not null)
         {
             _reader.CurrentTime = TimeSpan.FromSeconds(
@@ -537,8 +539,9 @@ public sealed class AudioPlayer : IDisposable
             sourceSeconds,
             _outputFormat!.SampleRate);
         RestartHitSoundPrerender(frame);
-        _graph!.Seek(frame);
-        _rateProvider.Reset();
+        _silentSong?.Seek(frame);
+        _graph!.ReanchorHitSounds(frame, normalized);
+        _songRateProvider.Reset();
         ResetClock(sourceSeconds);
 
         if (previousState == PlaybackState.Playing)
@@ -564,7 +567,9 @@ public sealed class AudioPlayer : IDisposable
         _output = null;
         _reader = null;
         _graph = null;
-        _rateProvider = null;
+        _songRateProvider = null;
+        _transportHitSoundProvider = null;
+        _silentSong = null;
         _outputFormat = null;
         _deviceBytesPerSecond = 0;
         _transportDurationSeconds = 0.0;
@@ -601,18 +606,27 @@ public sealed class AudioPlayer : IDisposable
 
     private sealed class SilentSampleProvider : ISampleProvider
     {
+        private long _positionFrames;
+
         public SilentSampleProvider(WaveFormat waveFormat)
         {
             WaveFormat = waveFormat;
         }
 
         public WaveFormat WaveFormat { get; }
+        public long TotalFrames { get; set; } = long.MaxValue;
 
         public int Read(float[] buffer, int offset, int count)
         {
-            Array.Clear(buffer, offset, count);
-            return count;
+            int requestedFrames = count / WaveFormat.Channels;
+            int frames = (int)Math.Min(requestedFrames, Math.Max(0, TotalFrames - _positionFrames));
+            int samples = frames * WaveFormat.Channels;
+            Array.Clear(buffer, offset, samples);
+            _positionFrames += frames;
+            return samples;
         }
+
+        public void Seek(long frame) => _positionFrames = Math.Clamp(frame, 0, TotalFrames);
     }
 
     private sealed class FirstTwoChannelsSampleProvider : ISampleProvider

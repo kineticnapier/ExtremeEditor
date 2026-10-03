@@ -71,6 +71,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     public WaveFormat WaveFormat { get; }
     internal long PositionFrames => _positionFrames;
+    internal IReadOnlyList<ScheduledHit> ScheduledHits => _scheduledHits;
+    internal long TotalFrames => _totalFrames;
 
     internal long CachedPcmBytes
     {
@@ -506,5 +508,5 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     }
 
     private readonly record struct ScheduleBuildResult(List<ScheduledHit> Hits, int SourceHitCount);
-    private readonly record struct ScheduledHit(RenderedHitSound Clip, long StartFrame, float Volume);
+    internal readonly record struct ScheduledHit(RenderedHitSound Clip, long StartFrame, float Volume);
 }

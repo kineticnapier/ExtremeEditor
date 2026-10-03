@@ -20,6 +20,7 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 PlaybackSpeedRegression.Run();
+                PlaybackSpeedHitSoundRegression.Run();
                 Console.WriteLine("PASS: playback speed regression is valid.");
                 return 0;
             }

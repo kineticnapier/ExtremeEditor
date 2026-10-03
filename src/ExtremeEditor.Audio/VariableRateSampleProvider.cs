@@ -3,8 +3,8 @@ using NAudio.Wave;
 namespace ExtremeEditor.Audio;
 
 /// <summary>
-/// Consumes one already-unified source graph at a variable rate while preserving
-/// the device format. Song and hit sounds must be mixed before this provider.
+/// Consumes a source at a variable rate while preserving the device format.
+/// AudioPlayer applies this to the song branch before fixed-rate hit sounds are mixed.
 /// </summary>
 internal sealed class VariableRateSampleProvider : ISampleProvider
 {

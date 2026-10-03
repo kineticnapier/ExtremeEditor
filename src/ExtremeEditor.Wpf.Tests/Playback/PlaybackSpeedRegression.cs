@@ -19,7 +19,7 @@ internal static class PlaybackSpeedRegression
         VerifySeekIsIndependentOfPlaybackSpeed();
         VerifyLimits();
         VerifyPauseResume();
-        VerifyUnifiedGraphUsesOneRate();
+        VerifyTransportRateCoordinates();
         VerifyProductionRateProvider();
         VerifyWheelStepSpecification();
 
@@ -103,18 +103,16 @@ internal static class PlaybackSpeedRegression
         AssertNear(6, resumed, "position after resume");
     }
 
-    private static void VerifyUnifiedGraphUsesOneRate()
+    private static void VerifyTransportRateCoordinates()
     {
-        // Song and scheduled hitsounds share one source timeline. A single rate applied after
-        // their unified mix preserves their relative source positions, including both limits.
-        const double songMarker = 4;
-        const double hitSoundMarker = 5;
+        const double firstSourceMarker = 4;
+        const double secondSourceMarker = 5;
         foreach (double speed in new[] { 0.01, 0.5, 1.0, 2.0, 10.0 })
         {
-            double songRealTime = songMarker / speed;
-            double hitSoundRealTime = hitSoundMarker / speed;
-            AssertNear((hitSoundMarker - songMarker) / speed, hitSoundRealTime - songRealTime,
-                $"unified song/hitsound rate at {speed:0.##}x");
+            double firstRealTime = firstSourceMarker / speed;
+            double secondRealTime = secondSourceMarker / speed;
+            AssertNear((secondSourceMarker - firstSourceMarker) / speed, secondRealTime - firstRealTime,
+                $"transport source-coordinate rate at {speed:0.##}x");
         }
     }
 
@@ -125,18 +123,18 @@ internal static class PlaybackSpeedRegression
 
         foreach (double speed in new[] { 0.01, 10.0 })
         {
-            var combined = new MarkerSampleProvider(240, songFrame: 100, hitSoundFrame: 200);
-            var rate = new VariableRateSampleProvider(combined, speed);
+            var song = new MarkerSampleProvider(240, firstMarkerFrame: 100, secondMarkerFrame: 200);
+            var rate = new VariableRateSampleProvider(song, speed);
             int outputFrames = speed < 1 ? 20_101 : 21;
             var output = new float[outputFrames];
             int read = rate.Read(output, 0, output.Length);
             if (read != output.Length)
                 throw new InvalidOperationException($"Rate provider ended early at {speed:0.##}x. expected={output.Length}, actual={read}.");
 
-            int songOutputFrame = (int)Math.Round(100 / speed);
-            int hitOutputFrame = (int)Math.Round(200 / speed);
-            AssertNear(0.25, output[songOutputFrame], $"song marker at {speed:0.##}x");
-            AssertNear(0.75, output[hitOutputFrame], $"hitsound marker at {speed:0.##}x");
+            int firstOutputFrame = (int)Math.Round(100 / speed);
+            int secondOutputFrame = (int)Math.Round(200 / speed);
+            AssertNear(0.25, output[firstOutputFrame], $"first song marker at {speed:0.##}x");
+            AssertNear(0.75, output[secondOutputFrame], $"second song marker at {speed:0.##}x");
         }
 
         if (!PlaybackSpeedPolicy.TryNormalize(0.001, out double minimum) || minimum != 0.01 ||
@@ -332,15 +330,15 @@ internal static class PlaybackSpeedRegression
     private sealed class MarkerSampleProvider : ISampleProvider
     {
         private readonly int _frameCount;
-        private readonly int _songFrame;
-        private readonly int _hitSoundFrame;
+        private readonly int _firstMarkerFrame;
+        private readonly int _secondMarkerFrame;
         private int _position;
 
-        public MarkerSampleProvider(int frameCount, int songFrame, int hitSoundFrame)
+        public MarkerSampleProvider(int frameCount, int firstMarkerFrame, int secondMarkerFrame)
         {
             _frameCount = frameCount;
-            _songFrame = songFrame;
-            _hitSoundFrame = hitSoundFrame;
+            _firstMarkerFrame = firstMarkerFrame;
+            _secondMarkerFrame = secondMarkerFrame;
         }
 
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48_000, 1);
@@ -351,9 +349,9 @@ internal static class PlaybackSpeedRegression
             for (int i = 0; i < read; i++)
             {
                 int frame = _position++;
-                buffer[offset + i] = frame == _songFrame
+                buffer[offset + i] = frame == _firstMarkerFrame
                     ? 0.25f
-                    : frame == _hitSoundFrame
+                    : frame == _secondMarkerFrame
                         ? 0.75f
                         : 0.0f;
             }

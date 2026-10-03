@@ -10,7 +10,9 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     private readonly ISampleProvider _song;
     private readonly SampleAccurateHitSoundProvider? _hitSounds;
+    private readonly TransportHitSoundSampleProvider? _transportHitSounds;
     private readonly long _totalFrames;
+    private readonly bool _transportMode;
     private float[] _hitBuffer = [];
     private long _positionFrames;
     private bool _hitSoundsEnabled = true;
@@ -30,6 +32,20 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
             throw new ArgumentException("Song and hit-sound formats must match.", nameof(hitSounds));
     }
 
+    public UnifiedAudioSampleProvider(
+        ISampleProvider song,
+        TransportHitSoundSampleProvider? hitSounds)
+    {
+        _song = song;
+        _transportHitSounds = hitSounds;
+        _totalFrames = long.MaxValue;
+        _transportMode = true;
+        WaveFormat = song.WaveFormat;
+
+        if (hitSounds is not null && !WaveFormat.Equals(hitSounds.WaveFormat))
+            throw new ArgumentException("Song and hit-sound formats must match.", nameof(hitSounds));
+    }
+
     public WaveFormat WaveFormat { get; }
 
     public bool HitSoundsEnabled
@@ -41,13 +57,16 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
                 return;
 
             _hitSoundsEnabled = value;
-            if (value)
+            if (value && !_transportMode)
                 _hitSounds?.Seek(_positionFrames);
         }
     }
 
     public int Read(float[] buffer, int offset, int count)
     {
+        if (_transportMode)
+            return ReadTransport(buffer, offset, count);
+
         int channels = WaveFormat.Channels;
         long remainingFrames = _totalFrames - _positionFrames;
         if (remainingFrames <= 0)
@@ -76,9 +95,57 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     public void Seek(long positionFrames)
     {
+        if (_transportMode)
+        {
+            _positionFrames = Math.Max(0, positionFrames);
+            _transportHitSounds?.Seek(_positionFrames);
+            _limiterGain = 1.0f;
+            return;
+        }
+
         _positionFrames = Math.Clamp(positionFrames, 0, _totalFrames);
         _hitSounds?.Seek(_positionFrames);
         _limiterGain = 1.0f;
+    }
+
+    public void ReanchorHitSounds(long sourceFrame, double playbackSpeed)
+    {
+        if (!_transportMode)
+            return;
+        _positionFrames = Math.Max(0, sourceFrame);
+        _transportHitSounds?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
+        _limiterGain = 1.0f;
+    }
+
+    private int ReadTransport(float[] buffer, int offset, int count)
+    {
+        int channels = WaveFormat.Channels;
+        int requestedSamples = count - count % channels;
+        if (requestedSamples <= 0)
+            return 0;
+
+        Array.Clear(buffer, offset, requestedSamples);
+        int songRead = _song.Read(buffer, offset, requestedSamples);
+        int hitRead = 0;
+        if (_transportHitSounds is not null)
+        {
+            if (_hitBuffer.Length < requestedSamples)
+                _hitBuffer = new float[requestedSamples];
+            hitRead = _transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
+            if (_hitSoundsEnabled)
+            {
+                for (int i = 0; i < hitRead; i++)
+                    buffer[offset + i] += _hitBuffer[i];
+            }
+        }
+
+        int sampleCount = Math.Max(songRead, hitRead);
+        int frameCount = sampleCount / channels;
+        if (frameCount <= 0)
+            return 0;
+
+        ApplyMasterLimiter(buffer, offset, frameCount, channels);
+        return frameCount * channels;
     }
 
     private void ApplyMasterLimiter(float[] buffer, int offset, int frameCount, int channels)
