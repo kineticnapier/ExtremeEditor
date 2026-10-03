@@ -44,6 +44,8 @@ public partial class MainWindow
         {
             _refreshingSongSettings = false;
         }
+
+        RefreshCameraSettings();
     }
 
     private void SongSettingTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
@@ -73,7 +75,7 @@ public partial class MainWindow
         SettingsContentColumn.Width = _settingsPaneCollapsed
             ? new GridLength(0)
             : new GridLength(280);
-        SongSettingsPane.Visibility = _settingsPaneCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        ApplySettingsPaneVisibility();
         SettingsSidebarCollapseButton.Content = _settingsPaneCollapsed ? "›" : "‹";
         SettingsSidebarCollapseButton.ToolTip = _settingsPaneCollapsed ? "Expand settings" : "Collapse settings";
     }
