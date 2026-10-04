@@ -8,6 +8,7 @@
     <NativeRendererDll>$(NativeRendererBuildDir)\$(Configuration)\ExtremeEditor.NativeRenderer.dll</NativeRendererDll>
     <AssetExtractorProject>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\ExtremeEditor.AssetExtractor.csproj</AssetExtractorProject>
     <AssetExtractorOutputDir>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\bin\$(Configuration)\net8.0\</AssetExtractorOutputDir>
+    <AssetExtractorPublishDir>$(MSBuildThisFileDirectory)obj\$(Configuration)\asset-extractor-publish\</AssetExtractorPublishDir>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
@@ -24,13 +25,26 @@
   <Target Name="BuildAssetExtractor" BeforeTargets="CoreCompile">
     <MSBuild Projects="$(AssetExtractorProject)"
              Targets="Build"
-             Properties="Configuration=$(Configuration)" />
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishTrimmed" />
     <ItemGroup>
       <_AssetExtractorFiles Include="$(AssetExtractorOutputDir)**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(_AssetExtractorFiles)"
           DestinationFiles="@(_AssetExtractorFiles->'$(OutDir)AssetExtractor\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishAssetExtractor" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+    <RemoveDir Directories="$(AssetExtractorPublishDir)" />
+    <MSBuild Projects="$(AssetExtractorProject)"
+             Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(AssetExtractorPublishDir)" />
+    <ItemGroup>
+      <_PublishedAssetExtractorFiles Include="$(AssetExtractorPublishDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PublishedAssetExtractorFiles)"
+          DestinationFiles="@(_PublishedAssetExtractorFiles->'$(PublishDir)AssetExtractor\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
   </Target>
   <Target Name="BuildNativeRenderer" BeforeTargets="CoreCompile">
     <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer&quot; -B &quot;$(NativeRendererBuildDir)&quot; -A x64" />
