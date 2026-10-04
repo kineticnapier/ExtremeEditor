@@ -71,13 +71,16 @@ internal sealed partial class EditorSession
                 settings.TrackPulseLength)
         });
 
+        _ = TrackAnimationMetadataCache.TryGet(Document, out TrackAnimationSettingsData currentAnimation);
         TrackAnimationMetadataCache.Attach(
             Document,
-            new TrackAnimationSettingsData(
-                settings.TrackAnimation,
-                settings.BeatsAhead,
-                settings.TrackDisappearAnimation,
-                settings.BeatsBehind));
+            currentAnimation with
+            {
+                TrackAnimation = settings.TrackAnimation,
+                BeatsAhead = settings.BeatsAhead,
+                TrackDisappearAnimation = settings.TrackDisappearAnimation,
+                BeatsBehind = settings.BeatsBehind
+            });
 
         JsonObject root = EnsureSourceRoot();
         JsonObject sourceSettings = root["settings"] as JsonObject ?? new JsonObject();
