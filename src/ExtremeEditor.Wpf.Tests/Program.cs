@@ -15,6 +15,26 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_LEVEL_METADATA_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                LevelMetadataSettingsSliceRegression.Run();
+                Console.WriteLine("PASS: Level Metadata Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CAMERA_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CameraSettingsSliceRegression.Run();
+                Console.WriteLine("PASS: Camera Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_SETTINGS_ONLY"),
                 "1",
                 StringComparison.Ordinal))

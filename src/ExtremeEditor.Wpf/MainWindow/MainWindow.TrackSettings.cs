@@ -9,7 +9,8 @@ internal enum SettingsCategory
 {
     Song,
     Camera,
-    Track
+    Track,
+    Level
 }
 
 public partial class MainWindow

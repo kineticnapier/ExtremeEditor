@@ -63,17 +63,21 @@ public partial class MainWindow
             SongSettingsPane.Visibility = Visibility.Collapsed;
             CameraSettingsPane.Visibility = Visibility.Collapsed;
             TrackSettingsPane.Visibility = Visibility.Collapsed;
+            LevelSettingsPane.Visibility = Visibility.Collapsed;
             return;
         }
 
         SongSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Song;
         CameraSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Camera;
         TrackSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Track;
+        LevelSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Level;
         SongSettingsPane.Visibility = _settingsCategory == SettingsCategory.Song
             ? Visibility.Visible : Visibility.Collapsed;
         CameraSettingsPane.Visibility = _settingsCategory == SettingsCategory.Camera
             ? Visibility.Visible : Visibility.Collapsed;
         TrackSettingsPane.Visibility = _settingsCategory == SettingsCategory.Track
+            ? Visibility.Visible : Visibility.Collapsed;
+        LevelSettingsPane.Visibility = _settingsCategory == SettingsCategory.Level
             ? Visibility.Visible : Visibility.Collapsed;
     }
 
