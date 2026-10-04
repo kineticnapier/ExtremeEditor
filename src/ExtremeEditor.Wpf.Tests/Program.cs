@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackSettingsSliceRegression.Run();
+                Console.WriteLine("PASS: Track Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SELECTION_VISUALIZATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))

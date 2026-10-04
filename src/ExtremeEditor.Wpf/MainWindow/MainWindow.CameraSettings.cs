@@ -8,7 +8,7 @@ namespace ExtremeEditor.Wpf;
 public partial class MainWindow
 {
     private bool _refreshingCameraSettings;
-    private bool _cameraSettingsSelected;
+    private SettingsCategory _settingsCategory = SettingsCategory.Song;
 
     private void RefreshCameraSettings()
     {
@@ -44,18 +44,14 @@ public partial class MainWindow
 
     private void SongSettingsCategoryClick(object sender, RoutedEventArgs e)
     {
-        _cameraSettingsSelected = false;
-        SongSettingsCategoryButton.IsChecked = true;
-        CameraSettingsCategoryButton.IsChecked = false;
+        _settingsCategory = SettingsCategory.Song;
         ApplySettingsPaneVisibility();
         RefreshSongSettings();
     }
 
     private void CameraSettingsCategoryClick(object sender, RoutedEventArgs e)
     {
-        _cameraSettingsSelected = true;
-        SongSettingsCategoryButton.IsChecked = false;
-        CameraSettingsCategoryButton.IsChecked = true;
+        _settingsCategory = SettingsCategory.Camera;
         ApplySettingsPaneVisibility();
         RefreshCameraSettings();
     }
@@ -66,15 +62,19 @@ public partial class MainWindow
         {
             SongSettingsPane.Visibility = Visibility.Collapsed;
             CameraSettingsPane.Visibility = Visibility.Collapsed;
+            TrackSettingsPane.Visibility = Visibility.Collapsed;
             return;
         }
 
-        SongSettingsPane.Visibility = _cameraSettingsSelected
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        CameraSettingsPane.Visibility = _cameraSettingsSelected
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        SongSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Song;
+        CameraSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Camera;
+        TrackSettingsCategoryButton.IsChecked = _settingsCategory == SettingsCategory.Track;
+        SongSettingsPane.Visibility = _settingsCategory == SettingsCategory.Song
+            ? Visibility.Visible : Visibility.Collapsed;
+        CameraSettingsPane.Visibility = _settingsCategory == SettingsCategory.Camera
+            ? Visibility.Visible : Visibility.Collapsed;
+        TrackSettingsPane.Visibility = _settingsCategory == SettingsCategory.Track
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CameraSettingTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
