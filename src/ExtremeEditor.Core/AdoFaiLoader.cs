@@ -56,7 +56,7 @@ public static partial class AdoFaiLoader
         double offsetMilliseconds = 0.0;
         double pitchPercent = 100.0;
         int countdownTicks = 4;
-        bool separateCountdownTime = false;
+        bool separateCountdownTime = true;
         string defaultHitSound = "Kick";
         double hitSoundVolumePercent = 100.0;
         if (root.TryGetProperty("settings", out JsonElement settings) &&

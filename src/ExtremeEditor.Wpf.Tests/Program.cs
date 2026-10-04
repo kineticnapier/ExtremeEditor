@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEPARATE_COUNTDOWN_DEFAULT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                SeparateCountdownDefaultRegression.Run();
+                Console.WriteLine("PASS: separateCountdownTime stock-default regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_LEVEL_METADATA_SETTINGS_ONLY"),
                 "1",
                 StringComparison.Ordinal))

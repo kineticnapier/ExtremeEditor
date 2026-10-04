@@ -198,7 +198,7 @@ public static partial class AdoFaiLoader
         private double? _songOffsetMilliseconds;
         private double _pitchPercent = 100.0;
         private int _countdownTicks = 4;
-        private bool _separateCountdownTime;
+        private bool _separateCountdownTime = true;
         private string _defaultHitSound = "Kick";
         private double _hitSoundVolumePercent = 100.0;
 
