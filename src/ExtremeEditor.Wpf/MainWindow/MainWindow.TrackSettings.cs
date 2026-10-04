@@ -36,6 +36,10 @@ public partial class MainWindow
             SelectTrackSettingValue(TrackColorTypeComboBox, settings.TrackColorType);
             SelectTrackSettingValue(TrackColorPulseComboBox, settings.TrackColorPulse);
             SelectTrackSettingValue(TrackStyleComboBox, settings.TrackStyle);
+            SelectTrackSettingValue(TrackAppearAnimationComboBox, settings.TrackAnimation);
+            TrackBeatsAheadTextBox.Text = FormatSetting(settings.BeatsAhead);
+            SelectTrackSettingValue(TrackDisappearAnimationComboBox, settings.TrackDisappearAnimation);
+            TrackBeatsBehindTextBox.Text = FormatSetting(settings.BeatsBehind);
         }
         finally
         {
@@ -96,7 +100,9 @@ public partial class MainWindow
             !EditorSession.IsValidTrackColor(TrackSecondaryColorTextBox.Text) ||
             !TryReadSetting(TrackColorAnimDurationTextBox.Text, out double duration) || duration <= 0.0 ||
             !int.TryParse(TrackPulseLengthTextBox.Text, out int pulseLength) || pulseLength < 1 ||
-            !TryReadSetting(TrackGlowIntensityTextBox.Text, out double glow) || glow is < 0.0 or > 100.0)
+            !TryReadSetting(TrackGlowIntensityTextBox.Text, out double glow) || glow is < 0.0 or > 100.0 ||
+            !TryReadSetting(TrackBeatsAheadTextBox.Text, out double beatsAhead) || beatsAhead < 0.0 ||
+            !TryReadSetting(TrackBeatsBehindTextBox.Text, out double beatsBehind) || beatsBehind < 0.0)
         {
             RefreshTrackSettings();
             StatusText.Text = "Track Settings contain an invalid value.";
@@ -106,6 +112,10 @@ public partial class MainWindow
         string colorType = SelectedTrackSettingValue(TrackColorTypeComboBox, before.TrackColorType);
         string pulse = SelectedTrackSettingValue(TrackColorPulseComboBox, before.TrackColorPulse);
         string style = SelectedTrackSettingValue(TrackStyleComboBox, before.TrackStyle);
+        string appear = SelectedTrackSettingValue(TrackAppearAnimationComboBox, before.TrackAnimation);
+        string disappear = SelectedTrackSettingValue(
+            TrackDisappearAnimationComboBox,
+            before.TrackDisappearAnimation);
         var requested = new TrackSettingsSnapshot(
             colorType,
             TrackPrimaryColorTextBox.Text.Trim(),
@@ -114,7 +124,11 @@ public partial class MainWindow
             pulse,
             pulseLength,
             style,
-            glow);
+            glow,
+            appear,
+            beatsAhead,
+            disappear,
+            beatsBehind);
 
         editor.EditTrackSettings(requested);
         TrackSettingsSnapshot after = editor.GetTrackSettings();

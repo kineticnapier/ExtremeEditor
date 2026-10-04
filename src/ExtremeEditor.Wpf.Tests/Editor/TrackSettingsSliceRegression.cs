@@ -321,6 +321,7 @@ internal static class TrackSettingsSliceRegression
         TrackVisualSourceBundle bundle = TrackVisualSourceReader.Load(path);
         TrackVisualMetadataCache.Attach(document, bundle.Visual);
         TrackColorMetadataCache.Attach(document, bundle.Legacy);
+        TrackAnimationMetadataCache.Attach(document, bundle.Animation);
         return (new EditorSession(document), document, bundle.Visual);
     }
 

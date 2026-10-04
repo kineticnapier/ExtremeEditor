@@ -10,7 +10,44 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal sealed record TrackVisualSourceBundle(
     TrackColorSourceData Legacy,
-    TrackVisualSourceData Visual);
+    TrackVisualSourceData Visual,
+    TrackAnimationSettingsData Animation)
+{
+    internal TrackVisualSourceBundle(TrackColorSourceData legacy, TrackVisualSourceData visual)
+        : this(legacy, visual, TrackAnimationSettingsData.Default)
+    {
+    }
+}
+
+internal sealed record TrackAnimationSettingsData(
+    string TrackAnimation,
+    double BeatsAhead,
+    string TrackDisappearAnimation,
+    double BeatsBehind,
+    TrackAnimationSourceEvent[] Events)
+{
+    internal TrackAnimationSettingsData(
+        string trackAnimation,
+        double beatsAhead,
+        string trackDisappearAnimation,
+        double beatsBehind)
+        : this(trackAnimation, beatsAhead, trackDisappearAnimation, beatsBehind, [])
+    {
+    }
+
+    internal static TrackAnimationSettingsData Default { get; } = new("None", 3.0, "None", 4.0, []);
+}
+
+internal sealed record TrackAnimationSourceEvent(
+    int SourceIndex,
+    int Floor,
+    bool Active,
+    string? TrackAnimation,
+    double? BeatsAhead,
+    string? TrackDisappearAnimation,
+    double? BeatsBehind,
+    bool TrackAnimationDisabled,
+    bool TrackDisappearAnimationDisabled);
 
 internal sealed record TrackVisualSourceData(
     TrackVisualStyle InitialStyle,
@@ -27,7 +64,27 @@ internal sealed record TrackVisualStyle(
     double GlowIntensity,
     string TrackTexture,
     double TrackTextureScale,
-    int StartFloor);
+    bool FloorIconOutlines,
+    int StartFloor)
+{
+    internal TrackVisualStyle(
+        string colorType,
+        string primaryColor,
+        string secondaryColor,
+        double animDuration,
+        string pulseType,
+        int pulseLength,
+        string trackStyle,
+        double glowIntensity,
+        string trackTexture,
+        double trackTextureScale,
+        int startFloor)
+        : this(
+            colorType, primaryColor, secondaryColor, animDuration, pulseType, pulseLength,
+            trackStyle, glowIntensity, trackTexture, trackTextureScale, false, startFloor)
+    {
+    }
+}
 
 internal sealed record TrackVisualSourceEvent(
     int SourceIndex,
@@ -44,10 +101,38 @@ internal sealed record TrackVisualSourceEvent(
     double? GlowIntensity,
     string? TrackTexture,
     double? TrackTextureScale,
+    bool? FloorIconOutlines,
     bool JustThisTile,
     int GapLength,
     TrackTileReference? StartTile,
-    TrackTileReference? EndTile);
+    TrackTileReference? EndTile)
+{
+    internal TrackVisualSourceEvent(
+        int sourceIndex,
+        int floor,
+        string eventType,
+        bool active,
+        string? colorType,
+        string? primaryColor,
+        string? secondaryColor,
+        double? animDuration,
+        string? pulseType,
+        int? pulseLength,
+        string? trackStyle,
+        double? glowIntensity,
+        string? trackTexture,
+        double? trackTextureScale,
+        bool justThisTile,
+        int gapLength,
+        TrackTileReference? startTile,
+        TrackTileReference? endTile)
+        : this(
+            sourceIndex, floor, eventType, active, colorType, primaryColor, secondaryColor,
+            animDuration, pulseType, pulseLength, trackStyle, glowIntensity, trackTexture,
+            trackTextureScale, null, justThisTile, gapLength, startTile, endTile)
+    {
+    }
+}
 
 internal readonly record struct NativeTrackVisual(
     uint PrimaryColor,
@@ -183,9 +268,10 @@ internal static class TrackVisualSourceReader
                 100.0,
                 string.Empty,
                 1.0,
+                false,
                 0),
             []);
-        return new TrackVisualSourceBundle(legacy, visual);
+        return new TrackVisualSourceBundle(legacy, visual, TrackAnimationSettingsData.Default);
     }
 
     private sealed class Parser
@@ -194,6 +280,7 @@ internal static class TrackVisualSourceReader
         private ParserMode _resumeMode;
         private RootField _rootField;
         private Field _field;
+        private Field _disabledField;
         private ActionBuilder _action;
         private Field _tileReferenceTarget;
         private int _tileReferenceIndex;
@@ -212,8 +299,14 @@ internal static class TrackVisualSourceReader
         private double _glowIntensity = 100.0;
         private string _trackTexture = string.Empty;
         private double _trackTextureScale = 1.0;
+        private bool _floorIconOutlines;
+        private string _trackAnimation = "None";
+        private double _beatsAhead = 3.0;
+        private string _trackDisappearAnimation = "None";
+        private double _beatsBehind = 4.0;
         private readonly List<TrackVisualSourceEvent> _visualEvents = [];
         private readonly List<TrackColorSourceEvent> _legacyEvents = [];
+        private readonly List<TrackAnimationSourceEvent> _animationEvents = [];
 
         internal void Accept(ref Utf8JsonReader reader)
         {
@@ -245,6 +338,9 @@ internal static class TrackVisualSourceReader
                 case ParserMode.TileReference:
                     AcceptTileReference(ref reader);
                     break;
+                case ParserMode.Disabled:
+                    AcceptDisabled(ref reader);
+                    break;
             }
         }
 
@@ -265,9 +361,18 @@ internal static class TrackVisualSourceReader
                     _glowIntensity,
                     _trackTexture,
                     _trackTextureScale,
+                    _floorIconOutlines,
                     0),
                 _visualEvents.ToArray());
-            return new TrackVisualSourceBundle(legacy, visual);
+            return new TrackVisualSourceBundle(
+                legacy,
+                visual,
+                new TrackAnimationSettingsData(
+                    _trackAnimation,
+                    _beatsAhead,
+                    _trackDisappearAnimation,
+                    _beatsBehind,
+                    _animationEvents.ToArray()));
         }
 
         private void AcceptRoot(ref Utf8JsonReader reader)
@@ -313,6 +418,13 @@ internal static class TrackVisualSourceReader
             _field = Field.None;
             if (field == Field.None)
                 return;
+            if (reader.TokenType == JsonTokenType.StartObject && field == Field.Disabled)
+            {
+                _disabledField = Field.None;
+                _mode = ParserMode.Disabled;
+                return;
+            }
+
             if (reader.TokenType is JsonTokenType.StartArray or JsonTokenType.StartObject)
             {
                 BeginSkip(ParserMode.Settings);
@@ -350,6 +462,21 @@ internal static class TrackVisualSourceReader
                     break;
                 case Field.TrackTextureScale when TryReadDouble(ref reader, out double textureScale):
                     _trackTextureScale = Math.Max(double.Epsilon, textureScale);
+                    break;
+                case Field.FloorIconOutlines:
+                    _floorIconOutlines = ReadBool(ref reader, false);
+                    break;
+                case Field.TrackAnimation:
+                    _trackAnimation = ReadString(ref reader) ?? _trackAnimation;
+                    break;
+                case Field.BeatsAhead when TryReadDouble(ref reader, out double beatsAhead):
+                    _beatsAhead = Math.Max(0.0, beatsAhead);
+                    break;
+                case Field.TrackDisappearAnimation:
+                    _trackDisappearAnimation = ReadString(ref reader) ?? _trackDisappearAnimation;
+                    break;
+                case Field.BeatsBehind when TryReadDouble(ref reader, out double beatsBehind):
+                    _beatsBehind = Math.Max(0.0, beatsBehind);
                     break;
             }
         }
@@ -457,6 +584,21 @@ internal static class TrackVisualSourceReader
                 case Field.TrackTextureScale when TryReadDouble(ref reader, out double textureScale):
                     _action.TrackTextureScale = textureScale;
                     break;
+                case Field.FloorIconOutlines:
+                    _action.FloorIconOutlines = ReadBool(ref reader, false);
+                    break;
+                case Field.TrackAnimation:
+                    _action.TrackAnimation = ReadString(ref reader);
+                    break;
+                case Field.BeatsAhead when TryReadDouble(ref reader, out double beatsAhead):
+                    _action.BeatsAhead = beatsAhead;
+                    break;
+                case Field.TrackDisappearAnimation:
+                    _action.TrackDisappearAnimation = ReadString(ref reader);
+                    break;
+                case Field.BeatsBehind when TryReadDouble(ref reader, out double beatsBehind):
+                    _action.BeatsBehind = beatsBehind;
+                    break;
                 case Field.JustThisTile:
                     _action.JustThisTile = ReadBool(ref reader, false);
                     break;
@@ -464,6 +606,27 @@ internal static class TrackVisualSourceReader
                     _action.GapLength = Math.Max(0, gap);
                     break;
             }
+        }
+
+        private void AcceptDisabled(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType == JsonTokenType.EndObject && _disabledField == Field.None)
+            {
+                _mode = ParserMode.Action;
+                return;
+            }
+            if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                _disabledField = MatchField(ref reader);
+                return;
+            }
+            Field field = _disabledField;
+            _disabledField = Field.None;
+            bool disabled = ReadBool(ref reader, false);
+            if (field == Field.TrackAnimation)
+                _action.TrackAnimationDisabled = disabled;
+            else if (field == Field.TrackDisappearAnimation)
+                _action.TrackDisappearAnimationDisabled = disabled;
         }
 
         private void AcceptTileReference(ref Utf8JsonReader reader)
@@ -488,6 +651,20 @@ internal static class TrackVisualSourceReader
 
         private void FinalizeAction()
         {
+            if (_action.HasFloor && _action.EventType == "AnimateTrack")
+            {
+                _animationEvents.Add(new TrackAnimationSourceEvent(
+                    _action.SourceIndex,
+                    _action.Floor,
+                    _action.Active,
+                    _action.TrackAnimation,
+                    _action.BeatsAhead,
+                    _action.TrackDisappearAnimation,
+                    _action.BeatsBehind,
+                    _action.TrackAnimationDisabled,
+                    _action.TrackDisappearAnimationDisabled));
+                return;
+            }
             if (!_action.HasFloor || _action.EventType is not ("ColorTrack" or "RecolorTrack"))
                 return;
 
@@ -520,6 +697,7 @@ internal static class TrackVisualSourceReader
                 _action.GlowIntensity,
                 _action.TrackTexture,
                 _action.TrackTextureScale,
+                _action.FloorIconOutlines,
                 _action.JustThisTile,
                 _action.GapLength,
                 _action.StartTile,
@@ -548,6 +726,12 @@ internal static class TrackVisualSourceReader
             if (reader.ValueTextEquals("trackGlowIntensity"u8)) return Field.TrackGlowIntensity;
             if (reader.ValueTextEquals("trackTexture"u8)) return Field.TrackTexture;
             if (reader.ValueTextEquals("trackTextureScale"u8)) return Field.TrackTextureScale;
+            if (reader.ValueTextEquals("floorIconOutlines"u8)) return Field.FloorIconOutlines;
+            if (reader.ValueTextEquals("trackAnimation"u8)) return Field.TrackAnimation;
+            if (reader.ValueTextEquals("beatsAhead"u8)) return Field.BeatsAhead;
+            if (reader.ValueTextEquals("trackDisappearAnimation"u8)) return Field.TrackDisappearAnimation;
+            if (reader.ValueTextEquals("beatsBehind"u8)) return Field.BeatsBehind;
+            if (reader.ValueTextEquals("disabled"u8)) return Field.Disabled;
             if (reader.ValueTextEquals("justThisTile"u8)) return Field.JustThisTile;
             if (reader.ValueTextEquals("gapLength"u8)) return Field.GapLength;
             if (reader.ValueTextEquals("startTile"u8)) return Field.StartTile;
@@ -592,7 +776,7 @@ internal static class TrackVisualSourceReader
             _ => null
         };
 
-        private enum ParserMode { Root, Settings, Actions, Action, TileReference, Skip }
+        private enum ParserMode { Root, Settings, Actions, Action, TileReference, Disabled, Skip }
         private enum RootField { None, Settings, Actions, Other }
         private enum Field
         {
@@ -610,6 +794,12 @@ internal static class TrackVisualSourceReader
             TrackGlowIntensity,
             TrackTexture,
             TrackTextureScale,
+            FloorIconOutlines,
+            TrackAnimation,
+            BeatsAhead,
+            TrackDisappearAnimation,
+            BeatsBehind,
+            Disabled,
             JustThisTile,
             GapLength,
             StartTile,
@@ -634,6 +824,13 @@ internal static class TrackVisualSourceReader
             public double? GlowIntensity;
             public string? TrackTexture;
             public double? TrackTextureScale;
+            public bool? FloorIconOutlines;
+            public string? TrackAnimation;
+            public double? BeatsAhead;
+            public string? TrackDisappearAnimation;
+            public double? BeatsBehind;
+            public bool TrackAnimationDisabled;
+            public bool TrackDisappearAnimationDisabled;
             public bool JustThisTile;
             public int GapLength;
             public TrackTileReference? StartTile;
@@ -647,6 +844,7 @@ internal static class TrackVisualResolver
     internal const uint FlagEnabled = 0x8000_0000u;
     internal const uint FlagUseTexture = 0x0000_0100u;
     internal const uint FlagCustomTexture = 0x0000_0200u;
+    internal const uint FlagFloorIconOutline = 0x0000_0400u;
 
     internal static NativeTrackVisual[] Resolve(LevelDocument level)
     {
@@ -718,6 +916,9 @@ internal static class TrackVisualResolver
             Math.Clamp(item.GlowIntensity ?? fallback.GlowIntensity, 0.0, 100.0),
             item.TrackTexture ?? fallback.TrackTexture,
             Math.Max(double.Epsilon, item.TrackTextureScale ?? fallback.TrackTextureScale),
+            item.EventType == "ColorTrack"
+                ? item.FloorIconOutlines ?? fallback.FloorIconOutlines
+                : fallback.FloorIconOutlines,
             startFloor);
 
     internal static NativeTrackVisual Pack(TrackVisualStyle style, double pitch)
@@ -731,6 +932,8 @@ internal static class TrackVisualResolver
             flags |= FlagUseTexture;
         if (!string.IsNullOrWhiteSpace(style.TrackTexture))
             flags |= FlagCustomTexture;
+        if (style.FloorIconOutlines)
+            flags |= FlagFloorIconOutline;
 
         return new NativeTrackVisual(
             ParseColor(style.PrimaryColor, 0xFF7BBBDEu),
@@ -848,6 +1051,7 @@ internal static class TrackVisualResolver
                 null,
                 null,
                 null,
+                null,
                 false,
                 0,
                 null,
@@ -889,6 +1093,7 @@ internal static class TrackVisualResolver
             GlowIntensity = GetDouble(obj, "trackGlowIntensity") ?? source.GlowIntensity,
             TrackTexture = GetString(obj, "trackTexture") ?? source.TrackTexture,
             TrackTextureScale = GetDouble(obj, "trackTextureScale") ?? source.TrackTextureScale,
+            FloorIconOutlines = GetBool(obj, "floorIconOutlines") ?? source.FloorIconOutlines,
             JustThisTile = GetBool(obj, "justThisTile") ?? source.JustThisTile,
             GapLength = Math.Max(0, GetInt(obj, "gapLength") ?? source.GapLength),
             StartTile = GetReference(obj["startTile"]) ?? source.StartTile,

@@ -87,6 +87,7 @@ internal static class WpfLevelLoader
         TrackColorActionRecovery.MergeMissing(loaded.Document, trackVisuals.Legacy);
         TrackColorMetadataCache.Attach(loaded.Document, trackVisuals.Legacy);
         TrackVisualMetadataCache.Attach(loaded.Document, trackVisuals.Visual);
+        TrackAnimationMetadataCache.Attach(loaded.Document, trackVisuals.Animation);
         TrackTransformMetadataCache.Attach(loaded.Document, trackTransforms);
         ScaleRadiusMetadataCache.Attach(loaded.Document, scaleRadius);
         CameraMetadataCache.Attach(loaded.Document, cameraEvents);

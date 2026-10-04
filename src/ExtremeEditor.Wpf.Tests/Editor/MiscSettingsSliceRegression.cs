@@ -21,6 +21,7 @@ internal static class MiscSettingsSliceRegression
         Check(failures, "save ownership and preservation", VerifySavePreservation);
         Check(failures, "renderer-facing root and PositionTrack semantics", VerifyRendererFacingState);
         Check(failures, "runtime edit and undo propagation", VerifyRuntimeEditPropagation);
+        Check(failures, "floor icon outline base and ColorTrack override", VerifyFloorIconOutlineRuntime);
         Check(failures, "unsupported settings boundary", VerifyUnsupportedBoundary);
         Check(failures, "five-category sidebar contract", VerifySidebarContract);
 
@@ -128,7 +129,7 @@ internal static class MiscSettingsSliceRegression
 
             string[] preservedSettings =
             [
-                "floorIconOutlines", "planetEase", "planetEaseParts", "planetEasePartBehavior",
+                "planetEase", "planetEaseParts", "planetEasePartBehavior",
                 "bgVideo", "loopVideo", "vidOffset", "defaultTextColor", "defaultTextShadowColor",
                 "congratsText", "perfectText", "customClass",
                 "backgroundColor", "bgImage", "parallax", "bgDisplayMode", "lockRot", "loopBG", "scalingRatio",
@@ -209,6 +210,52 @@ internal static class MiscSettingsSliceRegression
         }
     }
 
+    private static void VerifyFloorIconOutlineRuntime()
+    {
+        Type snapshotType = typeof(EditorSession).Assembly.GetType("ExtremeEditor.Wpf.MiscSettingsSnapshot")
+            ?? throw new InvalidOperationException("typed MiscSettingsSnapshot is missing.");
+        if (snapshotType.GetProperty("FloorIconOutlines") is null)
+            throw new InvalidOperationException("MiscSettingsSnapshot.FloorIconOutlines is missing.");
+        if (snapshotType.GetConstructor([typeof(bool), typeof(bool)]) is null)
+            throw new InvalidOperationException("MiscSettingsSnapshot must accept stickToFloors and floorIconOutlines.");
+
+        FieldInfo outlineFlag = typeof(TrackVisualResolver).GetField(
+            "FlagFloorIconOutline",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("renderer-facing floor icon outline flag is missing.");
+        uint flag = Convert.ToUInt32(outlineFlag.GetValue(null));
+
+        string path = WriteFixture("Outline", JsonValue.Create(true), includePositionTrack: false);
+        try
+        {
+            JsonObject root = LooseAdoFaiJson.ParseObject(path);
+            root["settings"]!["floorIconOutlines"] = false;
+            root["actions"] = new JsonArray(
+                new JsonObject
+                {
+                    ["floor"] = 1,
+                    ["eventType"] = "ColorTrack",
+                    ["active"] = true,
+                    ["floorIconOutlines"] = true,
+                    ["justThisTile"] = false
+                });
+            File.WriteAllText(path, root.ToJsonString());
+
+            LevelDocument document = AdoFaiLoader.Load(path).Document;
+            TrackVisualSourceBundle visual = TrackVisualSourceReader.Load(path);
+            TrackVisualMetadataCache.Attach(document, visual.Visual);
+            NativeTrackVisual[] resolved = TrackVisualResolver.Resolve(document);
+            if ((resolved[0].Flags & flag) != 0u)
+                throw new InvalidOperationException("root floorIconOutlines=false was not preserved before ColorTrack.");
+            if (resolved.Length < 3 || (resolved[1].Flags & flag) == 0u || (resolved[2].Flags & flag) == 0u)
+                throw new InvalidOperationException("ColorTrack floorIconOutlines=true did not persist from its event floor.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static void VerifyUnsupportedBoundary()
     {
         MiscContract contract = MiscContract.Discover();
@@ -222,7 +269,7 @@ internal static class MiscSettingsSliceRegression
 
             string[] unsupported =
             [
-                "floorIconOutlines", "planetEase", "planetEaseParts", "planetEasePartBehavior",
+                "planetEase", "planetEaseParts", "planetEasePartBehavior",
                 "bgVideo", "loopVideo", "vidOffset", "customClass", "defaultTextColor",
                 "defaultTextShadowColor", "congratsText", "perfectText",
                 "backgroundColor", "bgImage", "parallax", "bgDisplayMode", "lockRot", "loopBG", "scalingRatio"
@@ -254,7 +301,7 @@ internal static class MiscSettingsSliceRegression
                      "SongSettingsCategoryButton", "CameraSettingsCategoryButton", "TrackSettingsCategoryButton",
                      "LevelSettingsCategoryButton", "MiscSettingsCategoryButton",
                      "SongSettingsPane", "CameraSettingsPane", "TrackSettingsPane", "LevelSettingsPane",
-                     "MiscSettingsPane", "StickToFloorsCheckBox"
+                     "MiscSettingsPane", "StickToFloorsCheckBox", "FloorIconOutlinesCheckBox"
                  })
             _ = RequireNamedElement(root, name);
 
@@ -288,6 +335,7 @@ internal static class MiscSettingsSliceRegression
         LevelDocument document = AdoFaiLoader.Load(path).Document;
         TrackTransformSourceData transforms = TrackTransformSourceReader.Load(path);
         TrackTransformMetadataCache.Attach(document, transforms);
+        TrackVisualMetadataCache.Attach(document, TrackVisualSourceReader.Load(path).Visual);
         return (new EditorSession(document), document);
     }
 

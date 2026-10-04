@@ -9,6 +9,7 @@ internal sealed partial class EditorSession
     public TrackSettingsSnapshot GetTrackSettings()
     {
         TrackVisualStyle style = TrackVisualMetadataCache.Get(Document).InitialStyle;
+        _ = TrackAnimationMetadataCache.TryGet(Document, out TrackAnimationSettingsData animation);
         return new TrackSettingsSnapshot(
             style.ColorType,
             style.PrimaryColor,
@@ -17,14 +18,28 @@ internal sealed partial class EditorSession
             style.PulseType,
             style.PulseLength,
             style.TrackStyle,
-            style.GlowIntensity);
+            style.GlowIntensity,
+            animation.TrackAnimation,
+            animation.BeatsAhead,
+            animation.TrackDisappearAnimation,
+            animation.BeatsBehind);
     }
 
     public void EditTrackSettings(TrackSettingsSnapshot settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        TrackSettingsSnapshot normalized = NormalizeTrackSettings(settings);
         TrackSettingsSnapshot before = GetTrackSettings();
+        TrackSettingsSnapshot requested = settings.HasTrackAnimationSettings
+            ? settings
+            : settings with
+            {
+                TrackAnimation = before.TrackAnimation,
+                BeatsAhead = before.BeatsAhead,
+                TrackDisappearAnimation = before.TrackDisappearAnimation,
+                BeatsBehind = before.BeatsBehind,
+                HasTrackAnimationSettings = true
+            };
+        TrackSettingsSnapshot normalized = NormalizeTrackSettings(requested);
         if (before == normalized)
             return;
         Execute(new EditTrackSettingsCommand(before, normalized));
@@ -56,6 +71,14 @@ internal sealed partial class EditorSession
                 settings.TrackPulseLength)
         });
 
+        TrackAnimationMetadataCache.Attach(
+            Document,
+            new TrackAnimationSettingsData(
+                settings.TrackAnimation,
+                settings.BeatsAhead,
+                settings.TrackDisappearAnimation,
+                settings.BeatsBehind));
+
         JsonObject root = EnsureSourceRoot();
         JsonObject sourceSettings = root["settings"] as JsonObject ?? new JsonObject();
         sourceSettings["trackColor"] = settings.TrackColor;
@@ -66,6 +89,10 @@ internal sealed partial class EditorSession
         sourceSettings["trackPulseLength"] = settings.TrackPulseLength;
         sourceSettings["trackStyle"] = settings.TrackStyle;
         sourceSettings["trackGlowIntensity"] = settings.TrackGlowIntensity;
+        sourceSettings["trackAnimation"] = settings.TrackAnimation;
+        sourceSettings["beatsAhead"] = settings.BeatsAhead;
+        sourceSettings["trackDisappearAnimation"] = settings.TrackDisappearAnimation;
+        sourceSettings["beatsBehind"] = settings.BeatsBehind;
         root["settings"] = sourceSettings;
     }
 
@@ -112,6 +139,10 @@ internal sealed partial class EditorSession
                 nameof(settings.TrackGlowIntensity),
                 "Track glow intensity must be between 0 and 100.");
         }
+        if (!double.IsFinite(settings.BeatsAhead) || settings.BeatsAhead < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(settings.BeatsAhead));
+        if (!double.IsFinite(settings.BeatsBehind) || settings.BeatsBehind < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(settings.BeatsBehind));
 
         return settings with
         {
@@ -119,7 +150,11 @@ internal sealed partial class EditorSession
             TrackColor = primary,
             SecondaryTrackColor = secondary,
             TrackColorPulse = Required(settings.TrackColorPulse, nameof(settings.TrackColorPulse)),
-            TrackStyle = Required(settings.TrackStyle, nameof(settings.TrackStyle))
+            TrackStyle = Required(settings.TrackStyle, nameof(settings.TrackStyle)),
+            TrackAnimation = Required(settings.TrackAnimation, nameof(settings.TrackAnimation)),
+            TrackDisappearAnimation = Required(
+                settings.TrackDisappearAnimation,
+                nameof(settings.TrackDisappearAnimation))
         };
     }
 

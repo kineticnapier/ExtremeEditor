@@ -599,7 +599,8 @@ void D2DBackend::DrawSceneOverlays(
             const bool flipped = (floor.icon_flags & EE_ICON_FLAG_FLIPPED) != 0;
             const float size = zoom * (is_floor_icon ? 0.78f : 0.62f);
 
-            if (is_floor_icon && bitmaps->outline)
+            if (is_floor_icon && bitmaps->outline &&
+                (floor.track_visual_flags & EE_TRACK_VISUAL_FLOOR_ICON_OUTLINE) != 0u)
             {
                 DrawBitmapCentered(
                     bitmaps->outline.Get(),

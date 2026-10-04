@@ -18,6 +18,7 @@ public partial class MainWindow
         try
         {
             StickToFloorsCheckBox.IsChecked = settings.StickToFloors;
+            FloorIconOutlinesCheckBox.IsChecked = settings.FloorIconOutlines;
         }
         finally
         {
@@ -42,7 +43,9 @@ public partial class MainWindow
             return;
 
         MiscSettingsSnapshot before = editor.GetMiscSettings();
-        editor.EditMiscSettings(new MiscSettingsSnapshot(StickToFloorsCheckBox.IsChecked == true));
+        editor.EditMiscSettings(new MiscSettingsSnapshot(
+            StickToFloorsCheckBox.IsChecked == true,
+            FloorIconOutlinesCheckBox.IsChecked == true));
         MiscSettingsSnapshot after = editor.GetMiscSettings();
         RefreshMiscSettings();
         if (before == after)

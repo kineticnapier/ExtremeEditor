@@ -5,16 +5,20 @@ namespace ExtremeEditor.Wpf;
 
 internal sealed partial class EditorSession
 {
-    public MiscSettingsSnapshot GetMiscSettings() =>
-        new(TrackTransformMetadataCache.Get(Document).DefaultStickToFloors);
+    public MiscSettingsSnapshot GetMiscSettings() => new(
+        TrackTransformMetadataCache.Get(Document).DefaultStickToFloors,
+        TrackVisualMetadataCache.Get(Document).InitialStyle.FloorIconOutlines);
 
     public void EditMiscSettings(MiscSettingsSnapshot settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         MiscSettingsSnapshot before = GetMiscSettings();
-        if (before == settings)
+        MiscSettingsSnapshot normalized = settings.HasFloorIconOutlines
+            ? settings
+            : new MiscSettingsSnapshot(settings.StickToFloors, before.FloorIconOutlines);
+        if (before == normalized)
             return;
-        Execute(new EditMiscSettingsCommand(before, settings));
+        Execute(new EditMiscSettingsCommand(before, normalized));
     }
 
     internal void ApplyMiscSettingsRaw(MiscSettingsSnapshot settings)
@@ -26,9 +30,21 @@ internal sealed partial class EditorSession
             Document,
             current with { DefaultStickToFloors = settings.StickToFloors });
 
+        TrackVisualSourceData visual = TrackVisualMetadataCache.Get(Document);
+        TrackVisualMetadataCache.Attach(
+            Document,
+            visual with
+            {
+                InitialStyle = visual.InitialStyle with
+                {
+                    FloorIconOutlines = settings.FloorIconOutlines
+                }
+            });
+
         JsonObject root = EnsureSourceRoot();
         JsonObject sourceSettings = root["settings"] as JsonObject ?? new JsonObject();
         sourceSettings["stickToFloors"] = settings.StickToFloors;
+        sourceSettings["floorIconOutlines"] = settings.FloorIconOutlines;
         root["settings"] = sourceSettings;
     }
 

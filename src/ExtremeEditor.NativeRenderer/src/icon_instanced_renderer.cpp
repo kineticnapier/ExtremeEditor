@@ -523,7 +523,8 @@ bool IconInstancedRenderer::Draw(
             ++sprite_count;
         };
 
-        if (is_floor_icon && asset.outline_batch >= 0)
+        if (is_floor_icon && asset.outline_batch >= 0 &&
+            (floor.track_visual_flags & EE_TRACK_VISUAL_FLOOR_ICON_OUTLINE) != 0u)
             append_instance(
                 asset.outline_batch,
                 asset.outline_metadata,

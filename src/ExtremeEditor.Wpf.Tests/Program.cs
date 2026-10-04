@@ -65,6 +65,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_ANIMATION_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackAnimationSettingsRegression.Run();
+                Console.WriteLine("PASS: root Track Animation Settings regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SELECTION_VISUALIZATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))

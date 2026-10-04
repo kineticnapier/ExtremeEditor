@@ -1,7 +1,30 @@
 using System.Text.Json.Nodes;
+using System.Runtime.CompilerServices;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
+
+internal static class TrackAnimationMetadataCache
+{
+    private static readonly ConditionalWeakTable<LevelDocument, TrackAnimationSettingsData> Cache = new();
+
+    internal static void Attach(LevelDocument level, TrackAnimationSettingsData data)
+    {
+        Cache.Remove(level);
+        Cache.Add(level, data);
+    }
+
+    internal static bool TryGet(LevelDocument level, out TrackAnimationSettingsData data)
+    {
+        if (Cache.TryGetValue(level, out TrackAnimationSettingsData? found))
+        {
+            data = found;
+            return true;
+        }
+        data = TrackAnimationSettingsData.Default;
+        return false;
+    }
+}
 
 internal static class TrackAnimationTimelineBuilder
 {
@@ -31,34 +54,52 @@ internal static class TrackAnimationTimelineBuilder
             };
         }
 
-        var actions = level.ActionStore.Actions
-            .Where(static action => action.Active &&
-                string.Equals(action.EventType, "AnimateTrack", StringComparison.Ordinal))
-            .Where(action => (uint)action.Floor < (uint)floorCount)
-            .OrderBy(static action => action.Floor)
-            .ThenBy(static action => action.SourceIndex)
-            .ToArray();
-        if (actions.Length == 0)
-            return ([], timings);
-
-        string appear = "None";
-        string disappear = "None";
-        double beatsAhead = 3.0;
-        double beatsBehind = 4.0;
-        var pending = new List<(LevelAction Action, string Appear, string Disappear, double Ahead, double Behind,
+        bool hasRootSettings = TrackAnimationMetadataCache.TryGet(level, out TrackAnimationSettingsData initial);
+        AnimationAction[] actions = hasRootSettings
+            ? initial.Events
+                .Where(static action => action.Active)
+                .Where(action => (uint)action.Floor < (uint)floorCount)
+                .Select(static action => new AnimationAction(
+                    action.SourceIndex, action.Floor, action.TrackAnimation, action.BeatsAhead,
+                    action.TrackDisappearAnimation, action.BeatsBehind,
+                    action.TrackAnimationDisabled, action.TrackDisappearAnimationDisabled))
+                .OrderBy(static action => action.Floor)
+                .ThenBy(static action => action.SourceIndex)
+                .ToArray()
+            : level.ActionStore.Actions
+                .Where(static action => action.Active &&
+                    string.Equals(action.EventType, "AnimateTrack", StringComparison.Ordinal))
+                .Where(action => (uint)action.Floor < (uint)floorCount)
+                .Select(static action => new AnimationAction(
+                    action.SourceIndex,
+                    action.Floor,
+                    ReadString(action, "trackAnimation"),
+                    ReadDouble(action, "beatsAhead"),
+                    ReadString(action, "trackDisappearAnimation"),
+                    ReadDouble(action, "beatsBehind"),
+                    IsDisabled(action, "trackAnimation"),
+                    IsDisabled(action, "trackDisappearAnimation")))
+                .OrderBy(static action => action.Floor)
+                .ThenBy(static action => action.SourceIndex)
+                .ToArray();
+        string appear = initial.TrackAnimation;
+        string disappear = initial.TrackDisappearAnimation;
+        double beatsAhead = initial.BeatsAhead;
+        double beatsBehind = initial.BeatsBehind;
+        var pending = new List<(AnimationAction Action, string Appear, string Disappear, double Ahead, double Behind,
             float ReferenceSpeed, uint Flags)>();
 
-        foreach (LevelAction action in actions)
+        foreach (AnimationAction action in actions)
         {
-            bool appearDisabled = IsDisabled(action, "trackAnimation");
-            bool disappearDisabled = IsDisabled(action, "trackDisappearAnimation");
-            if (!appearDisabled && TryString(action, "trackAnimation", out string? nextAppear))
-                appear = nextAppear!;
-            if (!disappearDisabled && TryString(action, "trackDisappearAnimation", out string? nextDisappear))
-                disappear = nextDisappear!;
-            if (!appearDisabled && TryDouble(action, "beatsAhead", out double nextAhead))
+            bool appearDisabled = action.AppearDisabled;
+            bool disappearDisabled = action.DisappearDisabled;
+            if (!appearDisabled && !string.IsNullOrWhiteSpace(action.Appear))
+                appear = action.Appear;
+            if (!disappearDisabled && !string.IsNullOrWhiteSpace(action.Disappear))
+                disappear = action.Disappear;
+            if (!appearDisabled && action.Ahead is double nextAhead)
                 beatsAhead = Math.Max(0.0, nextAhead);
-            if (!disappearDisabled && TryDouble(action, "beatsBehind", out double nextBehind))
+            if (!disappearDisabled && action.Behind is double nextBehind)
                 beatsBehind = Math.Max(0.0, nextBehind);
 
             float currentSpeed = timings[action.Floor].Speed > 0f ? timings[action.Floor].Speed : 1f;
@@ -73,7 +114,29 @@ internal static class TrackAnimationTimelineBuilder
             pending.Add((action, appear, disappear, beatsAhead, beatsBehind, selectedReference, flags));
         }
 
-        var result = new NativeTrackAnimationSegment[pending.Count];
+        int rootCount = hasRootSettings && (pending.Count == 0 || pending[0].Action.Floor > 0) ? 1 : 0;
+        var result = new NativeTrackAnimationSegment[rootCount + pending.Count];
+        if (rootCount != 0)
+        {
+            int rootEnd = pending.Count == 0 ? floorCount - 1 : pending[0].Action.Floor - 1;
+            float referenceSpeed = timings[0].Speed > 0f ? timings[0].Speed : 1f;
+            result[0] = new NativeTrackAnimationSegment
+            {
+                StartFloor = 0,
+                EndFloor = rootEnd,
+                AppearType = MapAppear(initial.TrackAnimation),
+                DisappearType = MapDisappear(initial.TrackDisappearAnimation),
+                BeatsAhead = (float)initial.BeatsAhead,
+                BeatsBehind = (float)initial.BeatsBehind,
+                AppearReferenceSpeed = referenceSpeed,
+                DisappearReferenceSpeed = referenceSpeed,
+                Pitch = pitch,
+                SourceIndex = -1,
+                Flags = NativeTrackAnimationSegment.FlagAppearPropertyEnabled |
+                        NativeTrackAnimationSegment.FlagDisappearPropertyEnabled
+            };
+        }
+
         for (int i = 0; i < pending.Count; i++)
         {
             var item = pending[i];
@@ -81,7 +144,7 @@ internal static class TrackAnimationTimelineBuilder
             int end = i + 1 < pending.Count
                 ? Math.Max(start, pending[i + 1].Action.Floor - 1)
                 : floorCount - 1;
-            result[i] = new NativeTrackAnimationSegment
+            result[rootCount + i] = new NativeTrackAnimationSegment
             {
                 StartFloor = start,
                 EndFloor = end,
@@ -170,6 +233,12 @@ internal static class TrackAnimationTimelineBuilder
         TryDouble(action.PropertyOverrides, name, out value) ||
         TryDouble(action.SourceProperties, name, out value);
 
+    private static string? ReadString(LevelAction action, string name) =>
+        TryString(action, name, out string? value) ? value : null;
+
+    private static double? ReadDouble(LevelAction action, string name) =>
+        TryDouble(action, name, out double value) ? value : null;
+
     private static bool IsDisabled(LevelAction action, string property)
     {
         JsonNode? value = (action.PropertyOverrides?["disabled"] as JsonObject)?[property] ??
@@ -187,4 +256,14 @@ internal static class TrackAnimationTimelineBuilder
                    string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    private readonly record struct AnimationAction(
+        int SourceIndex,
+        int Floor,
+        string? Appear,
+        double? Ahead,
+        string? Disappear,
+        double? Behind,
+        bool AppearDisabled,
+        bool DisappearDisabled);
 }

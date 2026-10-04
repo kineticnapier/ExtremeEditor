@@ -492,6 +492,51 @@
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Animation"
+                                       Foreground="#F0F0F4"
+                                       FontWeight="SemiBold"
+                                       Margin="0,8,0,10" />
+
+                            <TextBlock Text="Appear animation" Foreground="#AEB4C0" />
+                            <ComboBox x:Name="TrackAppearAnimationComboBox"
+                                      Margin="0,3,0,10"
+                                      SelectionChanged="TrackSettingComboBoxSelectionChanged">
+                                <ComboBoxItem Content="None" />
+                                <ComboBoxItem Content="Assemble" />
+                                <ComboBoxItem Content="Assemble_Far" />
+                                <ComboBoxItem Content="Extend" />
+                                <ComboBoxItem Content="Grow" />
+                                <ComboBoxItem Content="Grow_Spin" />
+                                <ComboBoxItem Content="Fade" />
+                                <ComboBoxItem Content="Drop" />
+                                <ComboBoxItem Content="Rise" />
+                            </ComboBox>
+
+                            <TextBlock Text="Beats ahead" Foreground="#AEB4C0" />
+                            <TextBox x:Name="TrackBeatsAheadTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
+
+                            <TextBlock Text="Disappear animation" Foreground="#AEB4C0" />
+                            <ComboBox x:Name="TrackDisappearAnimationComboBox"
+                                      Margin="0,3,0,10"
+                                      SelectionChanged="TrackSettingComboBoxSelectionChanged">
+                                <ComboBoxItem Content="None" />
+                                <ComboBoxItem Content="Scatter" />
+                                <ComboBoxItem Content="Scatter_Far" />
+                                <ComboBoxItem Content="Retract" />
+                                <ComboBoxItem Content="Shrink" />
+                                <ComboBoxItem Content="Shrink_Spin" />
+                                <ComboBoxItem Content="Fade" />
+                            </ComboBox>
+
+                            <TextBlock Text="Beats behind" Foreground="#AEB4C0" />
+                            <TextBox x:Name="TrackBeatsBehindTextBox"
+                                     Margin="0,3,0,10"
+                                     PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
+                                     LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
@@ -584,6 +629,12 @@
                                        Margin="0,0,0,6" />
                             <CheckBox x:Name="StickToFloorsCheckBox"
                                       Content="Stick track transforms to floors"
+                                      Foreground="#E4E7EC"
+                                      Margin="0,0,0,8"
+                                      Checked="StickToFloorsCheckChanged"
+                                      Unchecked="StickToFloorsCheckChanged" />
+                            <CheckBox x:Name="FloorIconOutlinesCheckBox"
+                                      Content="Show floor icon outlines"
                                       Foreground="#E4E7EC"
                                       Checked="StickToFloorsCheckChanged"
                                       Unchecked="StickToFloorsCheckChanged" />
