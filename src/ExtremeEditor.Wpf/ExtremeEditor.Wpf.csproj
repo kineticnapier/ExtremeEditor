@@ -37,7 +37,7 @@
   <Target Name="PublishAssetExtractor" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
     <RemoveDir Directories="$(AssetExtractorPublishDir)" />
     <MSBuild Projects="$(AssetExtractorProject)"
-             Targets="Publish"
+             Targets="Restore;Publish"
              Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(AssetExtractorPublishDir)" />
     <ItemGroup>
       <_PublishedAssetExtractorFiles Include="$(AssetExtractorPublishDir)**\*" />
