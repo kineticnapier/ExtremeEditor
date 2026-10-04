@@ -261,10 +261,17 @@ public partial class MainWindow
             return;
         int primary = _selection.PrimaryFloor;
         LevelSettingsSnapshot before = editor.GetLevelSettings();
+        MiscSettingsSnapshot miscBefore = editor.GetMiscSettings();
         editor.Undo();
         LevelSettingsSnapshot after = editor.GetLevelSettings();
+        MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
             RefreshAfterSongSettingsChange(before, after);
+        else if (miscBefore != miscAfter)
+        {
+            RefreshMiscSettings();
+            RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
+        }
         else
             RefreshEditorAfterMutation(primary);
         e.Handled = true;
@@ -277,10 +284,17 @@ public partial class MainWindow
             return;
         int primary = _selection.PrimaryFloor;
         LevelSettingsSnapshot before = editor.GetLevelSettings();
+        MiscSettingsSnapshot miscBefore = editor.GetMiscSettings();
         editor.Redo();
         LevelSettingsSnapshot after = editor.GetLevelSettings();
+        MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
             RefreshAfterSongSettingsChange(before, after);
+        else if (miscBefore != miscAfter)
+        {
+            RefreshMiscSettings();
+            RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
+        }
         else
             RefreshEditorAfterMutation(primary);
         e.Handled = true;

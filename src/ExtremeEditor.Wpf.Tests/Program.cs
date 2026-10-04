@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MISC_SETTINGS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MiscSettingsSliceRegression.Run();
+                Console.WriteLine("PASS: Misc Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEPARATE_COUNTDOWN_DEFAULT_ONLY"),
                 "1",
                 StringComparison.Ordinal))

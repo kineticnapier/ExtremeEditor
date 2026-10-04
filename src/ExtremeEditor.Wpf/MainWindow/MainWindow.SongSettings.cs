@@ -48,6 +48,7 @@ public partial class MainWindow
         RefreshCameraSettings();
         RefreshTrackSettings();
         RefreshLevelMetadataSettings();
+        RefreshMiscSettings();
     }
 
     private void SongSettingTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
