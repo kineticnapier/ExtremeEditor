@@ -137,6 +137,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TWIRL_TOGGLE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TwirlToggleRegression.Run();
+                Console.WriteLine("PASS: Twirl toggle regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLAYBACK_SPEED_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -531,6 +541,7 @@ internal static class Program
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
             PositionTrackDragRegression.Run();
+            TwirlToggleRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             NativeOnlyViewportRegression.Run();
