@@ -9,6 +9,7 @@ namespace ExtremeEditor.Audio;
 /// </summary>
 internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 {
+    private readonly SampleAccurateHitSoundProvider? _sourcePcm;
     private readonly IReadOnlyList<SampleAccurateHitSoundProvider.ScheduledHit> _hits;
     private readonly long _totalSourceFrames;
     private readonly long _maxClipFrames;
@@ -17,6 +18,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     private long _outputPositionFrames;
     private int _nextHitIndex;
     private double _playbackSpeed;
+    private bool _identitySourcePcmFastPath;
 
     public TransportHitSoundSampleProvider(
         SampleAccurateHitSoundProvider schedule,
@@ -27,6 +29,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
             schedule.TotalFrames,
             playbackSpeed)
     {
+        _sourcePcm = schedule;
+        Seek(0);
     }
 
     internal TransportHitSoundSampleProvider(
@@ -66,6 +70,9 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         int requestedFrames = count / channels;
         if (requestedFrames <= 0)
             return 0;
+
+        if (_identitySourcePcmFastPath && _sourcePcm is not null)
+            return ReadIdentitySourcePcm(buffer, offset, requestedFrames);
 
         int writtenFrames = 0;
         while (writtenFrames < requestedFrames)
@@ -114,6 +121,9 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         _outputPositionFrames = 0;
         _nextHitIndex = LowerBound(clamped);
         RebuildActiveVoices(clamped, includeAnchor: false);
+        _identitySourcePcmFastPath = _sourcePcm is not null &&
+            Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon;
+        _sourcePcm?.Seek(clamped);
     }
 
     internal void ReanchorPlaybackSpeed(long sourceFrame, double playbackSpeed)
@@ -131,11 +141,29 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         _segments.Add(new RateSegment(clamped, outputAnchor, normalized));
         _playbackSpeed = normalized;
         _outputPositionFrames = outputAnchor;
+        _identitySourcePcmFastPath = false;
 
         // An event at the anchor belongs to the completed side of the boundary.
         // Reconstruct it at age zero and advance beyond it so it cannot trigger twice.
         _nextHitIndex = UpperBound(clamped);
         RebuildActiveVoices(clamped, includeAnchor: true);
+    }
+
+    private int ReadIdentitySourcePcm(float[] buffer, int offset, int requestedFrames)
+    {
+        if (_sourcePcm is null)
+            return 0;
+
+        long remainingFrames = _totalSourceFrames - _sourcePcm.PositionFrames;
+        if (remainingFrames <= 0)
+            return 0;
+
+        int framesToRead = (int)Math.Min(requestedFrames, remainingFrames);
+        int sampleCount = checked(framesToRead * WaveFormat.Channels);
+        int read = _sourcePcm.Read(buffer, offset, sampleCount);
+        int readFrames = read / WaveFormat.Channels;
+        _outputPositionFrames += readFrames;
+        return readFrames * WaveFormat.Channels;
     }
 
     private void TriggerDueHits()
