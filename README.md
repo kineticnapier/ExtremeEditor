@@ -4,9 +4,19 @@ ExtremeEditor is a standalone Windows editor for very large A Dance of Fire and 
 (`.adofai`) levels. The production application is WPF with a native C++ viewport;
 it has no Unity, UMM, Harmony, or Workbench runtime dependency.
 
-The current version is `0.0.307-prototype`. `feature/wpf-migration` is the
+The current version is `0.0.469-prototype`. `feature/wpf-migration` is the
 default development branch; despite its historical name, the WinForms-to-WPF
 migration and removal of the legacy WinForms host are complete.
+
+## Releases
+
+Public builds are currently **alpha-quality**. The first public release line is
+`v0.1.0-alpha.*`.
+
+Release ZIPs are intended for Windows x64 and are published as self-contained
+builds, so installing the .NET runtime separately is not required. ExtremeEditor
+does **not** redistribute ADOFAI game assets; asset setup reads them from a
+legally installed local copy of the game.
 
 ## Requirements
 
@@ -46,6 +56,7 @@ Common controls:
 - Mouse wheel: zoom around the pointer
 - Middle or right drag: pan
 - Left click: select a floor
+- Alt + left drag: move the selected floor range with PositionTrack
 - `F`: frame the level
 - `O`: open a level
 - `[` / `]`: rotate the primary selected floor by -15° / +15°
