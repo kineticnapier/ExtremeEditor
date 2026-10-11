@@ -378,10 +378,32 @@ void Renderer::SetPositionTrackDragCallback(EePositionTrackDragCallback callback
     position_drag_user_data_ = user_data;
 }
 
+void Renderer::SnapshotPositionTrackDragBaseLocked(
+    std::int32_t first_floor,
+    std::int32_t last_floor) noexcept
+{
+    position_drag_base_positions_.clear();
+    if (!scene_ || first_floor < 0 || last_floor < first_floor ||
+        static_cast<std::size_t>(last_floor) >= scene_->floors.size())
+        return;
+
+    position_drag_base_positions_.reserve(static_cast<std::size_t>(last_floor - first_floor + 1));
+    for (std::int32_t floor = first_floor; floor <= last_floor; ++floor)
+    {
+        const EeFloor& item = scene_->floors[static_cast<std::size_t>(floor)];
+        position_drag_base_positions_.push_back({item.x, item.y});
+    }
+}
+
 void Renderer::CancelPositionTrackDrag(HWND hwnd) noexcept
 {
     if (!position_drag_.Active()) return;
     position_drag_.Cancel();
+    {
+        std::lock_guard lock(scene_mutex_);
+        position_drag_preview_ = {};
+        position_drag_base_positions_.clear();
+    }
     if (GetCapture() == hwnd) ReleaseCapture();
 }
 
@@ -518,6 +540,10 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         if (position_drag_.Active())
         {
             position_drag_.Move(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+            {
+                std::lock_guard lock(scene_mutex_);
+                position_drag_preview_ = position_drag_.Preview();
+            }
             return 0;
         }
         if (panning_)
@@ -548,6 +574,11 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
 
     case WM_CAPTURECHANGED:
         position_drag_.Cancel();
+        {
+            std::lock_guard lock(scene_mutex_);
+            position_drag_preview_ = {};
+            position_drag_base_positions_.clear();
+        }
         panning_ = false;
         pan_button_ = 0;
         break;
@@ -576,9 +607,14 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         if (position_drag_.Active())
         {
             const auto drag = position_drag_.End(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+            {
+                std::lock_guard lock(scene_mutex_);
+                position_drag_preview_ = {};
+                position_drag_base_positions_.clear();
+            }
             if (GetCapture() == hwnd) ReleaseCapture();
             if (!drag.moved)
-                NotifySelectionChanged(drag.floor, position_drag_modifiers_);
+                NotifySelectionChanged(drag.first_floor, position_drag_modifiers_);
             else if (drag.delta.x != 0.0 || drag.delta.y != 0.0)
             {
                 EePositionTrackDragCallback callback;
@@ -589,7 +625,12 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
                     user_data = position_drag_user_data_;
                 }
                 if (callback != nullptr)
-                    callback(user_data, drag.floor, drag.delta.x, drag.delta.y);
+                    callback(
+                        user_data,
+                        drag.first_floor,
+                        drag.last_floor,
+                        drag.delta.x,
+                        drag.delta.y);
             }
             return 0;
         }
@@ -604,14 +645,33 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         if ((modifiers & EE_INPUT_MODIFIER_ALT) != 0 && selected >= 0)
         {
             ViewportInputTransform view;
+            std::int32_t first_floor = selected;
+            std::int32_t last_floor = selected;
             {
                 std::lock_guard lock(scene_mutex_);
                 view = InputTransformLocked();
+                if (selected_floors_ &&
+                    std::binary_search(selected_floors_->begin(), selected_floors_->end(), selected))
+                {
+                    first_floor = selected_floors_->front();
+                    last_floor = selected_floors_->back();
+                }
+                SnapshotPositionTrackDragBaseLocked(first_floor, last_floor);
             }
             SetCapture(hwnd);
             position_drag_modifiers_ = modifiers;
-            position_drag_.Begin(selected, GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam),
-                GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG), view);
+            position_drag_.Begin(
+                first_floor,
+                last_floor,
+                GET_X_LPARAM(lparam),
+                GET_Y_LPARAM(lparam),
+                GetSystemMetrics(SM_CXDRAG),
+                GetSystemMetrics(SM_CYDRAG),
+                view);
+            {
+                std::lock_guard lock(scene_mutex_);
+                position_drag_preview_ = position_drag_.Preview();
+            }
             return 0;
         }
         NotifySelectionChanged(selected, modifiers);
@@ -670,6 +730,8 @@ void Renderer::RenderLoop() noexcept
         float zoom = 28.0f;
         std::shared_ptr<const std::vector<std::int32_t>> selected_floors;
         std::int32_t selected_floor = -1;
+        PositionTrackDragPreview position_drag_preview;
+        std::vector<InputWorldPoint> position_drag_base_positions;
         std::uint64_t scene_version = 0;
         std::uint64_t icon_assets_version = 0;
         bool playback_active = false;
@@ -702,6 +764,8 @@ void Renderer::RenderLoop() noexcept
             zoom = zoom_;
             selected_floors = selected_floors_;
             selected_floor = selected_floor_;
+            position_drag_preview = position_drag_preview_;
+            position_drag_base_positions = position_drag_base_positions_;
             scene_version = scene_version_;
             icon_assets_version = icon_assets_version_;
             playback_active = playback_active_;
@@ -729,6 +793,31 @@ void Renderer::RenderLoop() noexcept
             {
                 scene->UpdateTrackTransforms();
                 scene->UpdateTrackVisuals();
+
+                if (position_drag_preview.active &&
+                    position_drag_preview.first_floor >= 0 &&
+                    position_drag_preview.last_floor >= position_drag_preview.first_floor &&
+                    position_drag_base_positions.size() ==
+                        static_cast<std::size_t>(
+                            position_drag_preview.last_floor -
+                            position_drag_preview.first_floor + 1))
+                {
+                    for (std::int32_t floor = position_drag_preview.first_floor;
+                         floor <= position_drag_preview.last_floor;
+                         ++floor)
+                    {
+                        if (static_cast<std::size_t>(floor) >= scene->floors.size())
+                            break;
+                        const std::size_t local = static_cast<std::size_t>(
+                            floor - position_drag_preview.first_floor);
+                        scene->floors[static_cast<std::size_t>(floor)].x =
+                            static_cast<float>(position_drag_base_positions[local].x) +
+                            position_drag_preview.offset_x;
+                        scene->floors[static_cast<std::size_t>(floor)].y =
+                            static_cast<float>(position_drag_base_positions[local].y) +
+                            position_drag_preview.offset_y;
+                    }
+                }
             }
 
             PlaybackVisualState playback;
@@ -807,6 +896,30 @@ void Renderer::RenderLoop() noexcept
                 *selected_floors,
                 selected_floor,
                 playback);
+
+            if (scene != nullptr && position_drag_preview.active &&
+                position_drag_preview.first_floor >= 0 &&
+                position_drag_preview.last_floor >= position_drag_preview.first_floor &&
+                position_drag_base_positions.size() ==
+                    static_cast<std::size_t>(
+                        position_drag_preview.last_floor -
+                        position_drag_preview.first_floor + 1))
+            {
+                for (std::int32_t floor = position_drag_preview.first_floor;
+                     floor <= position_drag_preview.last_floor;
+                     ++floor)
+                {
+                    if (static_cast<std::size_t>(floor) >= scene->floors.size())
+                        break;
+                    const std::size_t local = static_cast<std::size_t>(
+                        floor - position_drag_preview.first_floor);
+                    scene->floors[static_cast<std::size_t>(floor)].x =
+                        static_cast<float>(position_drag_base_positions[local].x);
+                    scene->floors[static_cast<std::size_t>(floor)].y =
+                        static_cast<float>(position_drag_base_positions[local].y);
+                }
+            }
+
             const auto render_finished = std::chrono::steady_clock::now();
             last_render_ms_.store(
                 std::chrono::duration<double, std::milli>(render_finished - render_started).count(),
