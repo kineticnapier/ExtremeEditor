@@ -20,6 +20,16 @@ internal static class PositionTrackDragRegression
             ?? throw new InvalidOperationException(
                 "EditorSession.AddPositionTrackFromDrag(floor, offsetX, offsetY) is missing.");
 
+
+        MethodInfo createRange = typeof(EditorSession).GetMethod(
+            "AddPositionTrackRangeFromDrag",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(int), typeof(int), typeof(double), typeof(double)],
+            modifiers: null)
+            ?? throw new InvalidOperationException(
+                "EditorSession.AddPositionTrackRangeFromDrag(firstFloor, lastFloor, offsetX, offsetY) is missing.");
+
         LevelDocument level = LevelDocument.CreateSynthetic(5);
         var editor = new EditorSession(level);
         var request = NativeRendererSession.PositionTrackDragRequest(2, 1.875, -1.125);
@@ -86,6 +96,28 @@ internal static class PositionTrackDragRegression
         editor.Redo();
         AssertResolved(level, 1.75, -0.5);
 
+        LevelDocument rangeLevel = LevelDocument.CreateSynthetic(7);
+        var rangeEditor = new EditorSession(rangeLevel);
+        object? rangeResult = createRange.Invoke(rangeEditor, [2, 4, 1.0, -0.5]);
+        if (rangeResult is bool rangeCreated && !rangeCreated)
+            throw new InvalidOperationException("selected-range Alt-drag delta was rejected.");
+
+        StaticTrackTransform[] rangeTransforms = TrackTransformResolver.ResolveStatic(rangeLevel);
+        for (int floor = 0; floor < rangeLevel.FloorCount; floor++)
+        {
+            double expectedX = rangeLevel.Positions[floor].X +
+                (floor is >= 2 and <= 4 ? PathBuilder.DefaultLongTileSize : 0.0);
+            double expectedY = rangeLevel.Positions[floor].Y +
+                (floor is >= 2 and <= 4 ? -0.5 * PathBuilder.DefaultLongTileSize : 0.0);
+            AssertNear(expectedX, rangeTransforms[floor].X, $"selected-range X floor {floor}");
+            AssertNear(expectedY, rangeTransforms[floor].Y, $"selected-range Y floor {floor}");
+        }
+
+        if (rangeEditor.GetActionsAtFloor(2).Count(action => action.EventType == "PositionTrack") != 1)
+            throw new InvalidOperationException("selected-range Alt-drag must create/start one PositionTrack at the first floor.");
+        if (rangeEditor.GetActionsAtFloor(5).Count(action => action.EventType == "PositionTrack") != 1)
+            throw new InvalidOperationException("selected-range Alt-drag must create a compensating PositionTrack after the last floor.");
+
         string saved = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-PositionTrackDrag-{Guid.NewGuid():N}.adofai");
         try
         {
@@ -124,6 +156,25 @@ internal static class PositionTrackDragRegression
             !viewportSource.Contains("WM_CAPTURECHANGED", StringComparison.Ordinal))
         {
             throw new InvalidOperationException("native viewport lacks Alt-drag/cancel gesture routing.");
+        }
+
+        string dragSource = File.ReadAllText(Path.Combine(
+            Environment.CurrentDirectory,
+            "src", "ExtremeEditor.NativeRenderer", "src", "position_track_drag.h"));
+        string backendHeader = File.ReadAllText(Path.Combine(
+            Environment.CurrentDirectory,
+            "src", "ExtremeEditor.NativeRenderer", "src", "d2d_backend.h"));
+        if (!dragSource.Contains("first_floor", StringComparison.Ordinal) ||
+            !dragSource.Contains("last_floor", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "native Alt-drag does not freeze the selected first/last floor range.");
+        }
+        if (!viewportSource.Contains("position_drag_preview", StringComparison.Ordinal) ||
+            !backendHeader.Contains("PositionTrackDragPreview", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "native renderer lacks transient selected-range PositionTrack drag preview.");
         }
     }
 
