@@ -7,6 +7,7 @@ RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
 RunStockTimingProbeRegression();
 RunStockTimingProbeHighBpmRegression();
+ExtremeEditor.Core.Tests.ScaleRadiusPlaybackPoseRegression.Run();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
 
@@ -357,5 +358,4 @@ static void Near(double expected, double actual, string name)
 {
     if (double.IsNaN(actual) || Math.Abs(expected - actual) > 0.00001)
         throw new InvalidOperationException($"{name}: expected {expected}, actual {actual}");
-    ScaleRadiusPlaybackPoseRegression.Run();
 }
