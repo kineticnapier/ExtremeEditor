@@ -79,6 +79,7 @@ private:
         float cosine;
         float sine;
         float depth;
+        float opacity;
     };
 
     struct Batch
