@@ -411,20 +411,28 @@ bool TrackAnimationRuntime::EvaluateForFloor(
         const double appear_duration = drop
             ? ahead * beat / pitch
             : std::min(0.5 * beat / pitch, 0.5);
-        animate_rotation_owns = OwnsSharedChannel(
-            floor, appear_start, segment.source_index, EE_TRACK_TRANSFORM_ROTATION, chart_time);
-        animate_opacity_owns = OwnsSharedChannel(
-            floor, appear_start, segment.source_index, EE_TRACK_TRANSFORM_OPACITY, chart_time);
-
-        const double elapsed = chart_time - appear_start;
-        const float linear = Clamp01(elapsed / std::max(appear_duration, 0.000001));
-        const float sine = OutSine(elapsed / std::max(appear_duration, 0.000001));
-        const float quad = OutQuad(elapsed / std::max(appear_duration, 0.000001));
-        const float extent = segment.appear_type == EE_TRACK_APPEAR_ASSEMBLE_FAR ? 8.0f : 4.0f;
-        const RandomSample random = MakeRandom(floor, segment.source_index, extent);
-
-        switch (segment.appear_type)
+        if (chart_time < appear_start)
         {
+            // ADOFAI keeps the resolved tile visible until the appear tween
+            // actually begins. Do not apply the tween's initial hidden/offset
+            // state merely because an AnimateTrack segment exists.
+        }
+        else
+        {
+            animate_rotation_owns = OwnsSharedChannel(
+                floor, appear_start, segment.source_index, EE_TRACK_TRANSFORM_ROTATION, chart_time);
+            animate_opacity_owns = OwnsSharedChannel(
+                floor, appear_start, segment.source_index, EE_TRACK_TRANSFORM_OPACITY, chart_time);
+
+            const double elapsed = chart_time - appear_start;
+            const float linear = Clamp01(elapsed / std::max(appear_duration, 0.000001));
+            const float sine = OutSine(elapsed / std::max(appear_duration, 0.000001));
+            const float quad = OutQuad(elapsed / std::max(appear_duration, 0.000001));
+            const float extent = segment.appear_type == EE_TRACK_APPEAR_ASSEMBLE_FAR ? 8.0f : 4.0f;
+            const RandomSample random = MakeRandom(floor, segment.source_index, extent);
+
+            switch (segment.appear_type)
+            {
                 case EE_TRACK_APPEAR_ASSEMBLE:
                 case EE_TRACK_APPEAR_ASSEMBLE_FAR:
                     set_position(base.x + random.x * (1.0f - sine), base.y + random.y * (1.0f - sine));
@@ -460,8 +468,9 @@ bool TrackAnimationRuntime::EvaluateForFloor(
                     set_scale(scale, scale);
                     break;
                 }
-            default:
-                break;
+                default:
+                    break;
+            }
         }
     }
 
