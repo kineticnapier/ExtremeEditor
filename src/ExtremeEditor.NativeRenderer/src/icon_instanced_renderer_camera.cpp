@@ -33,12 +33,14 @@ struct VSInput
     float2 centerOffsetPixels : INSTANCEOFFSET;
     float2 rotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
+    float opacity : INSTANCEOPACITY;
 };
 
 struct VSOutput
 {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
+    float opacity : TEXCOORD1;
 };
 
 VSOutput VSMain(VSInput input)
@@ -69,6 +71,7 @@ VSOutput VSMain(VSInput input)
         1.0 - screen.y * 2.0 / viewport.y);
     output.position = float4(clip, input.depth, 1.0);
     output.uv = input.localUv;
+    output.opacity = input.opacity;
     return output;
 }
 )";
@@ -127,7 +130,8 @@ bool IconInstancedRenderer::EnsureCameraPipeline() noexcept
         {"INSTANCESIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEOFFSET", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCEOPACITY", 0, DXGI_FORMAT_R32_FLOAT, 1, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(current->CreateInputLayout(
             elements,
@@ -203,6 +207,11 @@ bool IconInstancedRenderer::DrawCamera(
             1.0f);
         const float cosine = std::cos(floor.icon_angle);
         const float sine = std::sin(floor.icon_angle);
+        const float scale_x = std::isfinite(floor.transform_scale_x) ? floor.transform_scale_x : 1.0f;
+        const float scale_y = std::isfinite(floor.transform_scale_y) ? floor.transform_scale_y : 1.0f;
+        const float opacity = std::isfinite(floor.transform_opacity)
+            ? std::clamp(floor.transform_opacity, 0.0f, 1.0f)
+            : 1.0f;
 
         auto append_instance = [&](std::int32_t batch_index,
                                    const SpriteMetadata& metadata,
@@ -226,13 +235,14 @@ bool IconInstancedRenderer::DrawCamera(
             batch.instances.push_back(InstanceData{
                 floor.x,
                 floor.y,
-                draw_width,
-                layout.height,
-                flipped ? -layout.offset_x : layout.offset_x,
-                layout.offset_y,
+                draw_width * scale_x,
+                layout.height * scale_y,
+                (flipped ? -layout.offset_x : layout.offset_x) * scale_x,
+                layout.offset_y * scale_y,
                 cosine,
                 sine,
-                depth});
+                depth,
+                opacity});
             ++sprite_count;
         };
 
