@@ -23,7 +23,7 @@ internal static class NativeRendererNative
     internal delegate void EditorActionCallback(nint userData, uint action, int floor, double value);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate void PositionTrackDragCallback(nint userData, int floor, double worldDx, double worldDy);
+    internal delegate void PositionTrackDragCallback(nint userData, int firstFloor, int lastFloor, double worldDx, double worldDy);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_get_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint GetApiVersion();
