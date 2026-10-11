@@ -32,9 +32,11 @@ internal static class PositionTrackDragRegression
 
         LevelDocument level = LevelDocument.CreateSynthetic(5);
         var editor = new EditorSession(level);
-        var request = NativeRendererSession.PositionTrackDragRequest(2, 1.875, -1.125);
+        var request = NativeRendererSession.PositionTrackDragRequest(2, 2, 1.875, -1.125);
         AssertNear(1.25, request.Value, "world to tile X");
         AssertNear(-0.75, request.ValueY, "world to tile Y");
+        if (request.LastFloor != 2)
+            throw new InvalidOperationException("native PositionTrack request lost the frozen last floor.");
         if (editor.AddPositionTrackFromDrag(-1, 1, 1) ||
             editor.AddPositionTrackFromDrag(5, 1, 1) ||
             editor.AddPositionTrackFromDrag(2, double.NaN, 1) ||
