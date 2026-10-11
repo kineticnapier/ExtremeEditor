@@ -135,6 +135,7 @@ private:
     EePositionTrackDragCallback position_drag_callback_ = nullptr;
     void* position_drag_user_data_ = nullptr;
     PositionTrackDrag position_drag_;
+    PositionTrackDragPreview position_drag_preview_;
     std::uint32_t position_drag_modifiers_ = 0;
     ViewportInputTransform rendered_input_transform_;
     EeFollowPlayerChangedCallback follow_callback_ = nullptr;
