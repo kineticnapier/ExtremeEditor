@@ -269,8 +269,23 @@ internal sealed partial class EditorSession
     {
         if ((uint)floor >= (uint)Document.FloorCount || string.IsNullOrWhiteSpace(eventType))
             return;
+
+        string normalizedType = eventType.Trim();
         EnsureSourceMapping();
-        var action = new LevelAction(floor, eventType.Trim(), true, null, null, null, null)
+
+        if (string.Equals(normalizedType, "Twirl", StringComparison.Ordinal))
+        {
+            LevelAction? existingTwirl = _actions.FirstOrDefault(action =>
+                action.Floor == floor &&
+                string.Equals(action.EventType, "Twirl", StringComparison.Ordinal));
+            if (existingTwirl is not null)
+            {
+                Execute(new DeleteActionCommand(existingTwirl));
+                return;
+            }
+        }
+
+        var action = new LevelAction(floor, normalizedType, true, null, null, null, null)
         {
             SourceIndex = NextNewSourceIndex()
         };
@@ -294,6 +309,42 @@ internal sealed partial class EditorSession
             return false;
 
         EnsureSourceMapping();
+
+        LevelAction[] positionTracks = _actions
+            .Where(action =>
+                action.Floor == floor &&
+                string.Equals(action.EventType, "PositionTrack", StringComparison.Ordinal))
+            .ToArray();
+
+        LevelAction? existing = positionTracks
+            .Where(action => action.SourceIndex < 0)
+            .OrderBy(action => action.SourceIndex)
+            .FirstOrDefault();
+
+        if (existing is null && positionTracks.Length == 1)
+            existing = positionTracks[0];
+
+        if (existing is not null)
+        {
+            JsonObject overrides = existing.PropertyOverrides is null
+                ? new JsonObject()
+                : (JsonObject)existing.PropertyOverrides.DeepClone();
+
+            JsonObject? properties = existing.PropertyOverrides ?? existing.SourceProperties;
+            (double currentX, double currentY) = ReadPositionOffset(properties);
+
+            overrides["eventType"] = "PositionTrack";
+            overrides["positionOffset"] = new JsonArray(currentX + offsetX, currentY + offsetY);
+
+            LevelAction updated = existing with
+            {
+                PropertyOverridesStructureRevision = StructureEdits.Count,
+                PropertyOverrides = overrides
+            };
+            Execute(new ReplaceActionCommand(existing, updated, "Move PositionTrack"));
+            return true;
+        }
+
         var action = new LevelAction(floor, "PositionTrack", true, null, null, null, null)
         {
             SourceIndex = NextNewSourceIndex(),
@@ -306,6 +357,28 @@ internal sealed partial class EditorSession
         };
         Execute(new AddActionCommand(action, "Add PositionTrack"));
         return true;
+    }
+
+    private static (double X, double Y) ReadPositionOffset(JsonObject? properties)
+    {
+        if (properties?["positionOffset"] is not JsonArray offset || offset.Count < 2)
+            return (0.0, 0.0);
+
+        return (
+            ReadFiniteDouble(offset[0]),
+            ReadFiniteDouble(offset[1]));
+    }
+
+    private static double ReadFiniteDouble(JsonNode? node)
+    {
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue(out double number) && double.IsFinite(number))
+                return number;
+            if (value.TryGetValue(out int integer))
+                return integer;
+        }
+        return 0.0;
     }
 
     public void ReplaceAction(LevelAction oldAction, LevelAction updatedAction)
@@ -945,9 +1018,12 @@ internal sealed partial class EditorSession
         public void Undo(EditorSession session) => session.AddActionRaw(action);
     }
 
-    private sealed class ReplaceActionCommand(LevelAction before, LevelAction after) : IEditorCommand
+    private sealed class ReplaceActionCommand(
+        LevelAction before,
+        LevelAction after,
+        string name = "Edit event") : IEditorCommand
     {
-        public string Name => "Edit event";
+        public string Name => name;
         public void Execute(EditorSession session) => session.ReplaceActionRaw(before, after);
         public void Undo(EditorSession session) => session.ReplaceActionRaw(after, before);
     }
