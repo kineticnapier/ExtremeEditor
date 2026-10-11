@@ -13,6 +13,7 @@ namespace ExtremeEditor.Wpf;
 public partial class MainWindow : Window
 {
     private AudioPlayer _audio = new();
+    private readonly DiscordPresenceService _discordPresence = new();
     private readonly DispatcherTimer _playbackTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(16)
@@ -47,6 +48,8 @@ public partial class MainWindow : Window
         CompositionTarget.Rendering += PlaybackCompositionRendering;
 
         Title = $"ExtremeEditor {EditorVersion.Current} — WPF";
+
+        _discordPresence.Initialize();
 
         CommandBindings.Add(new CommandBinding(
             EditorCommands.Open,
@@ -105,6 +108,7 @@ public partial class MainWindow : Window
         ShutdownDiagnostics.Complete("CompositionTarget.Rendering.Unsubscribe");
 
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
+        _discordPresence.Dispose();
         _audio.Dispose();
 
         ShutdownDiagnostics.Begin("PlaybackDiagnosticLogger.Dispose");
@@ -237,6 +241,7 @@ public partial class MainWindow : Window
                 $"{Path.GetFileName(path)} | floors {loaded.Document.FloorCount:N0} | " +
                 $"actions {loaded.Document.ActionCount:N0} | " +
                 $"editor ready {editorReadyTime.TotalMilliseconds:N1} ms | playback preparing…";
+            _discordPresence.SetEditing(loaded.Document.FloorCount);
             UpdatePlaybackDisplay();
 
             Task<Native.PreparedNativePlayback> nativePlaybackTask =
