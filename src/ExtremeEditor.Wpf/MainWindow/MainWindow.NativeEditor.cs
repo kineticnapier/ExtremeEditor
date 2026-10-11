@@ -62,14 +62,7 @@ public partial class MainWindow
                     ? Math.Min(request.LastFloor, _level.FloorCount - 1)
                     : primary;
                 if (editor.AddPositionTrackRangeFromDrag(primary, lastFloor, request.Value, request.ValueY))
-                {
-                    NativeViewport.SetLevel(_level);
-                    _timingMap ??= FlatTimingMapBuilder.Build(_level);
-                    NativeViewport.SetPlaybackTimeline(_timingMap);
-                    RefreshInspector();
-                    UpdateEditorStatus();
-                    CommandManager.InvalidateRequerySuggested();
-                }
+                    RefreshEditorAfterMutation(primary, selection);
                 break;
             }
             case NativeEditorAction.InsertAngle:
