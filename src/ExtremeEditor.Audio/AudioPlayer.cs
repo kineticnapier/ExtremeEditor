@@ -411,6 +411,27 @@ public sealed class AudioPlayer : IDisposable
         {
             HitSoundsEnabled = _hitSoundsEnabled
         };
+
+        if (hitSounds is not null)
+        {
+            long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
+            using (log?.Measure(
+                       "audio_player.start_hitsound_prerender",
+                       $"available_memory_bytes={availableMemoryBytes}"))
+            {
+                _hitSoundPrerender.Start(
+                    hitSounds,
+                    _outputFormat.SampleRate,
+                    startFrame: 0,
+                    availableMemoryBytes);
+            }
+
+            // Start() synchronously primes the immediate playback window before
+            // WaveOut can request it. Capture the post-prime metrics so load
+            // diagnostics include that work.
+            renderMetrics = hitSounds.Metrics;
+        }
+
         _output = new WaveOutEvent { DesiredLatency = 80 };
 
         // Keep the graph itself in IEEE float so hit-sound mixing and the master
