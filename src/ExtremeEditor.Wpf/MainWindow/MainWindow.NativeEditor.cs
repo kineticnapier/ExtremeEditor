@@ -56,6 +56,16 @@ public partial class MainWindow
 
         switch (request.Action)
         {
+            case NativeEditorAction.PositionTrackDrag:
+            {
+                if (editor.AddPositionTrackFromDrag(primary, request.Value, request.ValueY))
+                {
+                    var added = editor.GetActionsAtFloor(primary).Last(action => action.EventType == "PositionTrack");
+                    RefreshAfterEventPropertyCommit(added, added);
+                    RefreshInspector();
+                }
+                break;
+            }
             case NativeEditorAction.InsertAngle:
             {
                 int inserted = primary + 1;

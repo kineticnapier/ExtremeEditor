@@ -298,6 +298,13 @@ void ee_renderer_set_editor_action_callback(
         static_cast<ee::Renderer*>(renderer)->SetEditorActionCallback(callback, user_data);
 }
 
+void ee_renderer_set_position_track_drag_callback(
+    EeRendererHandle renderer, EePositionTrackDragCallback callback, void* user_data)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetPositionTrackDragCallback(callback, user_data);
+}
+
 EeResult ee_renderer_set_playback_timeline(
     EeRendererHandle renderer,
     const EePlaybackTiming* timings,

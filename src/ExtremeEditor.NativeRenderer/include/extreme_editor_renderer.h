@@ -86,6 +86,8 @@ typedef void* EeRendererHandle;
 typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floor, uint32_t modifiers);
 typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
 typedef void (__cdecl *EeEditorActionCallback)(void* user_data, uint32_t action, int32_t floor, double value);
+// Additive callback: existing editor-action callback and all struct layouts stay unchanged.
+typedef void (__cdecl *EePositionTrackDragCallback)(void* user_data, int32_t floor, double world_dx, double world_dy);
 
 typedef enum EeEditorAction
 {
@@ -420,6 +422,7 @@ EE_RENDERER_API int32_t ee_renderer_get_selected_floor(EeRendererHandle renderer
 EE_RENDERER_API void ee_renderer_set_selection(EeRendererHandle renderer, const int32_t* floors, uint32_t floor_count, int32_t primary_floor);
 EE_RENDERER_API void ee_renderer_set_selection_changed_callback(EeRendererHandle renderer, EeSelectionChangedCallback callback, void* user_data);
 EE_RENDERER_API void ee_renderer_set_editor_action_callback(EeRendererHandle renderer, EeEditorActionCallback callback, void* user_data);
+EE_RENDERER_API void ee_renderer_set_position_track_drag_callback(EeRendererHandle renderer, EePositionTrackDragCallback callback, void* user_data);
 EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(EeRendererHandle renderer, const EePlaybackTiming* timings, uint32_t timing_count);
 EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(EeRendererHandle renderer, const EeCameraEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);

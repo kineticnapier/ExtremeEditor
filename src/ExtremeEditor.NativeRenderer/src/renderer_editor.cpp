@@ -118,6 +118,9 @@ bool Renderer::HandleEditorHudMessage(
     LPARAM lparam,
     LRESULT& result) noexcept
 {
+    if (position_drag_.Active() ||
+        (message == WM_LBUTTONDOWN && (GetKeyState(VK_MENU) & 0x8000) != 0))
+        return false;
     if (message == WM_MOUSEMOVE)
     {
         const int hovered = HitTestEditorHud(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));

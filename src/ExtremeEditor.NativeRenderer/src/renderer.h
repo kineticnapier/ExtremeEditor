@@ -1,4 +1,5 @@
 #pragma once
+#include "position_track_drag.h"
 
 #include "decoration_assets.h"
 #include "icon_assets.h"
@@ -57,6 +58,7 @@ public:
     void SetSelection(const std::int32_t* floors, std::uint32_t floor_count, std::int32_t primary_floor) noexcept;
     void SetSelectionChangedCallback(EeSelectionChangedCallback callback, void* user_data) noexcept;
     void SetEditorActionCallback(EeEditorActionCallback callback, void* user_data) noexcept;
+    void SetPositionTrackDragCallback(EePositionTrackDragCallback callback, void* user_data) noexcept;
     bool SetPlaybackTimeline(const EePlaybackTiming* timings, std::uint32_t timing_count) noexcept;
     bool SetCameraTimeline(const EeCameraEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
@@ -81,6 +83,8 @@ private:
     void RenderLoop() noexcept;
     void StopRenderThread(bool shutdown_diagnostic = false) noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
+    ViewportInputTransform InputTransformLocked() const noexcept;
+    void CancelPositionTrackDrag(HWND hwnd) noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;
     void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;
@@ -128,6 +132,11 @@ private:
     void* selection_user_data_ = nullptr;
     EeEditorActionCallback editor_action_callback_ = nullptr;
     void* editor_action_user_data_ = nullptr;
+    EePositionTrackDragCallback position_drag_callback_ = nullptr;
+    void* position_drag_user_data_ = nullptr;
+    PositionTrackDrag position_drag_;
+    std::uint32_t position_drag_modifiers_ = 0;
+    ViewportInputTransform rendered_input_transform_;
     EeFollowPlayerChangedCallback follow_callback_ = nullptr;
     void* follow_user_data_ = nullptr;
 

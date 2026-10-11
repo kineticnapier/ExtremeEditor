@@ -12,13 +12,15 @@ internal enum NativeEditorAction : uint
     Delete = 2,
     Rotate180 = 3,
     InsertMidspin = 4,
-    InsertFullTurn = 5
+    InsertFullTurn = 5,
+    PositionTrackDrag = 6
 }
 
 internal readonly record struct NativeEditorActionRequest(
     NativeEditorAction Action,
     int Floor,
-    double Value);
+    double Value,
+    double ValueY = 0);
 
 internal sealed class NativeRendererSession : IDisposable
 {
@@ -27,6 +29,7 @@ internal sealed class NativeRendererSession : IDisposable
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
     private readonly NativeRendererNative.EditorActionCallback _editorActionCallback;
+    private readonly NativeRendererNative.PositionTrackDragCallback _positionTrackDragCallback;
     private nint _renderer;
 
     private NativeRendererSession(nint renderer, nint childHwnd)
@@ -36,9 +39,11 @@ internal sealed class NativeRendererSession : IDisposable
         _selectionChangedCallback = OnNativeSelectionChanged;
         _followPlayerChangedCallback = OnNativeFollowPlayerChanged;
         _editorActionCallback = OnNativeEditorAction;
+        _positionTrackDragCallback = OnNativePositionTrackDrag;
         NativeRendererNative.SetSelectionChangedCallback(_renderer, _selectionChangedCallback, nint.Zero);
         NativeRendererNative.SetFollowPlayerChangedCallback(_renderer, _followPlayerChangedCallback, nint.Zero);
         NativeRendererNative.SetEditorActionCallback(_renderer, _editorActionCallback, nint.Zero);
+        NativeRendererNative.SetPositionTrackDragCallback(_renderer, _positionTrackDragCallback, nint.Zero);
     }
 
     internal nint ChildHwnd { get; private set; }
@@ -428,6 +433,15 @@ internal sealed class NativeRendererSession : IDisposable
     private void OnNativeEditorAction(nint userData, uint action, int floor, double value) =>
         EditorActionRequested?.Invoke(new NativeEditorActionRequest((NativeEditorAction)action, floor, value));
 
+    // Native supplies world units. PositionTrack JSON uses tile units; the
+    // existing resolver applies DefaultLongTileSize exactly once on reload.
+    internal static NativeEditorActionRequest PositionTrackDragRequest(int floor, double worldDx, double worldDy) =>
+        new(NativeEditorAction.PositionTrackDrag, floor,
+            worldDx / PathBuilder.DefaultLongTileSize, worldDy / PathBuilder.DefaultLongTileSize);
+
+    private void OnNativePositionTrackDrag(nint userData, int floor, double worldDx, double worldDy) =>
+        EditorActionRequested?.Invoke(PositionTrackDragRequest(floor, worldDx, worldDy));
+
     public void Dispose()
     {
         ShutdownDiagnostics.Begin("NativeRendererSession.Dispose");
@@ -441,6 +455,7 @@ internal sealed class NativeRendererSession : IDisposable
         NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
         NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
         NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
+        NativeRendererNative.SetPositionTrackDragCallback(renderer, null, nint.Zero);
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
         NativeRendererNative.Destroy(renderer);

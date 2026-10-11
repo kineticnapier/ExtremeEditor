@@ -127,6 +127,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_POSITION_TRACK_DRAG_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                PositionTrackDragRegression.Run();
+                Console.WriteLine("PASS: Alt-drag PositionTrack regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLAYBACK_SPEED_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -520,6 +530,7 @@ internal static class Program
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
+            PositionTrackDragRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             NativeOnlyViewportRegression.Run();

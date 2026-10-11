@@ -2,6 +2,8 @@
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
 #include "follow_camera_state.h"
+#include "floor_hit_test.h"
+#include "floor_draw_depth.h"
 #include "renderer_camera.h"
 
 #include <algorithm>
@@ -360,6 +362,29 @@ std::int32_t Renderer::SelectedFloor() const noexcept
     return selected_floor_;
 }
 
+ViewportInputTransform Renderer::InputTransformLocked() const noexcept
+{
+    if (playback_active_ && follow_player_)
+        return rendered_input_transform_;
+    return {camera_x_, camera_y_, zoom_, 0.0,
+        static_cast<double>(width_.load(std::memory_order_relaxed)),
+        static_cast<double>(height_.load(std::memory_order_relaxed))};
+}
+
+void Renderer::SetPositionTrackDragCallback(EePositionTrackDragCallback callback, void* user_data) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    position_drag_callback_ = callback;
+    position_drag_user_data_ = user_data;
+}
+
+void Renderer::CancelPositionTrackDrag(HWND hwnd) noexcept
+{
+    if (!position_drag_.Active()) return;
+    position_drag_.Cancel();
+    if (GetCapture() == hwnd) ReleaseCapture();
+}
+
 std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
 {
     std::lock_guard lock(scene_mutex_);
@@ -369,11 +394,11 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
         return selected_floor_;
     }
 
-    const float width = static_cast<float>(width_.load(std::memory_order_relaxed));
-    const float height = static_cast<float>(height_.load(std::memory_order_relaxed));
-    const float world_x = (static_cast<float>(screen_x) - width * 0.5f) / zoom_ + camera_x_;
-    const float world_y = camera_y_ - (static_cast<float>(screen_y) - height * 0.5f) / zoom_;
-    const float radius = std::max(12.0f / zoom_, 0.856f);
+    const auto view = InputTransformLocked();
+    const auto world = view.Point(screen_x, screen_y);
+    const float world_x = static_cast<float>(world.x);
+    const float world_y = static_cast<float>(world.y);
+    const float radius = std::max(12.0f / static_cast<float>(view.zoom), 0.856f);
 
     std::vector<std::uint32_t> candidates;
     scene_->Query(
@@ -383,8 +408,8 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
         world_y + radius,
         candidates);
 
-    float best_distance_squared = radius * radius;
-    std::int32_t best_floor = -1;
+    std::vector<FloorHitCandidate> hits;
+    hits.reserve(candidates.size());
     for (std::uint32_t index : candidates)
     {
         if (index >= scene_->floors.size())
@@ -394,13 +419,13 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
         const float dx = floor.x - world_x;
         const float dy = floor.y - world_y;
         const float distance_squared = dx * dx + dy * dy;
-        if (distance_squared <= best_distance_squared)
-        {
-            best_distance_squared = distance_squared;
-            best_floor = static_cast<std::int32_t>(index);
-        }
+        hits.push_back(FloorHitCandidate{
+            index,
+            distance_squared,
+            FloorDrawDepth(index, floor.track_sorting_offset, scene_->floors.size())});
     }
 
+    const std::int32_t best_floor = SelectNearestFloorHit(hits, radius * radius);
     selected_floor_ = best_floor;
     return selected_floor_;
 }
@@ -479,6 +504,7 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
 
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
+        CancelPositionTrackDrag(hwnd);
         DisableFollowForManualPan();
         SetFocus(hwnd);
         SetCapture(hwnd);
@@ -489,6 +515,11 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         return 0;
 
     case WM_MOUSEMOVE:
+        if (position_drag_.Active())
+        {
+            position_drag_.Move(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+            return 0;
+        }
         if (panning_)
         {
             POINT current{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
@@ -516,15 +547,73 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
         break;
 
     case WM_CAPTURECHANGED:
+        position_drag_.Cancel();
         panning_ = false;
         pan_button_ = 0;
         break;
 
+    case WM_CANCELMODE:
+    case WM_KILLFOCUS:
+        CancelPositionTrackDrag(hwnd);
+        if (panning_)
+        {
+            panning_ = false;
+            pan_button_ = 0;
+            if (GetCapture() == hwnd) ReleaseCapture();
+        }
+        break;
+
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+        if (wparam == VK_ESCAPE && position_drag_.Active())
+        {
+            CancelPositionTrackDrag(hwnd);
+            return 0;
+        }
+        break;
+
+    case WM_LBUTTONUP:
+        if (position_drag_.Active())
+        {
+            const auto drag = position_drag_.End(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+            if (GetCapture() == hwnd) ReleaseCapture();
+            if (!drag.moved)
+                NotifySelectionChanged(drag.floor, position_drag_modifiers_);
+            else if (drag.delta.x != 0.0 || drag.delta.y != 0.0)
+            {
+                EePositionTrackDragCallback callback;
+                void* user_data;
+                {
+                    std::lock_guard lock(scene_mutex_);
+                    callback = position_drag_callback_;
+                    user_data = position_drag_user_data_;
+                }
+                if (callback != nullptr)
+                    callback(user_data, drag.floor, drag.delta.x, drag.delta.y);
+            }
+            return 0;
+        }
+        break;
+
     case WM_LBUTTONDOWN:
     {
+        if (panning_) return 0;
         const std::uint32_t modifiers = CaptureInputModifiers(wparam);
         SetFocus(hwnd);
         const std::int32_t selected = SelectFloorAt(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        if ((modifiers & EE_INPUT_MODIFIER_ALT) != 0 && selected >= 0)
+        {
+            ViewportInputTransform view;
+            {
+                std::lock_guard lock(scene_mutex_);
+                view = InputTransformLocked();
+            }
+            SetCapture(hwnd);
+            position_drag_modifiers_ = modifiers;
+            position_drag_.Begin(selected, GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam),
+                GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG), view);
+            return 0;
+        }
         NotifySelectionChanged(selected, modifiers);
         return 0;
     }
@@ -697,6 +786,13 @@ void Renderer::RenderLoop() noexcept
                 follow_camera.Reset();
             }
 
+            {
+                std::lock_guard lock(scene_mutex_);
+                rendered_input_transform_ = {render_camera_x, render_camera_y, render_zoom,
+                    render_camera_rotation,
+                    static_cast<double>(width_.load(std::memory_order_relaxed)),
+                    static_cast<double>(height_.load(std::memory_order_relaxed))};
+            }
             const auto render_started = std::chrono::steady_clock::now();
             const HRESULT hr = backend.RenderFrame(
                 seconds,

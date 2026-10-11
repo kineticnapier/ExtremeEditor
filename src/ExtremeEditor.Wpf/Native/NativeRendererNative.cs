@@ -22,6 +22,9 @@ internal static class NativeRendererNative
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void EditorActionCallback(nint userData, uint action, int floor, double value);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void PositionTrackDragCallback(nint userData, int floor, double worldDx, double worldDy);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_get_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint GetApiVersion();
 
@@ -94,6 +97,9 @@ internal static class NativeRendererNative
 
     [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_action_callback", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetEditorActionCallback(nint renderer, EditorActionCallback? callback, nint userData);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_position_track_drag_callback", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetPositionTrackDragCallback(nint renderer, PositionTrackDragCallback? callback, nint userData);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_set_playback_timeline", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetPlaybackTimeline(nint renderer, nint timings, uint timingCount);

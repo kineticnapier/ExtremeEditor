@@ -1,4 +1,5 @@
 #include "floor_instanced_renderer.h"
+#include "floor_draw_depth.h"
 #include "track_visual.h"
 
 #include <d3dcompiler.h>
@@ -174,7 +175,6 @@ bool FloorInstancedRenderer::DrawCamera(
     for (auto& group : grouped_instances_)
         group.clear();
 
-    const float depth_denominator = static_cast<float>(scene.floors.size() + 1u);
     const float track_time = TrackVisualTimeSeconds();
     std::size_t valid_instances = 0;
     for (std::uint32_t floor_index : visible_floors)
@@ -191,11 +191,7 @@ bool FloorInstancedRenderer::DrawCamera(
             floor.y,
             std::cos(floor.entry_angle),
             std::sin(floor.entry_angle),
-            std::clamp(
-                (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) /
-                    depth_denominator,
-                0.0f,
-                1.0f),
+            FloorDrawDepth(floor_index, floor.track_sorting_offset, scene.floors.size()),
             visual.r,
             visual.g,
             visual.b,

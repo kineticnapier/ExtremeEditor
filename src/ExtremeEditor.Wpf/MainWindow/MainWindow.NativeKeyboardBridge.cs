@@ -63,6 +63,15 @@ public partial class MainWindow
         if (key == Key.None)
             return;
 
+        // WPF otherwise consumes Escape before the child HWND can cancel its
+        // captured gesture. Deliver cancellation to the native owner first.
+        if (key == Key.Escape && GetCapture() == msg.hwnd)
+        {
+            SendMessage(msg.hwnd, 0x001F /* WM_CANCELMODE */, nint.Zero, nint.Zero);
+            handled = true;
+            return;
+        }
+
         // ADOFAI's editor actions fire once on the physical key-down edge. Keep an
         // explicit down-set instead of trusting WM_KEYDOWN repeat metadata: it also
         // covers keyboard drivers/IME paths that synthesize repeated down messages.
@@ -107,4 +116,10 @@ public partial class MainWindow
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(nint hwnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetCapture();
+
+    [DllImport("user32.dll")]
+    private static extern nint SendMessage(nint hwnd, int message, nint wParam, nint lParam);
 }

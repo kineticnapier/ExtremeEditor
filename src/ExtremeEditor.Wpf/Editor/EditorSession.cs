@@ -286,6 +286,28 @@ internal sealed partial class EditorSession
         Execute(new DeleteActionCommand(_actions[index]));
     }
 
+    public bool AddPositionTrackFromDrag(int floor, double offsetX, double offsetY)
+    {
+        if ((uint)floor >= (uint)Document.FloorCount ||
+            !double.IsFinite(offsetX) || !double.IsFinite(offsetY) ||
+            (offsetX == 0 && offsetY == 0))
+            return false;
+
+        EnsureSourceMapping();
+        var action = new LevelAction(floor, "PositionTrack", true, null, null, null, null)
+        {
+            SourceIndex = NextNewSourceIndex(),
+            PropertyOverridesStructureRevision = StructureEdits.Count,
+            PropertyOverrides = new JsonObject
+            {
+                ["eventType"] = "PositionTrack",
+                ["positionOffset"] = new JsonArray(offsetX, offsetY)
+            }
+        };
+        Execute(new AddActionCommand(action, "Add PositionTrack"));
+        return true;
+    }
+
     public void ReplaceAction(LevelAction oldAction, LevelAction updatedAction)
     {
         EnsureSourceMapping();
@@ -909,9 +931,9 @@ internal sealed partial class EditorSession
         }
     }
 
-    private sealed class AddActionCommand(LevelAction action) : IEditorCommand
+    private sealed class AddActionCommand(LevelAction action, string name = "Add event") : IEditorCommand
     {
-        public string Name => "Add event";
+        public string Name => name;
         public void Execute(EditorSession session) => session.AddActionRaw(action);
         public void Undo(EditorSession session) => session.RemoveActionRaw(action);
     }

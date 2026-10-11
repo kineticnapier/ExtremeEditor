@@ -153,6 +153,10 @@ target_compile_features(track_animation_runtime_tests PRIVATE cxx_std_20)
 target_compile_definitions(track_animation_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
 target_include_directories(track_animation_runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(floor_hit_order_tests tests/floor_hit_order_tests.cpp)
+target_compile_features(floor_hit_order_tests PRIVATE cxx_std_20)
+target_include_directories(floor_hit_order_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME follow_camera_midspin_tests COMMAND follow_camera_midspin_tests)
@@ -170,3 +174,4 @@ add_test(NAME track_transform_anchor_jitter_scaling_tests COMMAND track_transfor
 add_test(NAME track_visual_compatibility_tests COMMAND track_visual_compatibility_tests)
 add_test(NAME track_visual_runtime_tests COMMAND track_visual_runtime_tests)
 add_test(NAME track_animation_runtime_tests COMMAND track_animation_runtime_tests)
+add_test(NAME floor_hit_order_tests COMMAND floor_hit_order_tests)
