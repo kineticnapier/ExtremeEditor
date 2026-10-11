@@ -20,11 +20,12 @@ internal readonly record struct NativeEditorActionRequest(
     NativeEditorAction Action,
     int Floor,
     double Value,
-    double ValueY = 0);
+    double ValueY = 0,
+    int LastFloor = -1);
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 20;
+    private const uint ExpectedApiVersion = 21;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -435,12 +436,23 @@ internal sealed class NativeRendererSession : IDisposable
 
     // Native supplies world units. PositionTrack JSON uses tile units; the
     // existing resolver applies DefaultLongTileSize exactly once on reload.
-    internal static NativeEditorActionRequest PositionTrackDragRequest(int floor, double worldDx, double worldDy) =>
-        new(NativeEditorAction.PositionTrackDrag, floor,
-            worldDx / PathBuilder.DefaultLongTileSize, worldDy / PathBuilder.DefaultLongTileSize);
+    internal static NativeEditorActionRequest PositionTrackDragRequest(
+        int firstFloor,
+        int lastFloor,
+        double worldDx,
+        double worldDy) =>
+        new(NativeEditorAction.PositionTrackDrag, firstFloor,
+            worldDx / PathBuilder.DefaultLongTileSize,
+            worldDy / PathBuilder.DefaultLongTileSize,
+            lastFloor);
 
-    private void OnNativePositionTrackDrag(nint userData, int floor, double worldDx, double worldDy) =>
-        EditorActionRequested?.Invoke(PositionTrackDragRequest(floor, worldDx, worldDy));
+    private void OnNativePositionTrackDrag(
+        nint userData,
+        int firstFloor,
+        int lastFloor,
+        double worldDx,
+        double worldDy) =>
+        EditorActionRequested?.Invoke(PositionTrackDragRequest(firstFloor, lastFloor, worldDx, worldDy));
 
     public void Dispose()
     {
