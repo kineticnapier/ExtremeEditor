@@ -11,6 +11,9 @@
     <AssetExtractorPublishDir>$(MSBuildThisFileDirectory)obj\$(Configuration)\asset-extractor-publish\</AssetExtractorPublishDir>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="DiscordRichPresence" Version="1.6.1.70" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
     <ProjectReference Include="..\ExtremeEditor.Audio\ExtremeEditor.Audio.csproj" />
     <ProjectReference Include="..\ExtremeEditor.Rendering\ExtremeEditor.Rendering.csproj" />
