@@ -102,6 +102,14 @@ internal static class PositionTrackDragRegression
             AssertNear(-0.5, savedOffset[1]?.GetValue<double>() ?? double.NaN, "saved offset Y");
             LevelDocument reloaded = WpfLevelLoader.Load(saved).Document;
             AssertResolved(reloaded, 1.75, -0.5);
+
+            var reloadedEditor = new EditorSession(reloaded);
+            LevelAction reloadedPositionTrack = reloadedEditor.GetActionsAtFloor(2)
+                .Single(candidate => candidate.EventType == "PositionTrack");
+            reloadedEditor.DeleteAction(reloadedPositionTrack);
+            if (reloaded.ActionStore.Actions.Any(candidate => candidate.EventType == "PositionTrack"))
+                throw new InvalidOperationException("source-backed PositionTrack deletion left an action in the document.");
+            AssertResolved(reloaded, 0, 0);
         }
         finally
         {
