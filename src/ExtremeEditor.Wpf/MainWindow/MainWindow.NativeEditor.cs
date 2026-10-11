@@ -58,11 +58,17 @@ public partial class MainWindow
         {
             case NativeEditorAction.PositionTrackDrag:
             {
-                if (editor.AddPositionTrackFromDrag(primary, request.Value, request.ValueY))
+                int lastFloor = request.LastFloor >= primary
+                    ? Math.Min(request.LastFloor, _level.FloorCount - 1)
+                    : primary;
+                if (editor.AddPositionTrackRangeFromDrag(primary, lastFloor, request.Value, request.ValueY))
                 {
-                    var added = editor.GetActionsAtFloor(primary).Last(action => action.EventType == "PositionTrack");
-                    RefreshAfterEventPropertyCommit(added, added);
+                    NativeViewport.SetLevel(_level);
+                    _timingMap ??= FlatTimingMapBuilder.Build(_level);
+                    NativeViewport.SetPlaybackTimeline(_timingMap);
                     RefreshInspector();
+                    UpdateEditorStatus();
+                    CommandManager.InvalidateRequerySuggested();
                 }
                 break;
             }
