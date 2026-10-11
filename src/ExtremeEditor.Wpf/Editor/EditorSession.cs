@@ -303,7 +303,7 @@ internal sealed partial class EditorSession
 
     public bool AddPositionTrackFromDrag(int floor, double offsetX, double offsetY)
     {
-        if (!TryBuildPositionTrackDragCommand(floor, offsetX, offsetY, out IEditorCommand? command))
+        if (!TryBuildPositionTrackDragCommand(floor, offsetX, offsetY, out IEditorCommand command))
             return false;
 
         Execute(command);
@@ -327,7 +327,7 @@ internal sealed partial class EditorSession
 
         EnsureSourceMapping();
         var commands = new List<IEditorCommand>(2);
-        if (!TryBuildPositionTrackDragCommand(firstFloor, offsetX, offsetY, out IEditorCommand? startCommand))
+        if (!TryBuildPositionTrackDragCommand(firstFloor, offsetX, offsetY, out IEditorCommand startCommand))
             return false;
         commands.Add(startCommand);
 
@@ -338,7 +338,7 @@ internal sealed partial class EditorSession
                     restoreFloor,
                     -offsetX,
                     -offsetY,
-                    out IEditorCommand? restoreCommand))
+                    out IEditorCommand restoreCommand))
             {
                 return false;
             }
@@ -355,9 +355,9 @@ internal sealed partial class EditorSession
         int floor,
         double offsetX,
         double offsetY,
-        out IEditorCommand? command)
+        out IEditorCommand command)
     {
-        command = null;
+        command = null!;
         if ((uint)floor >= (uint)Document.FloorCount ||
             !double.IsFinite(offsetX) || !double.IsFinite(offsetY) ||
             (offsetX == 0 && offsetY == 0))
