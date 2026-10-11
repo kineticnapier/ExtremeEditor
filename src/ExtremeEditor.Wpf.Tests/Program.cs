@@ -188,6 +188,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_ICON_TRACK_ANIMATION_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                NativeIconTrackAnimationRegression.Run();
+                Console.WriteLine("PASS: native icon Track Animation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_RECOLOR_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))
