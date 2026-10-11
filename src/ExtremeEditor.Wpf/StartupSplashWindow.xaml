@@ -80,8 +80,7 @@
                         <TextBlock Text="ExtremeEditor"
                                    Foreground="White"
                                    FontSize="38"
-                                   FontWeight="SemiBold"
-                                   LetterSpacing="1" />
+                                   FontWeight="SemiBold" />
                         <TextBlock Text="ADOFAI editor · native renderer"
                                    Foreground="#C8D6EA"
                                    FontSize="14"
