@@ -5,6 +5,7 @@
 #include "icon_assets.h"
 #include "icon_instanced_renderer.h"
 #include "level_scene.h"
+#include "position_track_drag.h"
 #include "scene_local_cache.h"
 
 #include <windows.h>
@@ -56,6 +57,9 @@ RenderFrameStats GetLatestRenderFrameStats() noexcept;
 class D2DBackend
 {
 public:
+    // PositionTrackDragPreview is applied to the transient scene coordinates by
+    // Renderer immediately around RenderFrame, so all floor/icon/selection paths
+    // render the same mouse-following preview without mutating the chart model.
     D2DBackend() = default;
     D2DBackend(const D2DBackend&) = delete;
     D2DBackend& operator=(const D2DBackend&) = delete;
