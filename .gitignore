@@ -14,3 +14,6 @@ extract-debug/
 extract-wpf-binary/
 
 FloorMesh.cs
+
+dist/
+*_wpftmp.csproj
