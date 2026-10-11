@@ -479,6 +479,16 @@ internal static class ScaleRadiusResolver
             live.Add(new LiveEvent(action.Floor, action.Active, scale));
         }
 
+        // The flat core loader intentionally omits renderer-only ScaleRadius
+        // actions. Preserve any source events that were not represented in the
+        // ActionStore so geometry still matches the chart on load.
+        foreach (ScaleRadiusSourceEvent item in source.Events.OrderBy(static item => item.SourceIndex))
+        {
+            if (used.Contains(item.SourceIndex))
+                continue;
+            live.Add(new LiveEvent(item.Floor, item.Active, item.Scale));
+        }
+
         var byFloor = live
             .Where(static item => item.Floor >= 0)
             .GroupBy(static item => item.Floor)
