@@ -136,12 +136,28 @@ public sealed class TimingMap
             ? 1.0
             : Math.Clamp(rotationElapsed / rotationDuration, 0.0, 1.0);
 
-        Vector2 stationary = level.Positions[Math.Min(floor, level.Positions.Length - 1)];
+        int stationaryFloor = Math.Min(floor, level.Positions.Length - 1);
+        Vector2 stationary = level.Positions[stationaryFloor];
+
+        // ScaleRadius changes the center-to-center distance to the destination
+        // floor. The orbit radius must use that same resolved geometry distance;
+        // otherwise the orbit ends short/long and the planet visibly teleports
+        // when the stationary floor advances.
+        float orbitRadius = PathBuilder.DefaultLongTileSize;
+        if (stationaryFloor + 1 < level.Positions.Length)
+        {
+            float resolvedRadius = Vector2.Distance(
+                stationary,
+                level.Positions[stationaryFloor + 1]);
+            if (float.IsFinite(resolvedRadius) && resolvedRadius > 0.000001f)
+                orbitRadius = resolvedRadius;
+        }
+
         double direction = timing.IsCcw ? -1.0 : 1.0;
         double angle = timing.EntryAngle + direction * timing.AngleMoved * progress;
         Vector2 orbiting = stationary + new Vector2(
-            (float)Math.Sin(angle) * PathBuilder.DefaultLongTileSize,
-            (float)Math.Cos(angle) * PathBuilder.DefaultLongTileSize);
+            (float)Math.Sin(angle) * orbitRadius,
+            (float)Math.Cos(angle) * orbitRadius);
 
         bool stationaryIsRed = (floor & 1) == 0;
         return new PlaybackPose(
