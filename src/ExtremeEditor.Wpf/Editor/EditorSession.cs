@@ -303,10 +303,67 @@ internal sealed partial class EditorSession
 
     public bool AddPositionTrackFromDrag(int floor, double offsetX, double offsetY)
     {
+        if (!TryBuildPositionTrackDragCommand(floor, offsetX, offsetY, out IEditorCommand? command))
+            return false;
+
+        Execute(command);
+        return true;
+    }
+
+    public bool AddPositionTrackRangeFromDrag(
+        int firstFloor,
+        int lastFloor,
+        double offsetX,
+        double offsetY)
+    {
+        if ((uint)firstFloor >= (uint)Document.FloorCount ||
+            (uint)lastFloor >= (uint)Document.FloorCount ||
+            firstFloor > lastFloor ||
+            !double.IsFinite(offsetX) || !double.IsFinite(offsetY) ||
+            (offsetX == 0 && offsetY == 0))
+        {
+            return false;
+        }
+
+        EnsureSourceMapping();
+        var commands = new List<IEditorCommand>(2);
+        if (!TryBuildPositionTrackDragCommand(firstFloor, offsetX, offsetY, out IEditorCommand? startCommand))
+            return false;
+        commands.Add(startCommand);
+
+        int restoreFloor = lastFloor + 1;
+        if (restoreFloor < Document.FloorCount)
+        {
+            if (!TryBuildPositionTrackDragCommand(
+                    restoreFloor,
+                    -offsetX,
+                    -offsetY,
+                    out IEditorCommand? restoreCommand))
+            {
+                return false;
+            }
+            commands.Add(restoreCommand);
+        }
+
+        Execute(commands.Count == 1
+            ? commands[0]
+            : new CompositeEditorCommand("Move selected floors", commands));
+        return true;
+    }
+
+    private bool TryBuildPositionTrackDragCommand(
+        int floor,
+        double offsetX,
+        double offsetY,
+        out IEditorCommand? command)
+    {
+        command = null;
         if ((uint)floor >= (uint)Document.FloorCount ||
             !double.IsFinite(offsetX) || !double.IsFinite(offsetY) ||
             (offsetX == 0 && offsetY == 0))
+        {
             return false;
+        }
 
         EnsureSourceMapping();
 
@@ -341,7 +398,7 @@ internal sealed partial class EditorSession
                 PropertyOverridesStructureRevision = StructureEdits.Count,
                 PropertyOverrides = overrides
             };
-            Execute(new ReplaceActionCommand(existing, updated, "Move PositionTrack"));
+            command = new ReplaceActionCommand(existing, updated, "Move PositionTrack");
             return true;
         }
 
@@ -355,7 +412,7 @@ internal sealed partial class EditorSession
                 ["positionOffset"] = new JsonArray(offsetX, offsetY)
             }
         };
-        Execute(new AddActionCommand(action, "Add PositionTrack"));
+        command = new AddActionCommand(action, "Add PositionTrack");
         return true;
     }
 
