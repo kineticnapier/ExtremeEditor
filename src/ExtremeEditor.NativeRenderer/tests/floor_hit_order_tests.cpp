@@ -48,22 +48,22 @@ int main()
 
     ee::PositionTrackDrag drag;
     ee::ViewportInputTransform view{12, -7, 40, 0, 800, 600};
-    drag.Begin(5, 400, 300, 4, 4, view);
+    drag.Begin(5, 5, 400, 300, 4, 4, view);
     auto result = drag.End(402, 301);
-    if (result.floor != 5 || result.moved || drag.Active()) return 1;
-    drag.Begin(5, 400, 300, 4, 4, view);
+    if (result.first_floor != 5 || result.moved || drag.Active()) return 1;
+    drag.Begin(5, 5, 400, 300, 4, 4, view);
     drag.Move(420, 320);
     result = drag.End(460, 340);
-    if (result.floor != 5 || !result.moved || result.delta.x != 1.5 || result.delta.y != -1.0) return 1;
-    if (drag.End(460, 340).floor != -1) return 1; // no duplicate on second up
-    drag.Begin(5, 400, 300, 4, 4, view);
+    if (result.first_floor != 5 || !result.moved || result.delta.x != 1.5 || result.delta.y != -1.0) return 1;
+    if (drag.End(460, 340).first_floor != -1) return 1; // no duplicate on second up
+    drag.Begin(5, 5, 400, 300, 4, 4, view);
     drag.Move(460, 340);
     drag.Cancel(); // capture lost / Escape / cancel must all discard pending edit
-    if (drag.End(460, 340).floor != -1) return 1;
+    if (drag.End(460, 340).first_floor != -1) return 1;
     view.rotation = 1.5707963267948966;
-    drag.Begin(8, 400, 300, 4, 4, view);
+    drag.Begin(8, 8, 400, 300, 4, 4, view);
     result = drag.End(440, 300);
-    if (result.floor != 8 || std::abs(result.delta.x) > 1e-12 || std::abs(result.delta.y - 1) > 1e-12) return 1;
+    if (result.first_floor != 8 || std::abs(result.delta.x) > 1e-12 || std::abs(result.delta.y - 1) > 1e-12) return 1;
     const auto point = view.Point(440, 300);
     if (std::abs(point.x - 12) > 1e-12 || std::abs(point.y + 6) > 1e-12) return 1;
     return 0;
