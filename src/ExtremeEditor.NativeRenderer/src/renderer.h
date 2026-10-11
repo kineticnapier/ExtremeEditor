@@ -85,6 +85,7 @@ private:
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
     ViewportInputTransform InputTransformLocked() const noexcept;
     void CancelPositionTrackDrag(HWND hwnd) noexcept;
+    void SnapshotPositionTrackDragBaseLocked(std::int32_t first_floor, std::int32_t last_floor) noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;
     void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;
@@ -136,6 +137,7 @@ private:
     void* position_drag_user_data_ = nullptr;
     PositionTrackDrag position_drag_;
     PositionTrackDragPreview position_drag_preview_;
+    std::vector<InputWorldPoint> position_drag_base_positions_;
     std::uint32_t position_drag_modifiers_ = 0;
     ViewportInputTransform rendered_input_transform_;
     EeFollowPlayerChangedCallback follow_callback_ = nullptr;
