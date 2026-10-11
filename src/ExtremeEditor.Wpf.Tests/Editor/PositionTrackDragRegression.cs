@@ -57,6 +57,35 @@ internal static class PositionTrackDragRegression
             throw new InvalidOperationException("redo did not restore exactly one PositionTrack.");
         AssertResolved(level, 1.25, -0.75);
 
+        if (!editor.AddPositionTrackFromDrag(2, 0.5, 0.25))
+            throw new InvalidOperationException("second Alt-drag delta was rejected.");
+        LevelAction[] afterSecondDrag = level.ActionStore.Actions
+            .Where(candidate => candidate.Floor == 2 && candidate.EventType == "PositionTrack")
+            .ToArray();
+        if (afterSecondDrag.Length != 1)
+            throw new InvalidOperationException(
+                $"repeated Alt-drag created {afterSecondDrag.Length} PositionTrack actions instead of consolidating to one.");
+        JsonArray accumulatedOffset =
+            (afterSecondDrag[0].PropertyOverrides ?? afterSecondDrag[0].SourceProperties)?["positionOffset"] as JsonArray
+            ?? throw new InvalidOperationException("consolidated PositionTrack positionOffset is missing.");
+        AssertNear(1.75, accumulatedOffset[0]?.GetValue<double>() ?? double.NaN, "accumulated offset X");
+        AssertNear(-0.5, accumulatedOffset[1]?.GetValue<double>() ?? double.NaN, "accumulated offset Y");
+        AssertResolved(level, 1.75, -0.5);
+
+        editor.Undo();
+        LevelAction[] afterSecondUndo = level.ActionStore.Actions
+            .Where(candidate => candidate.Floor == 2 && candidate.EventType == "PositionTrack")
+            .ToArray();
+        if (afterSecondUndo.Length != 1)
+            throw new InvalidOperationException("undoing the second Alt-drag must preserve the first PositionTrack.");
+        JsonArray restoredOffset =
+            (afterSecondUndo[0].PropertyOverrides ?? afterSecondUndo[0].SourceProperties)?["positionOffset"] as JsonArray
+            ?? throw new InvalidOperationException("restored PositionTrack positionOffset is missing.");
+        AssertNear(1.25, restoredOffset[0]?.GetValue<double>() ?? double.NaN, "restored offset X");
+        AssertNear(-0.75, restoredOffset[1]?.GetValue<double>() ?? double.NaN, "restored offset Y");
+        editor.Redo();
+        AssertResolved(level, 1.75, -0.5);
+
         string saved = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-PositionTrackDrag-{Guid.NewGuid():N}.adofai");
         try
         {
@@ -69,10 +98,10 @@ internal static class PositionTrackDragRegression
             {
                 throw new InvalidOperationException("saved PositionTrack lost floor or offset.");
             }
-            AssertNear(1.25, savedOffset[0]?.GetValue<double>() ?? double.NaN, "saved offset X");
-            AssertNear(-0.75, savedOffset[1]?.GetValue<double>() ?? double.NaN, "saved offset Y");
+            AssertNear(1.75, savedOffset[0]?.GetValue<double>() ?? double.NaN, "saved offset X");
+            AssertNear(-0.5, savedOffset[1]?.GetValue<double>() ?? double.NaN, "saved offset Y");
             LevelDocument reloaded = WpfLevelLoader.Load(saved).Document;
-            AssertResolved(reloaded, 1.25, -0.75);
+            AssertResolved(reloaded, 1.75, -0.5);
         }
         finally
         {
