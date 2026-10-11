@@ -957,13 +957,11 @@ internal static class TrackTransformResolver
             result.Add(live);
         }
 
-        // The generic flat parser should retain these events. Keep source-only
-        // leftovers as a compatibility fallback for older/loose charts.
-        foreach (TrackTransformSourceEvent item in source.Events)
-        {
-            if (!used.Contains(item.SourceIndex))
-                result.Add(item);
-        }
+        // The flat parser already materializes PositionTrack/MoveTrack into
+        // ActionStore. Do not resurrect source-only leftovers here: once an editor
+        // mutation deletes an action, the source metadata cache can still retain
+        // the old parsed event until the next source rebase, and re-adding it here
+        // would make deleted transforms remain active in the renderer.
 
         result.Sort(static (a, b) =>
         {
