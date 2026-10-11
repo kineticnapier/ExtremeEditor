@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 20u
+#define EE_RENDERER_API_VERSION 21u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -87,7 +87,7 @@ typedef void (__cdecl *EeSelectionChangedCallback)(void* user_data, int32_t floo
 typedef void (__cdecl *EeFollowPlayerChangedCallback)(void* user_data, int32_t enabled);
 typedef void (__cdecl *EeEditorActionCallback)(void* user_data, uint32_t action, int32_t floor, double value);
 // Additive callback: existing editor-action callback and all struct layouts stay unchanged.
-typedef void (__cdecl *EePositionTrackDragCallback)(void* user_data, int32_t floor, double world_dx, double world_dy);
+typedef void (__cdecl *EePositionTrackDragCallback)(void* user_data, int32_t first_floor, int32_t last_floor, double world_dx, double world_dy);
 
 typedef enum EeEditorAction
 {
