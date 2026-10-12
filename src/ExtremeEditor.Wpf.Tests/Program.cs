@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_STREAMING_ENCODER_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportStreamingEncoderRegression.Run();
+                Console.WriteLine("PASS: Video Export streaming encoder regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_TRACK_PARITY_ONLY"),
                 "1",
                 StringComparison.Ordinal))
