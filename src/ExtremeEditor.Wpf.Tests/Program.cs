@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FRAME_PIPELINE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportFramePipelineRegression.Run();
+                Console.WriteLine("PASS: Video Export VE2 frame pipeline regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FOUNDATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))
