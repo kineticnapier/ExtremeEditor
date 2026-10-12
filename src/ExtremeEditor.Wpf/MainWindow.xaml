@@ -98,6 +98,9 @@
                 <MenuItem Header="Save _As"
                           Command="{x:Static local:EditorCommands.SaveAs}"
                           InputGestureText="Ctrl+Shift+S" />
+                <MenuItem x:Name="ExportVideoMenuItem"
+                          Header="Export _Video…"
+                          Click="ExportVideoClick" />
                 <Separator />
                 <MenuItem x:Name="ExitMenuItem" Header="E_xit" Click="ExitClick" />
             </MenuItem>
