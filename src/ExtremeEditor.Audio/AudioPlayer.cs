@@ -37,7 +37,7 @@ public sealed class AudioPlayer : IDisposable
     private VariableRateSampleProvider? _songRateProvider;
     private VolumeSampleProvider? _songVolumeProvider;
     private TransportHitSoundSampleProvider? _transportHitSoundProvider;
-    private SilentSampleProvider? _silentSong;
+    private AudioGraphFactory.FiniteSilentSampleProvider? _silentSong;
     private SampleAccurateHitSoundProvider? _hitSoundProvider;
     private LevelDocument? _level;
     private TimingMap? _timingMap;
@@ -340,17 +340,15 @@ public sealed class AudioPlayer : IDisposable
         ISampleProvider song;
         if (_reader is not null)
         {
-            song = _reader.ToSampleProvider();
-            if (song.WaveFormat.Channels == 1)
-                song = new MonoToStereoSampleProvider(song);
-            else if (song.WaveFormat.Channels > 2)
-                song = new FirstTwoChannelsSampleProvider(song);
+            song = AudioGraphFactory.NormalizeSong(_reader.ToSampleProvider());
             _outputFormat = song.WaveFormat;
         }
         else
         {
-            _outputFormat = WaveFormat.CreateIeeeFloatWaveFormat(HitSoundOnlySampleRate, 2);
-            _silentSong = new SilentSampleProvider(_outputFormat);
+            _outputFormat = WaveFormat.CreateIeeeFloatWaveFormat(
+                AudioGraphFactory.DefaultHitSoundOnlySampleRate,
+                2);
+            _silentSong = new AudioGraphFactory.FiniteSilentSampleProvider(_outputFormat);
             song = _silentSong;
         }
 
@@ -359,60 +357,47 @@ public sealed class AudioPlayer : IDisposable
             $"channels={_outputFormat.Channels} encoding={_outputFormat.Encoding} " +
             $"hitsound_only={_reader is null}");
 
-        TimeSpan renderAssets = TimeSpan.Zero;
-        IReadOnlyDictionary<string, RenderedHitSound>? clips = null;
-        if (_level is not null && _timingMap is not null && _hitSoundTimeline is not null &&
-            _hitSoundLibrary.LoadedCount > 0)
-        {
-            var watch = Stopwatch.StartNew();
-            clips = _hitSoundLibrary.RenderFor(_outputFormat.SampleRate);
-            watch.Stop();
-            renderAssets = watch.Elapsed;
-        }
+        IReadOnlyDictionary<string, RenderedHitSound>? clips =
+            AudioGraphFactory.RenderHitSoundAssets(
+                _hitSoundLibrary,
+                _outputFormat.SampleRate,
+                _level,
+                _timingMap,
+                _hitSoundTimeline,
+                out TimeSpan renderAssets);
 
         long totalFrames = _reader is not null
             ? (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate)
-            : CalculateHitSoundOnlyFrames(_outputFormat.SampleRate, clips);
+            : AudioGraphFactory.CalculateHitSoundOnlyFrames(
+                _outputFormat.SampleRate,
+                _level,
+                _timingMap,
+                clips);
         _transportDurationSeconds = totalFrames <= 0
             ? 0.0
             : (double)totalFrames / _outputFormat.SampleRate;
         if (_silentSong is not null)
             _silentSong.TotalFrames = totalFrames;
 
-        HitSoundRenderMetrics renderMetrics = default;
-        SampleAccurateHitSoundProvider? hitSounds = null;
-        if (clips is not null && _level is not null && _timingMap is not null && _hitSoundTimeline is not null)
-        {
-            using (log?.Measure("audio_player.render_hitsounds",
-                       $"rate={_outputFormat.SampleRate} count={clips.Count}"))
-            {
-                hitSounds = new SampleAccurateHitSoundProvider(
-                    _outputFormat,
-                    _level,
-                    _timingMap,
-                    _hitSoundTimeline,
-                    clips,
-                    totalFrames);
+        AudioGraphBuildResult graphBuild = AudioGraphFactory.Build(
+            song,
+            _level,
+            _timingMap,
+            _hitSoundTimeline,
+            clips,
+            totalFrames,
+            _songVolumePercent,
+            _playbackSpeed,
+            _hitSoundsEnabled);
 
-                _hitSoundProvider = hitSounds;
-                renderMetrics = hitSounds.Metrics;
-            }
-        }
+        _graph = graphBuild.Graph;
+        _songRateProvider = graphBuild.SongRateProvider;
+        _songVolumeProvider = graphBuild.SongVolumeProvider;
+        _transportHitSoundProvider = graphBuild.TransportHitSoundProvider;
+        _hitSoundProvider = graphBuild.HitSoundProvider;
+        HitSoundRenderMetrics renderMetrics = graphBuild.HitSoundMetrics;
 
-        _songVolumeProvider = new VolumeSampleProvider(song)
-        {
-            Volume = (float)(_songVolumePercent * 0.01)
-        };
-        _songRateProvider = new VariableRateSampleProvider(_songVolumeProvider, _playbackSpeed);
-        _transportHitSoundProvider = hitSounds is null
-            ? null
-            : new TransportHitSoundSampleProvider(hitSounds, _playbackSpeed);
-        _graph = new UnifiedAudioSampleProvider(_songRateProvider, _transportHitSoundProvider)
-        {
-            HitSoundsEnabled = _hitSoundsEnabled
-        };
-
-        if (hitSounds is not null)
+        if (_hitSoundProvider is not null)
         {
             long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
             using (log?.Measure(
@@ -420,25 +405,17 @@ public sealed class AudioPlayer : IDisposable
                        $"available_memory_bytes={availableMemoryBytes}"))
             {
                 _hitSoundPrerender.Start(
-                    hitSounds,
+                    _hitSoundProvider,
                     _outputFormat.SampleRate,
                     startFrame: 0,
                     availableMemoryBytes);
             }
 
-            // Start() synchronously primes the immediate playback window before
-            // WaveOut can request it. Capture the post-prime metrics so load
-            // diagnostics include that work.
-            renderMetrics = hitSounds.Metrics;
+            renderMetrics = _hitSoundProvider.Metrics;
         }
 
         _output = new WaveOutEvent { DesiredLatency = 80 };
 
-        // Keep the graph itself in IEEE float so hit-sound mixing and the master
-        // limiter remain sample-accurate. Some WaveOut drivers produce audible
-        // garbage for a synthetic 48 kHz float stream, though, so the songless
-        // transport converts only its final device feed to conventional PCM16.
-        // Real-song playback retains its existing output path unchanged.
         IWaveProvider deviceProvider = _reader is null
             ? _graph.ToWaveProvider16()
             : _graph.ToWaveProvider();
@@ -464,30 +441,6 @@ public sealed class AudioPlayer : IDisposable
             renderMetrics.SourceHitCount,
             renderMetrics.ScheduledHitCount,
             renderMetrics.RenderedChunkCount);
-    }
-
-    private long CalculateHitSoundOnlyFrames(
-        int sampleRate,
-        IReadOnlyDictionary<string, RenderedHitSound>? clips)
-    {
-        double chartEndAudio = 0.0;
-        if (_level is not null && _timingMap is not null)
-            chartEndAudio = PlaybackClock.ChartToAudioTime(_level, _timingMap.Duration);
-
-        double tailSeconds = 0.0;
-        if (clips is not null)
-        {
-            foreach (RenderedHitSound clip in clips.Values)
-            {
-                double clipSeconds = (double)clip.FrameCount / sampleRate;
-                tailSeconds = Math.Max(tailSeconds, Math.Max(0.0, clipSeconds - clip.OffsetSeconds));
-            }
-        }
-
-        double totalSeconds = Math.Max(
-            HitSoundOnlyMinimumSeconds,
-            Math.Max(0.0, chartEndAudio) + tailSeconds + HitSoundOnlyEndPaddingSeconds);
-        return checked((long)Math.Ceiling(totalSeconds * sampleRate));
     }
 
     private void RebuildGraphPreservingTransport()
