@@ -60,8 +60,8 @@ internal sealed class VideoExportService
         request.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
-        AdoFaiLoadResult loaded = AdoFaiLoader.Load(Path.GetFullPath(request.ChartPath));
-        LevelDocument level = loaded.Document;
+        LevelDocument level = AdoFaiLoader.Load(
+            Path.GetFullPath(request.ChartPath)).Document;
         TimingMap timingMap = FlatTimingMapBuilder.Build(level);
         HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
 
@@ -108,7 +108,10 @@ internal sealed class VideoExportService
             endChart,
             request.FramesPerSecond,
             request.Width,
-            request.Height);
+            request.Height)
+        {
+            ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
+        };
         int totalVideoFrames = VideoExportTimeline.Build(videoPlan).Count;
         int writtenVideoFrames = 0;
 
@@ -136,8 +139,8 @@ internal sealed class VideoExportService
             timingMap,
             hitSoundTimeline,
             songPath,
-            Math.Max(0.0, startAudio),
-            Math.Max(0.0, endAudio),
+            startAudio,
+            endAudio,
             request.SongVolumePercent,
             request.HitSoundsEnabled);
 
