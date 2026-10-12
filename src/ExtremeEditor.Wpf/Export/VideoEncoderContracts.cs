@@ -40,5 +40,7 @@ internal interface IVideoEncoder : IAsyncDisposable
         OfflineAudioChunk chunk,
         CancellationToken cancellationToken);
 
+    ValueTask BeginVideoAsync(CancellationToken cancellationToken);
+
     ValueTask CompleteAsync(CancellationToken cancellationToken);
 }
