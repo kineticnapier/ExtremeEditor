@@ -7,8 +7,28 @@ internal static class VideoExportFoundationRegression
 {
     public static void Run()
     {
-        VerifySharedPlaybackVisualContract();
-        VerifyExportTimelineContract();
+        var failures = new List<string>();
+        TryVerify("VE0 playback parity", VerifySharedPlaybackVisualContract, failures);
+        TryVerify("VE1 export timeline", VerifyExportTimelineContract, failures);
+
+        if (failures.Count != 0)
+        {
+            throw new InvalidOperationException(
+                "Video Export foundation is not available:\n- " +
+                string.Join("\n- ", failures));
+        }
+    }
+
+    private static void TryVerify(string label, Action verification, List<string> failures)
+    {
+        try
+        {
+            verification();
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{label}: {ex.Message.Replace(Environment.NewLine, " | ")}");
+        }
     }
 
     private static void VerifySharedPlaybackVisualContract()
