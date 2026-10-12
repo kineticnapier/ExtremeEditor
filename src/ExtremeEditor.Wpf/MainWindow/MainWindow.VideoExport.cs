@@ -13,7 +13,10 @@ public partial class MainWindow
 
     private async void ExportVideoClick(object sender, RoutedEventArgs e)
     {
-        if (_videoExportInProgress || _level is null || _timingMap is null)
+        if (_videoExportInProgress ||
+            _level is null ||
+            _timingMap is null ||
+            _hitSoundTimeline is null)
             return;
 
         if (_editor?.IsDirty == true ||
@@ -21,7 +24,10 @@ public partial class MainWindow
             string.Equals(_level.SourcePath, "<synthetic>", StringComparison.Ordinal))
         {
             bool saved = await SaveCurrentAsync(saveAs: false);
-            if (!saved || _level is null || _timingMap is null)
+            if (!saved ||
+                _level is null ||
+                _timingMap is null ||
+                _hitSoundTimeline is null)
                 return;
         }
 
@@ -63,8 +69,14 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        var source = new VideoExportSource(
+            _level,
+            _timingMap,
+            _hitSoundTimeline,
+            _level.ResolveSongPath());
+
         var request = new VideoExportRequest(
-            chartPath,
+            source,
             saveDialog.FileName,
             ffmpegPath,
             StartChartTimeSeconds: 0.0,
