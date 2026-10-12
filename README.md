@@ -1,12 +1,14 @@
 # ExtremeEditor
 
+[English](README.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
+
 ExtremeEditor is a standalone Windows editor for very large A Dance of Fire and Ice
 (`.adofai`) levels. The production application is WPF with a native C++ viewport;
 it has no Unity, UMM, Harmony, or Workbench runtime dependency.
 
-The current version is `0.0.469-prototype`. `feature/wpf-migration` is the
-default development branch; despite its historical name, the WinForms-to-WPF
-migration and removal of the legacy WinForms host are complete.
+The current version is `0.0.484-prototype`. `main` is the default development
+branch. The WinForms-to-WPF migration and removal of the legacy WinForms host are
+complete.
 
 ## Releases
 
