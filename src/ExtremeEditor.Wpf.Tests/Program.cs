@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FOUNDATION_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportFoundationRegression.Run();
+                Console.WriteLine("PASS: Video Export foundation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_ONLY"),
                 "1",
                 StringComparison.Ordinal))
