@@ -13,7 +13,7 @@ internal static class NativeScaleRadiusPlaybackRegression
             "src", "ExtremeEditor.NativeRenderer", "src", "renderer.cpp"));
 
         int start = source.IndexOf("PlaybackVisualState CalculatePlaybackVisual", StringComparison.Ordinal);
-        int end = source.IndexOf("\n}\n\n}", start, StringComparison.Ordinal);
+        int end = source.IndexOf("Renderer::~Renderer", start, StringComparison.Ordinal);
         if (start < 0 || end < 0)
             throw new InvalidOperationException("Native playback visual function layout changed; update this regression.");
 
