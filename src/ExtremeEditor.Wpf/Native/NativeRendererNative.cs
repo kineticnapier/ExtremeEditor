@@ -55,6 +55,9 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_resize", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void Resize(nint renderer, uint width, uint height);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_clean_view", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetCleanView(nint renderer, int enabled);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_level", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetLevel(
         nint renderer, nint floors, uint floorCount, nint geometries, uint geometryCount,

@@ -6,6 +6,14 @@
 
 namespace ee
 {
+void Renderer::SetCleanView(bool enabled) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    clean_view_ = enabled;
+    if (enabled)
+        hover_hud_button_ = -1;
+}
+
 void Renderer::SetSelection(
     const std::int32_t* floors,
     std::uint32_t floor_count,
@@ -118,6 +126,15 @@ bool Renderer::HandleEditorHudMessage(
     LPARAM lparam,
     LRESULT& result) noexcept
 {
+    {
+        std::lock_guard lock(scene_mutex_);
+        if (clean_view_)
+        {
+            hover_hud_button_ = -1;
+            return false;
+        }
+    }
+
     if (position_drag_.Active() ||
         (message == WM_LBUTTONDOWN && (GetKeyState(VK_MENU) & 0x8000) != 0))
         return false;

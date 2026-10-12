@@ -15,6 +15,26 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CustomBackgroundRegression.Run();
+                Console.WriteLine("PASS: CustomBackground regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CLEAN_PLAY_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CleanPlayRegression.Run();
+                Console.WriteLine("PASS: Clean Play regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_MISC_SETTINGS_ONLY"),
                 "1",
                 StringComparison.Ordinal))

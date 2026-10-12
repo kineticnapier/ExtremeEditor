@@ -10,6 +10,12 @@
 
 int main()
 {
+    if (EE_RENDERER_API_VERSION != 22u)
+    {
+        std::cerr << "Recording clean-view ABI requires API version 22.\n";
+        return 1;
+    }
+
     if (ee_renderer_get_api_version() != EE_RENDERER_API_VERSION)
     {
         std::cerr << "API version mismatch.\n";
@@ -129,6 +135,24 @@ int main()
         ee_renderer_destroy(headless);
         headless = nullptr;
     };
+
+    const int32_t clean_view_selection[] = {1, 2};
+    ee_renderer_set_selection(headless, clean_view_selection, 2u, 1);
+    ee_renderer_set_clean_view(headless, 1);
+    if (ee_renderer_get_selected_floor(headless) != 1)
+    {
+        std::cerr << "Clean view changed native selection state.\n";
+        destroy_headless();
+        return 1;
+    }
+    ee_renderer_set_clean_view(headless, 0);
+    if (ee_renderer_get_selected_floor(headless) != 1)
+    {
+        std::cerr << "Leaving clean view changed native selection state.\n";
+        destroy_headless();
+        return 1;
+    }
+    ee_renderer_set_selection(headless, nullptr, 0u, -1);
 
     if (ee_renderer_get_child_hwnd(headless) != nullptr)
     {

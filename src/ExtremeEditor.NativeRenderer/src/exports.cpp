@@ -93,6 +93,12 @@ void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t heig
     static_cast<ee::Renderer*>(renderer)->Resize(width, height);
 }
 
+void ee_renderer_set_clean_view(EeRendererHandle renderer, int32_t enabled)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetCleanView(enabled != 0);
+}
+
 EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,

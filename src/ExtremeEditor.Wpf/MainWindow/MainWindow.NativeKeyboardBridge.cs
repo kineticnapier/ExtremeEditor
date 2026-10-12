@@ -13,22 +13,34 @@ public partial class MainWindow
     private const int WmKeyUp = 0x0101;
     private const int WmSysKeyDown = 0x0104;
     private const int WmSysKeyUp = 0x0105;
+    private const int WmSysCommand = 0x0112;
     private const int WmMouseWheel = 0x020A;
+    private const int ScKeyMenu = 0xF100;
+    private const int VkSpace = 0x20;
     private const int MkControl = 0x0008;
     private const string NativeRendererWindowClass = "ExtremeEditor.NativeRenderer.Window";
 
     private readonly HashSet<Key> _nativeKeysDown = [];
+    private HwndSource? _mainWindowSource;
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         InitializeSharedSelectionState();
+        _mainWindowSource = PresentationSource.FromVisual(this) as HwndSource;
+        _mainWindowSource?.AddHook(MainWindowMessageHook);
         ComponentDispatcher.ThreadPreprocessMessage += NativeThreadPreprocessMessage;
-        Closed += (_, _) => ComponentDispatcher.ThreadPreprocessMessage -= NativeThreadPreprocessMessage;
+        Closed += NativeKeyboardBridgeClosed;
     }
 
     private void NativeThreadPreprocessMessage(ref MSG msg, ref bool handled)
     {
+        if (msg.message == WmSysCommand && IsAltSpaceSystemMenu(msg.wParam, msg.lParam))
+        {
+            handled = true;
+            return;
+        }
+
         if (NativeViewport.Visibility != Visibility.Visible || !IsNativeRendererWindow(msg.hwnd))
             return;
 
@@ -65,7 +77,7 @@ public partial class MainWindow
 
         // WPF otherwise consumes Escape before the child HWND can cancel its
         // captured gesture. Deliver cancellation to the native owner first.
-        if (key == Key.Escape && GetCapture() == msg.hwnd)
+        if (key == Key.Escape && !IsCleanPlay && GetCapture() == msg.hwnd)
         {
             SendMessage(msg.hwnd, 0x001F /* WM_CANCELMODE */, nint.Zero, nint.Zero);
             handled = true;
@@ -103,6 +115,30 @@ public partial class MainWindow
         AdoFaiPreviewKeyDown(this, args);
         handled = args.Handled;
     }
+
+    private nint MainWindowMessageHook(
+        nint hwnd,
+        int message,
+        nint wParam,
+        nint lParam,
+        ref bool handled)
+    {
+        if (message == WmSysCommand && IsAltSpaceSystemMenu(wParam, lParam))
+            handled = true;
+        return nint.Zero;
+    }
+
+    private void NativeKeyboardBridgeClosed(object? sender, EventArgs e)
+    {
+        ComponentDispatcher.ThreadPreprocessMessage -= NativeThreadPreprocessMessage;
+        _mainWindowSource?.RemoveHook(MainWindowMessageHook);
+        _mainWindowSource = null;
+        Closed -= NativeKeyboardBridgeClosed;
+    }
+
+    private static bool IsAltSpaceSystemMenu(nint wParam, nint lParam) =>
+        (wParam.ToInt64() & 0xFFF0L) == ScKeyMenu &&
+        (lParam.ToInt64() & 0xFFFFL) == VkSpace;
 
     private static bool IsNativeRendererWindow(nint hwnd)
     {

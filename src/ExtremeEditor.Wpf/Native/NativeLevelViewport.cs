@@ -72,6 +72,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     private int _primarySelection = -1;
     private bool _frameAllPending;
     private bool _followPlayer = true;
+    private bool _cleanView;
 
     public NativeLevelViewport()
     {
@@ -95,6 +96,12 @@ public sealed partial class NativeLevelViewport : HwndHost
             _followPlayer = value;
             _session?.SetFollowPlayer(value);
         }
+    }
+
+    public void SetCleanView(bool enabled)
+    {
+        _cleanView = enabled;
+        _session?.SetCleanView(enabled);
     }
 
     public void SetLevel(LevelDocument level)
@@ -251,6 +258,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session.FollowPlayerChanged += NativeFollowPlayerChanged;
         _session.EditorActionRequested += NativeEditorActionRequested;
         _session.SetFollowPlayer(_followPlayer);
+        _session.SetCleanView(_cleanView);
         LastLevelUploadMetrics = UploadPendingLevel();
 
         var watch = Stopwatch.StartNew();

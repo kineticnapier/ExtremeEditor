@@ -33,7 +33,8 @@
     </Window.InputBindings>
 
     <DockPanel LastChildFill="True">
-        <StatusBar DockPanel.Dock="Bottom"
+        <StatusBar x:Name="StatusBarHost"
+                   DockPanel.Dock="Bottom"
                    Background="{StaticResource ToolbarBackgroundBrush}"
                    Foreground="{StaticResource TextBrush}">
             <StatusBarItem HorizontalContentAlignment="Stretch"
@@ -238,12 +239,12 @@
             </StackPanel>
         </Border>
 
-        <Grid>
+        <Grid x:Name="EditorShellGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="40" />
+                <ColumnDefinition x:Name="SettingsRailColumn" Width="40" />
                 <ColumnDefinition x:Name="SettingsContentColumn" Width="280" MaxWidth="300" />
                 <ColumnDefinition x:Name="EditorViewportColumn" Width="*" MinWidth="350" />
-                <ColumnDefinition Width="330" />
+                <ColumnDefinition x:Name="EventInspectorColumn" Width="330" />
             </Grid.ColumnDefinitions>
 
             <Grid x:Name="SettingsSidebarHost"

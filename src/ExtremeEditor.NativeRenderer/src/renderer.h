@@ -38,6 +38,7 @@ public:
         std::uint32_t rgb_size,
         std::uint32_t row_stride) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
+    void SetCleanView(bool enabled) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
     bool UpdateFloorIcons(
         std::uint32_t start_floor,
@@ -122,6 +123,7 @@ private:
     std::int32_t selected_floor_ = -1;
     std::shared_ptr<const std::vector<std::int32_t>> selected_floors_ =
         std::make_shared<std::vector<std::int32_t>>();
+    bool clean_view_ = false;
     int hover_hud_button_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;

@@ -9,7 +9,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 {
     internal const int DefaultWidth = 320;
     internal const int DefaultHeight = 180;
-    private const uint ExpectedBaseApiVersion = 21;
+    private const uint ExpectedBaseApiVersion = 22;
 
     private nint _renderer;
 
@@ -73,6 +73,12 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal NativeRgbFrame Render(double chartTimeSeconds) =>
         Render(chartTimeSeconds, chartTimeSeconds);
+
+    internal void SetCleanView(bool enabled)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetCleanView(_renderer, enabled ? 1 : 0);
+    }
 
     internal NativeRgbFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
