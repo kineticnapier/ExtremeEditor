@@ -80,7 +80,19 @@ bool Renderer::RenderHeadlessRgb(
     std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
     float camera_x = 0.0f;
     float camera_y = 0.0f;
-    float zoom = 28.0f;
+    constexpr float reference_width = 1280.0f;
+    constexpr float reference_height = 720.0f;
+    constexpr float reference_zoom = 28.0f;
+    const float viewport_width = static_cast<float>(
+        width_.load(std::memory_order_relaxed));
+    const float viewport_height = static_cast<float>(
+        height_.load(std::memory_order_relaxed));
+    const float viewport_scale = std::max(
+        0.0001f,
+        std::min(
+            viewport_width / reference_width,
+            viewport_height / reference_height));
+    float zoom = reference_zoom * viewport_scale;
     bool follow_player = true;
     std::uint64_t scene_version = 0;
     std::uint64_t icon_assets_version = 0;
