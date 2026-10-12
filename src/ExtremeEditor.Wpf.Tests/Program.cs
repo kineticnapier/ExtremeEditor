@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_TRACK_PARITY_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportTrackParityRegression.Run();
+                Console.WriteLine("PASS: Video Export track parity regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_ORCHESTRATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))
