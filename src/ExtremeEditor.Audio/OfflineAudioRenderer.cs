@@ -39,6 +39,10 @@ public sealed record OfflineAudioChunk(
     public int FrameCount => Samples.Length / Channels;
 }
 
+public readonly record struct OfflineAudioFormat(
+    int SampleRate,
+    int Channels);
+
 public sealed class OfflineAudioRenderer
 {
     private readonly HitSoundLibrary _hitSoundLibrary = new();
@@ -46,6 +50,31 @@ public sealed class OfflineAudioRenderer
     public OfflineAudioRenderer()
     {
         _hitSoundLibrary.ReloadAssets();
+    }
+
+    public OfflineAudioFormat ProbeFormat(string? songPath)
+    {
+        string? resolved = string.IsNullOrWhiteSpace(songPath)
+            ? null
+            : Path.GetFullPath(songPath);
+
+        if (resolved is null || !File.Exists(resolved))
+        {
+            return new OfflineAudioFormat(
+                AudioGraphFactory.DefaultHitSoundOnlySampleRate,
+                2);
+        }
+
+        using WaveStream reader = string.Equals(
+            Path.GetExtension(resolved),
+            ".ogg",
+            StringComparison.OrdinalIgnoreCase)
+            ? new VorbisWaveReader(resolved)
+            : new AudioFileReader(resolved);
+        ISampleProvider song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
+        return new OfflineAudioFormat(
+            song.WaveFormat.SampleRate,
+            song.WaveFormat.Channels);
     }
 
     public async ValueTask RenderAsync(
