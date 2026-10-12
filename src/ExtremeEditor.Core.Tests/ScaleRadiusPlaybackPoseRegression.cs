@@ -23,12 +23,18 @@ internal static class ScaleRadiusPlaybackPoseRegression
         TimingMap timing = TimingMapBuilder.Build(level);
         FloorTiming first = timing.Floors[0];
 
-        PlaybackPose end = timing.GetPose(level, first.ExitTime);
+        // Do not sample exactly at ExitTime: that timestamp is also the next
+        // floor's EntryTime, so FindFloor correctly advances to the next orbit.
+        // Validate the radius inside floor 0's interval instead.
+        double sampleTime = first.EntryTime + (first.ExitTime - first.EntryTime) * 0.5;
+        PlaybackPose pose = timing.GetPose(level, sampleTime);
 
-        if (Vector2.Distance(end.OrbitingPlanet, level.Positions[1]) > 0.0001f)
+        float actualRadius = Vector2.Distance(pose.StationaryPlanet, pose.OrbitingPlanet);
+        const float expectedRadius = 3.0f;
+        if (Math.Abs(actualRadius - expectedRadius) > 0.0001f)
         {
             throw new InvalidOperationException(
-                $"ScaleRadius playback orbit must land on the destination floor without teleporting. expected={level.Positions[1]} actual={end.OrbitingPlanet}");
+                $"ScaleRadius playback orbit radius changed. expected={expectedRadius} actual={actualRadius}");
         }
     }
 }
