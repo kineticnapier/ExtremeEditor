@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FFMPEG_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportFfmpegEncoderRegression.Run();
+                Console.WriteLine("PASS: Video Export ffmpeg encoder regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_ENCODER_ONLY"),
                 "1",
                 StringComparison.Ordinal))
