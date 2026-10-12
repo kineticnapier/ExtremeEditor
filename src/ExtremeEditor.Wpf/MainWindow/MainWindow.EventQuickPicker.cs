@@ -269,6 +269,9 @@ public partial class MainWindow
         bool alt = (modifiers & ModifierKeys.Alt) != 0;
         bool windows = (modifiers & ModifierKeys.Windows) != 0;
 
+        if (TryHandleCleanPlayShortcut(e, key, modifiers))
+            return;
+
         if (key == Key.Escape && !control && !shift && !alt && !windows && IsEditorPlaybackTransportActive())
         {
             StopPlayback();
