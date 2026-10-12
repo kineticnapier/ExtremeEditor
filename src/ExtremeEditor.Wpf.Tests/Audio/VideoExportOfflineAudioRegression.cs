@@ -37,10 +37,9 @@ internal static class VideoExportOfflineAudioRegression
 
     private static void VerifyOfflineRendererApi(Type renderer, Type renderPlan, Type audioChunk)
     {
-        Type consumerType = typeof(Func<,,,>).MakeGenericType(
+        Type consumerType = typeof(Func<,,>).MakeGenericType(
             audioChunk,
             typeof(CancellationToken),
-            typeof(ValueTask),
             typeof(ValueTask));
 
         MethodInfo[] methods = renderer.GetMethods(
@@ -61,7 +60,7 @@ internal static class VideoExportOfflineAudioRegression
 
         Type actualConsumer = renderAsync.GetParameters()[1].ParameterType;
         if (!actualConsumer.IsGenericType ||
-            actualConsumer.GetGenericTypeDefinition() != typeof(Func<,,,>))
+            actualConsumer.GetGenericTypeDefinition() != typeof(Func<,,>))
         {
             throw new InvalidOperationException(
                 "VE3 offline audio must stream chunks to a consumer instead of returning the complete PCM buffer.");
@@ -70,8 +69,7 @@ internal static class VideoExportOfflineAudioRegression
         Type[] args = actualConsumer.GetGenericArguments();
         if (args[0] != audioChunk ||
             args[1] != typeof(CancellationToken) ||
-            args[2] != typeof(ValueTask) ||
-            args[3] != typeof(ValueTask))
+            args[2] != typeof(ValueTask))
         {
             throw new InvalidOperationException(
                 "VE3 offline audio chunk consumer signature is not the expected streaming contract.");
