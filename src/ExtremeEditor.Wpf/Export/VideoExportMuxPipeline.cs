@@ -6,6 +6,7 @@ internal sealed class VideoExportMuxPipeline
 {
     private readonly IVideoEncoder _encoder;
     private bool _begun;
+    private bool _videoBegun;
     private bool _completed;
 
     internal VideoExportMuxPipeline(IVideoEncoder encoder)
@@ -34,7 +35,7 @@ internal sealed class VideoExportMuxPipeline
         byte[] rgb,
         CancellationToken cancellationToken)
     {
-        EnsureWritable();
+        EnsureVideoWritable();
         ArgumentNullException.ThrowIfNull(rgb);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -45,11 +46,25 @@ internal sealed class VideoExportMuxPipeline
         OfflineAudioChunk chunk,
         CancellationToken cancellationToken)
     {
-        EnsureWritable();
+        EnsureAudioWritable();
         ArgumentNullException.ThrowIfNull(chunk);
         cancellationToken.ThrowIfCancellationRequested();
 
         await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async ValueTask BeginVideoAsync(CancellationToken cancellationToken)
+    {
+        if (!_begun)
+            throw new InvalidOperationException("Video export encoder has not begun.");
+        if (_videoBegun)
+            throw new InvalidOperationException("Video export video phase has already begun.");
+        if (_completed)
+            throw new InvalidOperationException("Video export encoder has already completed.");
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+        _videoBegun = true;
     }
 
     internal async ValueTask CompleteAsync(CancellationToken cancellationToken)
@@ -64,10 +79,22 @@ internal sealed class VideoExportMuxPipeline
         _completed = true;
     }
 
-    private void EnsureWritable()
+    private void EnsureAudioWritable()
     {
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
+        if (_videoBegun)
+            throw new InvalidOperationException("Video export audio phase has already ended.");
+        if (_completed)
+            throw new InvalidOperationException("Video export encoder has already completed.");
+    }
+
+    private void EnsureVideoWritable()
+    {
+        if (!_begun)
+            throw new InvalidOperationException("Video export encoder has not begun.");
+        if (!_videoBegun)
+            throw new InvalidOperationException("Video export video phase has not begun.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
     }
