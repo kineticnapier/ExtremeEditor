@@ -2,6 +2,7 @@
 #include "follow_camera_state.h"
 #include "d2d_backend.h"
 #include "renderer_camera.h"
+#include "playback_visual.h"
 
 #include <algorithm>
 #include <chrono>
@@ -10,61 +11,6 @@
 
 namespace ee
 {
-namespace
-{
-constexpr float PlanetDistance = 1.5f;
-
-PlaybackVisualState CalculateHeadlessPlaybackVisual(
-    const LevelScene* scene,
-    const std::vector<EePlaybackTiming>* timings,
-    double chart_time) noexcept
-{
-    PlaybackVisualState result;
-    if (scene == nullptr || timings == nullptr || timings->empty() || scene->floors.empty())
-        return result;
-
-    const double pose_time = std::max(0.0, chart_time);
-    const auto upper = std::upper_bound(
-        timings->begin(),
-        timings->end(),
-        pose_time,
-        [](double value, const EePlaybackTiming& timing)
-        {
-            return value < timing.entry_time;
-        });
-
-    std::size_t floor = upper == timings->begin()
-        ? 0
-        : static_cast<std::size_t>(std::distance(timings->begin(), upper) - 1);
-    floor = std::min(floor, scene->floors.size() - 1);
-    floor = std::min(floor, timings->size() - 1);
-
-    const EePlaybackTiming& timing = (*timings)[floor];
-    const double duration = timing.exit_time - timing.entry_time;
-    const double rotation_duration = std::max(0.0, duration - timing.pause_seconds);
-    const double rotation_elapsed = std::max(
-        0.0,
-        pose_time - timing.entry_time - timing.pause_seconds);
-    const double progress = rotation_duration <= 1e-9
-        ? 1.0
-        : std::clamp(rotation_elapsed / rotation_duration, 0.0, 1.0);
-
-    const EeFloor& stationary = scene->floors[floor];
-    const double direction = (timing.flags & EE_PLAYBACK_TIMING_FLAG_CCW) != 0u ? -1.0 : 1.0;
-    const double angle = static_cast<double>(timing.entry_angle) +
-        direction * static_cast<double>(timing.angle_moved) * progress;
-
-    result.active = true;
-    result.floor = static_cast<std::int32_t>(floor);
-    result.stationary_x = stationary.x;
-    result.stationary_y = stationary.y;
-    result.orbiting_x = stationary.x + static_cast<float>(std::sin(angle)) * PlanetDistance;
-    result.orbiting_y = stationary.y + static_cast<float>(std::cos(angle)) * PlanetDistance;
-    result.stationary_is_red = (floor & 1u) == 0u;
-    return result;
-}
-}
-
 struct HeadlessRendererState
 {
     bool com_owned = false;
@@ -182,7 +128,7 @@ bool Renderer::RenderHeadlessRgb(
     scene->UpdateTrackTransforms();
     scene->UpdateTrackVisuals();
 
-    const PlaybackVisualState playback = CalculateHeadlessPlaybackVisual(
+    const PlaybackVisualState playback = CalculatePlaybackVisual(
         scene.get(),
         playback_timings.get(),
         scene_time);
