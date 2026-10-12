@@ -27,7 +27,7 @@
   </ItemGroup>
   <Target Name="BuildAssetExtractor" BeforeTargets="CoreCompile">
     <MSBuild Projects="$(AssetExtractorProject)"
-             Targets="Build"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration)"
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishTrimmed" />
     <ItemGroup>
