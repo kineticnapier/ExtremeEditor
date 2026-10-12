@@ -9,7 +9,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 {
     internal const int DefaultWidth = 320;
     internal const int DefaultHeight = 180;
-    private const uint ExpectedBaseApiVersion = 20;
+    private const uint ExpectedBaseApiVersion = 21;
 
     private nint _renderer;
 
