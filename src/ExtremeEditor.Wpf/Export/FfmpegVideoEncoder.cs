@@ -8,10 +8,13 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
 {
     private readonly string _ffmpegPath;
     private VideoEncoderStartInfo? _startInfo;
-    private string? _videoTempPath;
     private string? _audioTempPath;
-    private FileStream? _videoStream;
     private FileStream? _audioStream;
+    private Process? _ffmpegProcess;
+    private Stream? _videoInput;
+    private Task<string>? _stderrTask;
+    private Task<string>? _stdoutTask;
+    private bool _videoBegun;
     private bool _completed;
     private bool _disposed;
 
@@ -45,18 +48,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         Directory.CreateDirectory(tempDirectory);
 
         string id = Guid.NewGuid().ToString("N");
-        _videoTempPath = Path.Combine(tempDirectory, id + ".rgb24");
         _audioTempPath = Path.Combine(tempDirectory, id + ".f32le");
 
         try
         {
-            _videoStream = new FileStream(
-                _videoTempPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.Read,
-                bufferSize: 1 << 20,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
             _audioStream = new FileStream(
                 _audioTempPath,
                 FileMode.CreateNew,
@@ -68,7 +63,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         catch
         {
-            DisposeStreams();
+            DisposeAudioStream();
             DeleteTemporaryFiles();
             throw;
         }
@@ -76,32 +71,12 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask WriteVideoFrameAsync(
-        byte[] rgb,
-        CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-        VideoEncoderStartInfo startInfo = RequireWritable();
-        ArgumentNullException.ThrowIfNull(rgb);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        int expectedBytes = checked(startInfo.Width * startInfo.Height * 3);
-        if (rgb.Length != expectedBytes)
-        {
-            throw new ArgumentException(
-                $"RGB24 frame length must be exactly {expectedBytes} bytes; got {rgb.Length}.",
-                nameof(rgb));
-        }
-
-        await _videoStream!.WriteAsync(rgb, cancellationToken).ConfigureAwait(false);
-    }
-
     public async ValueTask WriteAudioChunkAsync(
         OfflineAudioChunk chunk,
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        VideoEncoderStartInfo startInfo = RequireWritable();
+        VideoEncoderStartInfo startInfo = RequireAudioWritable();
         ArgumentNullException.ThrowIfNull(chunk);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -133,30 +108,33 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
     }
 
-    public async ValueTask CompleteAsync(CancellationToken cancellationToken)
+    public async ValueTask BeginVideoAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        if (_completed)
-            return;
+        if (_videoBegun)
+            throw new InvalidOperationException("The ffmpeg video phase has already begun.");
 
         VideoEncoderStartInfo startInfo = _startInfo
             ?? throw new InvalidOperationException("The ffmpeg encoder has not begun.");
         cancellationToken.ThrowIfCancellationRequested();
 
-        await FlushAndCloseStreamsAsync(cancellationToken).ConfigureAwait(false);
+        FileStream? audio = _audioStream;
+        _audioStream = null;
+        if (audio is not null)
+        {
+            await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await audio.DisposeAsync().ConfigureAwait(false);
+        }
 
-        string videoPath = _videoTempPath
-            ?? throw new InvalidOperationException("Video temporary path is unavailable.");
         string audioPath = _audioTempPath
             ?? throw new InvalidOperationException("Audio temporary path is unavailable.");
 
-        // ffmpeg input contracts:
-        // video: -f rawvideo -pix_fmt rgb24
+        // video: -f rawvideo -pix_fmt rgb24 -i pipe:0
         // audio: -f f32le
         string arguments =
             "-hide_banner -loglevel error -y " +
             $"-f rawvideo -pix_fmt rgb24 -s:v {startInfo.Width}x{startInfo.Height} " +
-            $"-r {startInfo.FramesPerSecond} -i {Quote(videoPath)} " +
+            $"-r {startInfo.FramesPerSecond} -i pipe:0 " +
             $"-f f32le -ar {startInfo.AudioSampleRate} -ac {startInfo.AudioChannels} " +
             $"-i {Quote(audioPath)} " +
             "-c:v libx264 -pix_fmt yuv420p -c:a aac -shortest " +
@@ -168,17 +146,83 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             Arguments = arguments,
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardInput = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true
         };
 
         try
         {
-            using Process process = Process.Start(processStartInfo)
+            Process process = Process.Start(processStartInfo)
                 ?? throw new InvalidOperationException("Failed to start ffmpeg.");
 
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            _ffmpegProcess = process;
+            _videoInput = process.StandardInput.BaseStream;
+            _stderrTask = process.StandardError.ReadToEndAsync();
+            _stdoutTask = process.StandardOutput.ReadToEndAsync();
+            _videoBegun = true;
+        }
+        catch
+        {
+            DisposeProcessState();
+            throw;
+        }
+    }
+
+    public async ValueTask WriteVideoFrameAsync(
+        byte[] rgb,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        VideoEncoderStartInfo startInfo = RequireVideoWritable();
+        ArgumentNullException.ThrowIfNull(rgb);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        int expectedBytes = checked(startInfo.Width * startInfo.Height * 3);
+        if (rgb.Length != expectedBytes)
+        {
+            throw new ArgumentException(
+                $"RGB24 frame length must be exactly {expectedBytes} bytes; got {rgb.Length}.",
+                nameof(rgb));
+        }
+
+        try
+        {
+            await _videoInput!
+                .WriteAsync(rgb, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (IOException) when (_ffmpegProcess is { HasExited: true } process)
+        {
+            string stderr = _stderrTask is null
+                ? string.Empty
+                : await _stderrTask.ConfigureAwait(false);
+            throw new InvalidOperationException(
+                $"ffmpeg exited with code {process.ExitCode}: {stderr.Trim()}");
+        }
+    }
+
+    public async ValueTask CompleteAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        if (_completed)
+            return;
+        if (!_videoBegun)
+            throw new InvalidOperationException("The ffmpeg video phase has not begun.");
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Process process = _ffmpegProcess
+            ?? throw new InvalidOperationException("ffmpeg process is unavailable.");
+
+        try
+        {
+            if (_videoInput is not null)
+            {
+                await _videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await _videoInput.DisposeAsync().ConfigureAwait(false);
+                _videoInput = null;
+            }
 
             try
             {
@@ -190,8 +234,11 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 throw;
             }
 
-            string stderr = await stderrTask.ConfigureAwait(false);
-            _ = await stdoutTask.ConfigureAwait(false);
+            string stderr = _stderrTask is null
+                ? string.Empty
+                : await _stderrTask.ConfigureAwait(false);
+            if (_stdoutTask is not null)
+                _ = await _stdoutTask.ConfigureAwait(false);
 
             if (process.ExitCode != 0)
             {
@@ -203,6 +250,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         finally
         {
+            DisposeProcessState();
             DeleteTemporaryFiles();
         }
     }
@@ -215,65 +263,69 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _disposed = true;
         try
         {
-            if (_videoStream is not null)
-                await _videoStream.DisposeAsync().ConfigureAwait(false);
+            if (_videoInput is not null)
+                await _videoInput.DisposeAsync().ConfigureAwait(false);
             if (_audioStream is not null)
                 await _audioStream.DisposeAsync().ConfigureAwait(false);
         }
         finally
         {
-            _videoStream = null;
+            _videoInput = null;
             _audioStream = null;
+            if (_ffmpegProcess is not null)
+                TryKill(_ffmpegProcess);
+            DisposeProcessState();
             DeleteTemporaryFiles();
         }
 
         GC.SuppressFinalize(this);
     }
 
-    private VideoEncoderStartInfo RequireWritable()
+    private VideoEncoderStartInfo RequireAudioWritable()
     {
         if (_startInfo is null)
             throw new InvalidOperationException("The ffmpeg encoder has not begun.");
+        if (_videoBegun)
+            throw new InvalidOperationException("The ffmpeg audio phase has already ended.");
         if (_completed)
             throw new InvalidOperationException("The ffmpeg encoder has already completed.");
-        if (_videoStream is null || _audioStream is null)
-            throw new InvalidOperationException("The ffmpeg encoder streams are not available.");
+        if (_audioStream is null)
+            throw new InvalidOperationException("The ffmpeg audio stream is not available.");
         return _startInfo;
     }
 
-    private async ValueTask FlushAndCloseStreamsAsync(CancellationToken cancellationToken)
+    private VideoEncoderStartInfo RequireVideoWritable()
     {
-        FileStream? video = _videoStream;
-        FileStream? audio = _audioStream;
-        _videoStream = null;
-        _audioStream = null;
-
-        if (video is not null)
-        {
-            await video.FlushAsync(cancellationToken).ConfigureAwait(false);
-            await video.DisposeAsync().ConfigureAwait(false);
-        }
-
-        if (audio is not null)
-        {
-            await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
-            await audio.DisposeAsync().ConfigureAwait(false);
-        }
+        if (_startInfo is null)
+            throw new InvalidOperationException("The ffmpeg encoder has not begun.");
+        if (!_videoBegun)
+            throw new InvalidOperationException("The ffmpeg video phase has not begun.");
+        if (_completed)
+            throw new InvalidOperationException("The ffmpeg encoder has already completed.");
+        if (_videoInput is null)
+            throw new InvalidOperationException("The ffmpeg video input stream is not available.");
+        return _startInfo;
     }
 
-    private void DisposeStreams()
+    private void DisposeAudioStream()
     {
-        _videoStream?.Dispose();
         _audioStream?.Dispose();
-        _videoStream = null;
         _audioStream = null;
+    }
+
+    private void DisposeProcessState()
+    {
+        _videoInput?.Dispose();
+        _videoInput = null;
+        _ffmpegProcess?.Dispose();
+        _ffmpegProcess = null;
+        _stderrTask = null;
+        _stdoutTask = null;
     }
 
     private void DeleteTemporaryFiles()
     {
-        Delete(_videoTempPath);
         Delete(_audioTempPath);
-        _videoTempPath = null;
         _audioTempPath = null;
     }
 
@@ -298,7 +350,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
     }
 
     private static string Quote(string value) =>
-        "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        """ + value.Replace(""", "\"", StringComparison.Ordinal) + """;
 
     private static void TryKill(Process process)
     {
@@ -309,7 +361,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         catch
         {
-            // Cancellation should retain its original exception.
+            // Cancellation/disposal should retain its original exception.
         }
     }
 
