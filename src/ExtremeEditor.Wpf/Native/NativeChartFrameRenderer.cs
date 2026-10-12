@@ -35,8 +35,16 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("ADOFAI chart was not found.", fullPath);
 
-        LevelDocument level = AdoFaiLoader.Load(fullPath).Document;
-        TimingMap timingMap = FlatTimingMapBuilder.Build(level);
+        WpfLevelLoadResult loaded = WpfLevelLoader.Load(fullPath);
+        TimingMap timingMap = FlatTimingMapBuilder.Build(loaded.Document);
+        Load(loaded.Document, timingMap);
+    }
+
+    public void Load(LevelDocument level, TimingMap timingMap)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timingMap);
+
         NativeHeadlessRendererSession next = NativeHeadlessRendererSession.Create(
             level,
             timingMap,
