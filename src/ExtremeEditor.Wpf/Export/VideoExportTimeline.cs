@@ -7,6 +7,8 @@ internal sealed record VideoExportPlan(
     int Width,
     int Height)
 {
+    public double ChartRate { get; init; } = 1.0;
+
     public void Validate()
     {
         if (!double.IsFinite(StartChartTimeSeconds))
@@ -19,6 +21,8 @@ internal sealed record VideoExportPlan(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        if (!double.IsFinite(ChartRate) || ChartRate <= 0.0)
+            throw new ArgumentOutOfRangeException(nameof(ChartRate));
     }
 }
 
@@ -35,15 +39,17 @@ internal static class VideoExportTimeline
         ArgumentNullException.ThrowIfNull(plan);
         plan.Validate();
 
-        double duration = plan.EndChartTimeSeconds - plan.StartChartTimeSeconds;
-        double exactFrameCount = duration * plan.FramesPerSecond;
+        double chartDuration = plan.EndChartTimeSeconds - plan.StartChartTimeSeconds;
+        double outputDuration = chartDuration / plan.ChartRate;
+        double exactFrameCount = outputDuration * plan.FramesPerSecond;
         int frameCount = checked((int)Math.Ceiling(exactFrameCount - 1e-12));
 
         var frames = new VideoExportFrame[frameCount];
         for (int index = 0; index < frameCount; index++)
         {
             double outputTime = (double)index / plan.FramesPerSecond;
-            double chartTime = plan.StartChartTimeSeconds + outputTime;
+            double chartTime =
+                plan.StartChartTimeSeconds + outputTime * plan.ChartRate;
 
             if (!(chartTime < plan.EndChartTimeSeconds))
                 throw new InvalidOperationException(
