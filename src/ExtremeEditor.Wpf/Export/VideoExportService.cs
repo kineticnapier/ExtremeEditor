@@ -110,6 +110,33 @@ internal sealed class VideoExportService
                 audioFormat.Channels),
             cancellationToken).ConfigureAwait(false);
 
+        var audioPlan = new OfflineAudioRenderPlan(
+            level,
+            timingMap,
+            hitSoundTimeline,
+            songPath,
+            startAudio,
+            endAudio,
+            request.SongVolumePercent,
+            request.HitSoundsEnabled);
+
+        progress.Report(new VideoExportProgress("Audio", 0, 0));
+        int audioChunks = 0;
+        await offlineAudio.RenderAsync(
+            audioPlan,
+            async (chunk, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                await mux.WriteAudioChunkAsync(chunk, token).ConfigureAwait(false);
+                audioChunks++;
+                progress.Report(new VideoExportProgress("Audio", audioChunks, 0));
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        progress.Report(new VideoExportProgress("Video", 0, 0));
+        await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+
         using var frameRenderer = new NativeChartFrameRenderer(
             request.Width,
             request.Height);
@@ -147,30 +174,6 @@ internal sealed class VideoExportService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var audioPlan = new OfflineAudioRenderPlan(
-            level,
-            timingMap,
-            hitSoundTimeline,
-            songPath,
-            startAudio,
-            endAudio,
-            request.SongVolumePercent,
-            request.HitSoundsEnabled);
-
-        progress.Report(new VideoExportProgress("Audio", 0, 0));
-        int audioChunks = 0;
-        await offlineAudio.RenderAsync(
-            audioPlan,
-            async (chunk, token) =>
-            {
-                token.ThrowIfCancellationRequested();
-                await mux.WriteAudioChunkAsync(chunk, token).ConfigureAwait(false);
-                audioChunks++;
-                progress.Report(new VideoExportProgress("Audio", audioChunks, 0));
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        cancellationToken.ThrowIfCancellationRequested();
         progress.Report(new VideoExportProgress("Encoding", 0, 1));
         await mux.CompleteAsync(cancellationToken).ConfigureAwait(false);
         progress.Report(new VideoExportProgress("Encoding", 1, 1));
