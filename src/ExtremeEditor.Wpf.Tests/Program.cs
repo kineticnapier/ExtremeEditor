@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_ORCHESTRATION_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportOrchestrationRegression.Run();
+                Console.WriteLine("PASS: Video Export VE5 orchestration regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FFMPEG_ONLY"),
                 "1",
                 StringComparison.Ordinal))
