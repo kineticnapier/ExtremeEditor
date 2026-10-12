@@ -4,8 +4,22 @@ using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Export;
 
+internal sealed record VideoExportSource(
+    LevelDocument Level,
+    TimingMap TimingMap,
+    HitSoundTimeline HitSoundTimeline,
+    string? SongPath)
+{
+    internal void Validate()
+    {
+        ArgumentNullException.ThrowIfNull(Level);
+        ArgumentNullException.ThrowIfNull(TimingMap);
+        ArgumentNullException.ThrowIfNull(HitSoundTimeline);
+    }
+}
+
 internal sealed record VideoExportRequest(
-    string ChartPath,
+    VideoExportSource Source,
     string OutputPath,
     string FfmpegPath,
     double StartChartTimeSeconds,
@@ -18,11 +32,10 @@ internal sealed record VideoExportRequest(
 {
     internal void Validate()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ChartPath);
+        ArgumentNullException.ThrowIfNull(Source);
+        Source.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
-        if (!File.Exists(ChartPath))
-            throw new FileNotFoundException("ADOFAI chart was not found.", ChartPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
         if (!double.IsFinite(StartChartTimeSeconds) || StartChartTimeSeconds < 0.0)
@@ -60,10 +73,10 @@ internal sealed class VideoExportService
         request.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
-        LevelDocument level = AdoFaiLoader.Load(
-            Path.GetFullPath(request.ChartPath)).Document;
-        TimingMap timingMap = FlatTimingMapBuilder.Build(level);
-        HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        VideoExportSource source = request.Source;
+        LevelDocument level = source.Level;
+        TimingMap timingMap = source.TimingMap;
+        HitSoundTimeline hitSoundTimeline = source.HitSoundTimeline;
 
         double startChart = Math.Clamp(
             request.StartChartTimeSeconds,
@@ -81,7 +94,7 @@ internal sealed class VideoExportService
         if (endAudio <= startAudio)
             throw new InvalidOperationException("Video export audio range is empty.");
 
-        string? songPath = level.ResolveSongPath();
+        string? songPath = source.SongPath;
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
 
@@ -100,7 +113,7 @@ internal sealed class VideoExportService
         using var frameRenderer = new NativeChartFrameRenderer(
             request.Width,
             request.Height);
-        frameRenderer.Load(request.ChartPath);
+        frameRenderer.Load(level, timingMap);
         frameRenderer.SetCleanView(true);
 
         var videoPlan = new VideoExportPlan(
