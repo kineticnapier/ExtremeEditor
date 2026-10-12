@@ -94,6 +94,7 @@ public partial class MainWindow : Window
         ShutdownDiagnostics.Begin("MainWindow.OnClosed");
         _isClosed = true;
         _loadGeneration++;
+        _videoExportCancellation?.Cancel();
 
         ShutdownDiagnostics.Begin("PlaybackTimer.Stop");
         _playbackTimer.Stop();
