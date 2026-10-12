@@ -20,7 +20,7 @@ public sealed record OfflineAudioRenderPlan(
         ArgumentNullException.ThrowIfNull(Level);
         ArgumentNullException.ThrowIfNull(TimingMap);
         ArgumentNullException.ThrowIfNull(HitSoundTimeline);
-        if (!double.IsFinite(StartAudioTimeSeconds) || StartAudioTimeSeconds < 0.0)
+        if (!double.IsFinite(StartAudioTimeSeconds))
             throw new ArgumentOutOfRangeException(nameof(StartAudioTimeSeconds));
         if (!double.IsFinite(EndAudioTimeSeconds) ||
             EndAudioTimeSeconds <= StartAudioTimeSeconds)
@@ -137,22 +137,26 @@ public sealed class OfflineAudioRenderer
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;
 
-            long startFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                plan.StartAudioTimeSeconds,
-                sampleRate);
-            long requestedEndFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                plan.EndAudioTimeSeconds,
-                sampleRate);
-            long endFrame = Math.Min(totalFrames, requestedEndFrame);
-            if (endFrame <= startFrame)
+            long requestedStartFrame =
+                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    plan.StartAudioTimeSeconds,
+                    sampleRate);
+            long requestedEndFrame =
+                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    plan.EndAudioTimeSeconds,
+                    sampleRate);
+            if (requestedEndFrame <= requestedStartFrame)
                 return;
 
+            long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
             if (reader is not null)
             {
                 reader.CurrentTime = TimeSpan.FromSeconds(
-                    Math.Min(plan.StartAudioTimeSeconds, reader.TotalTime.TotalSeconds));
+                    Math.Min(
+                        Math.Max(0.0, plan.StartAudioTimeSeconds),
+                        reader.TotalTime.TotalSeconds));
             }
-            silentSong?.Seek(startFrame);
+            silentSong?.Seek(sourceStartFrame);
 
             AudioGraphBuildResult graphBuild = AudioGraphFactory.Build(
                 song,
@@ -166,26 +170,54 @@ public sealed class OfflineAudioRenderer
                 plan.HitSoundsEnabled);
 
             UnifiedAudioSampleProvider graph = graphBuild.Graph;
-            graph.Seek(startFrame);
+            graph.Seek(sourceStartFrame);
 
             int channels = graph.WaveFormat.Channels;
             int chunkSamples = checked(plan.ChunkFrames * channels);
             float[] readBuffer = new float[chunkSamples];
-            long currentFrame = startFrame;
+            long currentFrame = requestedStartFrame;
 
-            while (currentFrame < endFrame)
+            while (currentFrame < requestedEndFrame)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 int framesRequested = checked((int)Math.Min(
                     plan.ChunkFrames,
-                    endFrame - currentFrame));
+                    requestedEndFrame - currentFrame));
                 int samplesRequested = checked(framesRequested * channels);
-                int samplesRead = graph.Read(readBuffer, 0, samplesRequested);
-                if (samplesRead <= 0)
-                    break;
+                int completeSamples;
 
-                int completeSamples = samplesRead - samplesRead % channels;
+                if (currentFrame < 0)
+                {
+                    int silentFrames = checked((int)Math.Min(
+                        framesRequested,
+                        -currentFrame));
+                    completeSamples = checked(silentFrames * channels);
+                    Array.Clear(readBuffer, 0, completeSamples);
+                }
+                else if (currentFrame >= totalFrames)
+                {
+                    completeSamples = samplesRequested;
+                    Array.Clear(readBuffer, 0, completeSamples);
+                }
+                else
+                {
+                    int sourceFrames = checked((int)Math.Min(
+                        framesRequested,
+                        totalFrames - currentFrame));
+                    int sourceSamples = checked(sourceFrames * channels);
+                    int samplesRead = graph.Read(readBuffer, 0, sourceSamples);
+                    if (samplesRead < sourceSamples)
+                    {
+                        Array.Clear(
+                            readBuffer,
+                            Math.Max(0, samplesRead),
+                            sourceSamples - Math.Max(0, samplesRead));
+                    }
+
+                    completeSamples = sourceSamples;
+                }
+
                 if (completeSamples <= 0)
                     break;
 
