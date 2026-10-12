@@ -53,6 +53,13 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
     public RenderedFrame Render(double chartTimeSeconds) =>
         Render(chartTimeSeconds, chartTimeSeconds);
 
+    public void SetCleanView(bool enabled)
+    {
+        NativeHeadlessRendererSession session = _session
+            ?? throw new InvalidOperationException("No chart is loaded.");
+        session.SetCleanView(enabled);
+    }
+
     public RenderedFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
         NativeHeadlessRendererSession session = _session
