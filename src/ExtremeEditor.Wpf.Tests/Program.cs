@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_HEADLESS_CAMERA_FRAMING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                HeadlessCameraFramingRegression.Run();
+                Console.WriteLine("PASS: Headless camera framing regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_STREAMING_ENCODER_ONLY"),
                 "1",
                 StringComparison.Ordinal))
