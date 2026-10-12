@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_ENCODER_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportEncoderRegression.Run();
+                Console.WriteLine("PASS: Video Export VE4 encoder regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_OFFLINE_AUDIO_ONLY"),
                 "1",
                 StringComparison.Ordinal))
