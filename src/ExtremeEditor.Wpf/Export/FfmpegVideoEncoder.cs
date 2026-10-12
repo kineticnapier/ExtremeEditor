@@ -350,7 +350,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
     }
 
     private static string Quote(string value) =>
-        """ + value.Replace(""", "\"", StringComparison.Ordinal) + """;
+        "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     private static void TryKill(Process process)
     {
