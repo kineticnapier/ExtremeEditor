@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_OFFLINE_AUDIO_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VideoExportOfflineAudioRegression.Run();
+                Console.WriteLine("PASS: Video Export VE3 offline audio regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_VIDEO_EXPORT_FRAME_PIPELINE_ONLY"),
                 "1",
                 StringComparison.Ordinal))
