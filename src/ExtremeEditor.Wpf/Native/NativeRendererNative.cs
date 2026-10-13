@@ -119,6 +119,9 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_set_screen_tile_timeline", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetScreenTileTimeline(nint renderer, nint events, uint eventCount);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_background_asset", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    internal static extern int SetBackgroundAsset(nint renderer, uint assetId, string imagePath);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_filter_timeline", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetFilterTimeline(nint renderer, nint events, uint eventCount);
 
