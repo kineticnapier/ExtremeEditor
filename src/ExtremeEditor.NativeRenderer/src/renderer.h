@@ -24,6 +24,13 @@ struct FlashVisualState;
 struct BloomVisualState;
 struct ScreenTileVisualState;
 struct FilterVisualState;
+struct BackgroundRuntime
+{
+    EeBackgroundState initial{};
+};
+using BackgroundAssetCache = std::vector<std::wstring>;
+EeBackgroundState ResolveBackgroundAtTime(
+    const std::vector<EeBackgroundEvent>* events, double chart_time) noexcept;
 
 class Renderer
 {
