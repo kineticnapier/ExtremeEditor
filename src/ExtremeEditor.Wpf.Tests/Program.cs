@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SCREEN_TILE_RUNTIME_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                ScreenTileRuntimeRegression.Run();
+                Console.WriteLine("PASS: ScreenTile runtime regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_BLOOM_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))
