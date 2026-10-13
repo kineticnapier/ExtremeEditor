@@ -70,6 +70,8 @@ public:
     bool SetBloomTimeline(const EeBloomEvent* events, std::uint32_t event_count) noexcept;
     bool SetScreenTileTimeline(const EeScreenTileEvent* events, std::uint32_t event_count) noexcept;
     bool SetFilterTimeline(const EeFilterEvent* events, std::uint32_t event_count) noexcept;
+    bool SetBackgroundTimeline(const EeBackgroundEvent* events, std::uint32_t event_count) noexcept;
+    bool SetBackgroundAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackAnimationTimeline(
@@ -133,6 +135,8 @@ private:
         std::make_shared<std::vector<EeScreenTileEvent>>();
     std::shared_ptr<const std::vector<EeFilterEvent>> filter_events_ =
         std::make_shared<std::vector<EeFilterEvent>>();
+    std::shared_ptr<const std::vector<EeBackgroundEvent>> background_events_ =
+        std::make_shared<std::vector<EeBackgroundEvent>>();
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
