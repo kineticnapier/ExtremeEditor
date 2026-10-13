@@ -676,6 +676,18 @@ HRESULT D2DBackend::EndD2DDraw() noexcept
     return CreateTargetBitmap() ? S_FALSE : hr;
 }
 
+void D2DBackend::DrawBackground() noexcept
+{
+    if (!d2d_context_)
+        return;
+    const std::uint32_t argb = background_state_.color;
+    d2d_context_->Clear(D2D1::ColorF(
+        ((argb >> 16) & 0xffu) / 255.0f,
+        ((argb >> 8) & 0xffu) / 255.0f,
+        (argb & 0xffu) / 255.0f,
+        1.0f));
+}
+
 HRESULT D2DBackend::RenderFrame(
     double seconds,
     const LevelScene* scene,
@@ -705,7 +717,7 @@ HRESULT D2DBackend::RenderFrame(
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-    d2d_context_->Clear(D2D1::ColorF(0x14161A));
+    DrawBackground();
 
     constexpr float grid_step = 64.0f;
     for (float x = 0.0f; x <= static_cast<float>(width_); x += grid_step)
