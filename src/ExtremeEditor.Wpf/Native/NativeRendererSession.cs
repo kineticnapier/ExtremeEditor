@@ -306,6 +306,22 @@ internal sealed class NativeRendererSession : IDisposable
     internal void SetFilterTimeline(NativeFilterEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetFilterTimeline, "filter");
 
+    internal void SetBackgroundAsset(NativeBackgroundAsset asset)
+    {
+        if (_renderer == nint.Zero)
+            return;
+        int result = NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath);
+        if (result != 0)
+            throw new InvalidOperationException(
+                $"Native background asset upload failed for {asset.ImagePath} with result {result}.");
+    }
+
+    internal void ClearBackgroundAssets()
+    {
+        // Native background asset lifetime is not wired yet.
+        // Do not call into an unimplemented native clear entry point.
+    }
+
     internal void SetBackgroundTimeline(NativeBackgroundEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetBackgroundTimeline, "background");
 
