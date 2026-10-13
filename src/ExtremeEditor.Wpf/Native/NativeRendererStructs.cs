@@ -245,6 +245,25 @@ internal readonly record struct NativeFlashState(
     float ForegroundOpacity);
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeBloomEvent
+{
+    public double StartTime;
+    public double DurationSeconds;
+    public float Threshold;
+    public float Intensity;
+    public uint Tint;
+    public uint Enabled;
+    public uint Ease;
+    public int SourceIndex;
+}
+
+internal readonly record struct NativeBloomState(
+    bool Enabled,
+    float Threshold,
+    float Intensity,
+    uint Tint);
+
+[StructLayout(LayoutKind.Sequential)]
 internal struct NativeTrackTransformEvent
 {
     public const uint FlagX = 1u << 0;

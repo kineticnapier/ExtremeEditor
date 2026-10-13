@@ -48,6 +48,14 @@ struct FlashVisualState
     FlashLayerState foreground;
 };
 
+struct BloomVisualState
+{
+    bool enabled = false;
+    float threshold = 0.0f;
+    float intensity = 0.0f;
+    std::uint32_t tint = 0xffffffu;
+};
+
 struct RenderFrameStats
 {
     double cull_ms = 0.0;
@@ -83,6 +91,7 @@ public:
     bool Resize(std::uint32_t width, std::uint32_t height) noexcept;
     bool ResizeOffscreen(std::uint32_t width, std::uint32_t height) noexcept;
     void SetFlashState(const FlashVisualState& state) noexcept { flash_state_ = state; }
+    void SetBloomState(const BloomVisualState& state) noexcept { bloom_state_ = state; }
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -248,6 +257,7 @@ private:
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
     FlashVisualState flash_state_{};
+    BloomVisualState bloom_state_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;

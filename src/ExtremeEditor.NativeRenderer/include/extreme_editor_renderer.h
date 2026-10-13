@@ -302,6 +302,18 @@ typedef struct EeFlashEvent
     uint32_t reserved;
 } EeFlashEvent;
 
+typedef struct EeBloomEvent
+{
+    double start_time;
+    double duration_seconds;
+    float threshold;
+    float intensity;
+    uint32_t tint;
+    uint32_t enabled;
+    uint32_t ease;
+    int32_t source_index;
+} EeBloomEvent;
+
 typedef struct EeTrackTransformEvent
 {
     double start_time;
@@ -443,6 +455,7 @@ EE_RENDERER_API void ee_renderer_set_position_track_drag_callback(EeRendererHand
 EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(EeRendererHandle renderer, const EePlaybackTiming* timings, uint32_t timing_count);
 EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(EeRendererHandle renderer, const EeCameraEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_flash_timeline(EeRendererHandle renderer, const EeFlashEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_bloom_timeline(EeRendererHandle renderer, const EeBloomEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(

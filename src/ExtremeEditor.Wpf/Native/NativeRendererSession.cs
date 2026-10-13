@@ -297,6 +297,9 @@ internal sealed class NativeRendererSession : IDisposable
     internal void SetFlashTimeline(NativeFlashEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetFlashTimeline, "flash");
 
+    internal void SetBloomTimeline(NativeBloomEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetBloomTimeline, "bloom");
+
     internal void SetTrackTransformTimeline(NativeTrackTransformEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
 

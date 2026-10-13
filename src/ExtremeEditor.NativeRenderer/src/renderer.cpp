@@ -353,6 +353,89 @@ FlashVisualState ResolveFlashAtTime(const std::vector<EeFlashEvent>* events,doub
     return result;
 }
 
+bool Renderer::SetBloomTimeline(
+    const EeBloomEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    if (event_count > 0u && events == nullptr)
+        return false;
+
+    try
+    {
+        auto next = std::make_shared<std::vector<EeBloomEvent>>();
+        if (event_count > 0u)
+            next->assign(events, events + event_count);
+        std::stable_sort(
+            next->begin(),
+            next->end(),
+            [](const EeBloomEvent& left, const EeBloomEvent& right)
+            {
+                if (left.start_time != right.start_time)
+                    return left.start_time < right.start_time;
+                return left.source_index < right.source_index;
+            });
+
+        std::lock_guard lock(scene_mutex_);
+        bloom_events_ = std::move(next);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+namespace
+{
+std::uint32_t LerpBloomColor(std::uint32_t a, std::uint32_t b, double t) noexcept
+{
+    const auto channel = [t](std::uint32_t av, std::uint32_t bv)
+    {
+        const double value = static_cast<double>(av) +
+            (static_cast<double>(bv) - static_cast<double>(av)) * t;
+        return static_cast<std::uint32_t>(
+            std::clamp(std::lround(value), 0l, 255l));
+    };
+    const std::uint32_t r = channel((a >> 16) & 0xffu, (b >> 16) & 0xffu);
+    const std::uint32_t g = channel((a >> 8) & 0xffu, (b >> 8) & 0xffu);
+    const std::uint32_t blue = channel(a & 0xffu, b & 0xffu);
+    return (r << 16) | (g << 8) | blue;
+}
+}
+
+BloomVisualState ResolveBloomAtTime(
+    const std::vector<EeBloomEvent>* events,
+    double chart_time) noexcept
+{
+    BloomVisualState result;
+    if (events == nullptr || events->empty())
+        return result;
+
+    const EeBloomEvent* previous = nullptr;
+    for (const EeBloomEvent& item : *events)
+    {
+        if (item.start_time > chart_time)
+            break;
+
+        const float start_threshold = previous ? previous->threshold : item.threshold;
+        const float start_intensity = previous ? previous->intensity : item.intensity;
+        const std::uint32_t start_tint = previous ? previous->tint : item.tint;
+        const double raw = item.duration_seconds <= 1e-9
+            ? 1.0
+            : (chart_time - item.start_time) / item.duration_seconds;
+        const double progress = ApplyFlashEase(item.ease, raw);
+
+        result.enabled = item.enabled != 0u;
+        result.threshold = start_threshold +
+            (item.threshold - start_threshold) * static_cast<float>(progress);
+        result.intensity = start_intensity +
+            (item.intensity - start_intensity) * static_cast<float>(progress);
+        result.tint = LerpBloomColor(start_tint, item.tint, progress);
+        previous = &item;
+    }
+    return result;
+}
+
 bool Renderer::SetPlaybackTimeline(
     const EePlaybackTiming* timings,
     std::uint32_t timing_count) noexcept
@@ -775,6 +858,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
         std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
         std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
+        std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
@@ -811,6 +895,7 @@ void Renderer::RenderLoop() noexcept
             playback_timings = playback_timings_;
             camera_events = camera_events_;
             flash_events = flash_events_;
+            bloom_events = bloom_events_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
@@ -936,6 +1021,7 @@ void Renderer::RenderLoop() noexcept
                     static_cast<double>(height_.load(std::memory_order_relaxed))};
             }
             backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), chart_time));
+            backend.SetBloomState(ResolveBloomAtTime(bloom_events.get(), chart_time));
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(

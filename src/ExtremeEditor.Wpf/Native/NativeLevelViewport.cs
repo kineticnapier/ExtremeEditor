@@ -67,6 +67,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     private NativePlaybackTiming[] _playbackTimeline = [];
     private NativeCameraEvent[] _cameraTimeline = [];
     private NativeFlashEvent[] _flashTimeline = [];
+    private NativeBloomEvent[] _bloomTimeline = [];
     private NativeTrackTransformEvent[] _trackTransformTimeline = [];
     private NativeTrackVisualEvent[] _trackVisualTimeline = [];
     private int[] _selectedFloors = [];
@@ -118,6 +119,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             _primarySelection = -1;
             _cameraTimeline = [];
             _flashTimeline = [];
+            _bloomTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
             _trackAnimationTimeline = [];
@@ -186,6 +188,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             _cameraTimeline = [];
             _flashTimeline = [];
+            _bloomTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
             _trackAnimationTimeline = [];
@@ -196,6 +199,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
             NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
             _flashTimeline = FlashTimelineBuilder.Build(_level, timingMap);
+            _bloomTimeline = BloomTimelineBuilder.Build(_level, timingMap);
             StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
             _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(_level, timingMap, staticTransforms);
             _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
@@ -208,6 +212,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingFlashTimeline();
+        UploadPendingBloomTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
         UploadPendingTrackAnimationTimeline();
@@ -270,6 +275,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
         UploadPendingFlashTimeline();
+        UploadPendingBloomTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
         UploadPendingTrackAnimationTimeline();
@@ -408,6 +414,12 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         if (_session is not null)
             _session.SetFlashTimeline(_flashTimeline);
+    }
+
+    private void UploadPendingBloomTimeline()
+    {
+        if (_session is not null)
+            _session.SetBloomTimeline(_bloomTimeline);
     }
 
     private void UploadPendingTrackTransformTimeline()
