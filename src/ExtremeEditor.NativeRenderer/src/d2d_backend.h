@@ -113,6 +113,8 @@ public:
     void SetBloomState(const BloomVisualState& state) noexcept { bloom_state_ = state; }
     void SetScreenTileState(const ScreenTileVisualState& state) noexcept { screen_tile_state_ = state; }
     void SetFilterState(const FilterVisualState& state) noexcept { filter_state_ = state; }
+    void SetBackgroundState(const EeBackgroundState& state) noexcept { background_state_ = state; }
+    void DrawBackground() noexcept;
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -281,6 +283,7 @@ private:
     BloomVisualState bloom_state_{};
     ScreenTileVisualState screen_tile_state_{};
     FilterVisualState filter_state_{};
+    EeBackgroundState background_state_{ 0xff14161au, 0xffffffffu, 0u, 0u, 100.f, 100.f, 100.f, 0u };
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
