@@ -286,6 +286,28 @@ internal readonly record struct NativeScreenTileState(
     float TileY);
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeFilterEvent
+{
+    public const uint FlagDisableOthers = 1u << 0;
+    public const uint FlagUsesLegacyTween = 1u << 1;
+
+    public double StartTime;
+    public double DurationSeconds;
+    public uint Filter;
+    public float TargetIntensity;
+    public uint Enabled;
+    public uint Ease;
+    public int SourceIndex;
+    public uint Flags;
+}
+
+internal readonly record struct NativeFilterState(
+    uint Filter,
+    bool Enabled,
+    float Intensity,
+    float AppliedValue);
+
+[StructLayout(LayoutKind.Sequential)]
 internal struct NativeTrackTransformEvent
 {
     public const uint FlagX = 1u << 0;
