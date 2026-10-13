@@ -239,7 +239,7 @@ HRESULT D2DBackend::RenderFrameOffscreen(
     // floor/icon/decoration/planet pipelines as the interactive viewport.
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-    d2d_context_->Clear(D2D1::ColorF(0x14161A));
+    DrawBackground();
     DrawBackgroundFlash();
     HRESULT hr = d2d_context_->EndDraw();
     if (FAILED(hr))
