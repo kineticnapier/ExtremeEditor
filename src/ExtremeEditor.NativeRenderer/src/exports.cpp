@@ -389,6 +389,26 @@ EeResult ee_renderer_set_filter_timeline(
         : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_set_background_timeline(
+    EeRendererHandle renderer,
+    const EeBackgroundEvent* events,
+    uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0 && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->SetBackgroundTimeline(events, event_count)
+        ? EE_OK : EE_ERROR_INITIALIZATION;
+}
+
+EeResult ee_renderer_set_background_asset(
+    EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path)
+{
+    if (renderer == nullptr || image_path == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->SetBackgroundAsset(asset_id, image_path)
+        ? EE_OK : EE_ERROR_INITIALIZATION;
+}
+
 EeResult ee_renderer_set_track_transform_timeline(
     EeRendererHandle renderer,
     const EeTrackTransformEvent* events,
