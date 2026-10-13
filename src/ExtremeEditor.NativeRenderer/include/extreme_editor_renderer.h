@@ -331,6 +331,18 @@ typedef struct EeScreenTileEvent
     uint32_t reserved;
 } EeScreenTileEvent;
 
+typedef struct EeFilterEvent
+{
+    double start_time;
+    double duration_seconds;
+    uint32_t filter;
+    float target_intensity;
+    uint32_t enabled;
+    uint32_t ease;
+    int32_t source_index;
+    uint32_t flags;
+} EeFilterEvent;
+
 typedef struct EeTrackTransformEvent
 {
     double start_time;
