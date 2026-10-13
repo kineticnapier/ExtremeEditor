@@ -306,6 +306,9 @@ internal sealed class NativeRendererSession : IDisposable
     internal void SetFilterTimeline(NativeFilterEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetFilterTimeline, "filter");
 
+    internal void SetBackgroundTimeline(NativeBackgroundEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetBackgroundTimeline, "background");
+
     internal void SetTrackTransformTimeline(NativeTrackTransformEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
 
