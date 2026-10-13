@@ -81,6 +81,7 @@ bool Renderer::RenderHeadlessRgb(
     std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
     std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
     std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
+    std::shared_ptr<const std::vector<EeFilterEvent>> filter_events;
     float camera_x = 0.0f;
     float camera_y = 0.0f;
     constexpr float reference_width = 1280.0f;
@@ -130,6 +131,7 @@ bool Renderer::RenderHeadlessRgb(
         flash_events = flash_events_;
         bloom_events = bloom_events_;
         screen_tile_events = screen_tile_events_;
+        filter_events = filter_events_;
         camera_x = camera_x_;
         camera_y = camera_y_;
         zoom = zoom_;
@@ -196,6 +198,7 @@ bool Renderer::RenderHeadlessRgb(
     state->backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), scene_time));
     state->backend.SetBloomState(ResolveBloomAtTime(bloom_events.get(), scene_time));
     state->backend.SetScreenTileState(ResolveScreenTileAtTime(screen_tile_events.get(), scene_time));
+    state->backend.SetFilterState(ResolveFilterStateAtTime(filter_events.get(), scene_time));
     const auto render_started = std::chrono::steady_clock::now();
     const HRESULT render_result = state->backend.RenderFrameOffscreen(
         visual_time,
