@@ -306,7 +306,7 @@ public static class VfxTimelineBuilder
         LevelAction action,
         out VfxRepeatDescriptor descriptor)
     {
-        JsonObject? properties = action.PropertyOverrides;
+        JsonObject? properties = MoveDecorationsTargeting.GetProperties(action);
         string? repeatTypeText = ReadString(properties, "repeatType");
         VfxRepeatType repeatType;
         if (string.Equals(repeatTypeText, "Beat", StringComparison.OrdinalIgnoreCase))
