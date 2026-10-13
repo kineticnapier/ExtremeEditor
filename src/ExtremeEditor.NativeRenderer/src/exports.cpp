@@ -337,6 +337,19 @@ EeResult ee_renderer_set_camera_timeline(
         : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_set_flash_timeline(
+    EeRendererHandle renderer,
+    const EeFlashEvent* events,
+    uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0 && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetFlashTimeline(events, event_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
 EeResult ee_renderer_set_track_transform_timeline(
     EeRendererHandle renderer,
     const EeTrackTransformEvent* events,

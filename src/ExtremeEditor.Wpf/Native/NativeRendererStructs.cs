@@ -221,6 +221,30 @@ internal struct NativeCameraEvent
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeFlashEvent
+{
+    public const uint PlaneBackground = 0u;
+    public const uint PlaneForeground = 1u;
+
+    public double StartTime;
+    public double DurationSeconds;
+    public uint StartColor;
+    public uint EndColor;
+    public float StartOpacity;
+    public float EndOpacity;
+    public uint Plane;
+    public uint Ease;
+    public int SourceIndex;
+    public uint Reserved;
+}
+
+internal readonly record struct NativeFlashState(
+    uint BackgroundColor,
+    float BackgroundOpacity,
+    uint ForegroundColor,
+    float ForegroundOpacity);
+
+[StructLayout(LayoutKind.Sequential)]
 internal struct NativeTrackTransformEvent
 {
     public const uint FlagX = 1u << 0;

@@ -78,6 +78,7 @@ bool Renderer::RenderHeadlessRgb(
     std::shared_ptr<const IconAssetTable> icon_assets;
     std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
     std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
+    std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
     float camera_x = 0.0f;
     float camera_y = 0.0f;
     constexpr float reference_width = 1280.0f;
@@ -124,6 +125,7 @@ bool Renderer::RenderHeadlessRgb(
         icon_assets = icon_assets_;
         playback_timings = playback_timings_;
         camera_events = camera_events_;
+        flash_events = flash_events_;
         camera_x = camera_x_;
         camera_y = camera_y_;
         zoom = zoom_;
@@ -187,6 +189,7 @@ bool Renderer::RenderHeadlessRgb(
         }
     }
 
+    state->backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), scene_time));
     const auto render_started = std::chrono::steady_clock::now();
     const HRESULT render_result = state->backend.RenderFrameOffscreen(
         visual_time,

@@ -254,6 +254,105 @@ void Renderer::SetSelectionChangedCallback(
     selection_user_data_ = user_data;
 }
 
+bool Renderer::SetFlashTimeline(
+    const EeFlashEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    if (event_count > 0u && events == nullptr)
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::vector<EeFlashEvent>>();
+        if (event_count > 0u)
+            next->assign(events, events + event_count);
+        std::stable_sort(next->begin(), next->end(),
+            [](const EeFlashEvent& a, const EeFlashEvent& b)
+            {
+                if (a.start_time != b.start_time) return a.start_time < b.start_time;
+                return a.source_index < b.source_index;
+            });
+        std::lock_guard lock(scene_mutex_);
+        flash_events_ = std::move(next);
+        return true;
+    }
+    catch (...) { return false; }
+}
+
+namespace
+{
+double FlashOutBounce(double t) noexcept
+{
+    constexpr double n1=7.5625, d1=2.75;
+    if(t<1.0/d1) return n1*t*t;
+    if(t<2.0/d1){t-=1.5/d1;return n1*t*t+0.75;}
+    if(t<2.5/d1){t-=2.25/d1;return n1*t*t+0.9375;}
+    t-=2.625/d1; return n1*t*t+0.984375;
+}
+double ApplyFlashEase(std::uint32_t ease,double t) noexcept
+{
+    t=std::clamp(t,0.0,1.0);
+    constexpr double pi=3.14159265358979323846,c1=1.70158,c2=c1*1.525,c3=c1+1.0,c4=2.0*pi/3.0,c5=2.0*pi/4.5;
+    switch(ease){
+    case EE_CAMERA_EASE_IN_SINE:return 1.0-std::cos(t*pi/2.0);
+    case EE_CAMERA_EASE_OUT_SINE:return std::sin(t*pi/2.0);
+    case EE_CAMERA_EASE_IN_OUT_SINE:return -(std::cos(pi*t)-1.0)/2.0;
+    case EE_CAMERA_EASE_IN_QUAD:return t*t;
+    case EE_CAMERA_EASE_OUT_QUAD:return 1.0-(1.0-t)*(1.0-t);
+    case EE_CAMERA_EASE_IN_OUT_QUAD:return t<0.5?2*t*t:1-std::pow(-2*t+2,2)/2;
+    case EE_CAMERA_EASE_IN_CUBIC:return t*t*t;
+    case EE_CAMERA_EASE_OUT_CUBIC:return 1-std::pow(1-t,3);
+    case EE_CAMERA_EASE_IN_OUT_CUBIC:return t<0.5?4*t*t*t:1-std::pow(-2*t+2,3)/2;
+    case EE_CAMERA_EASE_IN_QUART:return t*t*t*t;
+    case EE_CAMERA_EASE_OUT_QUART:return 1-std::pow(1-t,4);
+    case EE_CAMERA_EASE_IN_OUT_QUART:return t<0.5?8*std::pow(t,4):1-std::pow(-2*t+2,4)/2;
+    case EE_CAMERA_EASE_IN_QUINT:return std::pow(t,5);
+    case EE_CAMERA_EASE_OUT_QUINT:return 1-std::pow(1-t,5);
+    case EE_CAMERA_EASE_IN_OUT_QUINT:return t<0.5?16*std::pow(t,5):1-std::pow(-2*t+2,5)/2;
+    case EE_CAMERA_EASE_IN_EXPO:return t<=0?0:std::pow(2,10*t-10);
+    case EE_CAMERA_EASE_OUT_EXPO:return t>=1?1:1-std::pow(2,-10*t);
+    case EE_CAMERA_EASE_IN_OUT_EXPO:return t<=0?0:t>=1?1:t<0.5?std::pow(2,20*t-10)/2:(2-std::pow(2,-20*t+10))/2;
+    case EE_CAMERA_EASE_IN_CIRC:return 1-std::sqrt(std::max(0.0,1-t*t));
+    case EE_CAMERA_EASE_OUT_CIRC:return std::sqrt(std::max(0.0,1-std::pow(t-1,2)));
+    case EE_CAMERA_EASE_IN_OUT_CIRC:return t<0.5?(1-std::sqrt(std::max(0.0,1-std::pow(2*t,2))))/2:(std::sqrt(std::max(0.0,1-std::pow(-2*t+2,2)))+1)/2;
+    case EE_CAMERA_EASE_IN_BACK:return c3*t*t*t-c1*t*t;
+    case EE_CAMERA_EASE_OUT_BACK:return 1+c3*std::pow(t-1,3)+c1*std::pow(t-1,2);
+    case EE_CAMERA_EASE_IN_OUT_BACK:return t<0.5?std::pow(2*t,2)*((c2+1)*2*t-c2)/2:(std::pow(2*t-2,2)*((c2+1)*(2*t-2)+c2)+2)/2;
+    case EE_CAMERA_EASE_IN_ELASTIC:return t<=0?0:t>=1?1:-std::pow(2,10*t-10)*std::sin((t*10-10.75)*c4);
+    case EE_CAMERA_EASE_OUT_ELASTIC:return t<=0?0:t>=1?1:std::pow(2,-10*t)*std::sin((t*10-0.75)*c4)+1;
+    case EE_CAMERA_EASE_IN_OUT_ELASTIC:return t<=0?0:t>=1?1:t<0.5?-(std::pow(2,20*t-10)*std::sin((20*t-11.125)*c5))/2:std::pow(2,-20*t+10)*std::sin((20*t-11.125)*c5)/2+1;
+    case EE_CAMERA_EASE_IN_BOUNCE:return 1-FlashOutBounce(1-t);
+    case EE_CAMERA_EASE_OUT_BOUNCE:return FlashOutBounce(t);
+    case EE_CAMERA_EASE_IN_OUT_BOUNCE:return t<0.5?(1-FlashOutBounce(1-2*t))/2:(1+FlashOutBounce(2*t-1))/2;
+    default:return t;
+    }
+}
+std::uint32_t LerpFlashColor(std::uint32_t a,std::uint32_t b,double t) noexcept
+{
+    auto ch=[t](std::uint32_t av,std::uint32_t bv){return static_cast<std::uint32_t>(std::clamp(std::lround(static_cast<double>(av)+(static_cast<double>(bv)-av)*t),0l,255l));};
+    const auto r=ch((a>>16)&255u,(b>>16)&255u),g=ch((a>>8)&255u,(b>>8)&255u),bl=ch(a&255u,b&255u);
+    return (r<<16)|(g<<8)|bl;
+}
+FlashLayerState ResolveFlashLayer(const EeFlashEvent& e,double time) noexcept
+{
+    const double raw=e.duration_seconds<=1e-9?1.0:(time-e.start_time)/e.duration_seconds;
+    const double p=ApplyFlashEase(e.ease,raw);
+    return {LerpFlashColor(e.start_color,e.end_color,p),
+        std::clamp(e.start_opacity+(e.end_opacity-e.start_opacity)*static_cast<float>(p),0.0f,1.0f)};
+}
+}
+FlashVisualState ResolveFlashAtTime(const std::vector<EeFlashEvent>* events,double chart_time) noexcept
+{
+    FlashVisualState result;
+    if(events==nullptr) return result;
+    for(const EeFlashEvent& e:*events){
+        if(e.start_time>chart_time) break;
+        const FlashLayerState layer=ResolveFlashLayer(e,chart_time);
+        if(e.plane==EE_FLASH_PLANE_FOREGROUND) result.foreground=layer;
+        else result.background=layer;
+    }
+    return result;
+}
+
 bool Renderer::SetPlaybackTimeline(
     const EePlaybackTiming* timings,
     std::uint32_t timing_count) noexcept
@@ -675,6 +774,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const IconAssetTable> icon_assets;
         std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
         std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
+        std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
@@ -710,6 +810,7 @@ void Renderer::RenderLoop() noexcept
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;
             camera_events = camera_events_;
+            flash_events = flash_events_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
@@ -834,6 +935,7 @@ void Renderer::RenderLoop() noexcept
                     static_cast<double>(width_.load(std::memory_order_relaxed)),
                     static_cast<double>(height_.load(std::memory_order_relaxed))};
             }
+            backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), chart_time));
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(

@@ -137,6 +137,7 @@ HRESULT D2DBackend::RenderFrame(
             1.0f);
         ++stats.draw_calls;
     }
+    DrawBackgroundFlash();
     const auto setup_finished = std::chrono::steady_clock::now();
     stats.draw_setup_ms = std::chrono::duration<double, std::milli>(
         setup_finished - setup_started).count();
@@ -274,6 +275,7 @@ HRESULT D2DBackend::RenderFrame(
         std::max(1.0f, static_cast<float>(height_) - 0.5f));
     d2d_context_->DrawRectangle(border, border_brush_.Get(), 1.0f);
     ++stats.draw_calls;
+    DrawForegroundFlash();
     const auto overlay_finished = std::chrono::steady_clock::now();
     stats.overlay_ms = std::chrono::duration<double, std::milli>(
         overlay_finished - overlay_started).count();

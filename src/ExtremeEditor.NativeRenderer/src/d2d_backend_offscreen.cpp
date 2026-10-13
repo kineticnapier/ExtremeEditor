@@ -240,6 +240,7 @@ HRESULT D2DBackend::RenderFrameOffscreen(
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
     d2d_context_->Clear(D2D1::ColorF(0x14161A));
+    DrawBackgroundFlash();
     HRESULT hr = d2d_context_->EndDraw();
     if (FAILED(hr))
         return hr;
@@ -291,6 +292,7 @@ HRESULT D2DBackend::RenderFrameOffscreen(
         camera_rotation,
         stats);
     DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
+    DrawForegroundFlash();
     hr = d2d_context_->EndDraw();
     if (FAILED(hr))
         return hr;

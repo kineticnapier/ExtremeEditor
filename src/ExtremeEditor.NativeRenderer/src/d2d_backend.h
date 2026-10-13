@@ -36,6 +36,18 @@ struct PlaybackVisualState
     bool stationary_is_red = true;
 };
 
+struct FlashLayerState
+{
+    std::uint32_t color = 0u;
+    float opacity = 0.0f;
+};
+
+struct FlashVisualState
+{
+    FlashLayerState background;
+    FlashLayerState foreground;
+};
+
 struct RenderFrameStats
 {
     double cull_ms = 0.0;
@@ -70,6 +82,7 @@ public:
     void Shutdown() noexcept;
     bool Resize(std::uint32_t width, std::uint32_t height) noexcept;
     bool ResizeOffscreen(std::uint32_t width, std::uint32_t height) noexcept;
+    void SetFlashState(const FlashVisualState& state) noexcept { flash_state_ = state; }
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -203,6 +216,22 @@ private:
         float zoom,
         std::int32_t selected_floor,
         RenderFrameStats& stats) noexcept;
+    void DrawFlashLayer(const FlashLayerState& layer) noexcept
+    {
+        if (layer.opacity <= 0.000001f || !d2d_context_)
+            return;
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+        if (FAILED(d2d_context_->CreateSolidColorBrush(
+                D2D1::ColorF(layer.color, std::clamp(layer.opacity, 0.0f, 1.0f)),
+                brush.GetAddressOf())))
+            return;
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+        d2d_context_->FillRectangle(
+            D2D1::RectF(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_)),
+            brush.Get());
+    }
+    void DrawBackgroundFlash() noexcept { DrawFlashLayer(flash_state_.background); }
+    void DrawForegroundFlash() noexcept { DrawFlashLayer(flash_state_.foreground); }
     void DrawPlaybackPlanets(
         const PlaybackVisualState& playback,
         float camera_x,
@@ -218,6 +247,7 @@ private:
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
+    FlashVisualState flash_state_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;

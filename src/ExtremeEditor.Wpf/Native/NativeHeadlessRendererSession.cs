@@ -183,6 +183,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
     {
         UploadArray(prepared.PlaybackTimeline, NativeRendererNative.SetPlaybackTimeline, "playback");
         UploadArray(prepared.CameraTimeline, NativeRendererNative.SetCameraTimeline, "camera");
+        UploadArray(prepared.FlashTimeline, NativeRendererNative.SetFlashTimeline, "flash");
         UploadArray(prepared.TrackTransformTimeline, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
         UploadArray(prepared.TrackVisualTimeline, NativeRendererNative.SetTrackVisualTimeline, "track-visual");
         UploadTrackAnimation(prepared.TrackAnimationTimeline, prepared.TrackAnimationTimings);
