@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SET_FILTER_RUNTIME_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                SetFilterRuntimeRegression.Run();
+                Console.WriteLine("PASS: SetFilter runtime regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SCREEN_TILE_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))
