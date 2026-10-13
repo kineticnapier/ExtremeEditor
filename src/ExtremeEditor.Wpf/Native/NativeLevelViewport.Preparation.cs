@@ -15,6 +15,7 @@ internal readonly record struct PreparedNativePlayback(
     NativeBloomEvent[] BloomTimeline,
     NativeScreenTileEvent[] ScreenTileTimeline,
     NativeFilterEvent[] FilterTimeline,
+    NativeBackgroundEvent[] BackgroundTimeline,
     NativeTrackTransformEvent[] TrackTransformTimeline,
     NativeTrackVisualEvent[] TrackVisualTimeline,
     NativeTrackAnimationSegment[] TrackAnimationTimeline,
@@ -67,6 +68,7 @@ public sealed partial class NativeLevelViewport
         NativeBloomEvent[] bloomTimeline = BloomTimelineBuilder.Build(level, timingMap);
         NativeScreenTileEvent[] screenTileTimeline = ScreenTileTimelineBuilder.Build(level, timingMap);
         NativeFilterEvent[] filterTimeline = FilterTimelineBuilder.Build(level, timingMap);
+        NativeBackgroundEvent[] backgroundTimeline = BackgroundTimelineBuilder.Build(level, timingMap);
         StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
         NativeTrackTransformEvent[] trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
             level,
@@ -84,6 +86,7 @@ public sealed partial class NativeLevelViewport
             bloomTimeline,
             screenTileTimeline,
             filterTimeline,
+            backgroundTimeline,
             trackTransformTimeline,
             trackVisualTimeline,
             trackAnimationTimeline,
