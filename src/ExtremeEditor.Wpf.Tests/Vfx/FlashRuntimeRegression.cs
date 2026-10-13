@@ -44,7 +44,7 @@ internal static class FlashRuntimeRegression
         [
             Flash(1, 0, true, "Background", "ff0000", 100, "0000ff", 0, 1.0, 0, "Linear"),
             Flash(1, 1, true, "Foreground", "00ff00", 80, "000000", 0, 2.0, 0, "Linear"),
-            Flash(1, 2, true, "Background", "ffffff", 50, "101010", 25, 1.0, 90, "Linear"),
+            Flash(1, 2, true, "Background", "ffffff", 50, "101010", 25, 1.0, 180, "Linear"),
             Flash(2, 3, false, "Foreground", "ff00ff", 100, "ff00ff", 100, 1.0, 0, "Linear"),
             Flash(3, 4, true, "Foreground", "112233", 60, "445566", 20, 0.0, 0, "Linear")
         ]);
