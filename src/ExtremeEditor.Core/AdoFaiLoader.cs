@@ -127,7 +127,7 @@ public static partial class AdoFaiLoader
                     Duration = ReadLooseDoubleProperty(action, "duration"),
                     TargetTag = ReadLooseString(action, "tag"),
                     EventTag = ReadLooseString(action, "eventTag"),
-                    SourceProperties = string.Equals(type, "MoveDecorations", StringComparison.Ordinal)
+                    SourceProperties = type is "MoveDecorations" or "RepeatEvents" or "CustomBackground"
                         ? JsonNode.Parse(action.GetRawText()) as JsonObject
                         : null,
                     SourceIndex = sourceIndex
