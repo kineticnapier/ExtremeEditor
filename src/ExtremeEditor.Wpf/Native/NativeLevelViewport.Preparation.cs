@@ -13,6 +13,7 @@ internal readonly record struct PreparedNativePlayback(
     NativeCameraEvent[] CameraTimeline,
     NativeFlashEvent[] FlashTimeline,
     NativeBloomEvent[] BloomTimeline,
+    NativeScreenTileEvent[] ScreenTileTimeline,
     NativeTrackTransformEvent[] TrackTransformTimeline,
     NativeTrackVisualEvent[] TrackVisualTimeline,
     NativeTrackAnimationSegment[] TrackAnimationTimeline,
@@ -62,6 +63,7 @@ public sealed partial class NativeLevelViewport
         NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(level, timingMap, cameraTimeline);
         NativeFlashEvent[] flashTimeline = FlashTimelineBuilder.Build(level, timingMap);
         NativeBloomEvent[] bloomTimeline = BloomTimelineBuilder.Build(level, timingMap);
+        NativeScreenTileEvent[] screenTileTimeline = ScreenTileTimelineBuilder.Build(level, timingMap);
         StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
         NativeTrackTransformEvent[] trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
             level,
@@ -77,6 +79,7 @@ public sealed partial class NativeLevelViewport
             cameraTimeline,
             flashTimeline,
             bloomTimeline,
+            screenTileTimeline,
             trackTransformTimeline,
             trackVisualTimeline,
             trackAnimationTimeline,
@@ -98,6 +101,7 @@ public sealed partial class NativeLevelViewport
             _cameraTimeline = [];
             _flashTimeline = [];
             _bloomTimeline = [];
+            _screenTileTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
             _trackAnimationTimeline = [];
@@ -130,6 +134,7 @@ public sealed partial class NativeLevelViewport
         _cameraTimeline = prepared.CameraTimeline;
         _flashTimeline = prepared.FlashTimeline;
         _bloomTimeline = prepared.BloomTimeline;
+        _screenTileTimeline = prepared.ScreenTileTimeline;
         _trackTransformTimeline = prepared.TrackTransformTimeline;
         _trackVisualTimeline = prepared.TrackVisualTimeline;
         _trackAnimationTimeline = prepared.TrackAnimationTimeline;
@@ -140,6 +145,7 @@ public sealed partial class NativeLevelViewport
         UploadPendingCameraTimeline();
         UploadPendingFlashTimeline();
         UploadPendingBloomTimeline();
+        UploadPendingScreenTileTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
         UploadPendingTrackAnimationTimeline();

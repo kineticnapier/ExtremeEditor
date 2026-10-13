@@ -436,6 +436,161 @@ BloomVisualState ResolveBloomAtTime(
     return result;
 }
 
+bool Renderer::SetScreenTileTimeline(
+    const EeScreenTileEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    if (event_count > 0u && events == nullptr)
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::vector<EeScreenTileEvent>>();
+        if (event_count > 0u)
+            next->assign(events, events + event_count);
+        std::stable_sort(
+            next->begin(),
+            next->end(),
+            [](const EeScreenTileEvent& left, const EeScreenTileEvent& right)
+            {
+                if (left.start_time != right.start_time)
+                    return left.start_time < right.start_time;
+                return left.source_index < right.source_index;
+            });
+        std::lock_guard lock(scene_mutex_);
+        screen_tile_events_ = std::move(next);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+ScreenTileVisualState ResolveScreenTileAtTime(
+    const std::vector<EeScreenTileEvent>* events,
+    double chart_time) noexcept
+{
+    ScreenTileVisualState result;
+    if (events == nullptr)
+        return result;
+
+    struct AxisTween
+    {
+        bool active = false;
+        double start_time = 0.0;
+        double duration = 0.0;
+        float start_value = 1.0f;
+        float target_value = 1.0f;
+        std::uint32_t ease = EE_CAMERA_EASE_LINEAR;
+    };
+
+    AxisTween x_tween;
+    AxisTween y_tween;
+    auto eval_axis = [](const AxisTween& tween, double time)
+    {
+        if (!tween.active)
+            return tween.target_value;
+        const double raw = tween.duration <= 1e-9
+            ? 1.0
+            : (time - tween.start_time) / tween.duration;
+        const double p = ApplyFlashEase(tween.ease, raw);
+        return tween.start_value +
+            (tween.target_value - tween.start_value) * static_cast<float>(p);
+    };
+
+    float x = 1.0f;
+    float y = 1.0f;
+    bool enabled = false;
+
+    for (const EeScreenTileEvent& item : *events)
+    {
+        if (item.start_time > chart_time)
+            break;
+
+        if (x_tween.active && item.start_time >= x_tween.start_time + x_tween.duration)
+        {
+            x = x_tween.target_value;
+            x_tween.active = false;
+        }
+        else if (x_tween.active)
+        {
+            x = eval_axis(x_tween, item.start_time);
+        }
+
+        if (y_tween.active && item.start_time >= y_tween.start_time + y_tween.duration)
+        {
+            y = y_tween.target_value;
+            y_tween.active = false;
+            if (std::abs(y - 1.0f) <= 1e-6f && std::abs(x - 1.0f) <= 1e-6f)
+                enabled = false;
+        }
+        else if (y_tween.active)
+        {
+            y = eval_axis(y_tween, item.start_time);
+        }
+
+        if (item.duration_seconds <= 1e-9)
+        {
+            x = item.target_x;
+            y = item.target_y;
+            enabled = std::abs(x - 1.0f) > 1e-6f || std::abs(y - 1.0f) > 1e-6f;
+            continue;
+        }
+
+        // Stock Kill(true): finish both previous property tweens before starting
+        // the replacement tween from those completed values.
+        if (x_tween.active)
+        {
+            x = x_tween.target_value;
+            x_tween.active = false;
+        }
+        if (y_tween.active)
+        {
+            y = y_tween.target_value;
+            y_tween.active = false;
+        }
+
+        if ((item.flags & EE_SCREEN_TILE_ENABLE_BEFORE_TWEEN) != 0u)
+            enabled = true;
+
+        x_tween = {true, item.start_time, item.duration_seconds, x, item.target_x, item.ease};
+        y_tween = {true, item.start_time, item.duration_seconds, y, item.target_y, item.ease};
+    }
+
+    if (x_tween.active)
+    {
+        if (chart_time >= x_tween.start_time + x_tween.duration)
+        {
+            x = x_tween.target_value;
+            x_tween.active = false;
+        }
+        else
+        {
+            x = eval_axis(x_tween, chart_time);
+        }
+    }
+
+    if (y_tween.active)
+    {
+        if (chart_time >= y_tween.start_time + y_tween.duration)
+        {
+            y = y_tween.target_value;
+            y_tween.active = false;
+            if (std::abs(x - 1.0f) <= 1e-6f && std::abs(y - 1.0f) <= 1e-6f)
+                enabled = false;
+        }
+        else
+        {
+            y = eval_axis(y_tween, chart_time);
+        }
+    }
+
+    result.enabled = enabled;
+    result.tile_x = x;
+    result.tile_y = y;
+    return result;
+}
+
 bool Renderer::SetPlaybackTimeline(
     const EePlaybackTiming* timings,
     std::uint32_t timing_count) noexcept
@@ -859,6 +1014,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
         std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
         std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
+        std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
@@ -896,6 +1052,7 @@ void Renderer::RenderLoop() noexcept
             camera_events = camera_events_;
             flash_events = flash_events_;
             bloom_events = bloom_events_;
+            screen_tile_events = screen_tile_events_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
@@ -1022,6 +1179,7 @@ void Renderer::RenderLoop() noexcept
             }
             backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), chart_time));
             backend.SetBloomState(ResolveBloomAtTime(bloom_events.get(), chart_time));
+            backend.SetScreenTileState(ResolveScreenTileAtTime(screen_tile_events.get(), chart_time));
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(

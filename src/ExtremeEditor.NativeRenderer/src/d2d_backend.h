@@ -56,6 +56,13 @@ struct BloomVisualState
     std::uint32_t tint = 0xffffffu;
 };
 
+struct ScreenTileVisualState
+{
+    bool enabled = false;
+    float tile_x = 1.0f;
+    float tile_y = 1.0f;
+};
+
 struct RenderFrameStats
 {
     double cull_ms = 0.0;
@@ -92,6 +99,7 @@ public:
     bool ResizeOffscreen(std::uint32_t width, std::uint32_t height) noexcept;
     void SetFlashState(const FlashVisualState& state) noexcept { flash_state_ = state; }
     void SetBloomState(const BloomVisualState& state) noexcept { bloom_state_ = state; }
+    void SetScreenTileState(const ScreenTileVisualState& state) noexcept { screen_tile_state_ = state; }
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -258,6 +266,7 @@ private:
     std::uint32_t height_ = 1;
     FlashVisualState flash_state_{};
     BloomVisualState bloom_state_{};
+    ScreenTileVisualState screen_tile_state_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;

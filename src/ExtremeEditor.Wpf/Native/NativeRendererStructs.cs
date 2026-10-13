@@ -264,6 +264,28 @@ internal readonly record struct NativeBloomState(
     uint Tint);
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeScreenTileEvent
+{
+    public const uint FlagInstantPreservesExistingTween = 1u << 0;
+    public const uint FlagEnableBeforeTween = 1u << 1;
+    public const uint FlagDisableOnComplete = 1u << 2;
+
+    public double StartTime;
+    public double DurationSeconds;
+    public float TargetX;
+    public float TargetY;
+    public uint Ease;
+    public int SourceIndex;
+    public uint Flags;
+    public uint Reserved;
+}
+
+internal readonly record struct NativeScreenTileState(
+    bool Enabled,
+    float TileX,
+    float TileY);
+
+[StructLayout(LayoutKind.Sequential)]
 internal struct NativeTrackTransformEvent
 {
     public const uint FlagX = 1u << 0;

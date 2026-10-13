@@ -363,6 +363,19 @@ EeResult ee_renderer_set_bloom_timeline(
         : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_set_screen_tile_timeline(
+    EeRendererHandle renderer,
+    const EeScreenTileEvent* events,
+    uint32_t event_count)
+{
+    if (renderer == nullptr || (event_count > 0 && events == nullptr))
+        return EE_ERROR_INVALID_ARGUMENT;
+
+    return static_cast<ee::Renderer*>(renderer)->SetScreenTileTimeline(events, event_count)
+        ? EE_OK
+        : EE_ERROR_INITIALIZATION;
+}
+
 EeResult ee_renderer_set_track_transform_timeline(
     EeRendererHandle renderer,
     const EeTrackTransformEvent* events,

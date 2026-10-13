@@ -34,6 +34,9 @@
 #define EE_CAMERA_APPLY_ZOOM 0x800u
 #define EE_FLASH_PLANE_BACKGROUND 0u
 #define EE_FLASH_PLANE_FOREGROUND 1u
+#define EE_SCREEN_TILE_INSTANT_PRESERVES_EXISTING_TWEEN 0x1u
+#define EE_SCREEN_TILE_ENABLE_BEFORE_TWEEN 0x2u
+#define EE_SCREEN_TILE_DISABLE_ON_COMPLETE 0x4u
 #define EE_TRACK_VISUAL_ENABLED 0x80000000u
 #define EE_TRACK_VISUAL_COLOR_TYPE_MASK 0x7u
 #define EE_TRACK_VISUAL_STYLE_SHIFT 3u
@@ -314,6 +317,18 @@ typedef struct EeBloomEvent
     int32_t source_index;
 } EeBloomEvent;
 
+typedef struct EeScreenTileEvent
+{
+    double start_time;
+    double duration_seconds;
+    float target_x;
+    float target_y;
+    uint32_t ease;
+    int32_t source_index;
+    uint32_t flags;
+    uint32_t reserved;
+} EeScreenTileEvent;
+
 typedef struct EeTrackTransformEvent
 {
     double start_time;
@@ -456,6 +471,7 @@ EE_RENDERER_API EeResult ee_renderer_set_playback_timeline(EeRendererHandle rend
 EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(EeRendererHandle renderer, const EeCameraEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_flash_timeline(EeRendererHandle renderer, const EeFlashEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_bloom_timeline(EeRendererHandle renderer, const EeBloomEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_screen_tile_timeline(EeRendererHandle renderer, const EeScreenTileEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(

@@ -300,6 +300,9 @@ internal sealed class NativeRendererSession : IDisposable
     internal void SetBloomTimeline(NativeBloomEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetBloomTimeline, "bloom");
 
+    internal void SetScreenTileTimeline(NativeScreenTileEvent[] events) =>
+        UploadArray(events, NativeRendererNative.SetScreenTileTimeline, "screen-tile");
+
     internal void SetTrackTransformTimeline(NativeTrackTransformEvent[] events) =>
         UploadArray(events, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
 
