@@ -1015,6 +1015,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
         std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
         std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
+        std::shared_ptr<const std::vector<EeFilterEvent>> filter_events;
         float camera_x = 0.0f;
         float camera_y = 0.0f;
         float zoom = 28.0f;
@@ -1053,6 +1054,7 @@ void Renderer::RenderLoop() noexcept
             flash_events = flash_events_;
             bloom_events = bloom_events_;
             screen_tile_events = screen_tile_events_;
+            filter_events = filter_events_;
             camera_x = camera_x_;
             camera_y = camera_y_;
             zoom = zoom_;
@@ -1180,6 +1182,7 @@ void Renderer::RenderLoop() noexcept
             backend.SetFlashState(ResolveFlashAtTime(flash_events.get(), chart_time));
             backend.SetBloomState(ResolveBloomAtTime(bloom_events.get(), chart_time));
             backend.SetScreenTileState(ResolveScreenTileAtTime(screen_tile_events.get(), chart_time));
+            backend.SetFilterState(ResolveFilterStateAtTime(filter_events.get(), chart_time));
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(
