@@ -39,6 +39,12 @@
 #define EE_SCREEN_TILE_DISABLE_ON_COMPLETE 0x4u
 #define EE_FILTER_DISABLE_OTHERS 0x1u
 #define EE_FILTER_LEGACY_TWEEN 0x2u
+#define EE_BACKGROUND_DISPLAY_FIT_TO_SCREEN 0u
+#define EE_BACKGROUND_DISPLAY_UNSCALED 1u
+#define EE_BACKGROUND_DISPLAY_TILED 2u
+#define EE_BACKGROUND_IMAGE_SMOOTHING 0x1u
+#define EE_BACKGROUND_LOCK_ROTATION 0x2u
+#define EE_BACKGROUND_LOOP 0x4u
 #define EE_TRACK_VISUAL_ENABLED 0x80000000u
 #define EE_TRACK_VISUAL_COLOR_TYPE_MASK 0x7u
 #define EE_TRACK_VISUAL_STYLE_SHIFT 3u
@@ -331,6 +337,26 @@ typedef struct EeScreenTileEvent
     uint32_t reserved;
 } EeScreenTileEvent;
 
+typedef struct EeBackgroundState
+{
+    uint32_t color;
+    uint32_t image_color;
+    uint32_t image_id;
+    uint32_t display_mode;
+    float parallax_x;
+    float parallax_y;
+    float scaling_ratio;
+    uint32_t flags;
+} EeBackgroundState;
+
+typedef struct EeBackgroundEvent
+{
+    double start_time;
+    EeBackgroundState state;
+    int32_t source_index;
+    uint32_t reserved;
+} EeBackgroundEvent;
+
 typedef struct EeFilterEvent
 {
     double start_time;
@@ -487,6 +513,8 @@ EE_RENDERER_API EeResult ee_renderer_set_flash_timeline(EeRendererHandle rendere
 EE_RENDERER_API EeResult ee_renderer_set_bloom_timeline(EeRendererHandle renderer, const EeBloomEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_screen_tile_timeline(EeRendererHandle renderer, const EeScreenTileEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_filter_timeline(EeRendererHandle renderer, const EeFilterEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_background_timeline(EeRendererHandle renderer, const EeBackgroundEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_background_asset(EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(
