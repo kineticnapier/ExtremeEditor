@@ -63,6 +63,18 @@ struct ScreenTileVisualState
     float tile_y = 1.0f;
 };
 
+struct FilterVisualEntry
+{
+    bool enabled = false;
+    float intensity = 0.0f;
+    float applied_value = 0.0f;
+};
+
+struct FilterVisualState
+{
+    FilterVisualEntry entries[41]{};
+};
+
 struct RenderFrameStats
 {
     double cull_ms = 0.0;
@@ -100,6 +112,7 @@ public:
     void SetFlashState(const FlashVisualState& state) noexcept { flash_state_ = state; }
     void SetBloomState(const BloomVisualState& state) noexcept { bloom_state_ = state; }
     void SetScreenTileState(const ScreenTileVisualState& state) noexcept { screen_tile_state_ = state; }
+    void SetFilterState(const FilterVisualState& state) noexcept { filter_state_ = state; }
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -267,6 +280,7 @@ private:
     FlashVisualState flash_state_{};
     BloomVisualState bloom_state_{};
     ScreenTileVisualState screen_tile_state_{};
+    FilterVisualState filter_state_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
