@@ -591,6 +591,36 @@ ScreenTileVisualState ResolveScreenTileAtTime(
     return result;
 }
 
+bool Renderer::SetFilterTimeline(
+    const EeFilterEvent* events,
+    std::uint32_t event_count) noexcept
+{
+    if (event_count > 0u && events == nullptr)
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::vector<EeFilterEvent>>();
+        if (event_count > 0u)
+            next->assign(events, events + event_count);
+        std::stable_sort(
+            next->begin(),
+            next->end(),
+            [](const EeFilterEvent& left, const EeFilterEvent& right)
+            {
+                if (left.start_time != right.start_time)
+                    return left.start_time < right.start_time;
+                return left.source_index < right.source_index;
+            });
+        std::lock_guard lock(scene_mutex_);
+        filter_events_ = std::move(next);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 bool Renderer::SetPlaybackTimeline(
     const EePlaybackTiming* timings,
     std::uint32_t timing_count) noexcept
