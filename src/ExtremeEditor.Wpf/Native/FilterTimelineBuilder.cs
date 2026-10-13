@@ -153,8 +153,15 @@ internal static class FilterStateEvaluator
         }
 
         var result = new NativeFilterState[41];
-        for (uint i = 0; i < result.Length; i++)
-            result[i] = new NativeFilterState(i, enabled[i], intensity[i], ApplyFilterIntensity(i, intensity[i]));
+        for (int i = 0; i < result.Length; i++)
+        {
+            uint filter = checked((uint)i);
+            result[i] = new NativeFilterState(
+                filter,
+                enabled[i],
+                intensity[i],
+                ApplyFilterIntensity(filter, intensity[i]));
+        }
         return result;
     }
 
