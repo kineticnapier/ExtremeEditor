@@ -172,4 +172,4 @@ private:
 FlashVisualState ResolveFlashAtTime(
     const std::vector<EeFlashEvent>* events,
     double chart_time) noexcept;
-}}
+}
