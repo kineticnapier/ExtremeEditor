@@ -17,6 +17,8 @@ internal sealed class NativeLevelSnapshot
     public NativeStaticDecoration[] StaticDecorations { get; set; } = [];
     public NativeDecorationAsset[] DecorationAssets { get; set; } = [];
     public NativeDecorationPlaybackRuntime? DecorationPlayback { get; set; }
+    public NativeBackgroundState BackgroundState { get; set; }
+    public NativeBackgroundAsset[] BackgroundAssets { get; set; } = [];
     public required float BoundsLeft { get; init; }
     public required float BoundsTop { get; init; }
     public required float BoundsRight { get; init; }
