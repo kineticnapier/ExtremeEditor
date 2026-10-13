@@ -23,6 +23,7 @@ struct HeadlessRendererState;
 struct FlashVisualState;
 struct BloomVisualState;
 struct ScreenTileVisualState;
+struct FilterVisualState;
 
 class Renderer
 {
@@ -68,6 +69,7 @@ public:
     bool SetFlashTimeline(const EeFlashEvent* events, std::uint32_t event_count) noexcept;
     bool SetBloomTimeline(const EeBloomEvent* events, std::uint32_t event_count) noexcept;
     bool SetScreenTileTimeline(const EeScreenTileEvent* events, std::uint32_t event_count) noexcept;
+    bool SetFilterTimeline(const EeFilterEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackAnimationTimeline(
@@ -129,6 +131,8 @@ private:
         std::make_shared<std::vector<EeBloomEvent>>();
     std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events_ =
         std::make_shared<std::vector<EeScreenTileEvent>>();
+    std::shared_ptr<const std::vector<EeFilterEvent>> filter_events_ =
+        std::make_shared<std::vector<EeFilterEvent>>();
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
@@ -185,5 +189,8 @@ BloomVisualState ResolveBloomAtTime(
     double chart_time) noexcept;
 ScreenTileVisualState ResolveScreenTileAtTime(
     const std::vector<EeScreenTileEvent>* events,
+    double chart_time) noexcept;
+FilterVisualState ResolveFilterStateAtTime(
+    const std::vector<EeFilterEvent>* events,
     double chart_time) noexcept;
 }
