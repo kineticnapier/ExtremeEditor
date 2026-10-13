@@ -130,6 +130,9 @@ public static partial class AdoFaiLoader
                     SourceProperties = type is "MoveDecorations" or "RepeatEvents" or "CustomBackground"
                         ? JsonNode.Parse(action.GetRawText()) as JsonObject
                         : null,
+                    PropertyOverrides = type == "CustomBackground"
+                        ? JsonNode.Parse(action.GetRawText()) as JsonObject
+                        : null,
                     SourceIndex = sourceIndex
                 });
                 sourceIndex++;
