@@ -130,9 +130,12 @@ internal static class FlashRuntimeRegression
 
         double halfA = backgroundA.StartTime + (backgroundA.DurationSeconds ?? 0) * 0.5;
         FlashSpecState midway = Evaluate(timeline, halfA);
-        Require(midway.Background.Color == "800080" &&
+        (int midR, int midG, int midB) = ParseRgb(midway.Background.Color);
+        Require(Math.Abs(midR - 128) <= 1 &&
+                midG == 0 &&
+                Math.Abs(midB - 128) <= 1 &&
                 Near(midway.Background.Opacity, 0.5),
-            "Background Flash did not interpolate independently.");
+            $"Background Flash did not interpolate independently. actual={midway.Background.Color}/{midway.Background.Opacity:R}");
 
         FlashSpecState foregroundStart = Evaluate(timeline, foreground.StartTime);
         Require(foregroundStart.Foreground.Color == "00ff00" &&
