@@ -486,6 +486,7 @@ EE_RENDERER_API EeResult ee_renderer_set_camera_timeline(EeRendererHandle render
 EE_RENDERER_API EeResult ee_renderer_set_flash_timeline(EeRendererHandle renderer, const EeFlashEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_bloom_timeline(EeRendererHandle renderer, const EeBloomEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_screen_tile_timeline(EeRendererHandle renderer, const EeScreenTileEvent* events, uint32_t event_count);
+EE_RENDERER_API EeResult ee_renderer_set_filter_timeline(EeRendererHandle renderer, const EeFilterEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(
