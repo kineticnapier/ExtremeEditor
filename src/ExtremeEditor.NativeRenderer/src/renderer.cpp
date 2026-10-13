@@ -591,6 +591,58 @@ ScreenTileVisualState ResolveScreenTileAtTime(
     return result;
 }
 
+bool Renderer::SetBackgroundTimeline(
+    const EeBackgroundEvent* events, std::uint32_t event_count) noexcept
+{
+    if (event_count > 0u && events == nullptr)
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::vector<EeBackgroundEvent>>();
+        if (event_count > 0u)
+            next->assign(events, events + event_count);
+        std::stable_sort(next->begin(), next->end(),
+            [](const EeBackgroundEvent& a, const EeBackgroundEvent& b) {
+                if (a.start_time != b.start_time)
+                    return a.start_time < b.start_time;
+                return a.source_index < b.source_index;
+            });
+        std::lock_guard lock(scene_mutex_);
+        background_events_ = std::move(next);
+        return true;
+    }
+    catch (...) { return false; }
+}
+
+EeBackgroundState ResolveBackgroundAtTime(
+    const std::vector<EeBackgroundEvent>* events, double chart_time) noexcept
+{
+    EeBackgroundState state{};
+    state.color = 0xff000000u;
+    state.image_color = 0xffffffffu;
+    state.parallax_x = 100.0f;
+    state.parallax_y = 100.0f;
+    state.scaling_ratio = 100.0f;
+    if (events == nullptr)
+        return state;
+    for (const auto& event : *events)
+    {
+        if (event.start_time > chart_time)
+            break;
+        state = event.state;
+    }
+    return state;
+}
+
+bool Renderer::SetBackgroundAsset(
+    std::uint32_t asset_id, const wchar_t* image_path) noexcept
+{
+    // Asset decoding and GPU upload are a separate step.
+    (void)asset_id;
+    (void)image_path;
+    return false;
+}
+
 bool Renderer::SetFilterTimeline(
     const EeFilterEvent* events,
     std::uint32_t event_count) noexcept
