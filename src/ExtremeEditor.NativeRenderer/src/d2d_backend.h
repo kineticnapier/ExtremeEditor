@@ -115,6 +115,9 @@ public:
     void SetFilterState(const FilterVisualState& state) noexcept { filter_state_ = state; }
     void SetBackgroundState(const EeBackgroundState& state) noexcept { background_state_ = state; }
     void DrawBackground() noexcept;
+    void SyncBackgroundAssets(
+        const std::unordered_map<std::uint32_t, std::wstring>* paths,
+        std::uint64_t version) noexcept;
     bool SyncStaticDecorations(
         const std::vector<EeStaticDecoration>* decorations,
         std::uint64_t decorations_version,
@@ -284,6 +287,9 @@ private:
     ScreenTileVisualState screen_tile_state_{};
     FilterVisualState filter_state_{};
     EeBackgroundState background_state_{ 0xff14161au, 0xffffffffu, 0u, 0u, 100.f, 100.f, 100.f, 0u };
+    std::unordered_map<std::uint32_t, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> background_bitmaps_;
+    std::unordered_map<std::uint32_t, std::wstring> background_asset_paths_;
+    std::uint64_t cached_background_assets_version_ = std::numeric_limits<std::uint64_t>::max();
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
