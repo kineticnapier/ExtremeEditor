@@ -1,106 +1,121 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
 
-internal readonly record struct PreparedNativeLevel(
-    NativeLevelSnapshot Snapshot,
-    NativeLevelSnapshotBuildMetrics BuildMetrics,
-    TimeSpan BuildTime);
+internal readonly record struct NativeLevelUploadMetrics(
+    TimeSpan SnapshotBuild,
+    TimeSpan NativeUpload,
+    TimeSpan SnapshotFloorGeometry,
+    TimeSpan SnapshotIcons,
+    TimeSpan SnapshotFinalize,
+    int GeometryCount,
+    int IconAssetCount,
+    int ActionFloorCount);
 
-internal readonly record struct PreparedNativePlayback(
-    NativePlaybackTiming[] PlaybackTimeline,
-    NativeCameraEvent[] CameraTimeline,
-    NativeFlashEvent[] FlashTimeline,
-    NativeBloomEvent[] BloomTimeline,
-    NativeScreenTileEvent[] ScreenTileTimeline,
-    NativeFilterEvent[] FilterTimeline,
-    NativeBackgroundEvent[] BackgroundTimeline,
-    NativeTrackTransformEvent[] TrackTransformTimeline,
-    NativeTrackVisualEvent[] TrackVisualTimeline,
-    NativeTrackAnimationSegment[] TrackAnimationTimeline,
-    NativeTrackAnimationTiming[] TrackAnimationTimings,
-    TimeSpan BuildTime);
+internal readonly record struct NativePlaybackTimelineUploadMetrics(
+    TimeSpan TimelineBuild,
+    TimeSpan NativeUpload);
 
-public sealed partial class NativeLevelViewport
+internal sealed class NativeFloorSelectionRequestedEventArgs : RoutedEventArgs
 {
-    internal static PreparedNativeLevel PrepareLevel(LevelDocument level)
+    internal NativeFloorSelectionRequestedEventArgs(RoutedEvent routedEvent, int floor, ModifierKeys modifiers)
+        : base(routedEvent)
     {
-        ArgumentNullException.ThrowIfNull(level);
-        NativeLevelUpdateDiagnostics.RecordPrepareLevel();
-
-        Console.WriteLine(
-            $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
-
-        if (DecorationDiagnostics.Enabled)
-            DecorationBlendDiagnostics.Log(level);
-
-        var totalWatch = Stopwatch.StartNew();
-        var phaseWatch = Stopwatch.StartNew();
-        NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
-        phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
-
-        phaseWatch.Restart();
-        StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
-        result.Snapshot.StaticDecorations = decorationData.Instances;
-        result.Snapshot.DecorationAssets = decorationData.Assets;
-        result.Snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
-        result.Snapshot.BackgroundState = BackgroundNativeEncoding.Encode(BackgroundSourceReader.ReadInitial(level));
-        phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
-
-        totalWatch.Stop();
-        Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
-        return new PreparedNativeLevel(result.Snapshot, result.Metrics, totalWatch.Elapsed);
+        Floor = floor;
+        Modifiers = modifiers;
     }
 
-    internal static PreparedNativePlayback PreparePlayback(LevelDocument level, TimingMap timingMap)
+    internal int Floor { get; }
+    internal ModifierKeys Modifiers { get; }
+}
+
+internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
+{
+    internal NativeEditorActionRequestedEventArgs(RoutedEvent routedEvent, NativeEditorActionRequest request)
+        : base(routedEvent)
     {
-        ArgumentNullException.ThrowIfNull(level);
-        ArgumentNullException.ThrowIfNull(timingMap);
-
-        var watch = Stopwatch.StartNew();
-        NativePlaybackTiming[] playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
-        NativeCameraEvent[] cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(level, timingMap);
-        NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(level, timingMap, cameraTimeline);
-        NativeFlashEvent[] flashTimeline = FlashTimelineBuilder.Build(level, timingMap);
-        NativeBloomEvent[] bloomTimeline = BloomTimelineBuilder.Build(level, timingMap);
-        NativeScreenTileEvent[] screenTileTimeline = ScreenTileTimelineBuilder.Build(level, timingMap);
-        NativeFilterEvent[] filterTimeline = FilterTimelineBuilder.Build(level, timingMap);
-        NativeBackgroundEvent[] backgroundTimeline = BackgroundTimelineBuilder.Build(level, timingMap);
-        StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(level);
-        NativeTrackTransformEvent[] trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(
-            level,
-            timingMap,
-            staticTransforms);
-        NativeTrackVisualEvent[] trackVisualTimeline = TrackVisualTimelineBuilder.Build(level, timingMap);
-        (NativeTrackAnimationSegment[] trackAnimationTimeline, NativeTrackAnimationTiming[] trackAnimationTimings) =
-            TrackAnimationTimelineBuilder.Build(level, timingMap);
-        watch.Stop();
-
-        return new PreparedNativePlayback(
-            playbackTimeline,
-            cameraTimeline,
-            flashTimeline,
-            bloomTimeline,
-            screenTileTimeline,
-            filterTimeline,
-            backgroundTimeline,
-            trackTransformTimeline,
-            trackVisualTimeline,
-            trackAnimationTimeline,
-            trackAnimationTimings,
-            watch.Elapsed);
+        Request = request;
     }
 
-    internal void SetPreparedLevel(LevelDocument level, PreparedNativeLevel prepared)
+    internal NativeEditorActionRequest Request { get; }
+}
+
+public sealed partial class NativeLevelViewport : HwndHost
+{
+    private const float PlaybackReferenceHeight = 560f;
+
+    internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
+        "FloorSelectionRequested",
+        RoutingStrategy.Bubble,
+        typeof(EventHandler<NativeFloorSelectionRequestedEventArgs>),
+        typeof(NativeLevelViewport));
+
+    internal static readonly RoutedEvent EditorActionRequestedEvent = EventManager.RegisterRoutedEvent(
+        "EditorActionRequested",
+        RoutingStrategy.Bubble,
+        typeof(EventHandler<NativeEditorActionRequestedEventArgs>),
+        typeof(NativeLevelViewport));
+
+    private NativeRendererSession? _session;
+    private LevelDocument? _level;
+    private NativeLevelSnapshot? _snapshot;
+    private NativePlaybackTiming[] _playbackTimeline = [];
+    private NativeCameraEvent[] _cameraTimeline = [];
+    private NativeFlashEvent[] _flashTimeline = [];
+    private NativeBloomEvent[] _bloomTimeline = [];
+    private NativeScreenTileEvent[] _screenTileTimeline = [];
+    private NativeFilterEvent[] _filterTimeline = [];
+    private NativeBackgroundEvent[] _backgroundTimeline = [];
+    private NativeTrackTransformEvent[] _trackTransformTimeline = [];
+    private NativeTrackVisualEvent[] _trackVisualTimeline = [];
+    private int[] _selectedFloors = [];
+    private int _primarySelection = -1;
+    private bool _frameAllPending;
+    private bool _followPlayer = true;
+    private bool _cleanView;
+
+    public NativeLevelViewport()
+    {
+        Focusable = false;
+        SizeChanged += (_, _) => ResizeNativeChild();
+    }
+
+    public event Action<bool>? FollowPlayerChanged;
+
+    internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
+    internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
+    internal NativeLevelSnapshot? SnapshotForDiagnostics => _snapshot;
+
+    public bool FollowPlayer
+    {
+        get => _followPlayer;
+        set
+        {
+            if (_followPlayer == value)
+                return;
+            _followPlayer = value;
+            _session?.SetFollowPlayer(value);
+        }
+    }
+
+    public void SetCleanView(bool enabled)
+    {
+        _cleanView = enabled;
+        _session?.SetCleanView(enabled);
+    }
+
+    public void SetLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
-
+        NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
         bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
-        _snapshot = prepared.Snapshot;
+        _snapshot = null;
         if (changedDocument)
         {
             _selectedFloors = [];
@@ -110,44 +125,166 @@ public sealed partial class NativeLevelViewport
             _bloomTimeline = [];
             _screenTileTimeline = [];
             _filterTimeline = [];
+            _backgroundTimeline = [];
             _trackTransformTimeline = [];
             _trackVisualTimeline = [];
             _trackAnimationTimeline = [];
             _trackAnimationTimings = [];
         }
-
-        var uploadWatch = Stopwatch.StartNew();
-        if (_session is not null)
-        {
-            _session.SetLevel(_snapshot);
-            _session.SetSelection(_selectedFloors, _primarySelection);
-        }
-        uploadWatch.Stop();
-
-        NativeLevelSnapshotBuildMetrics metrics = prepared.BuildMetrics;
-        LastLevelUploadMetrics = new NativeLevelUploadMetrics(
-            prepared.BuildTime,
-            uploadWatch.Elapsed,
-            metrics.FloorGeometry,
-            metrics.Icons,
-            metrics.Finalize,
-            metrics.GeometryCount,
-            metrics.IconAssetCount,
-            metrics.ActionFloorCount);
+        LastLevelUploadMetrics = UploadPendingLevel();
     }
 
-    internal void SetPreparedPlayback(PreparedNativePlayback prepared)
+    internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
     {
-        _playbackTimeline = prepared.PlaybackTimeline;
-        _cameraTimeline = prepared.CameraTimeline;
-        _flashTimeline = prepared.FlashTimeline;
-        _bloomTimeline = prepared.BloomTimeline;
-        _screenTileTimeline = prepared.ScreenTileTimeline;
-        _filterTimeline = prepared.FilterTimeline;
-        _trackTransformTimeline = prepared.TrackTransformTimeline;
-        _trackVisualTimeline = prepared.TrackVisualTimeline;
-        _trackAnimationTimeline = prepared.TrackAnimationTimeline;
-        _trackAnimationTimings = prepared.TrackAnimationTimings;
+        ArgumentNullException.ThrowIfNull(level);
+        if (_snapshot is null ||
+            !FloorIconResolver.TryResolveFrom(level, _snapshot, startFloor, out FloorIconSuffixResolution resolved))
+            return false;
+
+        if (_session is not null && !_session.UpdateFloorIcons(startFloor, resolved.States))
+            return false;
+
+        for (int i = 0; i < resolved.States.Length; i++)
+            resolved.States[i].ApplyTo(ref _snapshot.Floors[startFloor + i]);
+        Array.Copy(
+            resolved.CcwBeforeFloorSuffix,
+            0,
+            _snapshot.CcwBeforeFloor,
+            startFloor,
+            resolved.CcwBeforeFloorSuffix.Length);
+        _level = level;
+        NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(startFloor);
+        return true;
+    }
+
+    public void ReloadAssets()
+    {
+        _snapshot = null;
+        LastLevelUploadMetrics = UploadPendingLevel();
+    }
+
+    public void SetSelection(IEnumerable<int> floors, int primaryFloor)
+    {
+        if (_level is null)
+        {
+            _selectedFloors = [];
+            _primarySelection = -1;
+            _session?.SetSelection(_selectedFloors, _primarySelection);
+            return;
+        }
+
+        _selectedFloors = floors
+            .Where(floor => (uint)floor < (uint)_level.FloorCount)
+            .Distinct()
+            .OrderBy(floor => floor)
+            .ToArray();
+        _primarySelection = _selectedFloors.Contains(primaryFloor)
+            ? primaryFloor
+            : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
+        _session?.SetSelection(_selectedFloors, _primarySelection);
+    }
+
+    public void SetPlaybackTimeline(TimingMap timingMap)
+    {
+        ArgumentNullException.ThrowIfNull(timingMap);
+
+        var watch = Stopwatch.StartNew();
+        _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
+        if (_level is null)
+        {
+            _cameraTimeline = [];
+            _flashTimeline = [];
+            _bloomTimeline = [];
+            _screenTileTimeline = [];
+            _filterTimeline = [];
+            _backgroundTimeline = [];
+            _trackTransformTimeline = [];
+            _trackVisualTimeline = [];
+            _trackAnimationTimeline = [];
+            _trackAnimationTimings = [];
+        }
+        else
+        {
+            _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
+            NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
+            _flashTimeline = FlashTimelineBuilder.Build(_level, timingMap);
+            _bloomTimeline = BloomTimelineBuilder.Build(_level, timingMap);
+            _screenTileTimeline = ScreenTileTimelineBuilder.Build(_level, timingMap);
+            _filterTimeline = FilterTimelineBuilder.Build(_level, timingMap);
+            _backgroundTimeline = BackgroundTimelineBuilder.Build(_level, timingMap);
+            StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
+            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(_level, timingMap, staticTransforms);
+            _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
+            (_trackAnimationTimeline, _trackAnimationTimings) = TrackAnimationTimelineBuilder.Build(_level, timingMap);
+        }
+        watch.Stop();
+        TimeSpan buildTime = watch.Elapsed;
+
+        watch.Restart();
+        UploadPendingPlaybackTimeline();
+        UploadPendingCameraTimeline();
+        UploadPendingFlashTimeline();
+        UploadPendingBloomTimeline();
+        UploadPendingScreenTileTimeline();
+        UploadPendingFilterTimeline();
+        UploadPendingBackgroundTimeline();
+        UploadPendingTrackTransformTimeline();
+        UploadPendingTrackVisualTimeline();
+        UploadPendingTrackAnimationTimeline();
+        watch.Stop();
+        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(buildTime, watch.Elapsed);
+    }
+
+    public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
+    {
+        UpdateDecorationPlayback(chartTime);
+        _session?.SetPlaybackAnchor(chartTime, chartRate, active, playing);
+    }
+
+    public void ClearPlayback()
+    {
+        UpdateDecorationPlayback(double.NegativeInfinity);
+        _session?.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
+    }
+
+    internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
+    {
+        if (_session is not null)
+            return _session.TryGetDiagnostics(out diagnostics);
+        diagnostics = default;
+        return false;
+    }
+
+    public void FrameAll()
+    {
+        if (_session is null)
+        {
+            _frameAllPending = true;
+            return;
+        }
+        _session.FrameAll();
+        _frameAllPending = false;
+    }
+
+    public void CenterFloor(int floor)
+    {
+        if (_snapshot is null || (uint)floor >= (uint)_snapshot.Floors.Length)
+            return;
+        NativeFloor target = _snapshot.Floors[floor];
+        _session?.CenterAt(target.X, target.Y);
+    }
+
+    protected override HandleRef BuildWindowCore(HandleRef hwndParent)
+    {
+        uint width = ToPixelExtent(ActualWidth);
+        uint height = ToPixelExtent(ActualHeight);
+        _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+        _session.SelectionChanged += NativeSelectionChanged;
+        _session.FollowPlayerChanged += NativeFollowPlayerChanged;
+        _session.EditorActionRequested += NativeEditorActionRequested;
+        _session.SetFollowPlayer(_followPlayer);
+        _session.SetCleanView(_cleanView);
+        LastLevelUploadMetrics = UploadPendingLevel();
 
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
@@ -156,13 +293,203 @@ public sealed partial class NativeLevelViewport
         UploadPendingBloomTimeline();
         UploadPendingScreenTileTimeline();
         UploadPendingFilterTimeline();
+        UploadPendingBackgroundTimeline();
         UploadPendingTrackTransformTimeline();
         UploadPendingTrackVisualTimeline();
         UploadPendingTrackAnimationTimeline();
         watch.Stop();
+        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with { NativeUpload = watch.Elapsed };
 
-        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
-            prepared.BuildTime,
-            watch.Elapsed);
+        if (_frameAllPending)
+        {
+            _session.FrameAll();
+            _frameAllPending = false;
+        }
+        return new HandleRef(this, _session.ChildHwnd);
+    }
+
+    protected override void DestroyWindowCore(HandleRef hwnd)
+    {
+        if (_session is not null)
+        {
+            _session.SelectionChanged -= NativeSelectionChanged;
+            _session.FollowPlayerChanged -= NativeFollowPlayerChanged;
+            _session.EditorActionRequested -= NativeEditorActionRequested;
+        }
+        _session?.Dispose();
+        _session = null;
+    }
+
+    private void NativeSelectionChanged(int floor, uint nativeModifiers)
+    {
+        ModifierKeys modifiers = ToModifierKeys(nativeModifiers);
+        void RaiseSelection()
+        {
+            RaiseEvent(new NativeFloorSelectionRequestedEventArgs(
+                FloorSelectionRequestedEvent,
+                floor,
+                modifiers));
+        }
+
+        if (Dispatcher.CheckAccess())
+            RaiseSelection();
+        else
+            Dispatcher.BeginInvoke((Action)RaiseSelection);
+    }
+
+    private void NativeEditorActionRequested(NativeEditorActionRequest request)
+    {
+        void RaiseAction() => RaiseEvent(new NativeEditorActionRequestedEventArgs(EditorActionRequestedEvent, request));
+        if (Dispatcher.CheckAccess())
+            RaiseAction();
+        else
+            Dispatcher.BeginInvoke((Action)RaiseAction);
+    }
+
+    private void NativeFollowPlayerChanged(bool enabled)
+    {
+        if (_followPlayer == enabled)
+            return;
+        _followPlayer = enabled;
+        FollowPlayerChanged?.Invoke(enabled);
+    }
+
+    private NativeLevelUploadMetrics UploadPendingLevel()
+    {
+        if (_session is null || _level is null)
+            return default;
+
+        TimeSpan snapshotBuild = TimeSpan.Zero;
+        NativeLevelSnapshotBuildMetrics buildMetrics = default;
+        if (_snapshot is null)
+        {
+            var snapshotWatch = Stopwatch.StartNew();
+            NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(_level);
+            _snapshot = result.Snapshot;
+            StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(_level);
+            _snapshot.StaticDecorations = decorationData.Instances;
+            _snapshot.DecorationAssets = decorationData.Assets;
+            _snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
+            buildMetrics = result.Metrics;
+            snapshotWatch.Stop();
+            snapshotBuild = snapshotWatch.Elapsed;
+        }
+
+        var uploadWatch = Stopwatch.StartNew();
+        _session.SetLevel(_snapshot);
+        _session.SetSelection(_selectedFloors, _primarySelection);
+        uploadWatch.Stop();
+
+        return new NativeLevelUploadMetrics(
+            snapshotBuild,
+            uploadWatch.Elapsed,
+            buildMetrics.FloorGeometry,
+            buildMetrics.Icons,
+            buildMetrics.Finalize,
+            buildMetrics.GeometryCount,
+            buildMetrics.IconAssetCount,
+            buildMetrics.ActionFloorCount);
+    }
+
+    private void UpdateDecorationPlayback(double chartTime)
+    {
+        if (_snapshot?.DecorationPlayback is not NativeDecorationPlaybackRuntime playback ||
+            !playback.Update(chartTime))
+            return;
+        _session?.SetStaticDecorations(_snapshot.StaticDecorations);
+    }
+
+    private void UploadPendingPlaybackTimeline()
+    {
+        if (_session is not null)
+            _session.SetPlaybackTimeline(_playbackTimeline);
+    }
+
+    private void UploadPendingCameraTimeline()
+    {
+        if (_session is null)
+            return;
+
+        uint viewportHeight = ToPixelExtent(ActualHeight);
+        float zoomScale = PlaybackReferenceHeight / Math.Max(1f, viewportHeight);
+        if (_cameraTimeline.Length == 0 || Math.Abs(zoomScale - 1f) < 0.000001f)
+        {
+            _session.SetCameraTimeline(_cameraTimeline);
+            return;
+        }
+
+        var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
+        for (int i = 0; i < _cameraTimeline.Length; i++)
+        {
+            adjusted[i] = _cameraTimeline[i];
+            adjusted[i].StartZoom *= zoomScale;
+            adjusted[i].TargetZoom *= zoomScale;
+        }
+        _session.SetCameraTimeline(adjusted);
+    }
+
+    private void UploadPendingFlashTimeline()
+    {
+        if (_session is not null)
+            _session.SetFlashTimeline(_flashTimeline);
+    }
+
+    private void UploadPendingBloomTimeline()
+    {
+        if (_session is not null)
+            _session.SetBloomTimeline(_bloomTimeline);
+    }
+
+    private void UploadPendingScreenTileTimeline()
+    {
+        if (_session is not null)
+            _session.SetScreenTileTimeline(_screenTileTimeline);
+    }
+
+    private void UploadPendingFilterTimeline()
+    {
+        if (_session is not null)
+            _session.SetFilterTimeline(_filterTimeline);
+    }
+
+    private void UploadPendingBackgroundTimeline()
+    {
+        if (_session is not null)
+            _session.SetBackgroundTimeline(_backgroundTimeline);
+    }
+
+    private void UploadPendingTrackTransformTimeline()
+    {
+        if (_session is not null)
+            _session.SetTrackTransformTimeline(_trackTransformTimeline);
+    }
+
+    private void UploadPendingTrackVisualTimeline()
+    {
+        if (_session is not null)
+            _session.SetTrackVisualTimeline(_trackVisualTimeline);
+    }
+
+    private void ResizeNativeChild()
+    {
+        _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
+        UploadPendingCameraTimeline();
+    }
+
+    private static ModifierKeys ToModifierKeys(uint nativeModifiers)
+    {
+        ModifierKeys result = ModifierKeys.None;
+        if ((nativeModifiers & NativeRendererNative.InputModifierShift) != 0) result |= ModifierKeys.Shift;
+        if ((nativeModifiers & NativeRendererNative.InputModifierControl) != 0) result |= ModifierKeys.Control;
+        if ((nativeModifiers & NativeRendererNative.InputModifierAlt) != 0) result |= ModifierKeys.Alt;
+        if ((nativeModifiers & NativeRendererNative.InputModifierWindows) != 0) result |= ModifierKeys.Windows;
+        return result;
+    }
+
+    private static uint ToPixelExtent(double value)
+    {
+        if (!double.IsFinite(value) || value <= 0d)
+            return 1u;
+        return checked((uint)Math.Clamp(Math.Ceiling(value), 1d, uint.MaxValue));
     }
 }
