@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unordered_map>
 
 namespace ee
 {
@@ -139,6 +140,9 @@ private:
         std::make_shared<std::vector<EeFilterEvent>>();
     std::shared_ptr<const std::vector<EeBackgroundEvent>> background_events_ =
         std::make_shared<std::vector<EeBackgroundEvent>>();
+    std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> background_assets_ =
+        std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+    std::uint64_t background_assets_version_ = 0;
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
