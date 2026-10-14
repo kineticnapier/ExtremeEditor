@@ -614,15 +614,20 @@ bool Renderer::SetBackgroundTimeline(
     catch (...) { return false; }
 }
 
+// Background state is resolved from an immutable baseline on every seek.
+struct BackgroundRuntime
+{
+    EeBackgroundState initial{ 0xff14161au, 0xffffffffu, 0u, 0u,
+                               100.0f, 100.0f, 100.0f, 0u };
+};
+
+using BackgroundAssetCache = std::vector<std::wstring>;
+
 EeBackgroundState ResolveBackgroundAtTime(
     const std::vector<EeBackgroundEvent>* events, double chart_time) noexcept
 {
-    EeBackgroundState state{};
-    state.color = 0xff000000u;
-    state.image_color = 0xffffffffu;
-    state.parallax_x = 100.0f;
-    state.parallax_y = 100.0f;
-    state.scaling_ratio = 100.0f;
+    const BackgroundRuntime runtime{};
+    EeBackgroundState state = runtime.initial;
     if (events == nullptr)
         return state;
     for (const auto& event : *events)
