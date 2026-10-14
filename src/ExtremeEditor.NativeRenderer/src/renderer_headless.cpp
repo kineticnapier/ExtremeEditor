@@ -83,6 +83,8 @@ bool Renderer::RenderHeadlessRgb(
     std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
     std::shared_ptr<const std::vector<EeFilterEvent>> filter_events;
     std::shared_ptr<const std::vector<EeBackgroundEvent>> background_events;
+    std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> background_assets;
+    std::uint64_t background_assets_version = 0;
     float camera_x = 0.0f;
     float camera_y = 0.0f;
     constexpr float reference_width = 1280.0f;
@@ -134,6 +136,8 @@ bool Renderer::RenderHeadlessRgb(
         screen_tile_events = screen_tile_events_;
         filter_events = filter_events_;
         background_events = background_events_;
+        background_assets = background_assets_;
+        background_assets_version = background_assets_version_;
         camera_x = camera_x_;
         camera_y = camera_y_;
         zoom = zoom_;
@@ -202,6 +206,7 @@ bool Renderer::RenderHeadlessRgb(
     state->backend.SetScreenTileState(ResolveScreenTileAtTime(screen_tile_events.get(), scene_time));
     state->backend.SetFilterState(ResolveFilterStateAtTime(filter_events.get(), scene_time));
     state->backend.SetBackgroundState(ResolveBackgroundAtTime(background_events.get(), scene_time));
+    state->backend.SyncBackgroundAssets(background_assets.get(), background_assets_version);
     const auto render_started = std::chrono::steady_clock::now();
     const HRESULT render_result = state->backend.RenderFrameOffscreen(
         visual_time,
