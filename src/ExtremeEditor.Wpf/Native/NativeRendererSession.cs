@@ -206,6 +206,9 @@ internal sealed class NativeRendererSession : IDisposable
         }
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
+        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
+            SetBackgroundAsset(asset);
+
 
         phaseWatch.Restart();
         NativeRendererNative.ClearIconAssets(_renderer);
