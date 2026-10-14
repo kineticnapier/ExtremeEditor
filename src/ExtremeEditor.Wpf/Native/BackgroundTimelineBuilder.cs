@@ -194,13 +194,17 @@ internal static class BackgroundTimelineBuilder
 
 internal static class BackgroundStateEvaluator
 {
-    internal static BackgroundSourceState Evaluate(
-        BackgroundSourceState initial,
+    internal static NativeBackgroundState Evaluate(
+        NativeBackgroundState initial,
         IReadOnlyList<NativeBackgroundEvent> timeline,
         double chartTime)
     {
-        // The source-level evaluator retains image filenames while the ABI events
-        // carry only numeric image identifiers.
-        return initial;
+        NativeBackgroundState state = initial;
+        foreach (NativeBackgroundEvent item in timeline)
+        {
+            if (item.StartTime <= chartTime)
+                state = item.State;
+        }
+        return state;
     }
 }
