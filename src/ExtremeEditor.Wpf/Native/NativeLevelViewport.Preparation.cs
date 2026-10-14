@@ -370,6 +370,11 @@ public sealed partial class NativeLevelViewport : HwndHost
             _snapshot.StaticDecorations = decorationData.Instances;
             _snapshot.DecorationAssets = decorationData.Assets;
             _snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
+            var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(_level);
+            BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(_level);
+            _snapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
+                backgroundIds.TryGetValue(initialBackground.Image, out uint imageId) ? imageId : 0u);
+            _snapshot.BackgroundAssets = backgroundAssets;
             buildMetrics = result.Metrics;
             snapshotWatch.Stop();
             snapshotBuild = snapshotWatch.Elapsed;
