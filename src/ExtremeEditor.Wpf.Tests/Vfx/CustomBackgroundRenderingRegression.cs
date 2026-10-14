@@ -1,0 +1,104 @@
+using System.IO;
+using System.Reflection;
+using ExtremeEditor.Wpf;
+
+namespace ExtremeEditor.Wpf.Tests;
+
+// RED contract: verifies production wiring, not just the existence of ABI tokens.
+// The existing CustomBackgroundRegression remains unchanged.
+internal static class CustomBackgroundRenderingRegression
+{
+    public static void Run()
+    {
+        var failures = new List<string>();
+        Assembly assembly = typeof(MainWindow).Assembly;
+        Type viewport = assembly.GetType("ExtremeEditor.Wpf.Native.NativeLevelViewport")
+            ?? throw new InvalidOperationException("NativeLevelViewport is missing.");
+        Type backgroundEvent = assembly.GetType("ExtremeEditor.Wpf.Native.NativeBackgroundEvent")
+            ?? throw new InvalidOperationException("NativeBackgroundEvent is missing.");
+
+        Check(failures, "managed/native ABI", () =>
+        {
+            // The time-line array must use blittable ABI fields; managed strings and
+            // nested managed strings cannot be passed to a native EeBackgroundEvent*.
+            Require(!ContainsManagedReferences(backgroundEvent, new HashSet<Type>()),
+                "NativeBackgroundEvent contains managed references; native array upload is unsafe.");
+        });
+
+        string root = FindRepositoryRoot();
+        string viewportSource = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.Wpf", "Native", "NativeLevelViewport.Preparation.cs"));
+        string viewportRuntime = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.Wpf", "Native", "NativeLevelViewport.cs"));
+        Check(failures, "playback upload", () =>
+        {
+            Require(viewportSource.Contains("UploadPendingBackgroundTimeline(", StringComparison.Ordinal) &&
+                    viewportRuntime.Contains("UploadPendingBackgroundTimeline(", StringComparison.Ordinal),
+                "background timeline is prepared but never uploaded to the viewport renderer.");
+        });
+
+        string renderer = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.NativeRenderer", "src", "renderer.cpp"));
+        string backend = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.NativeRenderer", "src", "d2d_backend.cpp"));
+        Check(failures, "background asset", () =>
+        {
+            Require(!renderer.Contains("(void)asset_id;", StringComparison.Ordinal) &&
+                    !renderer.Contains("(void)image_path;", StringComparison.Ordinal),
+                "background asset upload still returns the placeholder failure.");
+            Require(backend.Contains("LoadBitmap(", StringComparison.Ordinal) &&
+                    backend.Contains("background_bitmaps_", StringComparison.Ordinal),
+                "background asset is not decoded/cached by the native renderer.");
+        });
+
+        Check(failures, "background image compositing", () =>
+        {
+            int start = backend.IndexOf("void D2DBackend::DrawBackground(", StringComparison.Ordinal);
+            int end = start < 0 ? -1 : backend.IndexOf("\n}", start, StringComparison.Ordinal);
+            Require(start >= 0 && end > start, "DrawBackground body is missing.");
+            string body = backend.Substring(start, end - start);
+            Require(body.Contains("DrawBitmap(", StringComparison.Ordinal),
+                "DrawBackground only clears the color; no image is composited.");
+        });
+
+        if (failures.Count != 0)
+            throw new InvalidOperationException("CustomBackground rendering RED:\n- " +
+                string.Join("\n- ", failures));
+    }
+
+    private static bool ContainsManagedReferences(Type type, HashSet<Type> visited)
+    {
+        if (!type.IsValueType)
+            return true;
+        if (type.IsPrimitive || type.IsEnum || type.IsPointer)
+            return false;
+        if (!visited.Add(type))
+            return false;
+        return type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Any(field => ContainsManagedReferences(field.FieldType, visited));
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new InvalidOperationException("repository root was not found.");
+    }
+
+    private static void Check(List<string> failures, string name, Action test)
+    {
+        try { test(); }
+        catch (Exception ex) { failures.Add(name + ": " + ex.Message); }
+    }
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition)
+            throw new InvalidOperationException(message);
+    }
+}
