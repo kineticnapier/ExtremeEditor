@@ -145,6 +145,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_RENDERING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                CustomBackgroundRenderingRegression.Run();
+                Console.WriteLine("PASS: CustomBackground rendering regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_ONLY"),
                 "1",
                 StringComparison.Ordinal))
