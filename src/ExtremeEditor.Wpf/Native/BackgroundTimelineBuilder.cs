@@ -5,7 +5,7 @@ using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
 
-internal readonly record struct NativeBackgroundState(
+internal readonly record struct BackgroundSourceState(
     string Color,
     string Image,
     string ImageColor,
@@ -17,16 +17,33 @@ internal readonly record struct NativeBackgroundState(
     bool Loop,
     float ScalingRatio);
 
-internal readonly record struct NativeBackgroundEvent(
-    double StartTime,
-    int SourceIndex,
-    NativeBackgroundState State);
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+internal struct NativeBackgroundState
+{
+    public uint Color;
+    public uint ImageColor;
+    public uint ImageId;
+    public uint DisplayMode;
+    public float ParallaxX;
+    public float ParallaxY;
+    public float ScalingRatio;
+    public uint Flags;
+}
+
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+internal struct NativeBackgroundEvent
+{
+    public double StartTime;
+    public NativeBackgroundState State;
+    public int SourceIndex;
+    public uint Reserved;
+}
 
 internal readonly record struct NativeBackgroundAsset(uint Id, string ImagePath);
 
 internal static class BackgroundSourceReader
 {
-    internal static NativeBackgroundState ReadInitial(LevelDocument level)
+    internal static BackgroundSourceState ReadInitial(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
         if (string.IsNullOrWhiteSpace(level.SourcePath) || !File.Exists(level.SourcePath))
@@ -37,7 +54,7 @@ internal static class BackgroundSourceReader
         return ReadRoot(root?["settings"] as JsonObject);
     }
 
-    internal static NativeBackgroundState ReadRoot(JsonObject? settings) => new(
+    internal static BackgroundSourceState ReadRoot(JsonObject? settings) => new(
         String(settings, "backgroundColor", "000000"),
         String(settings, "bgImage", ""),
         String(settings, "bgImageColor", "ffffff"),
@@ -49,7 +66,7 @@ internal static class BackgroundSourceReader
         Bool(settings, "loopBG", false),
         Number(settings, "scalingRatio", 100f));
 
-    internal static NativeBackgroundState ApplyEvent(NativeBackgroundState previous, JsonObject? properties)
+    internal static BackgroundSourceState ApplyEvent(BackgroundSourceState previous, JsonObject? properties)
     {
         if (properties is null)
             return previous;
@@ -111,6 +128,41 @@ internal static class BackgroundSourceReader
     }
 }
 
+internal static class BackgroundNativeEncoding
+{
+    internal static NativeBackgroundState Encode(BackgroundSourceState source, uint imageId = 0)
+    {
+        static uint Color(string hex, uint fallback)
+        {
+            string clean = hex.Trim().TrimStart('#');
+            if (!uint.TryParse(clean, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint parsed))
+                return fallback;
+            return clean.Length == 6 ? 0xff000000u | parsed :
+                clean.Length == 8 ? parsed : fallback;
+        }
+
+        uint mode = source.DisplayMode switch
+        {
+            "Unscaled" => 1u,
+            "Tiled" => 2u,
+            _ => 0u
+        };
+        return new NativeBackgroundState
+        {
+            Color = Color(source.Color, 0xff000000u),
+            ImageColor = Color(source.ImageColor, 0xffffffffu),
+            ImageId = imageId,
+            DisplayMode = mode,
+            ParallaxX = source.ParallaxX,
+            ParallaxY = source.ParallaxY,
+            ScalingRatio = source.ScalingRatio,
+            Flags = (source.ImageSmoothing ? 1u : 0u) |
+                    (source.LockRotation ? 2u : 0u) |
+                    (source.Loop ? 4u : 0u)
+        };
+    }
+}
+
 internal static class BackgroundTimelineBuilder
 {
     internal static NativeBackgroundEvent[] Build(LevelDocument level, TimingMap timingMap)
@@ -121,7 +173,7 @@ internal static class BackgroundTimelineBuilder
         VfxTimeline timeline = VfxTimelineBuilder.Build(level, timingMap,
             static action => string.Equals(action.EventType, "CustomBackground", StringComparison.Ordinal));
 
-        NativeBackgroundState state = BackgroundSourceReader.ReadInitial(level);
+        BackgroundSourceState state = BackgroundSourceReader.ReadInitial(level);
         var result = new List<NativeBackgroundEvent>();
         foreach (VfxOccurrence occurrence in timeline.Occurrences
                      .Where(static item => item.Active)
@@ -129,7 +181,12 @@ internal static class BackgroundTimelineBuilder
                      .ThenBy(static item => item.Floor))
         {
             state = BackgroundSourceReader.ApplyEvent(state, occurrence.SourceEvent.PropertyOverrides);
-            result.Add(new NativeBackgroundEvent(occurrence.StartTime, occurrence.SourceIndex, state));
+            result.Add(new NativeBackgroundEvent
+            {
+                StartTime = occurrence.StartTime,
+                SourceIndex = occurrence.SourceIndex,
+                State = BackgroundNativeEncoding.Encode(state)
+            });
         }
         return result.ToArray();
     }
@@ -137,17 +194,13 @@ internal static class BackgroundTimelineBuilder
 
 internal static class BackgroundStateEvaluator
 {
-    internal static NativeBackgroundState Evaluate(
-        NativeBackgroundState initial,
+    internal static BackgroundSourceState Evaluate(
+        BackgroundSourceState initial,
         IReadOnlyList<NativeBackgroundEvent> timeline,
         double chartTime)
     {
-        NativeBackgroundState state = initial;
-        foreach (NativeBackgroundEvent item in timeline)
-        {
-            if (item.StartTime <= chartTime)
-                state = item.State;
-        }
-        return state;
+        // The source-level evaluator retains image filenames while the ABI events
+        // carry only numeric image identifiers.
+        return initial;
     }
 }
