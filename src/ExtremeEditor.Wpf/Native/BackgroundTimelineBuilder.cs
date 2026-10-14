@@ -163,6 +163,40 @@ internal static class BackgroundNativeEncoding
     }
 }
 
+internal static class BackgroundAssetResolver
+{
+    internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(LevelDocument level)
+    {
+        var ids = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+        var assets = new List<NativeBackgroundAsset>();
+
+        void Add(string image)
+        {
+            if (string.IsNullOrWhiteSpace(image) || ids.ContainsKey(image))
+                return;
+            string directory = Path.GetDirectoryName(level.SourcePath) ?? "";
+            string fullPath = Path.IsPathRooted(image) ? image : Path.Combine(directory, image);
+            if (!File.Exists(fullPath))
+                return;
+            uint id = checked((uint)assets.Count + 1u);
+            ids.Add(image, id);
+            assets.Add(new NativeBackgroundAsset(id, Path.GetFullPath(fullPath)));
+        }
+
+        Add(BackgroundSourceReader.ReadInitial(level).Image);
+        foreach (LevelAction action in level.ActionStore.Actions)
+        {
+            if (!action.Active || action.EventType != "CustomBackground")
+                continue;
+            JsonObject? properties = MoveDecorationsTargeting.GetProperties(action);
+            if (properties?["bgImage"] is JsonValue value && value.TryGetValue(out string? image))
+                Add(image ?? "");
+        }
+
+        return (assets.ToArray(), ids);
+    }
+}
+
 internal static class BackgroundTimelineBuilder
 {
     internal static NativeBackgroundEvent[] Build(LevelDocument level, TimingMap timingMap)
@@ -174,7 +208,17 @@ internal static class BackgroundTimelineBuilder
             static action => string.Equals(action.EventType, "CustomBackground", StringComparison.Ordinal));
 
         BackgroundSourceState state = BackgroundSourceReader.ReadInitial(level);
-        var result = new List<NativeBackgroundEvent>();
+        var (_, imageIds) = BackgroundAssetResolver.Build(level);
+        uint ResolveImageId(string image) => imageIds.TryGetValue(image, out uint id) ? id : 0u;
+        var result = new List<NativeBackgroundEvent>
+        {
+            new NativeBackgroundEvent
+            {
+                StartTime = double.NegativeInfinity,
+                SourceIndex = -1,
+                State = BackgroundNativeEncoding.Encode(state, ResolveImageId(state.Image))
+            }
+        };
         foreach (VfxOccurrence occurrence in timeline.Occurrences
                      .Where(static item => item.Active)
                      .OrderBy(static item => item.StartTime - item.StartEffectOffset)
@@ -185,7 +229,7 @@ internal static class BackgroundTimelineBuilder
             {
                 StartTime = occurrence.StartTime,
                 SourceIndex = occurrence.SourceIndex,
-                State = BackgroundNativeEncoding.Encode(state)
+                State = BackgroundNativeEncoding.Encode(state, ResolveImageId(state.Image))
             });
         }
         return result.ToArray();
