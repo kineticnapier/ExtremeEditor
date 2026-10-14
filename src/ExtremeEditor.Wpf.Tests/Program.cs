@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLANET_RADIUS_POSITION_TRACK_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                PlanetRadiusPositionTrackRegression.Run();
+                Console.WriteLine("PASS: Planet radius is independent of PositionTrack.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SET_FILTER_RUNTIME_ONLY"),
                 "1",
                 StringComparison.Ordinal))
