@@ -34,6 +34,9 @@ void D2DBackend::Shutdown() noexcept
     icon_renderer_.Shutdown();
     floor_renderer_.Shutdown();
     icon_bitmaps_.clear();
+    background_bitmaps_.clear();
+    background_asset_paths_.clear();
+    cached_background_assets_version_ = std::numeric_limits<std::uint64_t>::max();
     floor_geometries_.clear();
     visible_candidates_.clear();
     cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
@@ -676,6 +679,23 @@ HRESULT D2DBackend::EndD2DDraw() noexcept
     return CreateTargetBitmap() ? S_FALSE : hr;
 }
 
+void D2DBackend::SyncBackgroundAssets(
+    const std::unordered_map<std::uint32_t, std::wstring>* paths,
+    std::uint64_t version) noexcept
+{
+    if (cached_background_assets_version_ == version || paths == nullptr)
+        return;
+    background_bitmaps_.clear();
+    background_asset_paths_ = *paths;
+    for (const auto& item : background_asset_paths_)
+    {
+        auto bitmap = LoadBitmap(item.second);
+        if (bitmap)
+            background_bitmaps_.emplace(item.first, std::move(bitmap));
+    }
+    cached_background_assets_version_ = version;
+}
+
 void D2DBackend::DrawBackground() noexcept
 {
     if (!d2d_context_)
@@ -686,6 +706,28 @@ void D2DBackend::DrawBackground() noexcept
         ((argb >> 8) & 0xffu) / 255.0f,
         (argb & 0xffu) / 255.0f,
         1.0f));
+    auto found = background_bitmaps_.find(background_state_.image_id);
+    if (background_state_.image_id == 0u || found == background_bitmaps_.end())
+        return;
+    ID2D1Bitmap1* image = found->second.Get();
+    const D2D1_SIZE_F size = image->GetSize();
+    if (size.width <= 0.0f || size.height <= 0.0f)
+        return;
+    const float w = static_cast<float>(width_);
+    const float h = static_cast<float>(height_);
+    const float ratio = std::max(0.001f, background_state_.scaling_ratio * 0.01f);
+    float scale = ratio;
+    if (background_state_.display_mode == EE_BACKGROUND_DISPLAY_FIT_TO_SCREEN)
+        scale *= std::max(w / size.width, h / size.height);
+    const float dw = size.width * scale;
+    const float dh = size.height * scale;
+    d2d_context_->DrawBitmap(image,
+        D2D1::RectF((w - dw) * 0.5f, (h - dh) * 0.5f,
+                    (w + dw) * 0.5f, (h + dh) * 0.5f),
+        1.0f,
+        (background_state_.flags & EE_BACKGROUND_IMAGE_SMOOTHING) != 0u
+            ? D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
+            : D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
 }
 
 HRESULT D2DBackend::RenderFrame(
