@@ -35,6 +35,7 @@ internal static class SegmentEditedCompositionRegression
                 Decorations = template.Decorations,
                 template.Positions
             });
+        var originalPositions = template.Positions.ToArray();
         string originalA = JsonSerializer.Serialize(edited["A"]);
         string originalB = JsonSerializer.Serialize(edited["B"]);
         string originalC = JsonSerializer.Serialize(edited["C"]);
@@ -68,10 +69,10 @@ internal static class SegmentEditedCompositionRegression
         Equal(1.5, speedA.BpmMultiplier, "A speed multiplier preserved");
         LevelAction pauseB = chart.ActionStore.Actions.Single(
             a => a.Floor == 4 && a.EventType == "Pause");
-        Equal(1.5, pauseB.Duration, "B pause duration preserved");
+        Equal(1.5, pauseB.Duration.GetValueOrDefault(), "B pause duration preserved");
         LevelAction speedC = chart.ActionStore.Actions.Single(
             a => a.Floor == 6 && a.EventType == "SetSpeed");
-        Equal(200d, speedC.BeatsPerMinute, "C BPM preserved");
+        Equal(200d, speedC.BeatsPerMinute.GetValueOrDefault(), "C BPM preserved");
         Check(chart.ActionStore.Actions.Any(
             a => a.Floor == 6 && a.EventType == "Twirl"),
             "new Twirl authored within C survives composition");
@@ -98,6 +99,8 @@ internal static class SegmentEditedCompositionRegression
                 Decorations = template.Decorations,
                 template.Positions
             }), "the template must remain untouched on success");
+        Check(originalPositions.SequenceEqual(template.Positions),
+            "template world positions must remain untouched on success");
         Equal(originalA, JsonSerializer.Serialize(edited["A"]),
             "A content untouched on success");
         Equal(originalB, JsonSerializer.Serialize(edited["B"]),
