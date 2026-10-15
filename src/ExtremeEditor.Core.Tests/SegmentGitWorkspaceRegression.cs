@@ -144,8 +144,8 @@ internal static class SegmentGitWorkspaceRegression
             // A path-unsafe ID must be rejected before it can write outside
             // the dedicated workspace or overwrite Git's internal files.
             SegmentGitSnapshot unsafeSnapshot = Fixture();
-            var invalidSegments = new Dictionary<string, LevelSegment>(unsafeSnapshot.Segments,
-                StringComparer.Ordinal)
+            var invalidSegments = unsafeSnapshot.Segments.ToDictionary(
+                pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
             {
                 ["../outside"] = unsafeSnapshot.Segments["A"]
             };
@@ -218,8 +218,8 @@ internal static class SegmentGitWorkspaceRegression
                 ? part with { ContentRevisionId = revision }
                 : part)
             .ToArray();
-        var revisedSegments = new Dictionary<string, LevelSegment>(
-            snapshot.Segments, StringComparer.Ordinal);
+        var revisedSegments = snapshot.Segments.ToDictionary(
+            pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         LevelSegment existing = revisedSegments[id];
         double[] angles = existing.DestinationAngles.ToArray();
         angles[0] = revisedFloor;
