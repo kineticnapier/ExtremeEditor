@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_REMOTE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentGitRemoteSyncRegression.Run();
+    Console.WriteLine("PASS: local bare Git remote Push/Fetch/semantic Pull regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_MERGE_ONLY"),
     "1", StringComparison.Ordinal))
 {
