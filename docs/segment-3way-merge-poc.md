@@ -1,4 +1,4 @@
-# Segment time 3-way merge — RED contract (2026-10-15)
+# Segment time 3-way merge — GREEN implementation (2026-10-15)
 
 ## Purpose
 
@@ -39,12 +39,14 @@ finally {
 }
 ```
 
-RED expectation: build succeeds, then `NotImplementedException` from `SegmentTimeThreeWayMerger.Merge`.
+GREEN expectation: build succeeds and prints `PASS: semantic three-way segment timeline merge regression.`. Windows build and runtime verification are still pending.
 
 ## Status and exclusions
 
-- EditorVersion `0.0.549-prototype`: **RED only, Windows verification pending**.
+- EditorVersion `0.0.549-prototype`: RED added; user confirmed the expected failure.
+- EditorVersion `0.0.550-prototype`: semantic merge implemented; **Windows GREEN verification pending**.
 - New contract: `src/ExtremeEditor.Core/SegmentTimeThreeWayMerger.cs`.
 - New regression: `src/ExtremeEditor.Core.Tests/SegmentTimeThreeWayMergeRegression.cs`.
-- **Not implemented**: merge algorithm, Git subprocess/repository transport, persistence, merging actual `LevelSegment` chart contents, waveform/sample decoding, arbitrary-time chart cutting, or ADOFAI export validation.
+- **Implemented**: deterministic Segment-ID 3-way comparison, unchanged-side selection, identical-edit convergence, delete-vs-modify/concurrent creation conflicts, post-merge active-range conflict detection and validated conflict-free snapshots.
+- **Not implemented**: Git subprocess/repository transport, persistence, merging actual `LevelSegment` chart contents, waveform/sample decoding, arbitrary-time chart cutting, or ADOFAI export validation.
 - `ContentRevisionId` is currently a string reference, not verified content-addressed storage. The RED only models metadata and conflicts.
