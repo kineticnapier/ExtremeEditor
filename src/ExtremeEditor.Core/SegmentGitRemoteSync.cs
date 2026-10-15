@@ -267,6 +267,14 @@ public static class SegmentGitRemoteSync
         }
     }
 
+    private static void RejectNestedDestination(string workspace, string bare)
+    {
+        if (SamePath(workspace, bare) ||
+            IsInside(workspace, bare) || IsInside(bare, workspace))
+            throw new ArgumentException(
+                "The bare remote and collaboration workspace must be separate directories.");
+    }
+
     private static void RejectNestedGitRepository(string destination)
     {
         for (string? current = Path.GetDirectoryName(destination);
