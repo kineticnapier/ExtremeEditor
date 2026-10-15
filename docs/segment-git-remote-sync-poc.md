@@ -73,9 +73,9 @@ PASS: local bare Git remote Push/Fetch/semantic Pull regression.
 ## Implemented strategy at 0.0.558
 
 - Only a **trusted local bare Git repository** can be selected as origin. The location must exist, be bare according to Git, and not overlap with the collaboration worktree. Reject nonempty clone destinations and nested Git checkouts.
-- Clone creates an independent local worktree with \`--no-hardlinks\`; \`SegmentGitWorkspace.Open\` verifies the marker and schema. A failed clone/schema check is **not** treated as valid collaboration data.
+- Clone creates an independent local worktree with `--no-hardlinks`; `SegmentGitWorkspace.Open` verifies the marker and schema. A failed clone/schema check is **not** treated as valid collaboration data.
 - Push uses an explicit non-force refspec for exactly one branch. A rejected non-fast-forward push must not rewrite published history.
 - Fetch updates one remote-tracking ref and only Git metadata, not HEAD/index/worktree or Segment payloads. It remains permitted while a client has an uncommitted draft.
-- Pull checks the local collaboration worktree is clean, then fetches. It returns unchanged if already current, fast-forwards a descendant remote commit with \`git merge --ff-only\`, or delegates a divergent history to \`SegmentGitBranchMerger\` using a unique temporary local alias of the fetched commit. Only the divergent path creates a semantic two-parent merge commit.
+- Pull checks the local collaboration worktree is clean, then fetches. It returns unchanged if already current, fast-forwards a descendant remote commit with `git merge --ff-only`, or delegates a divergent history to `SegmentGitBranchMerger` using a unique temporary local alias of the fetched commit. Only the divergent path creates a semantic two-parent merge commit.
 - The temporary alias is deleted after the merge attempt. On semantic conflicts the remote stays unchanged and the local content/index/HEAD remain intact; Pull does not implicitly Push.
 - Network protocols, credentials, arbitrary remote URLs, cross-machine permissions, malicious bare repositories, full crash recovery, advanced merge-base histories and playable .adofai export remain unimplemented.
