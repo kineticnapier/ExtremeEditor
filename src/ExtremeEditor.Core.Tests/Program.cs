@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_MERGE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentGitBranchMergeRegression.Run();
+    Console.WriteLine("PASS: Git history plus semantic Segment merge regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_ONLY"),
     "1", StringComparison.Ordinal))
 {
