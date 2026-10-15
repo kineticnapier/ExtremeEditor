@@ -279,7 +279,7 @@ public sealed class SegmentGitWorkspace
     private static string Serialize<T>(T value) =>
         JsonSerializer.Serialize(value, JsonOptions);
 
-    private static void ValidateSnapshot(SegmentGitSnapshot snapshot)
+    internal static void ValidateSnapshot(SegmentGitSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(snapshot.Timeline);
@@ -341,7 +341,7 @@ public sealed class SegmentGitWorkspace
             throw new ArgumentException("Segment ID must be a safe ASCII file identifier.", nameof(id));
     }
 
-    private static void ValidateBranchName(string? name)
+    internal static void ValidateBranchName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name) || name.Length > 160 ||
             !char.IsAsciiLetterOrDigit(name[0]) ||
@@ -431,9 +431,45 @@ public sealed class SegmentGitWorkspace
             throw new InvalidOperationException("Symbolic links and junctions are not allowed in collaboration paths.");
     }
 
+    internal void AssertCleanOwnedWorktree()
+    {
+        RequireWorkspace();
+        string status = RunGit(
+            "status", "--porcelain", "--untracked-files=all", "--",
+            MarkerName, TimelineName, SegmentDirectoryName);
+        if (!string.IsNullOrWhiteSpace(status))
+            throw new InvalidOperationException(
+                "Collaboration data contains uncommitted changes. Commit before merging.");
+    }
+
+    internal string ExecuteGit(params string[] args)
+    {
+        RequireWorkspace();
+        return RunGit(args);
+    }
+
+    internal string ExecuteGitWithIndex(string indexFile, IEnumerable<string> args)
+    {
+        RequireWorkspace();
+        string fullIndex = Path.GetFullPath(indexFile);
+        string expectedParent = Path.Combine(Directory, ".git");
+        if (!string.Equals(Path.GetDirectoryName(fullIndex), expectedParent,
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ||
+            !Path.GetFileName(fullIndex).StartsWith("extremeeditor-merge-index-", StringComparison.Ordinal))
+            throw new ArgumentException("Merge index must be an isolated temporary .git file.", nameof(indexFile));
+        return RunGit(args, fullIndex);
+    }
+
+    internal static string MarkerFileName => MarkerName;
+    internal static string TimelineFileName => TimelineName;
+    internal static string SegmentsFolderName => SegmentDirectoryName;
+
+    internal static string SegmentFileName(string id) => SegmentRelativePath(id);
+
     private string RunGit(params string[] args) => RunGit((IEnumerable<string>)args);
 
-    private string RunGit(IEnumerable<string> args)
+    private string RunGit(IEnumerable<string> args, string? indexFile = null)
     {
         // Disable ambient Git repository/index override variables and repo
         // hooks. No shell is used and all parameters are passed as distinct
@@ -455,6 +491,8 @@ public sealed class SegmentGitWorkspace
             "GIT_CONFIG_COUNT"
         })
             start.Environment.Remove(environmentVariable);
+        if (indexFile is not null)
+            start.Environment["GIT_INDEX_FILE"] = indexFile;
 
         start.ArgumentList.Add("-c");
         start.ArgumentList.Add("core.hooksPath=" +
