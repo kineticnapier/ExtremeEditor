@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_BOUNDARY_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentBoundaryValidationRegression.Run();
+    Console.WriteLine("PASS: floor-aligned Segment boundary timing/geometry/sample regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_REMOTE_ONLY"),
     "1", StringComparison.Ordinal))
 {
