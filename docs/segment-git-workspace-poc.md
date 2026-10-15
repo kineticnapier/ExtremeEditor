@@ -1,4 +1,4 @@
-# Segment Git workspace — RED contract (2026-10-15)
+# Segment Git workspace — GREEN implementation (2026-10-15)
 
 ## Goal
 
@@ -19,7 +19,7 @@ Prior prototypes: floor-aligned `LevelSegment` split/merge (0.0.546 PASS), non-d
 - Storage must reject path traversal/untrusted Segment IDs before writing outside its dedicated workspace or into Git internals.
 - **No** network push/pull, real `git merge`, automated creation of a merge commit, Git hooks, GUI, production editor integration or semantic merging of the actual `LevelSegment` content at this stage.
 
-## RED test
+## Isolated GREEN test
 
 `src/ExtremeEditor.Core.Tests/SegmentGitWorkspaceRegression.cs` uses the normal Core.Tests executable, gated by `EXTREMEEDITOR_SEGMENT_GIT_ONLY=1`.
 
@@ -40,11 +40,14 @@ finally {
 }
 ```
 
-**Expected RED:** fresh build succeeds, runtime fails with `NotImplementedException` from `SegmentGitWorkspace.Initialize`. Git CLI on PATH will be required for a future GREEN.
+**Expected GREEN:** fresh build succeeds; test prints `PASS: isolated Git segment snapshot/branch regression.` Git CLI on PATH is required. Windows runtime confirmation is pending.
 
 ## Status
 
-- EditorVersion: `0.0.551-prototype`
-- Branch: `feature/segment-model-poc`
-- RED-only interface and regression. **Windows RED not yet confirmed.**
-- Do not implement GREEN until this RED is verified.
+- `0.0.551-prototype`: initial RED contract/test, subsequently fixed its test syntax in `0.0.552-prototype`; user confirmed expected RED.
+- `0.0.553-prototype`: local Git workspace implementation committed; **Windows GREEN verification pending**.
+- Branch: `feature/segment-model-poc`.
+- Implemented: marker-protected isolated repository initialization/open, schema-versioned deterministic JSON files, segment-local actions/decorations, local Commit, Branch creation/safe checkout, historical read without checkout, semantic timeline merge input compatibility.
+- Git operations use argument arrays (no shell), disable repository hooks, set commit identity per-command, and stage/commit only the schema-owned paths.
+- A separate manifest limits removal of obsolete Segment files to previously managed files. Segment identifiers are restricted to safe ASCII filename characters; no user-controlled paths are passed unchecked.
+- **Limitations:** Git CLI must be installed; no power-loss atomic snapshot write, file locking, crash recovery, network transport, real Git merge commit, complete .adofai preservation, cross-boundary effect semantics, or threat-model-complete sandboxing.
