@@ -1,10 +1,10 @@
-# Git history ↔ semantic Segment merge — RED contract (2026-10-15)
+# Git history ↔ semantic Segment merge — GREEN implementation (2026-10-15)
 
 ## Status
 
 - Branch: `feature/segment-model-poc`
-- EditorVersion: `0.0.555-prototype`
-- **RED only.** User previously confirmed GREEN for isolated Git save/branch/read at `0.0.554`; the new bridge is intentionally unimplemented. Windows RED verification pending.
+- `0.0.555-prototype`: RED contract; user confirmed expected runtime failure.
+- `0.0.556-prototype`: implemented Git history bridge; **Windows GREEN verification pending**. Prior isolated Git save/branch/read passed at `0.0.554`.
 - No changes to `main`, no local development repository operations.
 
 ## Scope
@@ -17,7 +17,7 @@ Expose `SegmentGitBranchMerger.MergeIntoCurrent(workspace, sourceBranch)`, with 
 - structured `TimelineConflicts`;
 - `ContentConflictSegmentIds` for contradictory changes to the same underlying Segment data.
 
-## GREEN acceptance contract (the regression is currently RED)
+## GREEN acceptance contract (implemented; Windows runtime verification pending)
 
 1. Two divergent branches share `base`. A modifies Segment A; B modifies Segment B, including independent content revision references and angle data. The merger must determine `git merge-base` itself, integrate the timeline via `SegmentTimeThreeWayMerger`, integrate floor-aligned content per stable Segment ID, then create a **real Git commit with first parent = B's former HEAD and second parent = A's HEAD**. Ensure source ref is unchanged, and read both updates from HEAD, worktree and `ReadAt(mergeCommit)`.
 2. Content must be compared independently of `ContentRevisionId`: two branches changing Segment A to *different angle data while keeping the same revision metadata* is a `ContentConflictSegmentIds=["A"]` conflict, not an automatic pick. This RED does not require intra-Segment action-by-action merges.
@@ -35,7 +35,7 @@ Expose `SegmentGitBranchMerger.MergeIntoCurrent(workspace, sourceBranch)`, with 
 - Multi-merge-base (crisscross histories), fast-forward optimization, recovery from disk/power failure or process concurrency; define these before production use.
 - No native `git merge` conflict markers or changes to the source-code repository.
 
-## RED test command
+## GREEN test command
 
 ```powershell
 git pull --ff-only
@@ -52,8 +52,17 @@ finally {
 }
 ```
 
-**Expected RED:** build succeeds, then the test throws `NotImplementedException` from `SegmentGitBranchMerger.MergeIntoCurrent`. Once implemented, GREEN success line should be:
+**Expected GREEN:** build succeeds and the regression prints:
 
 ```text
 PASS: Git history plus semantic Segment merge regression.
 ```
+
+## Implementation notes / remaining work
+
+- An isolated alternate Git index starts from the **current HEAD**, stages only collaboration-owned paths, and prepares a two-parent commit via `git write-tree` + `git commit-tree`. Only after snapshot and tree validation does an atomic `git update-ref ... <expected-old-SHA>` advance the current collaboration Branch.
+- The normal Git index stages only collaboration-owned paths; unrelated untracked/staged files are deliberately not part of the generated merge tree.
+- No native `git merge` is invoked: conflicts are determined from actual saved `LevelSegment` content plus the existing `SegmentTimeThreeWayMerger`. Different content changes to the same Segment are reported; no line-by-line/event-by-event reconciliation is attempted.
+- On a Git or filesystem exception before the ref update, the implementation attempts to restore the committed pre-merge collaboration snapshot without invoking `reset`, `stash`, or `clean`. Crash-consistency/concurrent processes and advanced histories are not production-ready.
+- The input `ContentRevisionId` is a user-supplied reference and does **not** establish content equality. Whole-segment serialized content is compared separately.
+- Not supported: remote Push/Pull, fast-forward/no-op history optimizations, multiple merge bases, production `.adofai` build, mid-rotation stitching, cross-Segment effects, GUI.
