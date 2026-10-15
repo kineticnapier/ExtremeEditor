@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_MERGE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentTimeThreeWayMergeRegression.Run();
+    Console.WriteLine("PASS: semantic three-way segment timeline merge regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_TIMELINE_ONLY"),
     "1", StringComparison.Ordinal))
 {
