@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_E2E_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentTogetherE2ERegression.Run();
+    Console.WriteLine("PASS: two-client Git semantic sync to published .adofai export E2E regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_EXPORT_ONLY"),
     "1", StringComparison.Ordinal))
 {
