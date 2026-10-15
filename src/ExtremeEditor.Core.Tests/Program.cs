@@ -1,6 +1,15 @@
 using System.Reflection;
 using ExtremeEditor.Core;
 
+if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_POC_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentSplitMergeRegression.Run();
+    Console.WriteLine("PASS: LevelDocument segment split/merge/repartition regression.");
+    return 0;
+}
+
 RunMultiPlanetRegression();
 RunMultiPlanetAfterMidSpinRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
