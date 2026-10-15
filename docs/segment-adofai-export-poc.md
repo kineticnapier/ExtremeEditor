@@ -1,12 +1,12 @@
-# ExtremeEditor Together — validated .adofai export RED
+# ExtremeEditor Together — validated .adofai export GREEN
 
 ## Baseline and gates
 
 - Repository: kineticnapier/ExtremeEditor
 - Branch: feature/segment-model-poc; main is not changed
-- EditorVersion: 0.0.564-prototype (RED)
-- Last confirmed GREEN: edited Segment composition at 0.0.563-prototype
-- This phase is **RED only**, intentionally using NotImplementedException in SegmentAdoFaiExporter.ExportValidated. Do not implement GREEN until the user confirms RED.
+- `0.0.564-prototype`: RED contract, user confirmed expected exception.
+- `0.0.565-prototype`: GREEN implementation committed; **Windows build and GREEN execution pending**.
+- Last confirmed GREEN: edited Segment composition at `0.0.563-prototype`.
 - No CI, editor GUI automation, WPF save changes, or modifications to the deferred native ScaleRadius/PositionTrack regression.
 
 The existing WPF AdoFaiEditorSaveService reconstructs a source JSON root from an EditorSession, but the Segment PoC lives in Core without an EditorSession. This new exporter must use a **real source .adofai file** as its raw template; creating a JSON document solely from LevelDocument would discard metadata and unrecognized events.
@@ -25,7 +25,7 @@ The existing WPF AdoFaiEditorSaveService reconstructs a source JSON root from an
 8. Return \`SegmentAdoFaiExportResult(DestinationPath, FloorCount, ActionCount)\` only after publication. Do not return a success result for partially written output.
 9. This is **model roundtrip correctness**, not certification of stock ADOFAI judgement, effect animation, audio asset availability, or playable lossless fidelity.
 
-## Isolated RED regression
+## Isolated GREEN regression
 
 The regression creates a unique temporary directory with a real .adofai JSON source containing:
 - edited destination angles and a 999 midspin;
@@ -48,7 +48,7 @@ Rejection tests cover:
 
 Only temporary files are created. Tests must not modify the source repository, main branch or WPF editor save routines.
 
-### Windows RED command
+### Windows GREEN command
 
 \`\`\`powershell
 git pull --ff-only
@@ -65,7 +65,7 @@ finally {
 }
 \`\`\`
 
-Expected **RED**: build succeeds, then NotImplementedException from SegmentAdoFaiExporter.ExportValidated.
+Expected **GREEN**: build succeeds and the standalone regression completes without exceptions.
 
 Future expected **GREEN**:
 
@@ -80,3 +80,12 @@ PASS: validated edited Segment .adofai export and roundtrip regression.
 - Mid-floor arbitrary audio sample slicing; assigning notes to audio ranges without floor alignment.
 - Reliance on user-supplied audio paths, external assets, network files, Git publishing, credential or permissions management.
 - Crash-safe transaction guarantees beyond single-destination temporary-file publication.
+
+## GREEN implementation boundaries
+
+- Rechecks the current edited Segment composition and audio allocations before beginning an export; input arrays, raw JSON and allocations are not mutated.
+- Uses the normalized UTF-8 source .adofai JSON as the fidelity base. Retains unknown root and settings properties, as well as raw source action properties by SourceIndex. Edited SourceProperties/PropertyOverrides override the source event, with typed floor, event type, activation and known property values applied last.
+- Rejects newly authored unknown event types without a raw payload. Rejects nonexistent source indices or changed event types at original indices rather than guessing at unrepresented fields.
+- Writes a unique temporary file next to the desired destination, flushes, reloads through AdoFaiLoader, checks modeled event/timing/geometry/settings/decoration parity and raw JSON equivalence, then publishes via File.Move with explicit overwrite permission.
+- Distinct source and destination paths are required, and linked files/directories are rejected. Failed validation/reload leaves the existing destination and source untouched; the temporary file is removed.
+- No playable stock ADOFAI compatibility claim: this gate validates only the currently modeled, read-back-capable fields. Assets and advanced effects are not fully resolved.
