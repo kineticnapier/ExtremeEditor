@@ -1,4 +1,4 @@
-# Segment timeline allocation — RED (2026-10-15)
+# Segment timeline allocation — GREEN implementation (2026-10-15)
 
 ## Goal
 
@@ -34,10 +34,11 @@ later:      C-new [80,100) while B-parked content remains archived
 
 - RED contract: `src/ExtremeEditor.Core/SegmentTimePlanner.cs`
 - RED regression: `src/ExtremeEditor.Core.Tests/SegmentTimePlannerRegression.cs`
-- `EditorVersion = 0.0.547-prototype` (RED only, Windows verification pending)
+- `0.0.547-prototype`: RED contract added and user confirmed expected failure.
+- `0.0.548-prototype`: `Validate`, `SplitAt`, `CreateEmpty` and `Park` implemented; **fresh Windows GREEN verification pending**.
 - Existing segment split/merge GREEN from `0.0.546` remains separate.
 
-To run only the RED:
+To run the isolated GREEN regression:
 
 ```powershell
 dotnet build .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release
@@ -50,4 +51,4 @@ finally {
 }
 ```
 
-Expected: build PASS and `NotImplementedException` from `SegmentTimePlanner.Validate` on test run.
+Expected: build PASS and `PASS: sample-aligned segment timeline partition regression.`. This validates timeline metadata only, not actual audio-sample decoding or lossless arbitrary-time .adofai slicing.
