@@ -42,12 +42,12 @@ internal static class SegmentGitRemoteSyncRegression
         a.Save(BaseSnapshot());
         string baseCommit = a.Commit("initial shared segments");
 
+        SegmentGitRemoteSync.ConnectLocalBare(a, bare);
+
         // Reject an existing non-bare workspace as origin. Only a dedicated
         // explicitly supplied bare repository may be used for this PoC.
         ExpectRejected(() => SegmentGitRemoteSync.ConnectLocalBare(a, aDirectory),
             "a developer or working Git directory cannot be a remote");
-
-        SegmentGitRemoteSync.ConnectLocalBare(a, bare);
         string pushedBase = SegmentGitRemoteSync.Push(a);
         Equal(baseCommit, pushedBase, "first push publishes base commit");
         Equal(baseCommit, BareHead(bare), "bare main contains initial commit");
