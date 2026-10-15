@@ -176,8 +176,8 @@ internal static class SegmentBoundaryValidationRegression
         level.Angles = [0d, 45d, 999d, 90d, 270d, 15d, 120d, 315d];
         level.RebuildGeometry();
         level.InitialBpm = 120.0;
-        level.CountdownTicks = 0;
-        level.SeparateCountdownTime = false;
+        level.CountdownTicks = 3;
+        level.SeparateCountdownTime = true;
         level.OffsetMilliseconds = 125;
         level.PitchPercent = 90;
         level.ReplaceActions(
@@ -257,7 +257,7 @@ internal static class SegmentBoundaryValidationRegression
             throw new InvalidOperationException(description);
     }
 
-    private static void ExpectRejected(Action test, string description)
+    private static void ExpectRejected(System.Action test, string description)
     {
         try
         {
