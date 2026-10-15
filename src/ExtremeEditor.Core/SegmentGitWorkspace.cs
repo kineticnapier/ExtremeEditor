@@ -163,14 +163,15 @@ public sealed class SegmentGitWorkspace
         }
 
         string[] explicitPaths = paths.ToArray();
-        RunGit(["add", "-A", "--", .. explicitPaths]);
+        RunGit(new[] { "add", "-A", "--" }.Concat(explicitPaths));
         // --only prevents pre-staged unrelated files from joining this commit.
         // Git identity is local to this invocation, never configured globally.
-        RunGit([
+        RunGit(new[]
+        {
             "-c", "user.name=ExtremeEditor Together",
             "-c", "user.email=extremeeditor-together@localhost.invalid",
-            "commit", "--only", "-m", message, "--", .. explicitPaths
-        ]);
+            "commit", "--only", "-m", message, "--"
+        }.Concat(explicitPaths));
         return RunGit("rev-parse", "--verify", "HEAD").Trim();
     }
 
