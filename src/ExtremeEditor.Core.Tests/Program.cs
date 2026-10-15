@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_GIT_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentGitWorkspaceRegression.Run();
+    Console.WriteLine("PASS: isolated Git segment snapshot/branch regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_MERGE_ONLY"),
     "1", StringComparison.Ordinal))
 {
