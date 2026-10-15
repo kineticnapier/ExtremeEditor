@@ -145,10 +145,8 @@ internal static class SegmentGitWorkspaceRegression
             // the dedicated workspace or overwrite Git's internal files.
             SegmentGitSnapshot unsafeSnapshot = Fixture();
             var invalidSegments = unsafeSnapshot.Segments.ToDictionary(
-                pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
-            {
-                ["../outside"] = unsafeSnapshot.Segments["A"]
-            };
+                pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            invalidSegments["../outside"] = unsafeSnapshot.Segments["A"];
             ExpectRejected(() => workspace.Save(unsafeSnapshot with { Segments = invalidSegments }),
                 "path traversal in SegmentId");
         }
