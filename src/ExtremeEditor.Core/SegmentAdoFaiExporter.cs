@@ -267,8 +267,8 @@ public static class SegmentAdoFaiExporter
 
     private static JsonObject ParseRoot(string path)
     {
-        byte[] utf8 = AdoFaiJson.NormalizeToUtf8(File.ReadAllBytes(path));
-        return JsonNode.Parse(utf8, documentOptions: new JsonDocumentOptions
+        ReadOnlyMemory<byte> utf8 = AdoFaiJson.NormalizeToUtf8(File.ReadAllBytes(path));
+        return JsonNode.Parse(utf8.Span, documentOptions: new JsonDocumentOptions
         {
             AllowTrailingCommas = true,
             CommentHandling = JsonCommentHandling.Skip
