@@ -302,8 +302,9 @@ public sealed class SegmentGitWorkspace
                     segment.FloorCount - (segment.StartFloor == 0 ? 1 : 0) ||
                 segment.Actions is null || segment.Decorations is null ||
                 segment.Actions.Any(a => a is null || a.Floor < 0 || a.Floor >= segment.FloorCount) ||
-                segment.Decorations.Any(d => d is null || d.Floor is not int floor ||
-                    floor < 0 || floor >= segment.FloorCount || d.Properties is null))
+                segment.Decorations.Any(d => d is null || !d.Floor.HasValue ||
+                    d.Floor.Value < 0 || d.Floor.Value >= segment.FloorCount ||
+                    d.Properties is null))
             {
                 throw new ArgumentException(
                     $"Segment '{id}' has an invalid local floor-aligned payload.", nameof(snapshot));
