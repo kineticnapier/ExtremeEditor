@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_WPF_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                TogetherWorkspaceUiRegression.Run();
+                Console.WriteLine("PASS: WPF Together workspace editor/Git/export boundary regression.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLANET_RADIUS_POSITION_TRACK_ONLY"),
                 "1", StringComparison.Ordinal))
             {
