@@ -15,18 +15,20 @@ public sealed record SegmentGitAdoFaiPublication(
 /// SegmentAdoFaiExporter. The existing source .adofai template stays external
 /// to the collaboration repository, and is never overwritten.
 ///
-/// Only committed, clean workspace content is eligible; no draft content is
-/// silently exported, no branch/remote refs are moved, and no implicit Push
-/// occurs. Caller explicitly handles conflicts before requesting publication.
+/// Only clean local main commits whose SHA matches the freshly fetched origin
+/// main are eligible. A diverged/conflicted/unpublished HEAD is rejected;
+/// neither a draft nor an older unpublished branch can be exported silently.
+/// Fetch may advance the remote-tracking ref but no local branch is moved,
+/// no implicit Pull/Push occurs, and user-authored content is preserved.
 /// </summary>
 public static class SegmentGitAdoFaiPipeline
 {
-    public static SegmentGitAdoFaiPublication ExportCommittedHead(
+    public static SegmentGitAdoFaiPublication ExportPublishedHead(
         LevelDocument sourceTemplate,
         SegmentGitWorkspace workspace,
         string destinationPath,
         bool overwriteExisting = false) =>
         throw new NotImplementedException(
-            "RED: pin clean Git HEAD, read semantic merged snapshot, " +
+            "RED: require clean published Git HEAD, read semantic merged snapshot, " +
             "validate floor/sample assignments, export and verify .adofai");
 }
