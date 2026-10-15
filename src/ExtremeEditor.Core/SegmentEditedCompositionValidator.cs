@@ -61,7 +61,7 @@ public static class SegmentEditedCompositionValidator
         }
         catch (ArgumentException ex)
         {
-            return Rejected(new(
+            return Rejected(new SegmentEditedCompositionIssue(
                 SegmentEditedCompositionIssueKind.InvalidModeledState,
                 null, -1, "Invalid audio sample allocation: " + ex.Message));
         }
@@ -74,7 +74,7 @@ public static class SegmentEditedCompositionValidator
 
         if (active.Length == 0)
         {
-            return Rejected(new(
+            return Rejected(new SegmentEditedCompositionIssue(
                 SegmentEditedCompositionIssueKind.InvalidFloorCoverage,
                 null, -1, "At least one active floor-aligned Segment is required."));
         }
@@ -146,7 +146,7 @@ public static class SegmentEditedCompositionValidator
         }
         catch (ArgumentException ex)
         {
-            return Rejected(new(
+            return Rejected(new SegmentEditedCompositionIssue(
                 SegmentEditedCompositionIssueKind.InvalidFloorCoverage,
                 null, -1, "The edited floor Segments could not be assembled: " + ex.Message));
         }
