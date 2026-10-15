@@ -1,10 +1,10 @@
-# ExtremeEditor Together — two-client bare Git remote sync RED (2026-10-15)
+# ExtremeEditor Together — two-client bare Git remote sync GREEN (2026-10-15)
 
 ## Baseline
 
 Confirmed GREEN: floor-aligned Segment model (0.0.546), sample-time partitions (0.0.548), timeline 3-way merge (0.0.550), isolated Git workspace/history (0.0.554), and local Git merge-base + two-parent semantic merge (0.0.556).
 
-This task adds the **RED-only** transport contract at EditorVersion `0.0.557-prototype`. The user must confirm the expected RED failure before any GREEN implementation.
+The user confirmed the expected RED failure at `0.0.557-prototype`. `0.0.558-prototype` implements the transport contract. **Windows GREEN verification is pending.**
 
 ## Experiment boundary
 
@@ -24,7 +24,7 @@ No internet, credentials, GitHub, remote Git protocols, global Git settings, edi
 
 Pull returns `SegmentGitPullResult` with `RemoteCommit`, nullable `LocalCommit`, `TimelineConflicts`, and `ContentConflictSegmentIds`. A semantic conflict returns no local commit, preserves HEAD/index/working bytes, and does not push or overwrite the remote.
 
-## RED acceptance scenarios
+## GREEN acceptance scenarios
 
 1. **Publication/clone**: A publishes a base snapshot to bare `origin`; B clones to a clean destination with exactly the same Segment angles and revisions. Non-bare remotes and nonempty clone destinations must be rejected without data loss.
 2. **Divergence/Push protection**: A commits a change to Segment A and pushes. B independently commits Segment B; its direct non-fast-forward Push is rejected. The remote remains at A's commit, B's local HEAD at B's commit.
@@ -36,7 +36,7 @@ Pull returns `SegmentGitPullResult` with `RemoteCommit`, nullable `LocalCommit`,
 8. **Sample-time conflict**: Independently new `X=[20s,30s)` and `Y=[25s,35s)` active allocations conflict after Fetch/Pull; preserve both clients' committed histories and all working content.
 9. Cleanup only the exact unique test fixtures; handle Windows read-only Git objects and never traverse links/junctions.
 
-## Running RED on Windows
+## Running GREEN on Windows
 
 ```powershell
 git pull --ff-only
@@ -54,7 +54,7 @@ finally {
 }
 ```
 
-**Expected RED:** build succeeds, then `NotImplementedException` from `SegmentGitRemoteSync.ConnectLocalBare`.
+**Expected GREEN:** build succeeds, the standalone integration regression finishes without exceptions.
 
 **Future GREEN** must print:
 
@@ -68,3 +68,14 @@ PASS: local bare Git remote Push/Fetch/semantic Pull regression.
 - Production concurrency locking and crash-safe multi-file transactions.
 - Arbitrary time cuts, event-level merging within a single Segment, cross-Segment musical/event state, and lossless/playable `.adofai` export.
 - Multi-base/crisscross merge histories, protected branch policies and remote race recovery are not proven by this PoC.
+
+
+## Implemented strategy at 0.0.558
+
+- Only a **trusted local bare Git repository** can be selected as origin. The location must exist, be bare according to Git, and not overlap with the collaboration worktree. Reject nonempty clone destinations and nested Git checkouts.
+- Clone creates an independent local worktree with \`--no-hardlinks\`; \`SegmentGitWorkspace.Open\` verifies the marker and schema. A failed clone/schema check is **not** treated as valid collaboration data.
+- Push uses an explicit non-force refspec for exactly one branch. A rejected non-fast-forward push must not rewrite published history.
+- Fetch updates one remote-tracking ref and only Git metadata, not HEAD/index/worktree or Segment payloads. It remains permitted while a client has an uncommitted draft.
+- Pull checks the local collaboration worktree is clean, then fetches. It returns unchanged if already current, fast-forwards a descendant remote commit with \`git merge --ff-only\`, or delegates a divergent history to \`SegmentGitBranchMerger\` using a unique temporary local alias of the fetched commit. Only the divergent path creates a semantic two-parent merge commit.
+- The temporary alias is deleted after the merge attempt. On semantic conflicts the remote stays unchanged and the local content/index/HEAD remain intact; Pull does not implicitly Push.
+- Network protocols, credentials, arbitrary remote URLs, cross-machine permissions, malicious bare repositories, full crash recovery, advanced merge-base histories and playable .adofai export remain unimplemented.
