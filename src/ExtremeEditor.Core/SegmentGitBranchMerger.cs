@@ -131,7 +131,7 @@ public static class SegmentGitBranchMerger
                 Array.Empty<SegmentTimeMergeConflict>(),
                 Array.Empty<string>());
         }
-        catch
+        catch (Exception mergeError)
         {
             if (modifyingWorktree && !movedHead)
             {
@@ -147,9 +147,9 @@ public static class SegmentGitBranchMerger
                 }
                 catch (Exception rollbackError)
                 {
-                    throw new InvalidOperationException(
+                    throw new AggregateException(
                         "Merge failed and rollback was incomplete. Inspect the isolated collaboration workspace; no reset was attempted.",
-                        rollbackError);
+                        mergeError, rollbackError);
                 }
             }
             throw;
@@ -242,7 +242,7 @@ public static class SegmentGitBranchMerger
             "ls-tree", "-r", "--name-only", originalCommit, "--",
             SegmentGitWorkspace.SegmentsFolderName);
         foreach (string path in tracked.Split(
-                     ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+                     new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
             string prefix = SegmentGitWorkspace.SegmentsFolderName + "/";
             if (!path.StartsWith(prefix, StringComparison.Ordinal) ||
