@@ -18,8 +18,8 @@ internal static class SegmentBoundaryValidationRegression
         LevelSegment[] parts = LevelSegmentPartitioner.Split(baseline, 3, 6).ToArray();
         Check(parts.Length == 3 && parts[1].StartFloor == 3 &&
               parts[2].StartFloor == 6, "test has two real floor boundaries");
-        Check(parts[0].DestinationAngles.Contains(999d),
-            "the midspin is preserved on the left side of the first cut");
+        Check(parts[1].DestinationAngles[0] == 999d,
+            "the midspin incoming angle belongs to the right side of the first cut");
 
         // Anchors refer only to floor ENTRY samples. These are not the
         // arbitrary time assignments used by SegmentTimeTimeline.
@@ -80,9 +80,9 @@ internal static class SegmentBoundaryValidationRegression
             "changed incoming tile direction is not the original geometry");
 
         LevelSegment[] lostMidSpin = parts.ToArray();
-        double[] noMidSpin = parts[0].DestinationAngles.ToArray();
-        noMidSpin[^1] = 0;
-        lostMidSpin[0] = parts[0] with { DestinationAngles = noMidSpin };
+        double[] noMidSpin = parts[1].DestinationAngles.ToArray();
+        noMidSpin[0] = 0;
+        lostMidSpin[1] = parts[1] with { DestinationAngles = noMidSpin };
         ExpectAnyIssue(SegmentBoundaryValidator.ValidateRoundTrip(
                 baseline, lostMidSpin),
             [SegmentBoundaryIssueKind.TimingDrift, SegmentBoundaryIssueKind.GeometryDrift],
