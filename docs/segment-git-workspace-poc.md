@@ -46,6 +46,7 @@ finally {
 
 - `0.0.551-prototype`: initial RED contract/test, subsequently fixed its test syntax in `0.0.552-prototype`; user confirmed expected RED.
 - `0.0.553-prototype`: local Git workspace implementation committed; **Windows GREEN verification pending**.
+- `0.0.554-prototype`: Windows test reached cleanup and failed with `UnauthorizedAccessException` under a read-only Git object; regression cleanup now clears read-only attributes strictly inside the unique test temp directory, rejects links/junctions, and reports cleanup failures without masking test assertions. **Full GREEN still unverified.**
 - Branch: `feature/segment-model-poc`.
 - Implemented: marker-protected isolated repository initialization/open, schema-versioned deterministic JSON files, segment-local actions/decorations, local Commit, Branch creation/safe checkout, historical read without checkout, semantic timeline merge input compatibility.
 - Git operations use argument arrays (no shell), disable repository hooks, set commit identity per-command, and stage/commit only the schema-owned paths.
