@@ -1,9 +1,9 @@
-# Segment model PoC — RED contract (2026-10-15)
+# Segment model PoC — implementation verification (2026-10-15)
 
 ## Scope
 This is a **floor-aligned, non-destructive LevelDocument split/merge regression** for a potential Git-backed ExtremeEditor Together. It is not a collaboration backend and does not change production editor behavior.
 
-The branch intentionally contains an unimplemented `LevelSegmentPartitioner` API. The test must **compile and fail at runtime** until the behavior is implemented and verified on Windows.
+The initial RED was confirmed on Windows. The first GREEN implementation of `LevelSegmentPartitioner` has been committed, but Windows fresh-build and runtime verification are **pending**.
 
 Run on Windows:
 
@@ -40,6 +40,8 @@ finally {
 6. **Durability:** Segment ID/version, conflict detection, persistence, Git storage choice, audio asset references and server security remain undecided.
 
 ## Status
-- `0.0.545-prototype`: RED-only API contract and Core.Tests regression added.
-- No implemented splitter/merger, no Git integration, no GUI.
+- `0.0.545-prototype`: RED-only API contract and Core.Tests regression added; user verified RED.
+- `0.0.546-prototype`: floor-aligned splitter/merger implemented. **GREEN is not yet verified on Windows.**
+- No Git integration or GUI. Runtime editor still uses the existing unsplit LevelDocument.
+- After editing angles, merge currently uses PathBuilder's plain geometry fallback; it does not yet reapply ScaleRadius/PositionTrack from source metadata. This needs an event-aware rebuild before production use.
 - Previous independent PositionTrack/ScaleRadius RED remains unresolved on the main lineage.
