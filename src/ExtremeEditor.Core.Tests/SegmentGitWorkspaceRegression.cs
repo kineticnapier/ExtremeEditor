@@ -154,10 +154,58 @@ internal static class SegmentGitWorkspaceRegression
         {
             // These are only this test's unique temp repositories, never the
             // user's source checkout or their personal working directories.
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-            if (Directory.Exists(unsafeRoot))
-                Directory.Delete(unsafeRoot, recursive: true);
+            // Git may mark .git/objects files read-only on Windows.
+            // Cleanup must not mask the actual assertion failure, if any.
+            TryCleanupTemporaryRepository(root);
+            TryCleanupTemporaryRepository(unsafeRoot);
+        }
+    }
+
+    private static void TryCleanupTemporaryRepository(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+
+        try
+        {
+            // Fail closed on links/junctions; this test must never traverse
+            // outside its own temporary directory during cleanup.
+            var directories = new Stack<string>();
+            directories.Push(path);
+            while (directories.Count > 0)
+            {
+                string directory = directories.Pop();
+                FileAttributes dirAttributes = File.GetAttributes(directory);
+                if ((dirAttributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Refusing to follow a linked test directory.");
+
+                foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    FileAttributes attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Refusing to follow a linked test entry.");
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        directories.Push(entry);
+                    }
+                    else if ((attributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(entry, attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+                if ((dirAttributes & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(directory, dirAttributes & ~FileAttributes.ReadOnly);
+            }
+
+            Directory.Delete(path, recursive: true);
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException)
+        {
+            // A cleanup failure is diagnostic only. In particular, it must
+            // never overwrite the original exception from the regression.
+            Console.Error.WriteLine(
+                $"WARNING: Could not clean up isolated Git test directory '{path}': {ex.Message}");
         }
     }
 
