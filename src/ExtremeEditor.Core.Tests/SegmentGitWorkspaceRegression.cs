@@ -62,7 +62,7 @@ internal static class SegmentGitWorkspaceRegression
                 "unknown nested event JSON must survive persistence");
             Check(contentB.Decorations[0].Properties["extra"]?["mystery"]?.ToString() == "42",
                 "unknown decoration JSON must survive persistence");
-            Equal(999d, contentB.DestinationAngles[0], "midspin value survives persistence");
+            Equal(999d, contentB.DestinationAngles[1], "midspin value survives persistence");
             contentB.Actions[0].SourceProperties!["tag"] = "mutated-reader";
             Equal("fx", workspace.Load().Segments["B"].Actions[0].SourceProperties?["tag"]?.ToString(),
                 "loading a snapshot must not leak mutable JSON aliases");
@@ -72,6 +72,10 @@ internal static class SegmentGitWorkspaceRegression
             File.WriteAllText(Path.Combine(root, "local-secret.txt"), "never commit this");
             string baseCommit = workspace.Commit("base segments");
             Check(IsSha(baseCommit), "commit returns a full Git SHA");
+            SegmentGitWorkspace reopened = SegmentGitWorkspace.Open(root);
+            Equal("main", reopened.CurrentBranch, "open existing repository on main");
+            CheckSnapshot(reopened.Load(), "A-r1", "B-r1", 0,
+                "snapshot survives reopening the workspace");
             string trackedFiles = RunGit(root, "ls-tree", "-r", "--name-only", "HEAD");
             Check(trackedFiles.Contains("timeline.json", StringComparison.Ordinal),
                 "timeline tracked by Git");
