@@ -211,9 +211,6 @@ internal static class SegmentTogetherE2ERegression
         Sequence(sourceBefore, File.ReadAllBytes(sourcePath),
             "original raw template never overwritten");
         byte[] exportBeforeConflict = File.ReadAllBytes(outputPath);
-        string indexBefore = File.Exists(Path.Combine(bPath, ".git", "index"))
-            ? Convert.ToHexString(File.ReadAllBytes(Path.Combine(bPath, ".git", "index")))
-            : "<absent>";
 
         // Neither a draft, nor a non-published branch tip is permitted to
         // replace the merged export without explicit reconciliation.
@@ -244,6 +241,7 @@ internal static class SegmentTogetherE2ERegression
         string bNewCommit = b.Commit("B independently edits A");
         byte[] bContentBeforeConflict = File.ReadAllBytes(
             Path.Combine(bPath, "segments", "A.json"));
+        byte[] bIndexBeforeConflict = File.ReadAllBytes(Path.Combine(bPath, ".git", "index"));
         SegmentGitPullResult conflict = SegmentGitRemoteSync.Pull(b);
         Check(!conflict.Success && conflict.LocalCommit is null &&
               conflict.ContentConflictSegmentIds.Contains("A"),
@@ -254,11 +252,9 @@ internal static class SegmentTogetherE2ERegression
         Sequence(bContentBeforeConflict,
             File.ReadAllBytes(Path.Combine(bPath, "segments", "A.json")),
             "conflicting pull preserves B authored content");
-        string indexAfter = File.Exists(Path.Combine(bPath, ".git", "index"))
-            ? Convert.ToHexString(File.ReadAllBytes(Path.Combine(bPath, ".git", "index")))
-            : "<absent>";
-        Equal(indexBefore == "<absent>", indexAfter == "<absent>",
-            "Git index existence consistent");
+        Sequence(bIndexBeforeConflict,
+            File.ReadAllBytes(Path.Combine(bPath, ".git", "index")),
+            "conflicting pull preserves B index bytes");
         ExpectRejected(() => SegmentGitAdoFaiPipeline.ExportPublishedHead(
                 original, b, outputPath, overwriteExisting: true),
             "conflicted/unpublished B HEAD cannot replace published export");
