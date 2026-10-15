@@ -1,9 +1,10 @@
-# ExtremeEditor Together — Segment boundary integrity RED (2026-10-15)
+# ExtremeEditor Together — Segment boundary integrity GREEN (2026-10-15)
 
 ## Baseline
 
 - Existing Segment floor split/merge, sample-time partition metadata, three-way merge, local Git and two-client bare Git transport PoCs have all passed their corresponding Windows tests through `0.0.558-prototype`.
-- This change is **`0.0.559-prototype`, RED only**. The implementation of `SegmentBoundaryValidator.ValidateRoundTrip` intentionally throws `NotImplementedException`; verify build and expected runtime RED before GREEN.
+- `0.0.559-prototype`: RED contract; user confirmed expected `NotImplementedException` failure.
+- `0.0.560-prototype`: validator implemented; **Windows GREEN verification pending**.
 - This work remains on `feature/segment-model-poc`. Do not merge to `main` or run any source-repository Git operation in tests.
 
 ## Narrow verification scope
@@ -23,7 +24,7 @@ We need a **pre-export guard**, but there is not yet a reliable `.adofai` writer
 
 The test includes a baseline with `SetSpeed`, `Twirl`, `Pause`, `999` Midspin and two floor cuts; then removes events, changes boundary angles/raw JSON/sample anchors and introduces unresolved geometric/timed events. All should be rejected with the matching typed reason.
 
-## Isolated Windows RED
+## Isolated Windows GREEN
 
 ```powershell
 git pull --ff-only
@@ -41,7 +42,7 @@ finally {
 }
 ```
 
-**Expected RED:** build succeeds; runtime throws `NotImplementedException` from `SegmentBoundaryValidator.ValidateRoundTrip`.
+**Expected GREEN:** build succeeds, the standalone boundary integrity test completes without exceptions.
 
 After implementing GREEN and confirming it on Windows, expected terminal output:
 
@@ -56,3 +57,14 @@ PASS: floor-aligned Segment boundary timing/geometry/sample regression.
 - Arbitrary audio-sample cuts through a floor; a `SegmentTimeTimeline` cannot yet be converted directly into floor slices.
 - Accepting legitimate independently edited charts without a new trusted baseline, conflict-resolution policy and full geometry/event resolver.
 - Full playable/lossless `.adofai` export, source-file roundtrip, and Git publication gating.
+
+## Implementation at 0.0.560
+
+- Reconstruct the complete floor-aligned chart with LevelSegmentPartitioner.Merge(reference, segments), which rejects missing or overlapping floor coverage before comparison.
+- Compare typed and nested JSON action/decoration payloads, source ordering, raw incoming angles (including the 999 midspin sentinel), and world positions without modifying inputs.
+- Build whole-chart TimingMaps on both sides so earlier SetSpeed, Twirl, Pause and MultiPlanet state flows across Segment boundaries. Compare per-floor entry/exit times, angular state, effective BPM, direction and pause.
+- Evaluate TimingMap.GetPose at fixed fractions of each reference floor interval, comparing stationary/orbiting positions, active planet role and progress at matching chart times.
+- For optional floor-entry audio sample anchors, use PlaybackClock.ChartToAudioTime with global Offset/Pitch/Countdown. Require one distinct anchor for each cut when supplied and reject drift exceeding a one-sample rounding allowance.
+- Fail closed on active potentially persistent ScaleRadius/PositionTrack before a boundary, and on unresolved positive-duration actions that may continue across it (e.g. MoveDecorations).
+- A clean result certifies only the currently modeled unchanged roundtrip. It does not prove stock-game parity or lossless/playable export; deferred stock PlanetRadius/PositionTrack work remains separate.
+- No .adofai writer, editor GUI, Git or network behavior was added by this validator.
