@@ -104,7 +104,10 @@ internal static class TogetherMusicTimelineRegression
         {
             "LoadMusicTimelineAsync", "MusicTimelineSelectionChanged",
             "AddTimeSegmentClick", "TimelineZoomChanged",
-            "TimelineScrollChanged"
+            "TimelineScrollChanged", "CreateTimeFirstWorkspace",
+            "OpenTimeFirstWorkspace", "ApplyTimeFirstSnapshot",
+            "TimeFirstSegmentGitWorkspace", "SegmentContentPlanner.CreateEmpty",
+            "SegmentTimeDraftEditor.Open"
         })
             Check(code.Contains(handler, StringComparison.Ordinal),
                 "WPF music timeline is not wired to " + handler);

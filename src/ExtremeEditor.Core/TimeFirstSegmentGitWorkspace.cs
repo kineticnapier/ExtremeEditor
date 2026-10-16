@@ -1,20 +1,14 @@
+using System.Text;
+using System.Text.Json;
+
 namespace ExtremeEditor.Core;
 
-/// <summary>
-/// Stable identity of the decoded music used by a time-first Together project.
-/// The file name is descriptive; SHA-256, measured sample rate, and decoded
-/// sample count are the identity-bearing values.
-/// </summary>
 public sealed record TimeFirstAudioIdentity(
     string FileName,
     string Sha256,
     int SampleRate,
     long TotalSamples);
 
-/// <summary>
-/// Complete time-first collaboration state. Explicit empty content and an
-/// empty draft are both persisted; an absent payload is corruption, not empty.
-/// </summary>
 public sealed record TimeFirstSegmentSnapshot(
     TimeFirstAudioIdentity Audio,
     IReadOnlyList<MusicTimingPoint> TimingPoints,
@@ -28,28 +22,357 @@ public sealed class TimeFirstSegmentContentMissingException : IOException
 }
 
 /// <summary>
-/// Versioned Git persistence for sample-time-first Together projects.
+/// Versioned Git persistence for sample-time-first Together projects. Its
+/// owned files are disjoint from the legacy floor-aligned payload, so legacy
+/// workspaces are never upgraded or rewritten implicitly.
 /// </summary>
 public sealed class TimeFirstSegmentGitWorkspace
 {
-    private TimeFirstSegmentGitWorkspace(string directory) => Directory = directory;
+    private const int SchemaVersion = 1;
+    private const string Format = "extremeeditor-together-time-first";
+    private const string MarkerName = "time-first-workspace.json";
+    private const string ProjectName = "time-first-project.json";
+    private const string SegmentDirectoryName = "time-first-segments";
+    private static readonly UTF8Encoding Utf8 = new(false, true);
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public string Directory { get; }
+    private sealed record MarkerFile(int SchemaVersion, string Format);
+    private sealed record ProjectFile(
+        int SchemaVersion,
+        TimeFirstAudioIdentity Audio,
+        MusicTimingPoint[] TimingPoints,
+        int SampleRate,
+        SegmentTimePartition[] Partitions,
+        string[] SegmentIds);
+    private sealed record SegmentFile(
+        int SchemaVersion,
+        string SegmentId,
+        SegmentContentEntry Content,
+        SegmentTimeDraft Draft);
 
-    public static TimeFirstSegmentGitWorkspace Initialize(string directory) =>
-        throw new NotImplementedException(
-            "RED: initialize the versioned time-first Together workspace.");
+    private readonly SegmentGitWorkspace _git;
 
-    public static TimeFirstSegmentGitWorkspace Open(string directory) =>
-        throw new NotImplementedException();
+    private TimeFirstSegmentGitWorkspace(SegmentGitWorkspace git) => _git = git;
 
-    public void Save(TimeFirstSegmentSnapshot snapshot) =>
-        throw new NotImplementedException();
+    public string Directory => _git.Directory;
+    public string HeadCommit => _git.HeadCommit;
+    public string CurrentBranch => _git.CurrentBranch;
 
-    public TimeFirstSegmentSnapshot Load() => throw new NotImplementedException();
+    public static TimeFirstSegmentGitWorkspace Initialize(string directory)
+    {
+        SegmentGitWorkspace git = SegmentGitWorkspace.Initialize(directory);
+        var workspace = new TimeFirstSegmentGitWorkspace(git);
+        System.IO.Directory.CreateDirectory(workspace.OwnedPath(SegmentDirectoryName));
+        workspace.WriteOwnedFile(MarkerName,
+            Serialize(new MarkerFile(SchemaVersion, Format)));
+        return workspace;
+    }
 
-    public string Commit(string message) => throw new NotImplementedException();
+    public static TimeFirstSegmentGitWorkspace Open(string directory)
+    {
+        SegmentGitWorkspace git = SegmentGitWorkspace.Open(directory);
+        var workspace = new TimeFirstSegmentGitWorkspace(git);
+        string marker = workspace.OwnedPath(MarkerName);
+        if (!File.Exists(marker))
+            throw new InvalidDataException(
+                "This is a legacy floor-aligned Together workspace, not a time-first workspace.");
+        workspace.VerifyMarker(File.ReadAllText(marker, Utf8));
+        return workspace;
+    }
 
-    public static void ValidateSnapshot(TimeFirstSegmentSnapshot snapshot) =>
-        throw new NotImplementedException();
+    public void Save(TimeFirstSegmentSnapshot snapshot)
+    {
+        RequireWorkspace();
+        ValidateSnapshot(snapshot);
+
+        string[] ids = ActiveIds(snapshot.Timeline);
+        var project = new ProjectFile(
+            SchemaVersion,
+            snapshot.Audio with { },
+            snapshot.TimingPoints.Select(static point => point with { }).ToArray(),
+            snapshot.Timeline.SampleRate,
+            snapshot.Timeline.Partitions.Select(static partition => partition with { })
+                .OrderBy(static partition => partition.StartSample)
+                .ThenBy(static partition => partition.SegmentId, StringComparer.Ordinal)
+                .ToArray(),
+            ids);
+        string projectJson = Serialize(project);
+        var payloads = ids.ToDictionary(
+            static id => id,
+            id => Serialize(new SegmentFile(
+                SchemaVersion, id, snapshot.Content[id] with { },
+                FreezeDraft(snapshot.Drafts[id]))),
+            StringComparer.Ordinal);
+
+        string segmentDirectory = OwnedPath(SegmentDirectoryName);
+        if (System.IO.Directory.Exists(segmentDirectory)) RejectLink(segmentDirectory);
+        else System.IO.Directory.CreateDirectory(segmentDirectory);
+
+        string projectPath = OwnedPath(ProjectName);
+        string[] previousIds = File.Exists(projectPath)
+            ? ReadProject(File.ReadAllText(projectPath, Utf8)).SegmentIds
+            : [];
+        foreach (string previousId in previousIds) ValidateSegmentId(previousId);
+        foreach (string previousId in previousIds.Except(ids, StringComparer.Ordinal))
+        {
+            string obsolete = OwnedPath(SegmentRelativePath(previousId));
+            if (File.Exists(obsolete))
+            {
+                RejectLink(obsolete);
+                File.Delete(obsolete);
+            }
+        }
+
+        foreach (string id in ids)
+            WriteOwnedFile(SegmentRelativePath(id), payloads[id]);
+        WriteOwnedFile(ProjectName, projectJson);
+    }
+
+    public TimeFirstSegmentSnapshot Load()
+    {
+        RequireWorkspace();
+        string projectPath = OwnedPath(ProjectName);
+        if (!File.Exists(projectPath))
+            throw new InvalidDataException("The time-first project manifest has not been saved.");
+        return ReadSnapshot(File.ReadAllText(projectPath, Utf8), id =>
+        {
+            string path = OwnedPath(SegmentRelativePath(id));
+            if (!File.Exists(path))
+                throw new TimeFirstSegmentContentMissingException(
+                    $"Segment '{id}' is listed by the project but its payload file is missing.");
+            return File.ReadAllText(path, Utf8);
+        });
+    }
+
+    public string Commit(string message)
+    {
+        RequireWorkspace();
+        if (string.IsNullOrWhiteSpace(message))
+            throw new ArgumentException("A commit message is required.", nameof(message));
+        TimeFirstSegmentSnapshot snapshot = Load();
+
+        var paths = new SortedSet<string>(StringComparer.Ordinal)
+        {
+            SegmentGitWorkspace.MarkerFileName, MarkerName, ProjectName
+        };
+        foreach (string id in snapshot.Drafts.Keys) paths.Add(SegmentRelativePath(id));
+        string tracked = _git.ExecuteGit("ls-files", "-z", "--", SegmentDirectoryName);
+        foreach (string path in tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+            if (IsOwnedSegmentPath(path)) paths.Add(path);
+
+        string[] explicitPaths = paths.ToArray();
+        _git.ExecuteGit(new[] { "add", "-A", "--" }.Concat(explicitPaths).ToArray());
+        _git.ExecuteGit(new[]
+        {
+            "-c", "user.name=ExtremeEditor Together",
+            "-c", "user.email=extremeeditor-together@localhost.invalid",
+            "commit", "--only", "-m", message, "--"
+        }.Concat(explicitPaths).ToArray());
+        return _git.ExecuteGit("rev-parse", "--verify", "HEAD").Trim();
+    }
+
+    public void AssertCleanOwnedWorktree()
+    {
+        RequireWorkspace();
+        string status = _git.ExecuteGit(
+            "status", "--porcelain", "--untracked-files=all", "--",
+            MarkerName, ProjectName, SegmentDirectoryName);
+        if (!string.IsNullOrWhiteSpace(status))
+            throw new InvalidOperationException(
+                "Time-first collaboration data contains uncommitted changes.");
+    }
+
+    public static void ValidateSnapshot(TimeFirstSegmentSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(snapshot.Audio);
+        ArgumentNullException.ThrowIfNull(snapshot.TimingPoints);
+        ArgumentNullException.ThrowIfNull(snapshot.Timeline);
+        ArgumentNullException.ThrowIfNull(snapshot.Content);
+        ArgumentNullException.ThrowIfNull(snapshot.Drafts);
+
+        TimeFirstAudioIdentity audio = snapshot.Audio;
+        if (string.IsNullOrWhiteSpace(audio.FileName) ||
+            !string.Equals(Path.GetFileName(audio.FileName), audio.FileName, StringComparison.Ordinal) ||
+            audio.Sha256.Length != 64 || !audio.Sha256.All(char.IsAsciiHexDigit) ||
+            audio.SampleRate <= 0 || audio.TotalSamples <= 0)
+            throw new ArgumentException("The measured audio identity is invalid.", nameof(snapshot));
+
+        SegmentTimePlanner.Validate(snapshot.Timeline);
+        if (snapshot.Timeline.SampleRate != audio.SampleRate ||
+            snapshot.Timeline.Partitions.Any(partition =>
+                partition.EndSampleExclusive > audio.TotalSamples))
+            throw new ArgumentException(
+                "The sample timeline does not fit the measured audio identity.", nameof(snapshot));
+
+        _ = MusicTimingMap.Build(audio.SampleRate, snapshot.TimingPoints);
+        SegmentContentValidationResult contentValidation =
+            SegmentContentPlanner.Validate(snapshot.Timeline, snapshot.Content);
+        if (!contentValidation.Accepted)
+            throw new ArgumentException(
+                "The time-first content map is invalid: " +
+                string.Join("; ", contentValidation.Issues.Select(issue =>
+                    $"{issue.Kind} [{issue.SegmentId}]: {issue.Detail}")), nameof(snapshot));
+
+        string[] activeIds = ActiveIds(snapshot.Timeline);
+        if (!activeIds.SequenceEqual(snapshot.Drafts.Keys.OrderBy(
+                static id => id, StringComparer.Ordinal), StringComparer.Ordinal))
+            throw new ArgumentException(
+                "Every active Segment must have exactly one persisted draft.", nameof(snapshot));
+
+        foreach (string id in activeIds)
+        {
+            ValidateSegmentId(id);
+            if (!snapshot.Content.TryGetValue(id, out SegmentContentEntry? content) ||
+                content is null || content.Kind != SegmentContentKind.Empty)
+                throw new ArgumentException(
+                    "Time-first drafts require explicit empty content.", nameof(snapshot));
+        }
+        _ = SegmentDraftTimeSearchIndex.Build(snapshot.Timeline, snapshot.Drafts);
+
+        var fileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string id in snapshot.Timeline.Partitions.Select(
+                     static partition => partition.SegmentId))
+        {
+            ValidateSegmentId(id);
+            if (!fileNames.Add(id))
+                throw new ArgumentException(
+                    "Segment IDs must be unique as file names.", nameof(snapshot));
+        }
+    }
+
+    private TimeFirstSegmentSnapshot ReadSnapshot(
+        string projectJson, Func<string, string> getSegment)
+    {
+        ProjectFile project = ReadProject(projectJson);
+        var content = new Dictionary<string, SegmentContentEntry>(StringComparer.Ordinal);
+        var drafts = new Dictionary<string, SegmentTimeDraft>(StringComparer.Ordinal);
+        foreach (string id in project.SegmentIds)
+        {
+            ValidateSegmentId(id);
+            if (content.ContainsKey(id))
+                throw new InvalidDataException("Duplicate Segment ID in the time-first manifest.");
+            SegmentFile file = Deserialize<SegmentFile>(getSegment(id));
+            if (file.SchemaVersion != SchemaVersion ||
+                !string.Equals(file.SegmentId, id, StringComparison.Ordinal) ||
+                file.Content is null || file.Draft is null)
+                throw new InvalidDataException(
+                    $"Segment '{id}' payload does not match its manifest.");
+            content.Add(id, file.Content with { });
+            drafts.Add(id, FreezeDraft(file.Draft));
+        }
+
+        var snapshot = new TimeFirstSegmentSnapshot(
+            project.Audio with { },
+            Array.AsReadOnly(project.TimingPoints.Select(static point => point with { }).ToArray()),
+            new SegmentTimeTimeline(project.SampleRate,
+                Array.AsReadOnly(project.Partitions.Select(static partition =>
+                    partition with { }).ToArray())),
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, SegmentContentEntry>(content),
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, SegmentTimeDraft>(drafts));
+        try { ValidateSnapshot(snapshot); }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException("The saved time-first project is invalid.", ex);
+        }
+        return snapshot;
+    }
+
+    private static ProjectFile ReadProject(string json)
+    {
+        ProjectFile project = Deserialize<ProjectFile>(json);
+        if (project.SchemaVersion != SchemaVersion || project.Audio is null ||
+            project.TimingPoints is null || project.Partitions is null ||
+            project.SegmentIds is null)
+            throw new InvalidDataException("Unsupported time-first project schema.");
+        foreach (string id in project.SegmentIds) ValidateSegmentId(id);
+        return project;
+    }
+
+    private void RequireWorkspace()
+    {
+        string marker = OwnedPath(MarkerName);
+        if (!File.Exists(marker))
+            throw new InvalidDataException("Missing time-first workspace marker.");
+        VerifyMarker(File.ReadAllText(marker, Utf8));
+        _ = _git.CurrentBranch;
+    }
+
+    private static string[] ActiveIds(SegmentTimeTimeline timeline) =>
+        timeline.Partitions
+            .Where(static partition => partition.Status == SegmentPartitionStatus.Active)
+            .Select(static partition => partition.SegmentId)
+            .OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+
+    private void VerifyMarker(string json)
+    {
+        MarkerFile marker = Deserialize<MarkerFile>(json);
+        if (marker.SchemaVersion != SchemaVersion ||
+            !string.Equals(marker.Format, Format, StringComparison.Ordinal))
+            throw new InvalidDataException("Unsupported time-first workspace schema.");
+    }
+
+    private string OwnedPath(string relative)
+    {
+        string path = Path.GetFullPath(Path.Combine(
+            Directory, relative.Replace('/', Path.DirectorySeparatorChar)));
+        string root = Path.GetFullPath(Directory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        if (!path.StartsWith(root, OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException("Owned path escapes the workspace.");
+        if (File.Exists(path) || System.IO.Directory.Exists(path)) RejectLink(path);
+        return path;
+    }
+
+    private void WriteOwnedFile(string relative, string content) =>
+        File.WriteAllText(OwnedPath(relative), content, Utf8);
+
+    private static SegmentTimeDraft FreezeDraft(SegmentTimeDraft draft) =>
+        draft with
+        {
+            TileAnchors = Array.AsReadOnly(draft.TileAnchors.Select(static anchor =>
+                new SegmentDraftTileAnchor(anchor.TileId, anchor.AudioSample)).ToArray())
+        };
+
+    private static string SegmentRelativePath(string id)
+    {
+        ValidateSegmentId(id);
+        return SegmentDirectoryName + "/" + id + ".json";
+    }
+
+    private static bool IsOwnedSegmentPath(string path)
+    {
+        const string prefix = SegmentDirectoryName + "/";
+        if (!path.StartsWith(prefix, StringComparison.Ordinal) ||
+            !path.EndsWith(".json", StringComparison.Ordinal)) return false;
+        return IsValidSegmentId(path[prefix.Length..^5]);
+    }
+
+    private static bool IsValidSegmentId(string? id) =>
+        !string.IsNullOrEmpty(id) && id.Length <= 128 &&
+        char.IsAsciiLetterOrDigit(id[0]) &&
+        id.All(static c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+    private static void ValidateSegmentId(string? id)
+    {
+        if (!IsValidSegmentId(id))
+            throw new ArgumentException(
+                "Segment ID must be a safe ASCII file identifier.", nameof(id));
+    }
+
+    private static void RejectLink(string path)
+    {
+        var info = new FileInfo(path);
+        if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException(
+                "Symbolic links and junctions are not allowed in collaboration paths.");
+    }
+
+    private static T Deserialize<T>(string json) where T : class =>
+        JsonSerializer.Deserialize<T>(json, JsonOptions)
+        ?? throw new InvalidDataException("Saved time-first JSON is empty or invalid.");
+
+    private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
 }

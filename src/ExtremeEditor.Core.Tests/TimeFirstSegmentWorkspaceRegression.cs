@@ -50,8 +50,8 @@ internal static class TimeFirstSegmentWorkspaceRegression
         }
         finally
         {
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
-            if (Directory.Exists(legacy)) Directory.Delete(legacy, recursive: true);
+            CleanupRoot(root);
+            CleanupRoot(legacy);
         }
     }
 
@@ -113,5 +113,39 @@ internal static class TimeFirstSegmentWorkspaceRegression
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static void CleanupRoot(string root)
+    {
+        if (!Directory.Exists(root)) return;
+        try
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count != 0)
+            {
+                string directory = pending.Pop();
+                FileAttributes attributes = File.GetAttributes(directory);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Refusing to follow linked test directory.");
+                foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    FileAttributes current = File.GetAttributes(entry);
+                    if ((current & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Refusing to follow linked test entry.");
+                    if ((current & FileAttributes.Directory) != 0) pending.Push(entry);
+                    else if ((current & FileAttributes.ReadOnly) != 0)
+                        File.SetAttributes(entry, current & ~FileAttributes.ReadOnly);
+                }
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(directory, attributes & ~FileAttributes.ReadOnly);
+            }
+            Directory.Delete(root, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(
+                $"WARNING: could not clean isolated time-first temp repo '{root}': {ex.Message}");
+        }
     }
 }
