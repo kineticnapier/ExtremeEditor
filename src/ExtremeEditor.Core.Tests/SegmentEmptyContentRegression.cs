@@ -129,6 +129,52 @@ internal static class SegmentEmptyContentRegression
             SegmentContentIssueKind.UnknownAllocation, "unallocated",
             "unallocated content cannot silently join a project");
 
+        var wrongId = new Dictionary<string, SegmentContentEntry>(
+            entries, StringComparer.Ordinal)
+        {
+            ["drop"] = empty with { SegmentId = "outro" }
+        };
+        ExpectIssue(SegmentContentPlanner.Validate(timeline, wrongId),
+            SegmentContentIssueKind.InvalidContentEntry, "drop",
+            "content entry ID must match the dictionary key and allocation");
+
+        var malformedFloor = new Dictionary<string, SegmentContentEntry>(
+            entries, StringComparer.Ordinal)
+        {
+            ["intro"] = entries["intro"] with
+            {
+                FloorAlignedContent = existing[0] with
+                {
+                    DestinationAngles = Array.Empty<double>()
+                }
+            }
+        };
+        ExpectIssue(SegmentContentPlanner.Validate(timeline, malformedFloor),
+            SegmentContentIssueKind.InvalidContentEntry, "intro",
+            "authored floor content must not have malformed angle data");
+
+        var invalidTimeline = timeline with { SampleRate = 0 };
+        ExpectIssue(SegmentContentPlanner.Validate(invalidTimeline, entries),
+            SegmentContentIssueKind.InvalidTimeline, null,
+            "invalid shared audio sample rate is a typed rejection");
+
+        ExpectCreateRejected(() =>
+            SegmentContentPlanner.CreateEmpty(timeline.Partitions[0]),
+            "an existing authored revision cannot be turned into empty content");
+        ExpectCreateRejected(() =>
+            SegmentContentPlanner.CreateEmpty(drop with
+            {
+                Status = SegmentPartitionStatus.Parked,
+                OwnerId = null
+            }),
+            "a parked allocation cannot create new active empty content");
+        ExpectCreateRejected(() =>
+            SegmentContentPlanner.CreateEmpty(drop with
+            {
+                EndSampleExclusive = drop.StartSample
+            }),
+            "zero-length empty segment must be rejected");
+
         // Adjacent music-time slices with no tiles at all are also valid.
         var completelyEmpty = new SegmentTimeTimeline(SampleRate, []);
         completelyEmpty = SegmentTimePlanner.CreateEmpty(
@@ -175,10 +221,30 @@ internal static class SegmentEmptyContentRegression
         }), "source chart remains byte-equivalent by modeled fields");
     }
 
+    private static void ExpectCreateRejected(
+        Action create, string description)
+    {
+        try
+        {
+            create();
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "Unsafe empty Segment creation accepted: " + description);
+    }
+
     private static void ExpectIssue(
         SegmentContentValidationResult result,
         SegmentContentIssueKind kind,
-        string segmentId, string message)
+        string? segmentId, string message)
     {
         Check(!result.Accepted &&
               result.Issues.Any(issue =>
