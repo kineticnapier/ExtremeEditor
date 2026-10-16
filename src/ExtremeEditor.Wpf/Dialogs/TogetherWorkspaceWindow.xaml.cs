@@ -1386,7 +1386,7 @@ public partial class TogetherWorkspaceWindow : Window
             RefreshStatus();
         }
         catch (Exception ex) when (
-            ex is IOException or InvalidOperationException or ArgumentException or
+            ex is HttpRequestException or TaskCanceledException or IOException or InvalidOperationException or ArgumentException or
             InvalidDataException or UnauthorizedAccessException or OverflowException)
         {
             _notice = LocalizeError(ex);
@@ -1411,7 +1411,7 @@ public partial class TogetherWorkspaceWindow : Window
             RefreshStatus();
         }
         catch (Exception ex) when (
-            ex is IOException or InvalidOperationException or ArgumentException or
+            ex is HttpRequestException or TaskCanceledException or IOException or InvalidOperationException or ArgumentException or
             InvalidDataException or UnauthorizedAccessException or OverflowException)
         {
             _notice = LocalizeError(ex);
@@ -1425,6 +1425,16 @@ public partial class TogetherWorkspaceWindow : Window
     private static string LocalizeError(Exception error)
     {
         string technical = error.Message;
+        if (error is HttpRequestException httpError)
+        {
+            if (httpError.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return "Cloudflareの認証に失敗しました（401）。ルームIDと参加者IDに対応するトークンを入力してください。有効期限も確認してください。";
+            if (httpError.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                return "Cloudflareが送信を拒否しました（403）。自分の参加者IDに対応した提出先か確認してください。";
+            return $"Cloudflareとの通信に失敗しました（HTTP {(int?)httpError.StatusCode}）。接続先とWranglerのログを確認してください。";
+        }
+        if (error is TaskCanceledException)
+            return "Cloudflareとの通信がタイムアウトしました。接続先を確認してから再試行してください。";
         if (technical.Contains("collaboration directory must be empty", StringComparison.OrdinalIgnoreCase))
             return "共同編集の保存先フォルダーに既存のファイルがあります。空のフォルダー、または存在しない新しいフォルダーを指定してください。既存のデータは削除していません。";
         if (technical.Contains("non-fast-forward", StringComparison.OrdinalIgnoreCase) ||
