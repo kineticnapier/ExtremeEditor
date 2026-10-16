@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase C — WPF music timeline (next RED).
+Phase D — Time-first workspace persistence (next RED).
 
 ## Completed
 
@@ -20,10 +20,17 @@ Phase C — WPF music timeline (next RED).
   whole-beat origin, and snapping rejects old-BPM lines beyond the cut.
 - Multi-section visible generation retains one total line budget and copies
   caller-owned timing-point data.
+- Phase C: real audio waveform decoding with measured sample rate and a bounded
+  peak summary.
+- WPF music timeline paints visible waveform/grid/Segment bands without
+  per-sample controls and supports drag selection, six snap values, zoom, and
+  horizontal scrolling.
+- The Japanese Together panel can load an audio file, configure BPM/beat
+  offset, and plan owned empty sample-time Segments without existing floors.
 
 ## Last verified implementation commit
 
-`d79141423267443b82b4efa656271e818f5ccf96`
+`fca8c4bf690280e26fa4423df94811e6e4524c7b`
 
 ## Windows verification
 
@@ -34,14 +41,17 @@ Phase C — WPF music timeline (next RED).
 - `EXTREMEEDITOR_SEGMENT_SEARCH_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_DRAFT_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_EMPTY_ONLY=1` — exit 0.
+- WPF Release build with `--no-restore -m:1` — exit 0, 0 warnings, 0 errors.
+- `EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TOGETHER_JA_UI_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TOGETHER_WPF_ONLY=1` — exit 0.
 
-Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`; its dedicated test
-failed for the expected `MusicTimingMap.Build` `NotImplementedException`
-after a successful Release build.
+Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`. Phase C RED was
+`3575adc`; its WPF test failed for the expected `AudioWaveformLoader.Load`
+`NotImplementedException` after a successful Release build.
 
 ## Unresolved
 
-- WPF waveform/grid timeline and time-range ownership creation.
 - Time-first draft persistence, real tile authoring, Git integration,
   semantic composition, and safe export.
 - Final manual GUI interaction review remains required; GUI automation is
@@ -49,7 +59,8 @@ after a successful Release build.
 
 ## Next concrete work
 
-Add a Phase C controller/structural RED for a WPF timeline that projects only
-the visible sample range, exposes waveform peaks and musical grid lines,
-supports zoom/scroll and all six snap choices, and creates sample-time Segment
-selections without depending on existing floors.
+Add a versioned Phase D workspace schema that stores the audio identity,
+musical timing points, time allocations, explicit empty content, and draft
+anchors. It must roundtrip all-empty projects, reject missing files distinctly
+from empty content, retain legacy floor-aligned workspaces unchanged, and wire
+the WPF planned ranges into Create/Open.
