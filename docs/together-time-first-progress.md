@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase D — Time-first workspace persistence (next RED).
+Phase E — Time-first chart authoring (next RED).
 
 ## Completed
 
@@ -27,10 +27,17 @@ Phase D — Time-first workspace persistence (next RED).
   horizontal scrolling.
 - The Japanese Together panel can load an audio file, configure BPM/beat
   offset, and plan owned empty sample-time Segments without existing floors.
+- Phase D: a versioned, isolated time-first Git workspace persists measured
+  audio identity, musical timing points, sample-time ownership, explicit empty
+  content, and immutable per-Segment drafts.
+- Missing Segment payloads are diagnosed separately from legitimate empty
+  Segments; caller collections are frozen on reload.
+- The WPF create/open flow now stores and restores planned time Segments while
+  leaving legacy floor-aligned workspaces unchanged.
 
 ## Last verified implementation commit
 
-`fca8c4bf690280e26fa4423df94811e6e4524c7b`
+`2ac6a396c6d55e0a4ba3e5e30df47111bb7dffbd`
 
 ## Windows verification
 
@@ -45,22 +52,25 @@ Phase D — Time-first workspace persistence (next RED).
 - `EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_TOGETHER_JA_UI_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_TOGETHER_WPF_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TIME_WORKSPACE_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_SEGMENT_GIT_ONLY=1` — exit 0.
 
 Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`. Phase C RED was
 `3575adc`; its WPF test failed for the expected `AudioWaveformLoader.Load`
-`NotImplementedException` after a successful Release build.
+`NotImplementedException` after a successful Release build. Phase D RED was
+`75a8a4c`; its dedicated test failed for the expected
+`TimeFirstSegmentGitWorkspace.Initialize` `NotImplementedException` after a
+successful Release build.
 
 ## Unresolved
 
-- Time-first draft persistence, real tile authoring, Git integration,
-  semantic composition, and safe export.
+- Real tile authoring, time-first Git synchronization, semantic composition,
+  and safe export.
 - Final manual GUI interaction review remains required; GUI automation is
   prohibited.
 
 ## Next concrete work
 
-Add a versioned Phase D workspace schema that stores the audio identity,
-musical timing points, time allocations, explicit empty content, and draft
-anchors. It must roundtrip all-empty projects, reject missing files distinctly
-from empty content, retain legacy floor-aligned workspaces unchanged, and wire
-the WPF planned ranges into Create/Open.
+Define a Phase E authored-tile representation that resolves each draft marker
+to real ADOFAI geometry and events, preserves entry/exit musical state, supports
+Undo/Redo and save/reopen, and is editable only by the active Segment owner.
