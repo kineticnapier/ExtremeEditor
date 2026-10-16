@@ -81,9 +81,36 @@ internal static class TimeFirstSegmentGitRegression
         {
             CleanupRoot(root);
         }
+        RunLoopbackTransportPolicy();
         RunHttpBundleRemote();
         RunSubmissionInbox();
         RunSubmissionValidation();
+    }
+
+    private static void RunLoopbackTransportPolicy()
+    {
+        using var client = new HttpClient();
+        foreach (string url in new[]
+        {
+            "http://127.0.0.1:8787/rooms/example12345/",
+            "http://localhost:8787/rooms/example12345/",
+            "http://[::1]:8787/rooms/example12345/",
+            "https://relay.example.net/rooms/example12345/"
+        })
+            _ = new HttpTimeFirstSubmissionInbox(client, new Uri(url), "secret");
+
+        foreach (string url in new[]
+        {
+            "http://relay.example.net/rooms/example12345/",
+            "http://192.168.1.1:8787/rooms/example12345/",
+            "http://127.0.0.2:8787/rooms/example12345/"
+        })
+            try
+            {
+                _ = new HttpTimeFirstSubmissionInbox(client, new Uri(url), "secret");
+                throw new InvalidOperationException("Unsafe HTTP endpoint allowed: " + url);
+            }
+            catch (ArgumentException) { }
     }
 
     private sealed class MemoryBundleServer : HttpMessageHandler
