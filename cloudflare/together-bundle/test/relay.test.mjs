@@ -90,3 +90,27 @@ test("member credentials enforce room, role, expiry and signature", async () => 
     headers: { Authorization: token.slice(0, -1) + (token.endsWith("0") ? "1" : "0") }
   }), env)).status, 401);
 });
+
+test("participant submissions remain isolated from canonical and other members", async () => {
+  const env = fakeEnvironment();
+  const endpoint = "https://example.invalid/rooms/exampleRoom123456/submissions/";
+  const alice = await auth("exampleRoom123456", "reader", "alice");
+  const bob = await auth("exampleRoom123456", "reader", "bob");
+  const upload = await worker.fetch(new Request(endpoint + "alice", {
+    method: "PUT", headers: { ...alice, "If-None-Match": "*",
+      "Content-Type": "application/octet-stream" }, body: bundle
+  }), env);
+  assert.equal(upload.status, 200);
+  assert.equal((await worker.fetch(new Request(endpoint + "bob", {
+    method: "PUT", headers: { ...alice, "If-None-Match": "*",
+      "Content-Type": "application/octet-stream" }, body: bundle
+  }), env)).status, 403);
+  assert.equal((await worker.fetch(new Request(endpoint + "alice", {
+    headers: bob
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(new Request(url, { headers: alice }), env)).status, 404);
+  assert.equal((await worker.fetch(new Request(endpoint + "alice", {
+    method: "PUT", headers: { ...alice, "If-None-Match": "*",
+      "Content-Type": "application/octet-stream" }, body: bundle
+  }), env)).status, 412);
+});
