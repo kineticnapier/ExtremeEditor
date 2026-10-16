@@ -695,7 +695,9 @@ public partial class TogetherWorkspaceWindow : Window
                     throw new InvalidOperationException(
                         "既存の共同編集フォルダーは現在の音源と一致しません。別の保存先を指定してください。");
                 OpenTimeFirstWorkspace(workspacePath);
-                _timeOwnerId = owner;
+                _timeOwnerId = saved.Timeline.Partitions.Any(partition =>
+                    partition.OwnerId == owner && partition.Status == SegmentPartitionStatus.Active)
+                    ? owner : null;
                 _notice = "既存の共同編集を開きました。履歴や編集内容は初期化していません。";
             }
             else
