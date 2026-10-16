@@ -182,11 +182,11 @@ internal sealed class TogetherWorkspaceController
             throw new InvalidOperationException(
                 "Together cannot stage floor-count changes, global settings or project-wide decorations.");
 
-        int[] cuts = original.Segments.Values
-            .Where(s => original.Timeline.Partitions.Any(p =>
-                p.Status == SegmentPartitionStatus.Active &&
-                p.SegmentId == FindSegmentId(original, s)))
-            .Select(s => s.StartFloor)
+        int[] cuts = original.Timeline.Partitions
+            .Where(part => part.Status == SegmentPartitionStatus.Active)
+            .Select(part => original.Segments.TryGetValue(part.SegmentId, out LevelSegment? segment)
+                ? segment.StartFloor
+                : throw new InvalidOperationException("An active Segment has no content."))
             .Where(start => start > 0)
             .OrderBy(start => start).ToArray();
         LevelSegment[] sliced = LevelSegmentPartitioner.Split(edited, cuts);
@@ -309,14 +309,6 @@ internal sealed class TogetherWorkspaceController
             segments.Add(segment);
         }
         return segments.ToArray();
-    }
-
-    private static string? FindSegmentId(SegmentGitSnapshot snapshot, LevelSegment candidate)
-    {
-        foreach ((string id, LevelSegment segment) in snapshot.Segments)
-            if (ReferenceEquals(segment, candidate))
-                return id;
-        return null;
     }
 
     private static void RequireComposition(
