@@ -204,12 +204,12 @@ internal sealed class TogetherWorkspaceController
 
             if (string.Equals(part.SegmentId, selectedId, StringComparison.Ordinal))
                 content[part.SegmentId] = newPart;
-            else if (!SerializedEqual(oldPart, newPart))
+            else if (!ContentEqual(oldPart, newPart))
                 throw new InvalidOperationException(
                     $"Editor changed Segment '{part.SegmentId}' owned by another author.");
         }
 
-        if (SerializedEqual(original.Segments[selectedId], content[selectedId]))
+        if (ContentEqual(original.Segments[selectedId], content[selectedId]))
             throw new InvalidOperationException("The selected Segment has no new changes.");
 
         // Check the edited whole chart before writing anything to Git-owned
@@ -334,6 +334,28 @@ internal sealed class TogetherWorkspaceController
         a.SeparateCountdownTime == b.SeparateCountdownTime &&
         a.DefaultHitSound == b.DefaultHitSound &&
         a.HitSoundVolumePercent == b.HitSoundVolumePercent;
+
+    // SpeedRatio is a runtime cache recomputed by EditorSession for all
+    // actions, including other owners' floors. Ignore only that cache during
+    // permission/difference checks; all authored event/source properties,
+    // source indices, angleData and decorations remain strictly compared.
+    private static bool ContentEqual(LevelSegment a, LevelSegment b)
+    {
+        object Normalize(LevelSegment segment) => new
+        {
+            segment.StartFloor,
+            segment.EndFloorExclusive,
+            segment.DestinationAngles,
+            Actions = segment.Actions.Select(action =>
+            {
+                LevelAction snapshot = action with { };
+                snapshot.SpeedRatio = null;
+                return snapshot;
+            }).ToArray(),
+            segment.Decorations
+        };
+        return SerializedEqual(Normalize(a), Normalize(b));
+    }
 
     private static bool SerializedEqual<T>(T a, T b) =>
         string.Equals(JsonSerializer.Serialize(a), JsonSerializer.Serialize(b),
