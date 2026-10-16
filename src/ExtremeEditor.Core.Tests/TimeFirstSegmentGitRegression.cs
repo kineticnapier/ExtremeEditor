@@ -192,6 +192,7 @@ internal static class TimeFirstSegmentGitRegression
             receiver.Save(Fixture());
             receiver.Commit("local independent commit");
             string headBefore = receiver.HeadCommit;
+            string projectBefore = System.Text.Json.JsonSerializer.Serialize(receiver.Load());
             string? remoteBefore = null;
             try { remoteBefore = RunGit(clone, "rev-parse", "refs/remotes/origin/main"); }
             catch (InvalidOperationException) { }
@@ -209,7 +210,7 @@ internal static class TimeFirstSegmentGitRegression
             try { remoteAfter = RunGit(clone, "rev-parse", "refs/remotes/origin/main"); }
             catch (InvalidOperationException) { }
             Check(remoteBefore == remoteAfter, "canonical remote ref unchanged");
-            Check(receiver.Load().Authored is null,
+            Check(System.Text.Json.JsonSerializer.Serialize(receiver.Load()) == projectBefore,
                 "proposal fetch does not change local project files");
         }
         finally { CleanupRoot(root); }
