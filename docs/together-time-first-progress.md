@@ -4,7 +4,8 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase H — WPF integration code complete; Windows manual E2E review still pending.
+Simplified Together workflow — Core/WPF automated integration complete;
+interactive Windows UI review still pending.
 
 ## Completed
 
@@ -41,13 +42,22 @@ Phase H — WPF integration code complete; Windows manual E2E review still pendi
 - WPF users can open their own time Segment, place/remove real tiles at snapped
   samples, Undo/Redo, Stage, Commit, and reopen the same authored content;
   another owner's Segment remains read-only.
+- Loading audio now creates one unassigned section covering the complete song.
+- Administrators split, join, move boundaries, and assign participant names
+  without entering Segment IDs, sample coordinates, or floor cuts.
+- New collaboration creation is always time-first and refuses missing owners;
+  legacy floor-aligned workspaces remain readable.
+- Participants choose a saved owner name after opening. Until then every
+  section is read-only; choosing a name enables only that owner's sections.
+- The normal section list shows ordinal section names and formatted song time.
+  Git controls and raw compatibility options remain folded under details.
 
 ## Last verified implementation commit
 
-Previous Windows-verified upstream before H: `776a23e5ac01ba197325e7641be4424b376ef5c8`.
-Phase F/G were pushed directly and the user reported Windows checks PASS.
-H UI implementation is complete in source but requires Windows WPF tests,
-interactive two-client confirmation and stock-game chart verification.
+Core planning GREEN: `48b6e84`.
+The simplified WPF GREEN is verified in the working tree and will be recorded
+by the next commit. Interactive two-client confirmation and stock-game chart
+verification remain manual.
 
 ## Windows verification
 
@@ -65,6 +75,12 @@ interactive two-client confirmation and stock-game chart verification.
 - `EXTREMEEDITOR_TIME_WORKSPACE_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_GIT_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_TIME_AUTHORING_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TOGETHER_SECTION_PLAN_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TOGETHER_SIMPLE_UI_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TIME_GIT_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TIME_EXPORT_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TIME_H_E2E_ONLY=1` — exit 0.
 
 Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`. Phase C RED was
 `3575adc`; its WPF test failed for the expected `AudioWaveformLoader.Load`
@@ -116,14 +132,12 @@ successful Release build.
 
 ## Unresolved
 
-- Run Windows WPF build and dedicated UI regressions, and perform actual
-  mouse/keyboard two-client interaction plus stock-game playback. GUI automation
-  remains prohibited.
+- Perform actual mouse/keyboard two-client interaction and stock-game playback.
+  GUI automation remains prohibited.
 - Complex chart effects and automatic tempo fitting remain unsupported and
   must not be presented as production-ready.
 
 ## Next concrete work
 
-User runs the Windows commands and manual steps in
-`docs/together-time-first-phase-h-manual.md`, reporting any compiler failures,
-UI issues or gameplay mismatch for targeted fixes before marking H complete.
+Run the simplified administrator and participant flow manually using
+`docs/together-simple-workflow-manual.md`, then perform stock-game playback.

@@ -33,6 +33,8 @@ public partial class TogetherWorkspaceWindow : Window
     private AudioWaveformData? _timelineWaveform;
     private MusicTimingMap? _musicTimingMap;
     private SegmentTimeTimeline? _plannedTimeline;
+    private TogetherSectionPlan? _sectionPlan;
+    private string? _selectedPlanSectionId;
     private string? _timelineAudioPath;
     private long? _selectionStartSample;
     private long? _selectionEndSampleExclusive;
@@ -95,7 +97,7 @@ public partial class TogetherWorkspaceWindow : Window
         _previewTimer.Stop();
         _previewPlayer?.Pause();
         if (_timeWorkspace is null &&
-            _plannedTimeline is { Partitions.Count: > 0 } &&
+            _sectionPlan is not null &&
             _timelineAudioPath is not null &&
             !string.Equals(_timelineAudioPath, fullPath,
                 StringComparison.OrdinalIgnoreCase))
@@ -109,8 +111,8 @@ public partial class TogetherWorkspaceWindow : Window
         if (_previewClosed || loadVersion != _previewLoadVersion)
             return;
         ValidateLoadedTimeAudio(fullPath, waveform);
-        if (_plannedTimeline is { Partitions.Count: > 0 } &&
-            _plannedTimeline.SampleRate != waveform.SampleRate)
+        if (_sectionPlan is not null &&
+            _sectionPlan.SampleRate != waveform.SampleRate)
         {
             throw new InvalidOperationException(
                 "作成予定の担当区間と音源のサンプル周波数が異なるため、区間を破棄せず読み込みを中止しました。");
@@ -167,15 +169,19 @@ public partial class TogetherWorkspaceWindow : Window
         _musicTimingMap = _timeSnapshot is not null
             ? MusicTimingMap.Build(waveform.SampleRate, _timeSnapshot.TimingPoints)
             : BuildMusicTimingMap(waveform);
-        if (_plannedTimeline is null ||
-            _plannedTimeline.SampleRate != waveform.SampleRate)
-            _plannedTimeline = new SegmentTimeTimeline(
-                waveform.SampleRate, Array.Empty<SegmentTimePartition>());
+        if (_timeWorkspace is null && _sectionPlan is null)
+            _sectionPlan = TogetherSectionPlanner.CreateWholeSong(
+                waveform.SampleRate, waveform.TotalSamples);
+        if (_sectionPlan is not null)
+            _plannedTimeline = PlanDisplayTimeline(_sectionPlan);
 
+        SegmentTimeTimeline displayTimeline = _plannedTimeline ??
+            new SegmentTimeTimeline(waveform.SampleRate,
+                Array.Empty<SegmentTimePartition>());
         MusicTimeline.Load(
             waveform,
             _musicTimingMap,
-            _plannedTimeline.Partitions);
+            displayTimeline.Partitions);
         MusicTimeline.SetSubdivision(SelectedSubdivision());
 
         SampleRateBox.Text = waveform.SampleRate.ToString(CultureInfo.InvariantCulture);
@@ -183,8 +189,10 @@ public partial class TogetherWorkspaceWindow : Window
         double seconds = (double)waveform.TotalSamples / waveform.SampleRate;
         MeasuredAudioText.Text =
             $"実測 {waveform.SampleRate:N0} Hz ／ {TimeSpan.FromSeconds(seconds):mm\\:ss\\.fff} ／ {Path.GetFileName(fullPath)}";
-        _notice =
-            "音源を読み込みました。Shift+クリックで始点、Alt+クリックで終点を指定できます。";
+        _notice = _sectionPlan is null
+            ? "音源を読み込みました。"
+            : "曲全体を1つの区間にしました。再生位置を合わせて「現在位置で区切る」を押してください。";
+        RefreshParticipantChoices();
         UpdateTimelineNavigation();
         UpdatePreviewHead();
     }
@@ -461,7 +469,7 @@ public partial class TogetherWorkspaceWindow : Window
     private void AddTimeSegmentClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
-            if (_plannedTimeline is null || _timelineWaveform is null)
+            if (_sectionPlan is null || _timelineWaveform is null)
                 throw new InvalidOperationException(
                     "先に音源を読み込んで時間範囲を選択してください。");
             if (_selectionStartSample is not long start ||
@@ -472,12 +480,60 @@ public partial class TogetherWorkspaceWindow : Window
             if (string.IsNullOrWhiteSpace(owner))
                 throw new ArgumentException("担当者名を入力してください。");
 
-            string segmentId = NextPlannedSegmentId(_plannedTimeline);
-            _plannedTimeline = SegmentTimePlanner.CreateEmpty(
-                _plannedTimeline, segmentId, start, end, owner);
-            MusicTimeline.SetSegments(_plannedTimeline.Partitions);
-            _notice =
-                $"{segmentId} を [{start:N0}, {end:N0}) samples、担当「{owner}」として追加しました。床が0枚でも有効です。";
+            SplitPlanAt(start);
+            SplitPlanAt(end);
+            TogetherSection section = _sectionPlan.Sections.Single(item =>
+                item.StartSample == start && item.EndSampleExclusive == end);
+            _sectionPlan = TogetherSectionPlanner.AssignOwner(
+                _sectionPlan, section.InternalId, owner);
+            _selectedPlanSectionId = section.InternalId;
+            ApplySectionPlan($"選択範囲を「{owner}」の担当区間に設定しました。");
+        });
+
+    private void SplitSectionClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            long sample = PlanningSample();
+            TogetherSection section = plan.Sections.SingleOrDefault(item =>
+                sample > item.StartSample && sample < item.EndSampleExclusive)
+                ?? throw new InvalidOperationException(
+                    "区切り位置を区間の途中に合わせてください。曲の先頭・末尾では分割できません。");
+            _sectionPlan = TogetherSectionPlanner.Split(
+                plan, section.InternalId, sample);
+            _selectedPlanSectionId = section.InternalId;
+            ApplySectionPlan("現在位置で曲を区切りました。続けて各区間の担当者を設定してください。");
+        });
+
+    private void JoinSectionClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            string id = RequiredPlannedSelection();
+            _sectionPlan = TogetherSectionPlanner.JoinWithNext(plan, id);
+            _selectedPlanSectionId = id;
+            ApplySectionPlan("選択した区間を次の区間と結合しました。担当者が異なっていた場合は再設定してください。");
+        });
+
+    private void MoveBoundaryClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            string id = RequiredPlannedSelection();
+            _sectionPlan = TogetherSectionPlanner.MoveBoundary(
+                plan, id, PlanningSample());
+            ApplySectionPlan("選択した区間の右境界を移動しました。既存の床や編集内容は変更していません。");
+        });
+
+    private void AssignOwnerClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            string owner = SegmentOwnerBox.Text.Trim();
+            _sectionPlan = TogetherSectionPlanner.AssignOwner(
+                plan, RequiredPlannedSelection(), owner);
+            ApplySectionPlan($"選択した区間の担当者を「{owner}」に設定しました。");
+            RefreshParticipantChoices();
         });
 
     private void TimelineZoomChanged(
@@ -552,8 +608,8 @@ public partial class TogetherWorkspaceWindow : Window
         CloneWorkspaceButton.Visibility =
             forCreation ? Visibility.Collapsed : Visibility.Visible;
         _notice = forCreation
-            ? "新しい作業フォルダーを指定してください。作成前に「詳細設定」で音声のサンプル周波数を確認してください。"
-            : "既にコピーされた共同編集の作業フォルダーを指定してください。招待リンクからの参加には未対応です。";
+            ? "音源を選び、区間ごとの担当者を設定してから保存先を指定してください。"
+            : "受け取った共同編集フォルダーを指定して開いてください。";
         RefreshStatus();
         WorkspacePathBox.Focus();
     }
@@ -562,71 +618,25 @@ public partial class TogetherWorkspaceWindow : Window
         Safely(() =>
         {
             RefuseWorkspaceReplacement();
-            string workspacePath = RequiredPath(WorkspacePathBox.Text, "作業フォルダー");
-            string owner = RequiredOwner();
-            if (ConfirmSampleRateBox.IsChecked != true)
+            string workspacePath = RequiredPath(
+                WorkspacePathBox.Text, "保存先フォルダー");
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            TogetherSection? missing = plan.Sections.FirstOrDefault(
+                section => string.IsNullOrWhiteSpace(section.OwnerName));
+            if (missing is not null)
             {
-                AdvancedControlsExpander.IsExpanded = true;
-                throw new ArgumentException(
-                    "共同編集を作成する前に、「詳細設定」で音声ファイルのサンプル周波数を確認し、確認欄にチェックしてください。48,000 Hzは初期値で、自動測定値ではありません。");
-            }
-            if (!int.TryParse(SampleRateBox.Text.Trim(), out int sampleRate) ||
-                sampleRate <= 0)
-                throw new ArgumentException(
-                    "詳細設定に正しい音声サンプル周波数（Hz）を入力してください。");
-
-            if (_plannedTimeline is { Partitions.Count: > 0 })
-            {
-                CreateTimeFirstWorkspace(workspacePath, sampleRate, owner);
-                SetupPanel.Visibility = Visibility.Collapsed;
-                _notice =
-                    "時間区間先行の共同編集を作成し、空の担当区間を履歴へ保存しました。区間は床番号に依存しません。";
-                return;
+                int number = plan.Sections.ToList().IndexOf(missing) + 1;
+                throw new InvalidOperationException(
+                    $"区間 {number} の担当者が未設定です。区間を選び、担当者名を設定してください。");
             }
 
-            LevelDocument source = ReadSourceTemplate();
-
-            int[] cuts = ParseCuts(CutFloorsBox.Text);
-            if (cuts.Length == 0 && source.FloorCount > 1)
-                cuts = [Math.Clamp(source.FloorCount / 2, 1, source.FloorCount - 1)];
-
-            LevelSegment[] sections =
-                LevelSegmentPartitioner.Split(source, cuts).ToArray();
-
-            string[] owners = ParseOwners(OwnersBox.Text, sections.Length, owner);
-            if (owners.Length != sections.Length)
-                throw new ArgumentException(
-                    $"担当者の数が区間数と一致しません。{sections.Length}人分の識別名をカンマ区切りで指定してください。");
-
-            TimingMap timing = TimingMapBuilder.Build(source);
-            var segments = new Dictionary<string, LevelSegment>(StringComparer.Ordinal);
-            var assignments = new List<SegmentTimePartition>();
-            for (int i = 0; i < sections.Length; i++)
-            {
-                LevelSegment segment = sections[i];
-                string id = $"segment-{i + 1}";
-                long start = ToSample(
-                    PlaybackClock.ChartToAudioTime(
-                        source, timing.GetEntryTime(segment.StartFloor)), sampleRate);
-                long end = ToSample(
-                    PlaybackClock.ChartToAudioTime(
-                        source, segment.EndFloorExclusive == source.FloorCount
-                            ? timing.Duration
-                            : timing.GetEntryTime(segment.EndFloorExclusive)), sampleRate);
-
-                segments.Add(id, segment);
-                assignments.Add(new SegmentTimePartition(
-                    id, start, end, $"{id}-initial", start,
-                    owners[i], SegmentPartitionStatus.Active));
-            }
-
-            _controller.Create(workspacePath, source,
-                new SegmentGitSnapshot(
-                    new SegmentTimeTimeline(sampleRate, assignments),
-                    segments), owner);
-            LoadIntoEditor();
+            _plannedTimeline = TogetherSectionPlanner.FinalizeTimeline(plan);
+            string owner = plan.Sections[0].OwnerName!;
+            CreateTimeFirstWorkspace(workspacePath, plan.SampleRate, owner);
             SetupPanel.Visibility = Visibility.Collapsed;
-            _notice = "共同編集を作成しました。自分の担当区間を選び、メイン画面で編集してください。共有先の設定は「詳細設定」から行えます。";
+            ParticipantNameBox.Text = owner;
+            _notice =
+                "共同編集を作成しました。空の区間もそのまま保存されています。共有先の設定は「詳細設定」から行えます。";
         });
 
     private void OpenWorkspaceClick(object sender, RoutedEventArgs e) =>
@@ -634,20 +644,21 @@ public partial class TogetherWorkspaceWindow : Window
         {
             RefuseWorkspaceReplacement();
             string path = RequiredPath(WorkspacePathBox.Text, "作業フォルダー");
-            string owner = RequiredOwner();
-            if (File.Exists(Path.Combine(path, "time-first-workspace.json")))
+            bool timeFirst = File.Exists(Path.Combine(path, "time-first-workspace.json"));
+            if (timeFirst)
             {
-                OpenTimeFirstWorkspace(path, owner);
+                OpenTimeFirstWorkspace(path);
                 _notice =
-                    "時間区間先行の共同編集を再読込しました。担当、空区間、音楽グリッドを復元しました。";
+                    "共同編集を開きました。参加者名を選んで「この名前で編集」を押してください。";
             }
             else
             {
+                string owner = RequiredOwner();
                 _controller.Open(path, ReadSourceTemplate(), owner);
                 LoadIntoEditor();
                 _notice = "共同編集に参加しました。自分の担当区間を選んで編集してください。";
+                SetupPanel.Visibility = Visibility.Collapsed;
             }
-            SetupPanel.Visibility = Visibility.Collapsed;
         });
 
     private void CloneWorkspaceClick(object sender, RoutedEventArgs e) =>
@@ -656,12 +667,29 @@ public partial class TogetherWorkspaceWindow : Window
             RefuseWorkspaceReplacement();
             string remote = RequiredPath(BareRemoteBox.Text, "Git共有フォルダー");
             string destination = RequiredPath(WorkspacePathBox.Text, "複製先の作業フォルダー");
-            string owner = RequiredOwner();
             TimeFirstSegmentGitWorkspace cloned =
                 TimeFirstSegmentGitRemoteSync.CloneLocalBare(remote, destination);
-            OpenTimeFirstWorkspace(cloned.Directory, owner);
+            OpenTimeFirstWorkspace(cloned.Directory);
+            _notice = "共同編集を複製しました。参加者名を選んでください。";
+        });
+
+    private void ChooseParticipantClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            string owner = RequiredOwner();
+            if (_timeSnapshot is null)
+                throw new InvalidOperationException("先に既存の共同編集を開いてください。");
+            if (!_timeSnapshot.Timeline.Partitions.Any(partition =>
+                    partition.Status == SegmentPartitionStatus.Active &&
+                    string.Equals(partition.OwnerId, owner, StringComparison.Ordinal)))
+                throw new ArgumentException(
+                    "その名前の担当区間はありません。担当者一覧から自分の名前を選んでください。");
+            RefuseUnsafeTimeEditorSwitch();
+            _timeOwnerId = owner;
+            _timeSelectedSegmentId = null;
+            _timeEditor = null;
             SetupPanel.Visibility = Visibility.Collapsed;
-            _notice = "Git共有先を複製しました。自分の担当区間を選択し、編集できます。";
+            _notice = $"「{owner}」として参加しました。自分の担当区間を選ぶと編集できます。";
         });
 
     /// <summary>
@@ -754,12 +782,13 @@ public partial class TogetherWorkspaceWindow : Window
         }
 
         if (_controller.Display.WorkspaceDirectory is null &&
-            _plannedTimeline?.Partitions.Any(partition => string.Equals(
-                partition.SegmentId, segment.SegmentId,
+            _sectionPlan?.Sections.Any(section => string.Equals(
+                section.InternalId, segment.SegmentId,
                 StringComparison.Ordinal)) == true)
         {
-            _notice =
-                $"作成予定の「{segment.SegmentId}」: {segment.SampleRangeLabel} samples、担当「{segment.OwnerId}」。";
+            _selectedPlanSectionId = segment.SegmentId;
+            SegmentOwnerBox.Text = segment.OwnerId ?? string.Empty;
+            _notice = $"{segment.DisplayName}を選択しました。担当者の設定、結合、境界移動ができます。";
             RefreshStatus();
             return;
         }
@@ -1172,7 +1201,7 @@ public partial class TogetherWorkspaceWindow : Window
         {
             rows = _plannedTimeline.Partitions
                 .OrderBy(partition => partition.StartSample)
-                .Select(partition => new TogetherSegmentDisplay(
+                .Select((partition, index) => new TogetherSegmentDisplay(
                     partition.SegmentId,
                     -1,
                     -1,
@@ -1183,8 +1212,12 @@ public partial class TogetherWorkspaceWindow : Window
                     partition.ContentRevisionId,
                     timeLoaded && string.Equals(partition.SegmentId,
                         _timeSelectedSegmentId, StringComparison.Ordinal),
-                    string.Equals(partition.OwnerId, _timeOwnerId ?? SegmentOwnerBox.Text.Trim(),
-                        StringComparison.Ordinal)))
+                    timeLoaded
+                        ? string.Equals(partition.OwnerId, _timeOwnerId,
+                            StringComparison.Ordinal)
+                        : true,
+                    index + 1,
+                    _plannedTimeline.SampleRate))
                 .ToArray();
         }
         _refreshing = true;
@@ -1192,7 +1225,8 @@ public partial class TogetherWorkspaceWindow : Window
         {
             SegmentList.ItemsSource = rows;
             string? activeId = timeLoaded
-                ? _timeSelectedSegmentId : state.SelectedSegmentId;
+                ? _timeSelectedSegmentId
+                : _selectedPlanSectionId ?? state.SelectedSegmentId;
             if (activeId is not null)
                 SegmentList.SelectedItem =
                     rows.FirstOrDefault(s => s.SegmentId == activeId);
@@ -1207,6 +1241,11 @@ public partial class TogetherWorkspaceWindow : Window
         BpmBox.IsEnabled = !timeLoaded;
         BeatOffsetBox.IsEnabled = !timeLoaded;
         AddTimeSegmentButton.IsEnabled = !timeLoaded;
+        SplitSectionButton.IsEnabled = !loaded && _sectionPlan is not null;
+        JoinSectionButton.IsEnabled = !loaded && _selectedPlanSectionId is not null;
+        MoveBoundaryButton.IsEnabled = JoinSectionButton.IsEnabled;
+        AssignOwnerButton.IsEnabled = JoinSectionButton.IsEnabled;
+        ChooseParticipantButton.IsEnabled = timeLoaded;
         CloneWorkspaceButton.IsEnabled = !loaded;
         SaveSegmentButton.IsEnabled = timeLoaded
             ? _timeEditor?.IsDirty == true && !_timeStaged
@@ -1230,11 +1269,11 @@ public partial class TogetherWorkspaceWindow : Window
 
         if (!loaded)
         {
-            string planned = _plannedTimeline is { Partitions.Count: > 0 }
-                ? $"作成予定の時間区間: {_plannedTimeline.Partitions.Count}件"
+            string planned = _sectionPlan is { Sections.Count: > 0 }
+                ? $"作成予定の区間: {_sectionPlan.Sections.Count}件"
                 : "共同編集はまだ開かれていません";
             TogetherStatusText.Text = _notice ??
-                $"{planned}。音源または.adofai譜面を読み込み、時間範囲を指定してください。";
+                $"{planned}。音源を読み込み、曲を区切って担当者を設定してください。";
             return;
         }
 
@@ -1250,8 +1289,8 @@ public partial class TogetherWorkspaceWindow : Window
             ? string.Empty
             : $" ／ 競合あり: {string.Join("、", state.ContentConflictSegmentIds)}（編集内容は保持）";
         string prefix = timeLoaded
-            ? $"時間区間Workspace: {_timeWorkspace!.Directory} ／ 履歴: {ShortSha(_timeWorkspace.HeadCommit)} ／ {staged}"
-            : $"作業フォルダー: {state.WorkspaceDirectory} ／ 履歴: {ShortSha(state.CurrentCommit)} ／ {staged}{conflicts}";
+            ? $"共同編集: {Path.GetFileName(_timeWorkspace!.Directory)} ／ {staged}"
+            : $"共同編集: {Path.GetFileName(state.WorkspaceDirectory)} ／ {staged}{conflicts}";
         TogetherStatusText.Text =
             _notice is null ? prefix : $"{_notice}\n{prefix}";
     }
@@ -1343,9 +1382,9 @@ public partial class TogetherWorkspaceWindow : Window
 
     private string RequiredOwner()
     {
-        string owner = OwnerIdBox.Text.Trim();
+        string owner = ParticipantNameBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(owner))
-            throw new ArgumentException("自分の識別名を入力してください。");
+            throw new ArgumentException("参加者一覧から自分の名前を選択してください。");
         return owner;
     }
 
@@ -1391,14 +1430,14 @@ public partial class TogetherWorkspaceWindow : Window
         ApplyTimeFirstSnapshot(workspace.Load());
     }
 
-    private void OpenTimeFirstWorkspace(string workspacePath, string ownerId)
+    private void OpenTimeFirstWorkspace(string workspacePath)
     {
         TimeFirstSegmentGitWorkspace workspace =
             TimeFirstSegmentGitWorkspace.Open(workspacePath);
         TimeFirstSegmentSnapshot snapshot = workspace.Load();
         TimeFirstSegmentGitWorkspace.ValidateSnapshot(snapshot);
         _timeWorkspace = workspace;
-        _timeOwnerId = ownerId;
+        _timeOwnerId = null;
         _timeSelectedSegmentId = null;
         ApplyTimeFirstSnapshot(snapshot);
     }
@@ -1411,6 +1450,8 @@ public partial class TogetherWorkspaceWindow : Window
         _timeSelectedSegmentId = null;
         _timeStaged = false;
         _plannedTimeline = snapshot.Timeline;
+        _sectionPlan = null;
+        _selectedPlanSectionId = null;
         _musicTimingMap = MusicTimingMap.Build(
             snapshot.Timeline.SampleRate, snapshot.TimingPoints);
         SampleRateBox.Text = snapshot.Timeline.SampleRate.ToString(
@@ -1448,6 +1489,72 @@ public partial class TogetherWorkspaceWindow : Window
         _selectionEndSampleExclusive = null;
         SelectionStartSampleText.Text = "―";
         SelectionEndSampleText.Text = "―";
+        RefreshParticipantChoices();
+    }
+
+    private TogetherSectionPlan RequiredSectionPlan() =>
+        _sectionPlan ?? throw new InvalidOperationException(
+            "先に音源を選択してください。曲全体が自動的に1区間になります。");
+
+    private string RequiredPlannedSelection() =>
+        _selectedPlanSectionId ?? throw new InvalidOperationException(
+            "先に一覧から区間を選択してください。");
+
+    private long PlanningSample()
+    {
+        if (_timelineWaveform is null || _musicTimingMap is null)
+            throw new InvalidOperationException("先に音源を選択してください。");
+        long source = _selectionStartSample ?? PreviewSamplePosition();
+        long snapped = _musicTimingMap.Snap(
+            source, SelectedSubdivision()).AudioSample;
+        return Math.Clamp(snapped, 0, _timelineWaveform.TotalSamples);
+    }
+
+    private void SplitPlanAt(long sample)
+    {
+        TogetherSectionPlan plan = RequiredSectionPlan();
+        TogetherSection? containing = plan.Sections.FirstOrDefault(section =>
+            sample > section.StartSample && sample < section.EndSampleExclusive);
+        if (containing is not null)
+            _sectionPlan = TogetherSectionPlanner.Split(
+                plan, containing.InternalId, sample);
+    }
+
+    private void ApplySectionPlan(string notice)
+    {
+        TogetherSectionPlan plan = RequiredSectionPlan();
+        _plannedTimeline = PlanDisplayTimeline(plan);
+        MusicTimeline.SetSegments(_plannedTimeline.Partitions);
+        _notice = notice;
+    }
+
+    private static SegmentTimeTimeline PlanDisplayTimeline(
+        TogetherSectionPlan plan) =>
+        new(plan.SampleRate, plan.Sections.Select(section =>
+            new SegmentTimePartition(
+                section.InternalId,
+                section.StartSample,
+                section.EndSampleExclusive,
+                ContentRevisionId: null,
+                ContentOriginSample: section.StartSample,
+                OwnerId: section.OwnerName,
+                Status: SegmentPartitionStatus.Active)).ToArray());
+
+    private void RefreshParticipantChoices()
+    {
+        IEnumerable<string?> owners = _timeSnapshot is not null
+            ? _timeSnapshot.Timeline.Partitions.Select(partition => partition.OwnerId)
+            : _sectionPlan?.Sections.Select(section => section.OwnerName)
+                ?? Enumerable.Empty<string?>();
+        string[] names = owners
+            .Where(static owner => !string.IsNullOrWhiteSpace(owner))
+            .Select(static owner => owner!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static owner => owner, StringComparer.Ordinal)
+            .ToArray();
+        string previous = ParticipantNameBox.Text;
+        ParticipantNameBox.ItemsSource = names;
+        ParticipantNameBox.Text = previous;
     }
 
     private static string ComputeSha256(string path)

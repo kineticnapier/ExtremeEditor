@@ -18,8 +18,11 @@ internal sealed record TogetherSegmentDisplay(
     SegmentPartitionStatus Status,
     string? ContentRevisionId,
     bool IsSelected,
-    bool CanEdit)
+    bool CanEdit,
+    int DisplayOrder = 0,
+    int SampleRate = 0)
 {
+    public string DisplayName => $"区間 {Math.Max(1, DisplayOrder)}";
     public string StateLabel => Status == SegmentPartitionStatus.Active ? "編集対象" : "保留中";
     public string WritableLabel => CanEdit ? "編集できます" : "閲覧のみ";
     public string FloorRangeLabel =>
@@ -28,6 +31,12 @@ internal sealed record TogetherSegmentDisplay(
             : $"{StartFloor} ～ {EndFloorExclusive - 1}";
     public string SampleRangeLabel =>
         $"{StartSample:N0} ～ {EndSampleExclusive:N0}";
+    public string TimeRangeLabel => SampleRate <= 0
+        ? "時間情報なし"
+        : $"{FormatTime(StartSample)} ～ {FormatTime(EndSampleExclusive)}";
+
+    private string FormatTime(long sample) =>
+        TimeSpan.FromSeconds((double)sample / SampleRate).ToString(@"mm\:ss\.fff");
 }
 
 internal sealed record TogetherWorkspaceDisplay(
@@ -72,7 +81,7 @@ internal sealed class TogetherWorkspaceController
             var rows = current.Timeline.Partitions
                 .OrderBy(p => p.StartSample)
                 .ThenBy(p => p.SegmentId, StringComparer.Ordinal)
-                .Select(partition =>
+                .Select((partition, index) =>
                 {
                     current.Segments.TryGetValue(partition.SegmentId, out LevelSegment? segment);
                     bool writable = partition.Status == SegmentPartitionStatus.Active &&
@@ -88,7 +97,9 @@ internal sealed class TogetherWorkspaceController
                         partition.Status,
                         partition.ContentRevisionId,
                         string.Equals(partition.SegmentId, _selected, StringComparison.Ordinal),
-                        writable);
+                        writable,
+                        index + 1,
+                        current.Timeline.SampleRate);
                 }).ToArray();
 
             return new(_workspace.Directory,

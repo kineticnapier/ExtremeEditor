@@ -37,9 +37,9 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
             <TextBlock Text="共同編集" FontSize="22" FontWeight="SemiBold"/>
             <TextBlock x:Name="ProjectOverviewText"
-                       Text="今開いている .adofai 譜面を、担当区間に分けて編集できます。まずは共同編集を作成するか、既存の作業フォルダーに参加してください。"
+                       Text="音源または既存の譜面を選び、曲を区切って担当者を決めるだけで共同制作を始められます。"
                        TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#FF555555"/>
-            <TextBlock Text="試験版：同期先はローカルのGit共有フォルダーのみ。招待URL・リアルタイム同期には未対応です。"
+            <TextBlock Text="新しく作る場合は「共同編集を作成」、参加する場合は「共同編集に参加」を選んでください。"
                        TextWrapping="Wrap" Foreground="#FF777777" Margin="0,4,0,0"/>
         </StackPanel>
 
@@ -68,12 +68,17 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="作業フォルダー" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center"/>
+                <TextBlock Text="保存先フォルダー" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center"/>
                 <TextBox x:Name="WorkspacePathBox" Grid.Column="1" Grid.Row="0" Margin="5,2"
                          ToolTip="作成時は新しい空フォルダー、参加時は既存のTogether作業フォルダーのパス"/>
-                <TextBlock Text="自分の識別名" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
-                <TextBox x:Name="OwnerIdBox" Grid.Column="1" Grid.Row="1" Margin="5,2"
-                         Text="author-A" ToolTip="担当者一覧と同じ名前を入力してください"/>
+                <TextBlock Text="参加者名" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
+                <DockPanel Grid.Column="1" Grid.Row="1" Margin="5,2">
+                    <Button x:Name="ChooseParticipantButton" Content="この名前で編集"
+                            DockPanel.Dock="Right" Margin="6,0,0,0" Padding="10,4"
+                            Click="ChooseParticipantClick"/>
+                    <ComboBox x:Name="ParticipantNameBox" IsEditable="True"
+                              Text="" ToolTip="共同編集を開いた後、担当者一覧から自分の名前を選択してください"/>
+                </DockPanel>
                 <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal"
                             Margin="5,8,0,2">
                     <Button x:Name="CreateWorkspaceButton" Content="この譜面から作成"
@@ -179,44 +184,38 @@
                                SmallChange="1000" LargeChange="10000"
                                ValueChanged="TimelineScrollChanged"/>
                 </Grid>
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,1,0,6">
-                    <Button x:Name="PreviewSetStartButton" Content="現在位置→始点"
-                            Padding="9,5" Click="PreviewSetStartClick"
-                            ToolTip="再生位置を拍にスナップして区間の始点に指定"/>
-                    <Button x:Name="PreviewSetEndButton" Content="現在位置→終点"
-                            Margin="6,0,0,0" Padding="9,5"
-                            Click="PreviewSetEndClick"
-                            ToolTip="再生位置を拍にスナップして区間の終点に指定"/>
-                    <TextBlock Margin="15,0,0,0" VerticalAlignment="Center"
-                               Foreground="#FF666666"
-                               Text="Shift+クリック: 始点 / Alt+クリック: 終点"/>
+                <StackPanel x:Name="SectionPlanningPanel" Grid.Row="4"
+                            Orientation="Horizontal" Margin="0,1,0,6">
+                    <Button x:Name="SplitSectionButton" Content="現在位置で区切る"
+                            Padding="11,5" Click="SplitSectionClick"/>
+                    <Button x:Name="JoinSectionButton" Content="次の区間と結合"
+                            Margin="6,0,0,0" Padding="11,5" Click="JoinSectionClick"/>
+                    <Button x:Name="MoveBoundaryButton" Content="境界を現在位置へ移動"
+                            Margin="6,0,0,0" Padding="11,5" Click="MoveBoundaryClick"/>
+                    <TextBlock Text="担当者" Margin="18,0,0,0" VerticalAlignment="Center"/>
+                    <TextBox x:Name="SegmentOwnerBox" Width="130" Margin="6,0"
+                             ToolTip="選択中の区間を担当する人の名前"/>
+                    <Button x:Name="AssignOwnerButton" Content="担当者を設定"
+                            Padding="11,5" Click="AssignOwnerClick"/>
                 </StackPanel>
-                <Grid Grid.Row="5">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="125"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="125"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="130"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="開始sample" VerticalAlignment="Center"/>
-                    <TextBox x:Name="SelectionStartSampleText" Grid.Column="1"
-                             IsReadOnly="True" Margin="5,0,10,0"/>
-                    <TextBlock Grid.Column="2" Text="終了sample" VerticalAlignment="Center"/>
-                    <TextBox x:Name="SelectionEndSampleText" Grid.Column="3"
-                             IsReadOnly="True" Margin="5,0,10,0"/>
-                    <TextBlock Grid.Column="4" Text="担当者" VerticalAlignment="Center"/>
-                    <TextBox x:Name="SegmentOwnerBox" Grid.Column="5"
-                             Text="author-A" Margin="5,0,10,0"/>
-                    <TextBlock Grid.Column="6" Text="床がない区間も作成できます"
-                               Foreground="#FF666666" VerticalAlignment="Center"/>
-                    <Button x:Name="AddTimeSegmentButton" Grid.Column="7"
-                            Content="選択範囲を担当区間に追加" Padding="12,6"
-                            Click="AddTimeSegmentClick"/>
-                </Grid>
+                <Expander x:Name="DetailedRangeExpander" Grid.Row="5"
+                          Header="詳細な範囲指定" IsExpanded="False">
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button x:Name="PreviewSetStartButton" Content="現在位置→始点"
+                                Padding="9,5" Click="PreviewSetStartClick"/>
+                        <Button x:Name="PreviewSetEndButton" Content="現在位置→終点"
+                                Margin="6,0,0,0" Padding="9,5" Click="PreviewSetEndClick"/>
+                        <TextBox x:Name="SelectionStartSampleText" Width="1"
+                                 Visibility="Collapsed" IsReadOnly="True"/>
+                        <TextBox x:Name="SelectionEndSampleText" Width="1"
+                                 Visibility="Collapsed" IsReadOnly="True"/>
+                        <Button x:Name="AddTimeSegmentButton" Content="選択範囲を区間として設定"
+                                Margin="8,0,0,0" Padding="10,5" Click="AddTimeSegmentClick"/>
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center"
+                                   Foreground="#FF666666"
+                                   Text="Shift+クリック: 始点 / Alt+クリック: 終点"/>
+                    </StackPanel>
+                </Expander>
             </Grid>
         </GroupBox>
 
@@ -228,22 +227,20 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="自分の担当区間を選んで、空区間からタイルを制作します。変更はローカル履歴へ記録してからGitで送信します。"
+                <TextBlock Text="区間を選びます。自分の担当区間では床を編集でき、ほかの人の区間は安全に閲覧できます。"
                            Foreground="#FF666666" TextWrapping="Wrap" Margin="0,0,0,8"/>
                 <ListView x:Name="SegmentList" Grid.Row="1"
                           SelectionChanged="SegmentSelectionChanged">
                     <ListView.View>
                         <GridView>
-                            <GridViewColumn Header="区間ID" Width="110"
-                                            DisplayMemberBinding="{Binding SegmentId}"/>
+                            <GridViewColumn Header="区間" Width="110"
+                                            DisplayMemberBinding="{Binding DisplayName}"/>
                             <GridViewColumn Header="担当者" Width="125"
                                             DisplayMemberBinding="{Binding OwnerId}"/>
                             <GridViewColumn Header="状態" Width="80"
                                             DisplayMemberBinding="{Binding StateLabel}"/>
-                            <GridViewColumn Header="床の範囲" Width="160"
-                                            DisplayMemberBinding="{Binding FloorRangeLabel}"/>
-                            <GridViewColumn Header="音楽sample範囲" Width="190"
-                                            DisplayMemberBinding="{Binding SampleRangeLabel}"/>
+                            <GridViewColumn Header="曲中の範囲" Width="190"
+                                            DisplayMemberBinding="{Binding TimeRangeLabel}"/>
                             <GridViewColumn Header="権限" Width="95"
                                             DisplayMemberBinding="{Binding WritableLabel}"/>
                         </GridView>
@@ -309,7 +306,7 @@
         </Grid>
 
         <Expander x:Name="AdvancedControlsExpander" Grid.Row="6"
-                  Header="詳細設定（Git・分割・音声）" IsExpanded="False"
+                  Header="詳細設定" IsExpanded="False"
                   Margin="0,5,0,8" MaxHeight="250">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="10,8,10,12">
