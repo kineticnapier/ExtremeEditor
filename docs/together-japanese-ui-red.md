@@ -1,4 +1,4 @@
-# ExtremeEditor Together — 日本語優先UI再設計（RED）
+# ExtremeEditor Together — 日本語優先UI再設計（GREEN実装・検証待ち）
 
 ## 目的
 
@@ -6,7 +6,8 @@
 
 - Branch: \`feature/segment-model-poc\`、main変更禁止
 - 前回の実機表示: \`0.0.573-prototype\`、画面表示までは確認済み
-- 今回: \`0.0.574-prototype\` はRED。**RED成立をユーザーが確認してから**GREEN実装
+- `0.0.574-prototype` のREDはユーザーが成立確認済み。
+- `0.0.575-prototype` で日本語優先GUIを実装。**Windows GREENテスト・実機画面操作は未確認**。
 - ネットワーク利用の招待リンク、リアルタイム同期、クラウド招待を装った文言は使わない
 
 ## 最初の画面（通常モード）
@@ -70,3 +71,34 @@ finally {
 **期待RED:** テストプロジェクトがビルド成功し、\`TogetherJapaneseUiRegression\` に入って「RED: Togetherウィンドウのタイトルを日本語にする」から始まる \`InvalidOperationException\` で失敗する。ビルド失敗ではRED不成立。
 
 **GREEN予定:** \`0.0.575-prototype\`（別途テスト実行・画面目視が必要）。
+
+## GREEN実装（0.0.575-prototype）
+
+- Togetherメニューとウィンドウを日本語表示に変更。通常画面は「共同編集を作成」「共同編集に参加」「担当区間」「変更を共有」「最新の変更を取り込む」「完成譜面を書き出す」を中心とする。
+- 作成と参加で必要な入力欄を切り替える。ワークスペースのパスと本人の識別名を案内し、分割番号と他の担当者は詳細設定で指定可能。空欄時の分割は床数の中間、担当者は自分と暫定名称を割り当てる（オーナーIDは参加側と一致させる必要がある）。
+- 実測値と誤認させないため、サンプル周波数48kHzは初期値として明示し、作成前にユーザーが詳細設定で確認チェックを入れる。音声ファイルの周波数を検出する仕組みは今回未実装。
+- Stage→Commit→Pushを「変更を共有」の**明示操作**にまとめる。受信は別の明示操作（Pull）とし、Force Push、暗黙Pull、バックグラウンド同期はしない。
+- Gitコマンド、Cut floor、サンプル周波数、詳細コミット操作を初期状態では閉じた詳細設定へ移動。共有先はローカルBare Gitのみ。
+- 成功・競合・編集保護の状況を日本語で表示し、技術的な例外の全文は下部の状態表示のツールチップで見られる。担当範囲や書き出しは既存Coreで検証する。
+- Stage成功時には`EditorSession.MarkTogetherStageSaved`で安全な保存位置だけ更新し、Undo/Redo履歴は消さない。これにより共有後の取り込み操作が誤って未保存と判断する問題を防ぐ。
+- `TogetherJapaneseUiRegression`はXAML構造と日本語ラベルの静的検証。従来の`TogetherWorkspaceUiRegression`は2クライアントGit連携の回帰検証。両方のGREEN実行結果をユーザーが確認するまでPASS扱いしない。
+
+### GREEN検証（Windows）
+
+```powershell
+git pull --ff-only
+dotnet build .\src\ExtremeEditor.Wpf.Tests\ExtremeEditor.Wpf.Tests.csproj -c Release
+if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+foreach ($name in @('EXTREMEEDITOR_TOGETHER_JA_UI_ONLY', 'EXTREMEEDITOR_TOGETHER_WPF_ONLY')) {
+    [Environment]::SetEnvironmentVariable($name, '1', 'Process')
+    try {
+        dotnet run --project .\src\ExtremeEditor.Wpf.Tests\ExtremeEditor.Wpf.Tests.csproj -c Release --no-build
+        if ($LASTEXITCODE -ne 0) { throw "Test failed: $name" }
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+}
+```
+
+GREENが両方通ったら`build-fast.ps1` / `run-fast.ps1` で通常起動し、日本語表示・作成・参加・共有・書き出し・詳細設定のUIを手動確認する。
