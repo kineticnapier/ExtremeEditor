@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_EMPTY_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentEmptyContentRegression.Run();
+    Console.WriteLine("PASS: empty time-first Segment content and missing-entry regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_E2E_ONLY"),
     "1", StringComparison.Ordinal))
 {
