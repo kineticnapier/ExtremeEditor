@@ -231,6 +231,9 @@ internal sealed class TogetherWorkspaceController
 
         Workspace.Save(proposal);
         _staged = true;
+        // The authored data is now safe in the isolated Git worktree.
+        // Preserve Undo/Redo, but permit a subsequent Pull after Commit.
+        editor.MarkTogetherStageSaved();
         ClearConflicts();
     }
 
