@@ -22,13 +22,14 @@
             <Setter Property="MinHeight" Value="32"/>
         </Style>
     </Window.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -219,7 +220,7 @@
             </Grid>
         </GroupBox>
 
-        <GroupBox Grid.Row="4" Header="担当区間" Padding="9" MinHeight="145">
+        <GroupBox Grid.Row="4" Header="担当区間" Padding="9" MinHeight="230">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -230,7 +231,7 @@
                 <TextBlock Text="区間を選びます。自分の担当区間では床を編集でき、ほかの人の区間は安全に閲覧できます。"
                            Foreground="#FF666666" TextWrapping="Wrap" Margin="0,0,0,8"/>
                 <ListView x:Name="SegmentList" Grid.Row="1"
-                          SelectionChanged="SegmentSelectionChanged">
+                          Height="116" SelectionChanged="SegmentSelectionChanged">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="区間" Width="110"
@@ -392,4 +393,5 @@
                        TextWrapping="Wrap" VerticalAlignment="Center"/>
         </Border>
     </Grid>
+    </ScrollViewer>
 </Window>
