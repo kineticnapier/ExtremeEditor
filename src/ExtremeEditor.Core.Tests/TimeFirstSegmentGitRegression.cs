@@ -23,7 +23,9 @@ internal static class TimeFirstSegmentGitRegression
             a.Save(Fixture());
             a.Commit("base");
             TimeFirstSegmentGitRemoteSync.ConnectLocalBare(a, remote);
-            TimeFirstSegmentGitRemoteSync.Push(a);
+            var monitoredRemote = new CountingRemote();
+            TimeFirstSegmentGitRemoteSync.Push(a, remote: monitoredRemote);
+            Check(monitoredRemote.PushCount == 1, "injected remote handles Push");
 
             TimeFirstSegmentGitWorkspace b =
                 TimeFirstSegmentGitRemoteSync.CloneLocalBare(remote, bPath);
@@ -36,7 +38,9 @@ internal static class TimeFirstSegmentGitRegression
             b.Save(Edit(b.Load(), "B", "bob", "B-1", "b-tile", Rate * 12L, 90));
             string bCommit = b.Commit("Bob edits B");
             Check(bCommit != common && aCommit != common, "independent local histories");
-            TimeFirstSegmentPullResult merged = TimeFirstSegmentGitRemoteSync.Pull(b);
+            TimeFirstSegmentPullResult merged = TimeFirstSegmentGitRemoteSync.Pull(b, remote: monitoredRemote);
+            Check(monitoredRemote.FetchCount == 1,
+                "semantic Pull fetches through the injected remote");
             Check(merged.Success, "different Segment edits merge semantically");
             Check(b.Load().Authored?.Keys.Order().SequenceEqual(["A", "B"]) == true,
                 "both authors' real tile edits survive");
@@ -73,6 +77,24 @@ internal static class TimeFirstSegmentGitRegression
         finally
         {
             CleanupRoot(root);
+        }
+    }
+
+    private sealed class CountingRemote : ITimeFirstSegmentRemote
+    {
+        public int FetchCount { get; private set; }
+        public int PushCount { get; private set; }
+
+        public string Fetch(TimeFirstSegmentGitWorkspace workspace, string branchName)
+        {
+            FetchCount++;
+            return LocalBareTimeFirstSegmentRemote.Instance.Fetch(workspace, branchName);
+        }
+
+        public string Push(TimeFirstSegmentGitWorkspace workspace, string branchName)
+        {
+            PushCount++;
+            return LocalBareTimeFirstSegmentRemote.Instance.Push(workspace, branchName);
         }
     }
 
