@@ -200,6 +200,12 @@ public partial class MainWindow : Window
             _audio.Unload();
             TimeSpan audioUnload = phase.Elapsed;
 
+            // Switching to a normal chart explicitly leaves Together mode.
+            // An existing Together panel must not keep applying its old
+            // workspace snapshot to this newly loaded document.
+            _togetherPanel?.Close();
+            _togetherModeActive = false;
+
             _level = loaded.Document;
             _timingMap = playback.TimingMap;
             _hitSoundTimeline = playback.HitSoundTimeline;
