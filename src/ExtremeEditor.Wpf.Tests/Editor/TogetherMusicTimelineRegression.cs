@@ -71,11 +71,45 @@ internal static class TogetherMusicTimelineRegression
                 "horizontal scrolling changes visible sample origin");
 
             RequireWpfSurface();
+            VerifyFullSongViewportBudget();
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static void VerifyFullSongViewportBudget()
+    {
+        const int peakCount = 16_384;
+        const long samplesPerPeak = 512;
+        const double viewportWidth = 900;
+        AudioWaveformPeak[] peaks = Enumerable.Range(0, peakCount)
+            .Select(index => new AudioWaveformPeak(
+                index * samplesPerPeak,
+                (index + 1L) * samplesPerPeak,
+                index == 7_000 ? -1f : -0.4f,
+                index == 7_000 ? 1f : 0.4f)).ToArray();
+        AudioWaveformData denseWaveform = new(
+            48_000, peakCount * samplesPerPeak, peaks);
+        MusicTimingMap denseTiming = MusicTimingMap.Build(
+            denseWaveform.SampleRate, [new MusicTimingPoint(0, 257m)]);
+        var denseViewport = new TogetherMusicTimelineViewport(
+            denseWaveform, denseTiming);
+        denseViewport.Configure(viewportWidth, 0,
+            denseWaveform.TotalSamples / viewportWidth);
+
+        // At whole-song zoom, sampling 16k peaks on a 900px surface must
+        // not create 16k separate WPF rectangle drawing commands per frame.
+        TogetherMusicTimelineFrame frame = denseViewport.Project(
+            MusicBeatSubdivision.Quarter, [], maximumGridLineCount: 0);
+        Check(frame.WaveformColumns.Count <= viewportWidth * 2,
+            "full-song waveform projection is bounded by screen resolution");
+        Equal(0, frame.GridMarks.Count,
+            "far zoom can omit visually indistinguishable beat lines");
+        Check(frame.WaveformColumns.Any(column =>
+                column.Minimum <= -1f && column.Maximum >= 1f),
+            "pixel aggregation retains important waveform extrema");
     }
 
     private static void RequireWpfSurface()
