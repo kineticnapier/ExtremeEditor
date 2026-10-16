@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                TogetherTimeFirstEndToEndUiRegression.Run();
+                Console.WriteLine("PASS: time-first Together UI F/G/H integration contract.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY"),
                 "1", StringComparison.Ordinal))
             {
