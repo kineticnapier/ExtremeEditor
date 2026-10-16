@@ -5,7 +5,7 @@ const ROOM_RE = /^[a-zA-Z0-9_-]{12,80}$/;
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const match = /^\/rooms\/([^/]+)\/bundle$/.exec(url.pathname);
+    const match = /^\/rooms\/([^/]+)\/(bundle|submissions\/([A-Za-z0-9_-]{1,64}))$/.exec(url.pathname);
     if (!match || !ROOM_RE.test(match[1])) return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "PUT")
       return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, PUT" } });
@@ -17,10 +17,10 @@ export default {
     if (!identity) return new Response("Unauthorized", { status: 401 });
     // Until server-side Git/ownership validation exists, only the host can
     // publish a bundle. Guests can safely download for offline editing.
-    if (request.method === "PUT" && identity.role !== "host")
+    if (request.method === "PUT" && (match[3] ? match[3] !== identity.member : identity.role !== "host"))
       return new Response("Forbidden", { status: 403 });
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]));
-    return room.fetch(request);
+    return room.fetch(request, match[3] ? "submission:" + match[3] : "current");
   }
 };
 
@@ -54,9 +54,9 @@ export class BundleRoom {
     this.bucket = env.BUNDLES;
   }
 
-  async fetch(request) {
+  async fetch(request, storageKey = "current") {
     if (request.method === "GET") {
-      const current = await this.state.storage.get("current");
+      const current = await this.state.storage.get(storageKey);
       if (!current) return new Response("Not found", { status: 404 });
       const object = await this.bucket.get(current.key);
       if (!object) return new Response("Bundle unavailable", { status: 503 });
@@ -77,7 +77,7 @@ export class BundleRoom {
       return new Response("Bundle too large", { status: 413 });
     // Serialize conditional writes across all clients of this room.
     return this.state.blockConcurrencyWhile(async () => {
-      const current = await this.state.storage.get("current");
+      const current = await this.state.storage.get(storageKey);
       const ifMatch = request.headers.get("If-Match");
       const ifNoneMatch = request.headers.get("If-None-Match");
       const eligible = current
@@ -94,7 +94,7 @@ export class BundleRoom {
       const key = "bundles/" + this.state.id.toString() + "/" + version + ".bundle";
       await this.bucket.put(key, buffer, { httpMetadata: { contentType: "application/octet-stream" } });
       try {
-        await this.state.storage.put("current", { key, version });
+        await this.state.storage.put(storageKey, { key, version });
       } catch (error) {
         await this.bucket.delete(key).catch(() => {});
         throw error;
