@@ -357,6 +357,27 @@
                                 Style="{StaticResource SecondaryTogetherButton}" Click="PushClick"/>
                     </StackPanel>
                     <Separator Margin="0,9"/>
+                    <TextBlock Text="Cloudflare提出先（開発用・未公開）。コミット済みの変更だけを送信します。"
+                               TextWrapping="Wrap" Margin="0,2,0,5"/>
+                    <TextBox x:Name="CloudRoomUrlBox" Margin="0,2"
+                             ToolTip="https://ホスト/rooms/ルームID/（末尾 / 必須）"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,3">
+                        <TextBlock Text="参加者ID" VerticalAlignment="Center"/>
+                        <TextBox x:Name="CloudMemberBox" Width="120" Margin="5,0,12,0"/>
+                        <TextBlock Text="認証トークン" VerticalAlignment="Center"/>
+                        <PasswordBox x:Name="CloudMemberTokenBox" Width="190" Margin="5,0"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,5">
+                        <Button Content="自分の変更を提出" Click="SubmitProposalClick"
+                                Style="{StaticResource SecondaryTogetherButton}"/>
+                        <TextBlock Text="取得する参加者ID" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        <TextBox x:Name="CloudSourceMemberBox" Width="110" Margin="5,0"/>
+                        <Button Content="取得・検証・統合" Click="MergeProposalClick"
+                                Style="{StaticResource SecondaryTogetherButton}"/>
+                    </StackPanel>
+                    <TextBlock Text="未確定の提出物は担当区間を検証してから統合します。サーバー側検証は未対応です。"
+                               TextWrapping="Wrap" Margin="0,0,0,4"/>
+                    <Separator Margin="0,9"/>
                     <TextBlock Text="完成譜面の再生設定（ADOFAI）。音楽グリッドのBPMとは別に明示してください。"
                                TextWrapping="Wrap" Margin="0,0,0,4"/>
                     <WrapPanel Margin="0,2,0,5">
