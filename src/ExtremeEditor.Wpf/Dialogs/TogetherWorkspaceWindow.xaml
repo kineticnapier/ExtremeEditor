@@ -368,6 +368,12 @@
                         <PasswordBox x:Name="CloudMemberTokenBox" Width="190" Margin="5,0"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,5">
+                        <Button Content="正本を公開（ホスト）" Click="PublishCanonicalClick"
+                                Style="{StaticResource SecondaryTogetherButton}"/>
+                        <Button Content="正本を取得" Click="FetchCanonicalClick"
+                                Style="{StaticResource SecondaryTogetherButton}"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,5">
                         <Button Content="自分の変更を提出" Click="SubmitProposalClick"
                                 Style="{StaticResource SecondaryTogetherButton}"/>
                         <TextBlock Text="取得する参加者ID" VerticalAlignment="Center" Margin="10,0,0,0"/>
