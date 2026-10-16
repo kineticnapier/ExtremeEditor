@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_MUSIC_GRID_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.MusicBeatGridRegression.Run();
+    Console.WriteLine("PASS: integer-sample music beat grid regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_SEARCH_ONLY"),
     "1", StringComparison.Ordinal))
 {
