@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_SECTION_PLAN_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TogetherSectionPlannerRegression.Run();
+    Console.WriteLine("PASS: simple whole-song Together section planning regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_H_E2E_ONLY"),
     "1", StringComparison.Ordinal))
 {
