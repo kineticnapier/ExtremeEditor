@@ -40,7 +40,8 @@ internal static class TogetherTimeFirstEndToEndUiRegression
             "TimeFirstSegmentAdoFaiExporter.ComposeAndValidate",
             "TimeFirstSegmentAdoFaiExporter.ExportValidated",
             "RefuseUnsafeTimeEditorSwitch", "ValidateLoadedTimeAudio",
-            "TimeFirstAdoFaiSettings", "SetEntryAngleClick" })
+            "TimeFirstAdoFaiSettings", "SetEntryAngleClick",
+            "CommitTimeEditor", "RefreshTimeTileEditor" })
             Check(code.Contains(required, StringComparison.Ordinal),
                 "Phase H time-first flow does not invoke " + required);
 

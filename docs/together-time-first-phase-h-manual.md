@@ -1,6 +1,6 @@
 # Together — Phase H Windows manual integration / E2E checklist
 
-EditorVersion: `0.0.597-prototype`. Branch: `feature/segment-model-poc`.
+EditorVersion: `0.0.598-prototype`. Branch: `feature/segment-model-poc`.
 
 **Scope:** The time-first UI now calls the Phase F local-bare Git transport
 and Phase G conservative `.adofai` publication API. This document is a

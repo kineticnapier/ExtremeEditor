@@ -10,8 +10,9 @@ using Microsoft.Win32;
 namespace ExtremeEditor.Wpf;
 
 /// <summary>
-/// Japanese-first, local-Git Together UI. Every synchronizing operation is
-/// explicit. All chart edits still occur in MainWindow's EditorSession.
+/// Japanese-first, local-Git Together UI. Synchronizing operations remain
+/// explicit. Time-first authored tiles have their own owner-scoped editor;
+/// legacy floor-aligned editing remains in MainWindow's EditorSession.
 /// This PoC has NO invite URLs, cloud service or realtime remote transport.
 /// </summary>
 public partial class TogetherWorkspaceWindow : Window
@@ -550,8 +551,7 @@ public partial class TogetherWorkspaceWindow : Window
                 if (!_timeStaged)
                     throw new InvalidOperationException(
                         "履歴へ記録する時間区間編集がありません。");
-                string timeRevision = _timeWorkspace.Commit(CommitMessage());
-                _timeStaged = false;
+                string timeRevision = CommitTimeEditor();
                 _notice =
                     $"時間区間の変更をローカル履歴に記録しました（{ShortSha(timeRevision)}）。";
                 return;
@@ -736,8 +736,7 @@ public partial class TogetherWorkspaceWindow : Window
                 }
                 if (_timeStaged)
                 {
-                    _timeWorkspace.Commit(CommitMessage());
-                    _timeStaged = false;
+                    CommitTimeEditor();
                 }
                 // No automatic Pull/rebase. Non-FF Push leaves committed work intact.
                 string timePublished = TimeFirstSegmentGitRemoteSync.Push(_timeWorkspace);
@@ -852,6 +851,24 @@ public partial class TogetherWorkspaceWindow : Window
 
     private string CommitMessage() => string.IsNullOrWhiteSpace(CommitMessageBox.Text)
         ? "担当区間を編集" : CommitMessageBox.Text.Trim();
+
+    // The old session still contains its pre-commit Undo history after Save.
+    // Reopen the committed revision so future edits, selection and Pull treat it
+    // as clean; never discard this session if the Git commit itself fails.
+    private string CommitTimeEditor()
+    {
+        if (!_timeStaged || _timeWorkspace is null || _timeSnapshot is null ||
+            _timeEditor is null || _timeOwnerId is null)
+            throw new InvalidOperationException(
+                "保存準備済みの担当区間編集がありません。");
+        string segmentId = _timeEditor.Current.SegmentId;
+        string sha = _timeWorkspace.Commit(CommitMessage());
+        _timeEditor = TimeFirstSegmentEditorSession.Open(
+            _timeSnapshot, segmentId, _timeOwnerId);
+        _timeStaged = false;
+        RefreshTimeTileEditor();
+        return sha;
+    }
 
     private void StageTimeEditor()
     {
