@@ -35,8 +35,8 @@ const auth = () => deriveRoomToken("development-only-master-key-32-bytes-long", 
 
 test("conditional creation, fetch and stale update rejection", async () => {
   const env = fakeEnvironment();
-  const send = (method, headers = {}, body) => worker.fetch(
-    new Request(url, { method, headers: { ...auth, ...headers }, body }), env);
+  const send = async (method, headers = {}, body) => worker.fetch(
+    new Request(url, { method, headers: { ...await auth(), ...headers }, body }), env);
   assert.equal((await send("GET")).status, 404);
   assert.equal((await send("PUT", { "Content-Type": "application/octet-stream",
     "If-None-Match": "*" }, bundle)).status, 200);
@@ -56,7 +56,7 @@ test("reject unauthenticated, invalid room, and oversized requests", async () =>
   const env = fakeEnvironment();
   assert.equal((await worker.fetch(new Request(url), env)).status, 401);
   assert.equal((await worker.fetch(new Request(
-    "https://example.invalid/rooms/a/bundle", { headers: auth }), env)).status, 404);
+    "https://example.invalid/rooms/a/bundle", { headers: await auth() }), env)).status, 404);
   assert.equal((await worker.fetch(new Request(url, {
     method: "PUT", headers: { ...await auth(), "If-None-Match": "*",
       "Content-Type": "application/octet-stream" },
