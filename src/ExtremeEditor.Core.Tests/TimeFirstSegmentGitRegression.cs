@@ -171,6 +171,14 @@ internal static class TimeFirstSegmentGitRegression
             guest.Save(Edit(guest.Load(), "B", "guest",
                 "guest-b1", "guest-tile", Rate * 12L, 90));
             string guestCommit = guest.Commit("E2E guest edits own B");
+            try
+            {
+                guestInbox.SubmitProposal(guest, "host");
+                throw new InvalidOperationException(
+                    "Guest was permitted to write the host submission slot.");
+            }
+            catch (HttpRequestException error)
+                when (error.StatusCode == HttpStatusCode.Forbidden) { }
             Check(guestInbox.SubmitProposal(guest, "guest") == guestCommit,
                 "guest submits own bundle via HTTP");
 
