@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_DRAFT_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentTimeDraftRegression.Run();
+    Console.WriteLine("PASS: time-first empty Segment draft editing regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_EMPTY_ONLY"),
     "1", StringComparison.Ordinal))
 {
