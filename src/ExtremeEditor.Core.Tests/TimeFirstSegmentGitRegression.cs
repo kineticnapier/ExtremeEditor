@@ -83,6 +83,7 @@ internal static class TimeFirstSegmentGitRegression
         }
         RunHttpBundleRemote();
         RunSubmissionInbox();
+        RunSubmissionValidation();
     }
 
     private sealed class MemoryBundleServer : HttpMessageHandler
@@ -212,6 +213,38 @@ internal static class TimeFirstSegmentGitRegression
             Check(remoteBefore == remoteAfter, "canonical remote ref unchanged");
             Check(System.Text.Json.JsonSerializer.Serialize(receiver.Load()) == projectBefore,
                 "proposal fetch does not change local project files");
+        }
+        finally { CleanupRoot(root); }
+    }
+
+    private static void RunSubmissionValidation()
+    {
+        string root = Path.Combine(Path.GetTempPath(),
+            $"extreme-proposal-validation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var ws = TimeFirstSegmentGitWorkspace.Initialize(Path.Combine(root, "ws"));
+            ws.Save(Fixture());
+            string baseline = ws.Commit("trusted baseline");
+
+            ws.Save(Edit(ws.Load(), "A", "alice", "valid-A", "alice-tile", Rate * 2L, 0));
+            string valid = ws.Commit("Alice proposes A");
+            TimeFirstSubmissionValidator.Validate(ws, baseline, valid, "alice");
+            ExpectRejected(() => TimeFirstSubmissionValidator.Validate(
+                ws, baseline, valid, "bob"), "Bob cannot submit Alice's edit");
+
+            ws.Save(Edit(ws.Load(), "B", "bob", "bad-B", "bob-tile", Rate * 12L, 0));
+            string outside = ws.Commit("Also changes B");
+            ExpectRejected(() => TimeFirstSubmissionValidator.Validate(
+                ws, baseline, outside, "alice"), "Alice cannot submit Bob's edit");
+
+            RunGit(ws.Directory, "checkout", "--detach", baseline);
+            var altered = ws.Load();
+            ws.Save(altered with { Audio = altered.Audio with { FileName = "other.ogg" } });
+            string alteredMetadata = ws.Commit("Change audio identity");
+            ExpectRejected(() => TimeFirstSubmissionValidator.Validate(
+                ws, baseline, alteredMetadata, "alice"), "Audio identity protected");
         }
         finally { CleanupRoot(root); }
     }
