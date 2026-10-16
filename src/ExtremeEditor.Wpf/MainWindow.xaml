@@ -174,7 +174,7 @@
                               Click="SetupAssetsClick" />
                 </MenuItem>
             </MenuItem>
-            <MenuItem x:Name="TogetherMenuItem" Header="_Together…" Click="OpenTogetherClick" />
+            <MenuItem x:Name="TogetherMenuItem" Header="共同編集(_T)…" Click="OpenTogetherClick" />
             <MenuItem x:Name="HelpMenu" Header="_Help">
                 <MenuItem x:Name="AboutMenuItem" Header="_About ExtremeEditor" Click="AboutClick" />
             </MenuItem>
