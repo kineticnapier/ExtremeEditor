@@ -153,6 +153,10 @@ internal static class TimeFirstSegmentGitRegression
 
     private sealed class SubmissionHandler(byte[] bytes) : HttpMessageHandler
     {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
+
         protected override HttpResponseMessage Send(HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
