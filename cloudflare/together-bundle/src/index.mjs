@@ -67,7 +67,7 @@ export class BundleRoom {
       const buffer = await request.arrayBuffer();
       if (buffer.byteLength > LIMIT) return new Response("Bundle too large", { status: 413 });
       if (buffer.byteLength < 16) return new Response("Invalid bundle", { status: 400 });
-      const header = new TextDecoder().decode(buffer.slice(0, 12));
+      const header = new TextDecoder().decode(buffer.slice(0, 16));
       if (!header.startsWith("# v2 git bundle") && !header.startsWith("# v3 git bundle"))
         return new Response("Invalid Git bundle header", { status: 400 });
       const version = crypto.randomUUID();
