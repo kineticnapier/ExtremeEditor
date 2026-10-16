@@ -84,3 +84,43 @@ System.NotImplementedException: RED: create an explicit empty content entry for 
 A compile failure or failure in an unrelated regression **is not** successful RED confirmation.
 
 Once the user reports `成立`, implement the narrow GREEN under the next editor version, run the dedicated test, and preserve the previously passed floor-aligned regression behavior.
+
+## GREEN implementation: `0.0.577-prototype` (Windows verification pending)
+
+User confirmed the dedicated RED with `成立`. The implementation now:
+
+- `SegmentContentPlanner.CreateEmpty` accepts only **valid, owned, active audio-sample assignments with no content revision** and returns a real `SegmentContentEntry(Empty)`. It creates no `LevelSegment`, angle, floor, action, or decoration.
+- Rejects attempts to call `CreateEmpty` on a parked, invalid-range, unowned, or previously-authored assignment.
+- `SegmentContentPlanner.Validate` first validates timeline ownership, returning `InvalidTimeline` rather than assembling any content.
+- An **explicit valid Empty** slot passes; a **missing active dictionary key** returns `MissingActiveEntry`; a null or malformed entry returns `InvalidContentEntry`; a fake empty slot for a referenced revision returns `RevisionMismatch`; an orphan key returns `UnknownAllocation`.
+- Existing floor-aligned content is checked for a matching nonempty revision reference and a structurally valid payload, **without linking the data to arbitrary sample cuts**.
+- Parked content entries remain optional; provided parked data is checked, but parked revisions do not occupy current authoring-time allocations.
+- This step neither changes the existing floor-aligned `SegmentGitSnapshot` schema nor relaxes its legacy composition/export requirements.
+- Additional test cases: mismatch between entry ID and dictionary key, bad floor-angle count, invalid sample rate, invalid `CreateEmpty` inputs.
+- Changes to input timeline, `LevelDocument`, existing `LevelSegment` payloads, or entry dictionary are prohibited and regression-tested.
+
+### Windows GREEN command
+
+```powershell
+git pull --ff-only
+
+dotnet build .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release
+if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+
+$env:EXTREMEEDITOR_SEGMENT_EMPTY_ONLY = '1'
+try {
+    dotnet run --project .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release --no-build
+    if ($LASTEXITCODE -ne 0) { throw "GREEN regression failed" }
+}
+finally {
+    Remove-Item Env:\EXTREMEEDITOR_SEGMENT_EMPTY_ONLY -ErrorAction SilentlyContinue
+}
+```
+
+Expected once verified by user:
+
+```text
+PASS: empty time-first Segment content and missing-entry regression.
+```
+
+**Do not mark GREEN confirmed until the user reports the actual Windows build and test result.**
