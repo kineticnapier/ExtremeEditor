@@ -1408,6 +1408,8 @@ public partial class TogetherWorkspaceWindow : Window
     private static string LocalizeError(Exception error)
     {
         string technical = error.Message;
+        if (technical.Contains("collaboration directory must be empty", StringComparison.OrdinalIgnoreCase))
+            return "共同編集の保存先フォルダーに既存のファイルがあります。空のフォルダー、または存在しない新しいフォルダーを指定してください。既存のデータは削除していません。";
         if (technical.Contains("non-fast-forward", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("non fast forward", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("fetch first", StringComparison.OrdinalIgnoreCase))
