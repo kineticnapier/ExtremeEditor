@@ -10,9 +10,12 @@ $exe = Join-Path $root "src\ExtremeEditor.Wpf\bin\Release\net8.0-windows\Extreme
 $testProject = Join-Path $root "src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj"
 $testDll = Join-Path $root "src\ExtremeEditor.Core.Tests\bin\Release\net8.0\ExtremeEditor.Core.Tests.dll"
 $vars = Join-Path $service ".dev.vars"
-$previousDevVars = if (Test-Path -LiteralPath $vars -PathType Leaf) {
-    [IO.File]::ReadAllBytes($vars)
-} else { $null }
+$hadDevVars = Test-Path -LiteralPath $vars -PathType Leaf
+$previousDevVars = $null
+if ($hadDevVars) {
+    # Preserve the exact original bytes, including an empty .dev.vars file.
+    $previousDevVars = [IO.File]::ReadAllBytes($vars)
+}
 $wranglerEntry = Join-Path $service "node_modules\wrangler\bin\wrangler.js"
 if (-not (Test-Path -LiteralPath $wranglerEntry -PathType Leaf)) {
     throw "Wrangler is missing. Run npm install in cloudflare\together-bundle."
@@ -109,7 +112,7 @@ try {
 }
 finally {
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
-    if ($null -ne $previousDevVars) { [IO.File]::WriteAllBytes($vars, $previousDevVars) }
+    if ($hadDevVars) { [IO.File]::WriteAllBytes($vars, [byte[]]$previousDevVars) }
     elseif (Test-Path -LiteralPath $vars) { Remove-Item -LiteralPath $vars -Force }
     [Environment]::SetEnvironmentVariable("TOGETHER_BUNDLE_MASTER_KEY", $oldMaster, "Process")
     [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_URL", $oldUrl, "Process")
