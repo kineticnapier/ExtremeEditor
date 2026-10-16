@@ -71,6 +71,7 @@ internal static class TogetherMusicTimelineRegression
                 "horizontal scrolling changes visible sample origin");
 
             RequireWpfSurface();
+            RequirePreviewSurface();
             VerifyFullSongViewportBudget();
         }
         finally
@@ -150,6 +151,37 @@ internal static class TogetherMusicTimelineRegression
         })
             Check(code.Contains(handler, StringComparison.Ordinal),
                 "WPF music timeline is not wired to " + handler);
+    }
+
+    private static void RequirePreviewSurface()
+    {
+        string repository = FindRepositoryRoot();
+        string basePath = Path.Combine(repository, "src", "ExtremeEditor.Wpf");
+        string xaml = File.ReadAllText(Path.Combine(basePath, "Dialogs", "TogetherWorkspaceWindow.xaml"));
+        string code = File.ReadAllText(Path.Combine(basePath, "Dialogs", "TogetherWorkspaceWindow.xaml.cs"));
+        string timeline = File.ReadAllText(Path.Combine(basePath, "Controls", "TogetherMusicTimelineControl.cs"));
+        string player = File.ReadAllText(Path.Combine(repository, "src", "ExtremeEditor.Audio", "AudioPlayer.cs"));
+        foreach (string name in new[]
+        {
+            "PreviewPlayPauseButton", "PreviewStopButton", "PreviewLoopCheckBox",
+            "PreviewPlayhead", "PreviewPositionText", "SeekRequested",
+            "TogetherWindowClosed", "TogetherPreviewKeyDown"
+        })
+            Check(xaml.Contains(name, StringComparison.Ordinal),
+                "Together preview is missing a UI control/event: " + name);
+        foreach (string name in new[]
+        {
+            "AudioPlayer(loadHitSoundAssets: false)", "SeekPreview",
+            "PreviewTimerTick", "TryGetPreviewLoop", "UpdatePreviewHead",
+            "TogetherWindowClosed", "MusicTimelineSeekRequested",
+            "_previewPlayer?.Dispose()"
+        })
+            Check(code.Contains(name, StringComparison.Ordinal),
+                "Together preview is missing playback wiring: " + name);
+        Check(timeline.Contains("Math.Abs(x - _mouseDownX) <= 4", StringComparison.Ordinal),
+            "single click seeking must not replace range dragging");
+        Check(player.Contains("public AudioPlayer() : this(loadHitSoundAssets: true)", StringComparison.Ordinal),
+            "normal AudioPlayer construction must keep the existing hit-sound graph");
     }
 
     private static string FindRepositoryRoot()
