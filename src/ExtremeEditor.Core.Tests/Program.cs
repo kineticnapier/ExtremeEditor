@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_WORKSPACE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TimeFirstSegmentWorkspaceRegression.Run();
+    Console.WriteLine("PASS: versioned time-first Segment workspace persistence regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_MUSIC_TIMING_ONLY"),
     "1", StringComparison.Ordinal))
 {
