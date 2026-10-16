@@ -360,5 +360,5 @@ internal sealed class TogetherWorkspaceController
     }
 
     private static string ResolveHead(SegmentGitWorkspace workspace) =>
-        workspace.ExecuteGit("rev-parse", "--verify", "HEAD").Trim();
+        workspace.HeadCommit;
 }
