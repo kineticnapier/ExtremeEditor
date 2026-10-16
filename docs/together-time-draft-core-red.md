@@ -65,3 +65,44 @@ System.NotImplementedException: RED: open an owned empty Segment as a tile-free 
 コンパイルエラーはRED成立ではない。
 
 RED成立をユーザーが報告した後に `0.0.579-prototype` のGREENで `Open`、`PlaceAnchor`、`RemoveAnchor` を実装し、古い空セグメントテストの退行も検証する。
+
+## GREEN実装（0.0.579-prototype・Windows検証待ち）
+
+ユーザーが `0.0.578-prototype` のRED成立を確認後、`SegmentTimeDraftEditor` を実装。
+
+- **Open:** `SegmentContentPlanner.Validate` で全体の時間割当／内容辞書を検証する。対象が自分のActive区間で、明示的な`SegmentContentKind.Empty`・Revisionなし・床ペイロードなしの場合に限り、曲中絶対サンプル座標を維持した空の編集スナップショットを返す。欠損、Parked、他人の区間、制作済みデータは拒否。
+- **PlaceAnchor:** 半開範囲 `[StartSample,EndSampleExclusive)` 内だけを許可。TileId重複を拒否。時刻の **upper_bound** に挿入し、同一サンプル位置の複数候補を挿入順で保持する。別配列と読み取り専用コレクションを返し、過去のUndo用スナップショットは不変。
+- **RemoveAnchor:** 指定IDだけを削除し、結果が空になっても区間と担当を維持する。見つからないIDは拒否。
+- **入力検証:** 不正範囲、壊れた公開Draftスナップショット（時刻非単調・TileId重複）、空IDを拒否。追加テストも記載。
+- **未実装:** ADOFAIの床・角度の計算、入口BPM/Twirlと接続状態の解析、実譜面エディタとの統合、Gitへの永続化・再開・送受信、Export。編集Draftが持つOwnerIdはOpen時の認可判定に使う情報であり、独立の認証情報ではない。**後続の保存・公開時には最新の割当と再照合する必要がある。**
+- **既存の完了した床ベース機能は変更しない。**
+
+### Windows GREEN確認
+
+```powershell
+git pull --ff-only
+dotnet build .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release
+if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+
+foreach ($name in @(
+    'EXTREMEEDITOR_SEGMENT_DRAFT_ONLY',
+    'EXTREMEEDITOR_SEGMENT_EMPTY_ONLY'
+)) {
+    [Environment]::SetEnvironmentVariable($name, '1', 'Process')
+    try {
+        dotnet run --project .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release --no-build
+        if ($LASTEXITCODE -ne 0) { throw "Test failed: $name" }
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+}
+```
+
+期待:
+```text
+PASS: time-first empty Segment draft editing regression.
+PASS: empty time-first Segment content and missing-entry regression.
+```
+
+Windowsのビルド・実行結果が返るまでGREEN通過とは扱わない。
