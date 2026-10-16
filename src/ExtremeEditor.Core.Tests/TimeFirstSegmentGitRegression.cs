@@ -82,6 +82,7 @@ internal static class TimeFirstSegmentGitRegression
             CleanupRoot(root);
         }
         RunHttpBundleRemote();
+        RunSubmissionInbox();
     }
 
     private sealed class MemoryBundleServer : HttpMessageHandler
@@ -146,6 +147,66 @@ internal static class TimeFirstSegmentGitRegression
             Check(TimeFirstSegmentGitRemoteSync.Pull(a, remote: remote).Success,
                 "HTTP transport merged version distributes");
             Check(a.Load().Authored?.Count == 2, "HTTP both owners edits present");
+        }
+        finally { CleanupRoot(root); }
+    }
+
+    private sealed class SubmissionHandler(byte[] bytes) : HttpMessageHandler
+    {
+        protected override HttpResponseMessage Send(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Get ||
+                request.RequestUri?.AbsolutePath != "/rooms/testroom1234/submissions/alice" ||
+                request.Headers.Authorization?.Parameter != "guest-token")
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(bytes)
+            };
+        }
+    }
+
+    private static void RunSubmissionInbox()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"extreme-inbox-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string origin = Path.Combine(root, "origin");
+            var alice = TimeFirstSegmentGitWorkspace.Initialize(origin);
+            alice.Save(Fixture());
+            alice.Commit("base");
+            alice.Save(Edit(alice.Load(), "A", "alice", "proposed", "tile-proposed",
+                Rate * 3L, 0));
+            string proposed = alice.Commit("Alice proposal");
+            string bundle = Path.Combine(root, "alice.bundle");
+            RunGit(origin, "bundle", "create", bundle, "refs/heads/main");
+
+            string clone = Path.Combine(root, "clone");
+            var receiver = TimeFirstSegmentGitWorkspace.Initialize(clone);
+            receiver.Save(Fixture());
+            receiver.Commit("local independent commit");
+            string headBefore = receiver.HeadCommit;
+            string? remoteBefore = null;
+            try { remoteBefore = RunGit(clone, "rev-parse", "refs/remotes/origin/main"); }
+            catch (InvalidOperationException) { }
+
+            using var client = new HttpClient(new SubmissionHandler(File.ReadAllBytes(bundle)));
+            var inbox = new HttpTimeFirstSubmissionInbox(client,
+                new Uri("https://example.invalid/rooms/testroom1234/"), "guest-token");
+            Check(inbox.FetchProposal(receiver, "alice") == proposed,
+                "quarantined proposal commit imported");
+            Check(receiver.HeadCommit == headBefore, "proposal fetch does not alter HEAD");
+            Check(RunGit(clone, "rev-parse",
+                "refs/extremeeditor/submissions/alice/main") == proposed,
+                "proposal stored under isolated ref");
+            string? remoteAfter = null;
+            try { remoteAfter = RunGit(clone, "rev-parse", "refs/remotes/origin/main"); }
+            catch (InvalidOperationException) { }
+            Check(remoteBefore == remoteAfter, "canonical remote ref unchanged");
+            Check(receiver.Load().Authored is null,
+                "proposal fetch does not change local project files");
         }
         finally { CleanupRoot(root); }
     }
