@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_EXPORT_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TimeFirstSegmentAdoFaiExportRegression.Run();
+    Console.WriteLine("PASS: time-first complete-chart semantic export regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_GIT_ONLY"),
     "1", StringComparison.Ordinal))
 {
