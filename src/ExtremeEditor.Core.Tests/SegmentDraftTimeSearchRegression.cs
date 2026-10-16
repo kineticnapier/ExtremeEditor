@@ -4,7 +4,7 @@ using ExtremeEditor.Core;
 namespace ExtremeEditor.Core.Tests;
 
 /// <summary>
-/// RED for looking up time-positioned draft markers only within monotone
+/// Regression for looking up time-positioned draft markers only within monotone
 /// music-time Segments; never assumes a floor-time ordered global ADOFAI chart.
 /// </summary>
 internal static class SegmentDraftTimeSearchRegression
@@ -44,10 +44,17 @@ internal static class SegmentDraftTimeSearchRegression
         string originalTimeline = JsonSerializer.Serialize(timeline);
         string originalDrafts = JsonSerializer.Serialize(drafts);
 
-        // The first RED failure must occur here. It must be a runtime
-        // NotImplementedException rather than a compilation failure.
         SegmentDraftTimeSearchIndex index =
             SegmentDraftTimeSearchIndex.Build(timeline, drafts);
+
+        var reorderedTimeline = timeline with
+        {
+            Partitions = timeline.Partitions.Reverse().ToArray()
+        };
+        SegmentDraftTimeSearchIndex reorderedIndex =
+            SegmentDraftTimeSearchIndex.Build(reorderedTimeline, drafts);
+        Match(reorderedIndex.FindAt(S(50)), "B", ["first"],
+            "active allocations are indexed in sample order, not storage order");
 
         Match(index.FindAt(S(0)), "A", Array.Empty<string>(),
             "an assigned but empty section differs from an unassigned gap");
@@ -157,6 +164,28 @@ internal static class SegmentDraftTimeSearchRegression
         ExpectRejected(() => SegmentDraftTimeSearchIndex.Build(timeline, duplicate),
             "draft tile IDs must be unique even when times are equal");
 
+        var wrongRate = new Dictionary<string, SegmentTimeDraft>(drafts,
+            StringComparer.Ordinal)
+        {
+            ["B"] = b with { SampleRate = 44_100 }
+        };
+        ExpectRejected(() => SegmentDraftTimeSearchIndex.Build(timeline, wrongRate),
+            "draft sample rate must match the common audio timeline");
+
+        var outside = new Dictionary<string, SegmentTimeDraft>(drafts,
+            StringComparer.Ordinal)
+        {
+            ["B"] = b with
+            {
+                TileAnchors =
+                [
+                    new SegmentDraftTileAnchor("outside", S(80))
+                ]
+            }
+        };
+        ExpectRejected(() => SegmentDraftTimeSearchIndex.Build(timeline, outside),
+            "draft anchors must remain inside their half-open allocation");
+
         var revised = timeline with
         {
             Partitions = timeline.Partitions.Select(p => p.SegmentId == "B"
@@ -169,6 +198,19 @@ internal static class SegmentDraftTimeSearchRegression
                 ["A"] = a, ["B"] = b, ["C"] = c
             }),
             "draft-only search must not mistake an authored floor revision for empty");
+
+        var unowned = timeline with
+        {
+            Partitions = timeline.Partitions.Select(p => p.SegmentId == "B"
+                ? p with { OwnerId = null }
+                : p).ToArray()
+        };
+        ExpectRejected(() => SegmentDraftTimeSearchIndex.Build(unowned,
+                new Dictionary<string, SegmentTimeDraft>(StringComparer.Ordinal)
+                {
+                    ["A"] = a, ["B"] = b, ["C"] = c
+                }),
+            "active allocations without editing authority are rejected");
 
         Check(originalTimeline == JsonSerializer.Serialize(timeline),
             "index must never mutate source time allocations");
