@@ -1,6 +1,6 @@
 # Together — Phase H Windows manual integration / E2E checklist
 
-EditorVersion: `0.0.598-prototype`. Branch: `feature/segment-model-poc`.
+EditorVersion: `0.0.602-prototype`. Branch: `feature/segment-model-poc`.
 
 **Scope:** The time-first UI now calls the Phase F local-bare Git transport
 and Phase G conservative `.adofai` publication API. This document is a
@@ -32,6 +32,22 @@ Remove-Item Env:EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY
 Also rerun existing `EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY=1`,
 `EXTREMEEDITOR_TOGETHER_WPF_ONLY=1`, and
 `EXTREMEEDITOR_TOGETHER_JA_UI_ONLY=1` WPF regression selectors.
+
+## Together audio preview manual check
+
+- Select an OGG/WAV/MP3 source and confirm it loads without blocking the UI.
+- Click **再生**, then **一時停止**, and **停止**. The audible song and
+  millisecond counter should agree and Stop should reset to the beginning.
+- Click the waveform to seek to the **un-snapped** sample, including while
+  playing. The orange playhead should follow the device playback clock.
+- Drag to select an owned interval: clicking must not create an interval,
+  and dragging must not seek. Toggle **選択区間をループ**, play, and verify that
+  the audible playback returns to the beginning of the selected range.
+- Zoom and scroll during playback. The playhead should track the projected
+  position without repainting the full waveform at audio-clock frequency.
+- Close Together while playing: audio must stop and release the device.
+- Without an audio output device, waveform editing should remain possible
+  and the preview should report that playback is unavailable.
 
 ## Two independent clients (manual mouse and keyboard only)
 

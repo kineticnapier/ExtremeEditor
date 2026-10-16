@@ -1,5 +1,7 @@
 using System.IO;
 using System.Globalization;
+using System.Windows.Input;
+using System.Windows.Threading;
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,13 +36,25 @@ public partial class TogetherWorkspaceWindow : Window
     private string? _timelineAudioPath;
     private long? _selectionStartSample;
     private long? _selectionEndSampleExclusive;
+    private AudioPlayer? _previewPlayer;
+    private int _previewLoadVersion;
+    private bool _previewClosed;
+    private readonly DispatcherTimer _previewTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(40)
+    };
 
     internal TogetherWorkspaceWindow(MainWindow host)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         Owner = host;
         InitializeComponent();
-        MusicTimeline.ViewportChanged += (_, _) => UpdateTimelineNavigation();
+        MusicTimeline.ViewportChanged += (_, _) =>
+        {
+            UpdateTimelineNavigation();
+            UpdatePreviewHead();
+        };
+        _previewTimer.Tick += PreviewTimerTick;
         RefreshStatus();
     }
 
@@ -77,6 +91,9 @@ public partial class TogetherWorkspaceWindow : Window
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(audioPath);
         string fullPath = Path.GetFullPath(audioPath);
+        int loadVersion = ++_previewLoadVersion;
+        _previewTimer.Stop();
+        _previewPlayer?.Pause();
         if (_timeWorkspace is null &&
             _plannedTimeline is { Partitions.Count: > 0 } &&
             _timelineAudioPath is not null &&
@@ -89,6 +106,8 @@ public partial class TogetherWorkspaceWindow : Window
         MeasuredAudioText.Text = "音源を解析しています…";
         AudioWaveformData waveform = await Task.Run(() =>
             AudioWaveformLoader.Load(fullPath));
+        if (_previewClosed || loadVersion != _previewLoadVersion)
+            return;
         ValidateLoadedTimeAudio(fullPath, waveform);
         if (_plannedTimeline is { Partitions.Count: > 0 } &&
             _plannedTimeline.SampleRate != waveform.SampleRate)
@@ -96,6 +115,46 @@ public partial class TogetherWorkspaceWindow : Window
             throw new InvalidOperationException(
                 "作成予定の担当区間と音源のサンプル周波数が異なるため、区間を破棄せず読み込みを中止しました。");
         }
+        // Audio decoding/initialization must not block the WPF dispatcher.
+        // Use the existing device-clock AudioPlayer without hit-sound assets.
+        PreviewAudioStatusText.Text = "試聴エンジンを準備中…";
+        AudioPlayer? preview = null;
+        string? previewError = null;
+        try
+        {
+            preview = await Task.Run(() =>
+            {
+                var player = new AudioPlayer(loadHitSoundAssets: false);
+                try
+                {
+                    player.Load(fullPath);
+                    return player;
+                }
+                catch
+                {
+                    player.Dispose();
+                    throw;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            // Devices may be unavailable, but the waveform editor still works.
+            previewError = ex.Message;
+        }
+        if (_previewClosed || loadVersion != _previewLoadVersion)
+        {
+            preview?.Dispose();
+            return;
+        }
+        _previewPlayer?.Dispose();
+        _previewPlayer = preview;
+        PreviewAudioStatusText.Text = previewError is null
+            ? "クリックでシーク / Spaceで再生・一時停止"
+            : $"試聴できません: {previewError}";
+        PreviewPlayPauseButton.IsEnabled = _previewPlayer is not null;
+        PreviewStopButton.IsEnabled = _previewPlayer is not null;
+        PreviewPlayPauseButton.Content = "再生 ▶";
         _timelineWaveform = waveform;
         _timelineAudioPath = fullPath;
 
@@ -127,7 +186,157 @@ public partial class TogetherWorkspaceWindow : Window
         _notice =
             "音源の実測サンプル周波数でタイムラインを読み込みました。ドラッグして担当範囲を選択できます。";
         UpdateTimelineNavigation();
+        UpdatePreviewHead();
     }
+
+    private void TogetherWindowClosed(object? sender, EventArgs e)
+    {
+        _previewClosed = true;
+        ++_previewLoadVersion;
+        _previewTimer.Stop();
+        _previewPlayer?.Dispose();
+        _previewPlayer = null;
+    }
+
+    private void TogetherPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Space ||
+            e.OriginalSource is TextBox or PasswordBox or ComboBox or Button or CheckBox)
+            return;
+        PreviewTogglePlayback();
+        e.Handled = true;
+    }
+
+    private void PreviewPlayPauseClick(object sender, RoutedEventArgs e) =>
+        Safely(PreviewTogglePlayback);
+
+    private void PreviewStopClick(object sender, RoutedEventArgs e) => Safely(() =>
+    {
+        _previewTimer.Stop();
+        _previewPlayer?.Stop();
+        UpdatePreviewHead();
+    });
+
+    private void PreviewTogglePlayback()
+    {
+        if (_previewPlayer is null || _timelineWaveform is null)
+            return;
+        if (_previewPlayer.IsPlaying)
+        {
+            _previewPlayer.Pause();
+            _previewTimer.Stop();
+        }
+        else
+        {
+            if (PreviewLoopCheckBox.IsChecked == true &&
+                TryGetPreviewLoop(out long begin, out long end))
+            {
+                long position = PreviewSamplePosition();
+                if (position < begin || position >= end)
+                    SeekPreview(begin);
+            }
+            _previewPlayer.Play();
+            _previewTimer.Start();
+        }
+        UpdatePreviewHead();
+    }
+
+    private void MusicTimelineSeekRequested(
+        object? sender, TogetherTimelineSeekRequestedEventArgs e) =>
+        Safely(() =>
+        {
+            SeekPreview(e.AudioSample);
+            UpdatePreviewHead();
+        });
+
+    private void SeekPreview(long sample)
+    {
+        if (_previewPlayer is null || _timelineWaveform is null)
+            return;
+        long clamped = Math.Clamp(sample, 0, _timelineWaveform.TotalSamples);
+        _previewPlayer.Seek(TimeSpan.FromSeconds(
+            (double)clamped / _timelineWaveform.SampleRate));
+    }
+
+    private long PreviewSamplePosition()
+    {
+        if (_previewPlayer is null || _timelineWaveform is null)
+            return 0;
+        return Math.Clamp(checked((long)Math.Round(
+                _previewPlayer.Position.TotalSeconds * _timelineWaveform.SampleRate,
+                MidpointRounding.AwayFromZero)),
+            0, _timelineWaveform.TotalSamples);
+    }
+
+    private bool TryGetPreviewLoop(out long start, out long end)
+    {
+        start = end = 0;
+        if (_selectionStartSample is long selectedStart &&
+            _selectionEndSampleExclusive is long selectedEnd &&
+            selectedEnd > selectedStart)
+        {
+            start = selectedStart;
+            end = selectedEnd;
+            return true;
+        }
+        SegmentTimePartition? segment = _plannedTimeline?.Partitions.FirstOrDefault(
+            p => string.Equals(p.SegmentId, _timeSelectedSegmentId,
+                StringComparison.Ordinal));
+        if (segment is null)
+            return false;
+        start = segment.StartSample;
+        end = segment.EndSampleExclusive;
+        return true;
+    }
+
+    private void PreviewTimerTick(object? sender, EventArgs e)
+    {
+        if (_previewPlayer is null || _timelineWaveform is null)
+        {
+            _previewTimer.Stop();
+            return;
+        }
+        // Check the loop before EOF handling: a device may already report
+        // Stopped when the selected range ends at the final audio sample.
+        if (PreviewLoopCheckBox.IsChecked == true &&
+            TryGetPreviewLoop(out long begin, out long end) &&
+            PreviewSamplePosition() >= end)
+        {
+            SeekPreview(begin);
+            if (!_previewPlayer.IsPlaying)
+                _previewPlayer.Play();
+        }
+        if (!_previewPlayer.IsPlaying)
+            _previewTimer.Stop();
+        UpdatePreviewHead();
+    }
+
+    private void UpdatePreviewHead()
+    {
+        long position = PreviewSamplePosition();
+        if (_previewPlayer is null || _timelineWaveform is null)
+        {
+            PreviewPlayhead.Visibility = Visibility.Collapsed;
+            PreviewPositionText.Text = "00:00.000 / 00:00.000";
+            PreviewPlayPauseButton.Content = "再生 ▶";
+            return;
+        }
+        PreviewPlayPauseButton.Content = _previewPlayer.IsPlaying
+            ? "一時停止 ❚❚" : "再生 ▶";
+        PreviewPositionText.Text =
+            $"{FormatPreviewTime(position)} / {FormatPreviewTime(_timelineWaveform.TotalSamples)}";
+        double x = (position - MusicTimeline.VisibleStartSample) /
+            MusicTimeline.SamplesPerPixel;
+        bool visible = x >= 0 && x <= MusicTimeline.ActualWidth;
+        PreviewPlayhead.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (visible)
+            Canvas.SetLeft(PreviewPlayhead, x);
+    }
+
+    private string FormatPreviewTime(long sample) =>
+        _timelineWaveform is null ? "00:00.000" :
+        TimeSpan.FromSeconds((double)sample / _timelineWaveform.SampleRate)
+            .ToString(@"mm\:ss\.fff", CultureInfo.InvariantCulture);
 
     private void ValidateLoadedTimeAudio(string path, AudioWaveformData waveform)
     {

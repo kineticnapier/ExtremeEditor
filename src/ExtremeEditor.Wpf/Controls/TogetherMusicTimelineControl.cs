@@ -20,6 +20,11 @@ public sealed class TogetherTimelineSelectionChangedEventArgs(
 /// per-sample WPF elements; one retained frame is painted for the visible
 /// sample window only.
 /// </summary>
+public sealed class TogetherTimelineSeekRequestedEventArgs(long audioSample) : EventArgs
+{
+    public long AudioSample { get; } = audioSample;
+}
+
 public sealed class TogetherMusicTimelineControl : FrameworkElement
 {
     private static readonly Brush BackgroundBrush =
@@ -49,10 +54,12 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
     private TogetherMusicTimelineFrame? _frame;
     private long? _selectionAnchor;
     private long? _selectionCurrent;
+    private double _mouseDownX;
 
     public event EventHandler<TogetherTimelineSelectionChangedEventArgs>?
         SelectionChanged;
     public event EventHandler? ViewportChanged;
+    public event EventHandler<TogetherTimelineSeekRequestedEventArgs>? SeekRequested;
 
     internal long TotalSamples => _viewport?.TotalSamples ?? 0;
     internal long VisibleStartSample => _viewport?.VisibleStartSample ?? 0;
@@ -164,6 +171,7 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             return;
         Focus();
         CaptureMouse();
+        _mouseDownX = e.GetPosition(this).X;
         long sample = _viewport.SnapAtPixel(
             e.GetPosition(this).X, _subdivision).AudioSample;
         _selectionAnchor = sample;
@@ -188,10 +196,24 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         base.OnMouseLeftButtonUp(e);
         if (_viewport is null || _selectionAnchor is not long anchor)
             return;
-        _selectionCurrent = _viewport.SnapAtPixel(
-            e.GetPosition(this).X, _subdivision).AudioSample;
+        double x = e.GetPosition(this).X;
+        _selectionCurrent = _viewport.SnapAtPixel(x, _subdivision).AudioSample;
         ReleaseMouseCapture();
-        if (_selectionCurrent is long current && current != anchor)
+        if (Math.Abs(x - _mouseDownX) <= 4)
+        {
+            // A click seeks to the raw audio sample, without beat snapping.
+            // A drag continues to select beat-snapped ownership ranges.
+            _selectionAnchor = null;
+            _selectionCurrent = null;
+            double requested = _viewport.VisibleStartSample +
+                Math.Clamp(x, 0, ActualWidth) * _viewport.SamplesPerPixel;
+            long sample = (long)Math.Round(
+                Math.Clamp(requested, 0, _viewport.TotalSamples),
+                MidpointRounding.AwayFromZero);
+            SeekRequested?.Invoke(this,
+                new TogetherTimelineSeekRequestedEventArgs(sample));
+        }
+        else if (_selectionCurrent is long current && current != anchor)
         {
             long start = Math.Min(anchor, current);
             long end = Math.Max(anchor, current);

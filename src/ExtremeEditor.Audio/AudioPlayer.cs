@@ -53,10 +53,14 @@ public sealed class AudioPlayer : IDisposable
     private double _playbackSpeed = 1.0;
     private double _songVolumePercent = 100.0;
 
-    public AudioPlayer()
+    public AudioPlayer() : this(loadHitSoundAssets: true) { }
+
+    public AudioPlayer(bool loadHitSoundAssets)
     {
         using IDisposable? measurement = AudioDiagnosticLog.Shared?.Measure("audio_player.construct");
-        _hitSoundLibrary.ReloadAssets();
+        _hitSoundsEnabled = loadHitSoundAssets;
+        if (loadHitSoundAssets)
+            _hitSoundLibrary.ReloadAssets();
     }
 
     /// <summary>True when either a song graph or a hit-sound-only graph is ready.</summary>

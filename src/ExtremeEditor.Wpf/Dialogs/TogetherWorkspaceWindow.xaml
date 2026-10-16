@@ -6,6 +6,8 @@
         MinWidth="860" MinHeight="720"
         WindowStartupLocation="CenterOwner"
         Loaded="TogetherWindowLoaded"
+        Closed="TogetherWindowClosed"
+        PreviewKeyDown="TogetherPreviewKeyDown"
         Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}">
     <Window.Resources>
         <Style x:Key="PrimaryTogetherButton" TargetType="Button">
@@ -95,6 +97,7 @@
                     <RowDefinition Height="190"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0" Margin="0,0,0,7">
                     <Grid.ColumnDefinitions>
@@ -131,11 +134,33 @@
                     <Button Grid.Column="7" Content="音源を選択…" Padding="10,4"
                             Click="BrowseTimelineAudioClick"/>
                 </Grid>
-                <local:TogetherMusicTimelineControl x:Name="MusicTimeline" Grid.Row="1"
-                    Focusable="True"
-                    SelectionChanged="MusicTimelineSelectionChanged"
-                    ToolTip="ドラッグして音楽上の担当範囲を選択。マウスホイールでも拡大縮小できます"/>
-                <Grid Grid.Row="2" Margin="0,6,0,6">
+                <Grid Grid.Row="1" ClipToBounds="True">
+                    <local:TogetherMusicTimelineControl x:Name="MusicTimeline"
+                        Focusable="True"
+                        SelectionChanged="MusicTimelineSelectionChanged"
+                        SeekRequested="MusicTimelineSeekRequested"
+                        ToolTip="クリックで再生位置を移動。ドラッグで担当範囲を選択。ホイールでズーム"/>
+                    <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                        <Rectangle x:Name="PreviewPlayhead" Width="2" Fill="#FFFF8056"
+                            Height="{Binding ActualHeight, ElementName=MusicTimeline}"
+                            Visibility="Collapsed"/>
+                    </Canvas>
+                </Grid>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,7,0,1">
+                    <Button x:Name="PreviewPlayPauseButton" Content="再生 ▶" Padding="14,4"
+                            Click="PreviewPlayPauseClick" IsEnabled="False"/>
+                    <Button x:Name="PreviewStopButton" Content="停止 ■" Padding="14,4"
+                            Margin="6,0,0,0" Click="PreviewStopClick" IsEnabled="False"/>
+                    <CheckBox x:Name="PreviewLoopCheckBox" Content="選択区間をループ"
+                              Margin="16,0,0,0" VerticalAlignment="Center"
+                              ToolTip="ドラッグで選択した範囲、または担当区間をループ"/>
+                    <TextBlock x:Name="PreviewPositionText" Text="00:00.000 / 00:00.000"
+                               Margin="20,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PreviewAudioStatusText" Text="音源を読み込むと試聴できます"
+                               Margin="14,0,0,0" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <Grid Grid.Row="3" Margin="0,6,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="150"/>
@@ -152,7 +177,7 @@
                                SmallChange="1000" LargeChange="10000"
                                ValueChanged="TimelineScrollChanged"/>
                 </Grid>
-                <Grid Grid.Row="3">
+                <Grid Grid.Row="4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="125"/>
