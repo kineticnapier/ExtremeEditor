@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_JA_UI_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                TogetherJapaneseUiRegression.Run();
+                Console.WriteLine("PASS: Together日本語UIと初心者向け導線の構造検証。");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_WPF_ONLY"),
                 "1", StringComparison.Ordinal))
             {
