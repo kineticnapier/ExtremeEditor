@@ -98,7 +98,7 @@ internal static class TogetherWorkspaceUiRegression
         RunGit(root, "init", "--bare", "--initial-branch=main", bare);
         a.ConnectLocalBare(bare);
         a.Push();
-        SegmentGitWorkspace.CloneLocalBare(bare, bPath);
+        SegmentGitRemoteSync.CloneLocalBare(bare, bPath);
 
         var b = new TogetherWorkspaceController();
         b.Open(bPath, source, ownerId: "author-B");
