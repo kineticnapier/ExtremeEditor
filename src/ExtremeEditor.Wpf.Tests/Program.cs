@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_SIMPLE_UI_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                TogetherSimpleWorkflowRegression.Run();
+                Console.WriteLine("PASS: simplified administrator and participant Together workflow.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY"),
                 "1", StringComparison.Ordinal))
             {
