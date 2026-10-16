@@ -71,6 +71,39 @@ public static class TimeFirstSegmentGitRemoteSync
 
         workspace.AssertCleanOwnedWorktree();
         string remoteSha = Fetch(workspace, branchName, remote);
+        return MergeFromCommit(workspace, branchName, remoteSha,
+            "refs/remotes/origin/" + branchName);
+    }
+
+    /// <summary>
+    /// Merge a previously fetched participant submission only after checking it
+    /// against the caller's trusted baseline and its segment ownership.
+    /// The canonical remote-tracking ref is never advanced by this operation.
+    /// </summary>
+    public static TimeFirstSegmentPullResult MergeSubmission(
+        TimeFirstSegmentGitWorkspace workspace, string trustedBaseCommit,
+        string memberId, string branchName = "main")
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        SegmentGitWorkspace.ValidateBranchName(branchName);
+        if (string.IsNullOrWhiteSpace(memberId) || memberId.Length > 64 ||
+            !memberId.All(static c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+            throw new ArgumentException("Invalid member ID.", nameof(memberId));
+        if (workspace.CurrentBranch != branchName)
+            throw new InvalidOperationException("Submission merge must target the checked-out branch.");
+        workspace.AssertCleanOwnedWorktree();
+        string submissionRef = "refs/extremeeditor/submissions/" + memberId + "/" + branchName;
+        string proposed = ResolveCommit(workspace, submissionRef);
+        // Trust must originate with the caller's previously accepted canonical
+        // commit, not a baseline asserted by the participant's bundle.
+        TimeFirstSubmissionValidator.Validate(workspace, trustedBaseCommit, proposed, memberId);
+        return MergeFromCommit(workspace, branchName, proposed, submissionRef);
+    }
+
+    private static TimeFirstSegmentPullResult MergeFromCommit(
+        TimeFirstSegmentGitWorkspace workspace, string branchName,
+        string remoteSha, string referenceToGuard)
+    {
         workspace.AssertCleanOwnedWorktree();
         // Reject invalid remote payloads before modifying any owned data.
         TimeFirstSegmentSnapshot theirs = workspace.ReadAt(remoteSha);
@@ -147,7 +180,7 @@ public static class TimeFirstSegmentGitRemoteSync
 
         workspace.AssertCleanOwnedWorktree();
         if (workspace.HeadCommit != oursSha ||
-            ResolveCommit(workspace, "refs/remotes/origin/" + branchName) != remoteSha)
+            ResolveCommit(workspace, referenceToGuard) != remoteSha)
             throw new InvalidOperationException("Git refs changed during semantic merge.");
 
         string alternateIndex = Path.Combine(workspace.Directory, ".git",
@@ -173,7 +206,7 @@ public static class TimeFirstSegmentGitRemoteSync
             ValidateHash(sha);
 
             if (workspace.HeadCommit != oursSha ||
-                ResolveCommit(workspace, "refs/remotes/origin/" + branchName) != remoteSha)
+                ResolveCommit(workspace, referenceToGuard) != remoteSha)
                 throw new InvalidOperationException("Git refs changed during commit preparation.");
             workspace.Transport.ExecuteGit(new[] { "add", "-A", "--" }.Concat(paths).ToArray());
             workspace.Transport.ExecuteGit(
