@@ -21,8 +21,9 @@ if (-not (Test-Path $exe)) { throw "Release exe not found: $exe" }
 $room = "dev" + [Guid]::NewGuid().ToString("N").Substring(0,20)
 $member = "host"
 $keyBytes = New-Object byte[] 40
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
-$key = [Convert]::ToHexString($keyBytes)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+$key = [BitConverter]::ToString($keyBytes).Replace("-", "")
 $oldMaster = [Environment]::GetEnvironmentVariable("TOGETHER_BUNDLE_MASTER_KEY", "Process")
 $oldUrl = [Environment]::GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_URL", "Process")
 $oldMember = [Environment]::GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_MEMBER", "Process")
