@@ -46,8 +46,14 @@ try {
         if ($server.HasExited) { throw "Wrangler exited before becoming ready." }
         try {
             $response = Invoke-WebRequest -Uri "$($env:EXTREMEEDITOR_TOGETHER_DEV_URL)bundle" `
-                -Method GET -SkipHttpErrorCheck -TimeoutSec 2
-            if ($response.StatusCode -eq 401) { $ready = $true; break }
+                -Method GET -UseBasicParsing -TimeoutSec 2
+        } catch [System.Net.WebException] {
+            $httpResponse = $_.Exception.Response
+            if ($null -ne $httpResponse -and [int]$httpResponse.StatusCode -eq 401) {
+                $ready = $true
+                $httpResponse.Close()
+                break
+            }
         } catch { }
         Start-Sleep -Milliseconds 350
     }
