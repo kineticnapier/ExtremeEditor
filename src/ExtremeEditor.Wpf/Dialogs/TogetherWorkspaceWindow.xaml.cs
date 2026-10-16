@@ -53,6 +53,20 @@ public partial class TogetherWorkspaceWindow : Window
         _host = host ?? throw new ArgumentNullException(nameof(host));
         Owner = host;
         InitializeComponent();
+        string? developmentUrl = Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_URL");
+        string? developmentMember = Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_MEMBER");
+        string? developmentToken = Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_TOKEN");
+        // Opt-in only from the dedicated local test launcher, never from saved settings.
+        if (!string.IsNullOrEmpty(developmentUrl) &&
+            !string.IsNullOrEmpty(developmentMember) &&
+            !string.IsNullOrEmpty(developmentToken) &&
+            Uri.TryCreate(developmentUrl, UriKind.Absolute, out Uri? devUri) &&
+            devUri.Scheme == Uri.UriSchemeHttp && devUri.Host == "127.0.0.1")
+        {
+            CloudRoomUrlBox.Text = developmentUrl;
+            CloudMemberBox.Text = developmentMember;
+            CloudMemberTokenBox.Password = developmentToken;
+        }
         MusicTimeline.ViewportChanged += (_, _) =>
         {
             UpdateTimelineNavigation();
