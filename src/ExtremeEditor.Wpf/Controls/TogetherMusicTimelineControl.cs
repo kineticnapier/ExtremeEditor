@@ -297,12 +297,16 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             MusicBeatSubdivision.One
         ];
         int requested = (int)_subdivision;
+        // Drawing subpixel beat lines is expensive and visually pointless.
+        // Keep the grid budget proportional to the actual drawing width.
+        int gridBudget = (int)Math.Clamp(
+            Math.Ceiling(Math.Max(1, ActualWidth) / 6), 32, 1_024);
         foreach (MusicBeatSubdivision candidate in fallbacks
                      .Where(item => (int)item <= requested))
         {
             try
             {
-                _frame = _viewport.Project(candidate, _segments, 8_192);
+                _frame = _viewport.Project(candidate, _segments, gridBudget);
                 InvalidateVisual();
                 return;
             }
@@ -313,8 +317,10 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             }
         }
 
+        // Even whole-beat marks are too dense. Omit the grid, not the
+        // waveform. Snapping still uses the original chosen subdivision.
         _frame = _viewport.Project(
-            MusicBeatSubdivision.One, _segments, 100_000);
+            MusicBeatSubdivision.One, _segments, maximumGridLineCount: 0);
         InvalidateVisual();
     }
 

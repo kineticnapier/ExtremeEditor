@@ -165,8 +165,11 @@ internal sealed class TogetherMusicTimelineViewport
     {
         ArgumentNullException.ThrowIfNull(segments);
         long visibleEnd = VisibleEndSampleExclusive;
-        IReadOnlyList<MusicTimingGridLine> lines =
-            _timingMap.GetVisibleLines(
+        // Zero is an explicit drawing budget: at full-song zoom no beat
+        // lines are visible enough to justify thousands of WPF draw calls.
+        IReadOnlyList<MusicTimingGridLine> lines = maximumGridLineCount == 0
+            ? Array.Empty<MusicTimingGridLine>()
+            : _timingMap.GetVisibleLines(
                 _visibleStartSample,
                 visibleEnd,
                 subdivision,
@@ -174,17 +177,8 @@ internal sealed class TogetherMusicTimelineViewport
         TogetherTimelineGridMark[] marks = lines.Select(line =>
             new TogetherTimelineGridMark(ToX(line.AudioSample), line)).ToArray();
 
-        TogetherTimelineWaveformColumn[] waveform = _waveform.Peaks
-            .Where(peak => peak.StartSample < visibleEnd &&
-                           peak.EndSampleExclusive > _visibleStartSample)
-            .Select(peak =>
-            {
-                double x1 = Math.Clamp(ToX(peak.StartSample), 0, _width);
-                double x2 = Math.Clamp(ToX(peak.EndSampleExclusive), 0, _width);
-                return new TogetherTimelineWaveformColumn(
-                    x1, Math.Max(0.5, x2 - x1),
-                    peak.Minimum, peak.Maximum);
-            }).ToArray();
+        TogetherTimelineWaveformColumn[] waveform =
+            ProjectWaveformColumns(visibleEnd);
 
         var bands = new List<TogetherTimelineSegmentBand>();
         foreach (SegmentTimePartition? segment in segments)
@@ -215,6 +209,70 @@ internal sealed class TogetherMusicTimelineViewport
             Array.AsReadOnly(marks),
             Array.AsReadOnly(waveform),
             Array.AsReadOnly(bands.ToArray()));
+    }
+
+    private TogetherTimelineWaveformColumn[] ProjectWaveformColumns(long visibleEnd)
+    {
+        // A 16k-peak song displayed across 900 pixels needs about 900
+        // rectangles, not 16k. Aggregate only subpixel-wide peaks so that
+        // zoomed-in peaks still retain their exact horizontal extent.
+        var result = new List<TogetherTimelineWaveformColumn>();
+        long? pendingPixel = null;
+        double pendingStart = 0;
+        double pendingEnd = 0;
+        float pendingMin = float.PositiveInfinity;
+        float pendingMax = float.NegativeInfinity;
+
+        void Flush()
+        {
+            if (pendingPixel is null)
+                return;
+            result.Add(new TogetherTimelineWaveformColumn(
+                pendingStart, Math.Max(0.5, pendingEnd - pendingStart),
+                pendingMin, pendingMax));
+            pendingPixel = null;
+            pendingMin = float.PositiveInfinity;
+            pendingMax = float.NegativeInfinity;
+        }
+
+        foreach (AudioWaveformPeak peak in _waveform.Peaks)
+        {
+            if (peak.EndSampleExclusive <= _visibleStartSample)
+                continue;
+            if (peak.StartSample >= visibleEnd)
+                break;
+
+            double x1 = Math.Clamp(ToX(peak.StartSample), 0, _width);
+            double x2 = Math.Clamp(ToX(peak.EndSampleExclusive), 0, _width);
+            if (x2 <= x1)
+                continue;
+
+            if (x2 - x1 >= 1)
+            {
+                Flush();
+                result.Add(new TogetherTimelineWaveformColumn(
+                    x1, Math.Max(0.5, x2 - x1),
+                    peak.Minimum, peak.Maximum));
+                continue;
+            }
+
+            long pixel = (long)Math.Floor(x1);
+            if (pendingPixel != pixel)
+            {
+                Flush();
+                pendingPixel = pixel;
+                pendingStart = x1;
+                pendingEnd = x2;
+            }
+            else
+            {
+                pendingEnd = Math.Max(pendingEnd, x2);
+            }
+            pendingMin = Math.Min(pendingMin, peak.Minimum);
+            pendingMax = Math.Max(pendingMax, peak.Maximum);
+        }
+        Flush();
+        return result.ToArray();
     }
 
     private long VisibleSpanSamples => Math.Max(1,
