@@ -17,8 +17,10 @@ export default {
     if (!identity) return new Response("Unauthorized", { status: 401 });
     // Until server-side Git/ownership validation exists, only the host can
     // publish a bundle. Guests can safely download for offline editing.
-    if (request.method === "PUT" && (match[3] ? match[3] !== identity.member : identity.role !== "host"))
+    if (request.method === "PUT" && (match[3] ? match[3] !== identity.member : identity.role !== "host")) {
+      await discardRejectedBody(request);
       return new Response("Forbidden", { status: 403 });
+    }
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]));
     return room.fetch(request);
   }
@@ -46,6 +48,13 @@ async function verifyRoomToken(request, master, room) {
   for (let i = 0; i < supplied.length; i++)
     difference |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
   return difference === 0;
+}
+
+// Drain the request body before responding, including when an early rejection
+// does not inspect it. Local Wrangler middleware may otherwise attempt to read
+// an already-ended request stream after the response has been sent.
+async function discardRejectedBody(request) {
+  if (request.body) await request.arrayBuffer();
 }
 
 export class BundleRoom {
@@ -86,7 +95,10 @@ export class BundleRoom {
       const eligible = current
         ? ifMatch === '"' + current.version + '"'
         : ifNoneMatch === "*";
-      if (!eligible) return new Response("Stale version", { status: 412 });
+      if (!eligible) {
+        await discardRejectedBody(request);
+        return new Response("Stale version", { status: 412 });
+      }
       const buffer = await request.arrayBuffer();
       if (buffer.byteLength > LIMIT) return new Response("Bundle too large", { status: 413 });
       if (buffer.byteLength < 16) return new Response("Invalid bundle", { status: 400 });
