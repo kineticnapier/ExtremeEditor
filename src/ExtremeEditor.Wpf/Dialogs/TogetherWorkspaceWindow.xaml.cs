@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using Microsoft.Win32;
@@ -209,10 +210,11 @@ public partial class TogetherWorkspaceWindow : Window
     private void TogetherPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Space ||
-            e.OriginalSource is TextBox or PasswordBox or ComboBox or Button or CheckBox)
+            Keyboard.FocusedElement is TextBoxBase or PasswordBox or
+                ComboBox { IsEditable: true })
             return;
-        PreviewTogglePlayback();
         e.Handled = true;
+        Safely(PreviewTogglePlayback);
     }
 
     private void PreviewPlayPauseClick(object sender, RoutedEventArgs e) =>
