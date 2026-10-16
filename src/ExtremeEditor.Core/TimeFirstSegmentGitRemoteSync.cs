@@ -41,23 +41,28 @@ public static class TimeFirstSegmentGitRemoteSync
     }
 
     public static string Push(
-        TimeFirstSegmentGitWorkspace workspace, string branchName = "main")
+        TimeFirstSegmentGitWorkspace workspace, string branchName = "main",
+        ITimeFirstSegmentRemote? remote = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
+        SegmentGitWorkspace.ValidateBranchName(branchName);
         workspace.AssertCleanOwnedWorktree();
         _ = workspace.ReadAt("HEAD");
-        return SegmentGitRemoteSync.Push(workspace.Transport, branchName);
+        return (remote ?? LocalBareTimeFirstSegmentRemote.Instance).Push(workspace, branchName);
     }
 
     public static string Fetch(
-        TimeFirstSegmentGitWorkspace workspace, string branchName = "main")
+        TimeFirstSegmentGitWorkspace workspace, string branchName = "main",
+        ITimeFirstSegmentRemote? remote = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        return SegmentGitRemoteSync.Fetch(workspace.Transport, branchName);
+        SegmentGitWorkspace.ValidateBranchName(branchName);
+        return (remote ?? LocalBareTimeFirstSegmentRemote.Instance).Fetch(workspace, branchName);
     }
 
     public static TimeFirstSegmentPullResult Pull(
-        TimeFirstSegmentGitWorkspace workspace, string branchName = "main")
+        TimeFirstSegmentGitWorkspace workspace, string branchName = "main",
+        ITimeFirstSegmentRemote? remote = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         SegmentGitWorkspace.ValidateBranchName(branchName);
@@ -65,7 +70,7 @@ public static class TimeFirstSegmentGitRemoteSync
             throw new InvalidOperationException("Pull must target the checked-out branch.");
 
         workspace.AssertCleanOwnedWorktree();
-        string remoteSha = Fetch(workspace, branchName);
+        string remoteSha = Fetch(workspace, branchName, remote);
         workspace.AssertCleanOwnedWorktree();
         // Reject invalid remote payloads before modifying any owned data.
         TimeFirstSegmentSnapshot theirs = workspace.ReadAt(remoteSha);
