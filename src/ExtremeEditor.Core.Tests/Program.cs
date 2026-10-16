@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_SEARCH_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.SegmentDraftTimeSearchRegression.Run();
+    Console.WriteLine("PASS: boundary-aware time draft binary search regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_SEGMENT_DRAFT_ONLY"),
     "1", StringComparison.Ordinal))
 {
