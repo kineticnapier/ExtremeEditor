@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_AUTHORING_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TimeFirstSegmentAuthoringRegression.Run();
+    Console.WriteLine("PASS: owner-scoped time-first real tile authoring regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_WORKSPACE_ONLY"),
     "1", StringComparison.Ordinal))
 {

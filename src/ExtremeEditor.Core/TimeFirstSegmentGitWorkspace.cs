@@ -14,7 +14,8 @@ public sealed record TimeFirstSegmentSnapshot(
     IReadOnlyList<MusicTimingPoint> TimingPoints,
     SegmentTimeTimeline Timeline,
     IReadOnlyDictionary<string, SegmentContentEntry> Content,
-    IReadOnlyDictionary<string, SegmentTimeDraft> Drafts);
+    IReadOnlyDictionary<string, SegmentTimeDraft> Drafts,
+    IReadOnlyDictionary<string, TimeFirstAuthoredSegment>? Authored = null);
 
 public sealed class TimeFirstSegmentContentMissingException : IOException
 {

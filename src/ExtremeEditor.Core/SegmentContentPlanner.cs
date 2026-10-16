@@ -9,7 +9,8 @@ namespace ExtremeEditor.Core;
 public enum SegmentContentKind : byte
 {
     Empty,
-    FloorAligned
+    FloorAligned,
+    TimeAuthored
 }
 
 /// <summary>
@@ -21,7 +22,8 @@ public sealed record SegmentContentEntry(
     string SegmentId,
     SegmentContentKind Kind,
     string? RevisionId,
-    LevelSegment? FloorAlignedContent);
+    LevelSegment? FloorAlignedContent,
+    TimeFirstAuthoredSegment? TimeAuthoredContent = null);
 
 public enum SegmentContentIssueKind : byte
 {
