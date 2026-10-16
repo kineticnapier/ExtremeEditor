@@ -239,7 +239,7 @@ internal static class TimeFirstSegmentGitRegression
             ExpectRejected(() => TimeFirstSubmissionValidator.Validate(
                 ws, baseline, outside, "alice"), "Alice cannot submit Bob's edit");
 
-            RunGit(ws.Directory, "checkout", "--detach", baseline);
+            RunGit(ws.Directory, "reset", "--hard", baseline);
             var altered = ws.Load();
             ws.Save(altered with { Audio = altered.Audio with { FileName = "other.ogg" } });
             string alteredMetadata = ws.Commit("Change audio identity");
