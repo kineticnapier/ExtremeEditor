@@ -8,23 +8,37 @@ export default {
     if (!match || !ROOM_RE.test(match[1])) return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "PUT")
       return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, PUT" } });
-    // Prototype project-wide token. Replace with per-room participant credentials before public launch.
-    if (!env.TOGETHER_BUNDLE_TOKEN || !(await tokenMatches(request, env.TOGETHER_BUNDLE_TOKEN)))
+    // Derive a different bearer capability for every room. The master key is
+    // never distributed to clients; a room capability does not unlock other rooms.
+    if (!env.TOGETHER_BUNDLE_MASTER_KEY ||
+        !(await verifyRoomToken(request, env.TOGETHER_BUNDLE_MASTER_KEY, match[1])))
       return new Response("Unauthorized", { status: 401 });
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]));
     return room.fetch(request);
   }
 };
 
-async function tokenMatches(request, expected) {
-  const supplied = request.headers.get("Authorization") || "";
-  const actual = "Bearer " + expected;
+// Capability format: lowercase hex HMAC-SHA256(master, "together-room-v1:" + room).
+// No identity or read/write distinction yet; these tokens are room-wide.
+export async function deriveRoomToken(master, room) {
+  if (typeof master !== "string" || master.length < 32 || !ROOM_RE.test(room))
+    throw new TypeError("A sufficiently long master key and valid room are required.");
   const encoder = new TextEncoder();
-  const a = encoder.encode(supplied);
-  const b = encoder.encode(actual);
-  if (a.length !== b.length) return false;
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(master), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const bytes = new Uint8Array(await crypto.subtle.sign(
+    "HMAC", key, encoder.encode("together-room-v1:" + room)));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifyRoomToken(request, master, room) {
+  const supplied = request.headers.get("Authorization") || "";
+  // Exact 64-hex shape; reject malformed values before expensive HMAC.
+  if (!/^Bearer [0-9a-f]{64}$/.test(supplied)) return false;
+  const expected = "Bearer " + await deriveRoomToken(master, room);
   let difference = 0;
-  for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
+  for (let i = 0; i < supplied.length; i++)
+    difference |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
   return difference === 0;
 }
 
