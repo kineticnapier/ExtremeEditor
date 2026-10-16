@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { BundleRoom, deriveRoomToken } from "../src/index.mjs";
+import worker, { BundleRoom } from "../src/index.mjs";
+import { issueMemberToken } from "../src/member-auth.mjs";
 
 function fakeEnvironment() {
   const objects = new Map();
@@ -30,8 +31,10 @@ function fakeEnvironment() {
 
 const url = "https://example.invalid/rooms/exampleRoom123456/bundle";
 const bundle = new TextEncoder().encode("# v2 git bundle\nabcdef0123456789\n");
-const auth = () => deriveRoomToken("development-only-master-key-32-bytes-long", "exampleRoom123456")
-  .then(token => ({ Authorization: "Bearer " + token }));
+const master = "development-only-master-key-32-bytes-long";
+const expiry = Math.floor(Date.now() / 1000) + 3600;
+const auth = async (room = "exampleRoom123456", role = "host", member = "owner") =>
+  ({ Authorization: "Bearer " + await issueMemberToken(master, room, member, role, expiry) });
 
 test("conditional creation, fetch and stale update rejection", async () => {
   const env = fakeEnvironment();
@@ -64,15 +67,26 @@ test("reject unauthenticated, invalid room, and oversized requests", async () =>
   }), env)).status, 413);
 });
 
-test("room capabilities cannot be reused for another room", async () => {
+test("member credentials enforce room, role, expiry and signature", async () => {
   const env = fakeEnvironment();
-  const sharedToken = await auth();
   const otherRoom = "https://example.invalid/rooms/differentRoom56789/bundle";
-  const res = await worker.fetch(new Request(otherRoom, { headers: sharedToken }), env);
-  assert.equal(res.status, 401);
-  const tokenForOther = await deriveRoomToken(env.TOGETHER_BUNDLE_MASTER_KEY, "differentRoom56789");
-  assert.notEqual(tokenForOther, sharedToken.Authorization.slice(7));
   assert.equal((await worker.fetch(new Request(otherRoom, {
-    headers: { Authorization: "Bearer " + tokenForOther }
+    headers: await auth()
+  }), env)).status, 401);
+  assert.equal((await worker.fetch(new Request(otherRoom, {
+    headers: await auth("differentRoom56789", "reader", "guest")
   }), env)).status, 404);
+  assert.equal((await worker.fetch(new Request(url, {
+    method: "PUT", headers: { ...await auth("exampleRoom123456", "reader", "guest"),
+      "Content-Type": "application/octet-stream", "If-None-Match": "*" }, body: bundle
+  }), env)).status, 403);
+  assert.equal((await worker.fetch(new Request(url, {
+    headers: { Authorization: "Bearer " + await issueMemberToken(
+      master, "exampleRoom123456", "guest", "reader",
+      Math.floor(Date.now() / 1000) - 10) }
+  }), env)).status, 401);
+  const token = (await auth()).Authorization;
+  assert.equal((await worker.fetch(new Request(url, {
+    headers: { Authorization: token.slice(0, -1) + (token.endsWith("0") ? "1" : "0") }
+  }), env)).status, 401);
 });
