@@ -946,6 +946,42 @@ public partial class TogetherWorkspaceWindow : Window
         return new HttpTimeFirstSubmissionInbox(client, uri, token);
     }
 
+    private HttpBundleTimeFirstSegmentRemote CreateCanonicalRemote(HttpClient client)
+    {
+        string raw = CloudRoomUrlBox.Text.Trim();
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out Uri? room) ||
+            !room.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+            throw new ArgumentException("ルームURLは末尾 / を含めて指定してください。");
+        return new HttpBundleTimeFirstSegmentRemote(client,
+            new Uri(room, "bundle"), CloudMemberTokenBox.Password);
+    }
+
+    private async void PublishCanonicalClick(object sender, RoutedEventArgs e) =>
+        await SafelyAsync(async () =>
+        {
+            TimeFirstSegmentGitWorkspace workspace = _timeWorkspace ??
+                throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
+            RefuseUnsafeTimeEditorSwitch();
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var remote = CreateCanonicalRemote(client);
+            string sha = await Task.Run(() =>
+                TimeFirstSegmentGitRemoteSync.Push(workspace, remote: remote));
+            _notice = $"Cloudflareへ正本を公開しました（{ShortSha(sha)}）。";
+        });
+
+    private async void FetchCanonicalClick(object sender, RoutedEventArgs e) =>
+        await SafelyAsync(async () =>
+        {
+            TimeFirstSegmentGitWorkspace workspace = _timeWorkspace ??
+                throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
+            RefuseUnsafeTimeEditorSwitch();
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var remote = CreateCanonicalRemote(client);
+            string sha = await Task.Run(() =>
+                TimeFirstSegmentGitRemoteSync.Fetch(workspace, remote: remote));
+            _notice = $"Cloudflareから正本を取得しました（{ShortSha(sha)}）。ローカルの編集中データは変更していません。";
+        });
+
     private async void SubmitProposalClick(object sender, RoutedEventArgs e) =>
         await SafelyAsync(async () =>
         {
