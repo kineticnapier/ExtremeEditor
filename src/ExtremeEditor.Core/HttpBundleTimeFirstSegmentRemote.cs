@@ -20,7 +20,10 @@ public sealed class HttpBundleTimeFirstSegmentRemote : ITimeFirstSegmentRemote
     public HttpBundleTimeFirstSegmentRemote(HttpClient http, Uri endpoint, string token)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
-        if (endpoint is null || endpoint.Scheme != Uri.UriSchemeHttps ||
+        if (endpoint is null || !(endpoint.Scheme == Uri.UriSchemeHttps ||
+              (endpoint.Scheme == Uri.UriSchemeHttp &&
+               (endpoint.Host == "127.0.0.1" || endpoint.Host == "::1" ||
+                endpoint.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)))) ||
             !endpoint.IsAbsoluteUri || !string.IsNullOrEmpty(endpoint.UserInfo) ||
             !string.IsNullOrEmpty(endpoint.Fragment))
             throw new ArgumentException("A plain HTTPS bundle endpoint is required.", nameof(endpoint));
