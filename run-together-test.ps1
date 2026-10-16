@@ -13,9 +13,20 @@ $vars = Join-Path $service ".dev.vars"
 $previousDevVars = if (Test-Path -LiteralPath $vars -PathType Leaf) {
     [IO.File]::ReadAllBytes($vars)
 } else { $null }
-if (-not (Test-Path (Join-Path $service "node_modules\wrangler"))) {
+$wranglerEntry = Join-Path $service "node_modules\wrangler\bin\wrangler.js"
+if (-not (Test-Path -LiteralPath $wranglerEntry -PathType Leaf)) {
     throw "Wrangler is missing. Run npm install in cloudflare\together-bundle."
 }
+if ($Port -lt 1024 -or $Port -gt 65535) { throw "Choose a local port between 1024 and 65535." }
+$portProbe = New-Object System.Net.Sockets.TcpClient
+try {
+    try {
+        $portProbe.Connect("127.0.0.1", $Port)
+        throw "Port $Port is already in use. Close the existing server or choose -Port."
+    } catch [System.Net.Sockets.SocketException] {
+        # Connection refused: nothing is listening on this port.
+    }
+} finally { $portProbe.Dispose() }
 if (-not $NoBuild) {
     if ($E2E) {
         & dotnet build $testProject -c Release
@@ -66,8 +77,8 @@ try {
         $env:EXTREMEEDITOR_TOGETHER_E2E_GUEST_TOKEN = $guestToken
     }
 
-    $server = Start-Process -FilePath (Join-Path $service "node_modules\.bin\wrangler.cmd") `
-        -ArgumentList @("dev", "--local", "--port", "$Port") `
+    $server = Start-Process -FilePath (Get-Command node).Source `
+        -ArgumentList @("`"$wranglerEntry`"", "dev", "--local", "--port", "$Port") `
         -WorkingDirectory $service -PassThru
     $ready = $false
     for ($attempt = 0; $attempt -lt 35; $attempt++) {
@@ -75,14 +86,14 @@ try {
         try {
             $response = Invoke-WebRequest -Uri "$($env:EXTREMEEDITOR_TOGETHER_DEV_URL)bundle" `
                 -Method GET -UseBasicParsing -TimeoutSec 2
-        } catch [System.Net.WebException] {
+        } catch {
             $httpResponse = $_.Exception.Response
             if ($null -ne $httpResponse -and [int]$httpResponse.StatusCode -eq 401) {
                 $ready = $true
-                $httpResponse.Close()
+                if ($httpResponse -is [System.IDisposable]) { $httpResponse.Dispose() }
                 break
             }
-        } catch { }
+        }
         Start-Sleep -Milliseconds 350
     }
     if (-not $ready) { throw "Local Wrangler did not become ready on port $Port." }
