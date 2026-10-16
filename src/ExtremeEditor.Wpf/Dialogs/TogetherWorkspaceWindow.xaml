@@ -68,6 +68,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock Text="保存先フォルダー" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center"/>
                 <TextBox x:Name="WorkspacePathBox" Grid.Column="1" Grid.Row="0" Margin="5,2"
@@ -91,6 +92,21 @@
                     <Button x:Name="CloneWorkspaceButton" Content="Git共有先から複製して参加"
                             Style="{StaticResource SecondaryTogetherButton}"
                             Click="CloneWorkspaceClick"/>
+                </StackPanel>
+                <StackPanel x:Name="JoinCloudPanel" Grid.Row="3" Grid.ColumnSpan="2"
+                            Visibility="Collapsed" Margin="5,10,0,5">
+                    <TextBlock Text="Cloudflareから初回参加（音源を選択してから取得）"
+                               FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <TextBlock Text="ルームURL" Margin="0,2"/>
+                    <TextBox x:Name="JoinCloudRoomUrlBox" Margin="0,2"
+                             ToolTip="https://ホスト/rooms/ルームID/（末尾 / 必須）"/>
+                    <TextBlock Text="招待された参加者の認証トークン" Margin="0,5,0,2"/>
+                    <PasswordBox x:Name="JoinCloudTokenBox" Margin="0,2"/>
+                    <Button Content="クラウドから取得して参加" Click="JoinCloudClick"
+                            HorizontalAlignment="Left" Margin="0,9,0,0"
+                            Style="{StaticResource SecondaryTogetherButton}"/>
+                    <TextBlock Text="保存先が存在する場合は上書きしません。既存の共同編集は「既存の作業フォルダーを開く」を選択してください。"
+                               TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#FF666666"/>
                 </StackPanel>
             </Grid>
         </GroupBox>
