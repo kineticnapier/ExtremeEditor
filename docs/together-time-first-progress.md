@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase H — Windows integration and final E2E review (after applying F/G patch series).
+Phase H — WPF integration code complete; Windows manual E2E review still pending.
 
 ## Completed
 
@@ -44,9 +44,10 @@ Phase H — Windows integration and final E2E review (after applying F/G patch s
 
 ## Last verified implementation commit
 
-Previous Windows-verified upstream: `bae1ee235b19e8a119ec40f2422152602baf3741`.
-F/G implementation is provided as an offline three-commit patch series and
-has not been pushed or Windows-verified as part of this handoff.
+Previous Windows-verified upstream before H: `776a23e5ac01ba197325e7641be4424b376ef5c8`.
+Phase F/G were pushed directly and the user reported Windows checks PASS.
+H UI implementation is complete in source but requires Windows WPF tests,
+interactive two-client confirmation and stock-game chart verification.
 
 ## Windows verification
 
@@ -75,7 +76,7 @@ Phase E RED was `7e7cd35`; its dedicated test failed for the expected
 `TimeFirstSegmentEditorSession.Open` `NotImplementedException` after a
 successful Release build.
 
-## Phase F/G Core implementation (Linux, pending local Windows verification)
+## Phase F/G Core implementation (Linux and user-reported Windows PASS)
 
 - Phase F: trusted local bare Git clone/connect, non-force Push, Fetch,
   FF Pull and two-parent domain-merged Pull; independent Segment contents
@@ -91,18 +92,38 @@ successful Release build.
   This does **not** constitute Windows WPF or stock-game verification.
 - Contract and restrictions: `docs/together-time-first-export-contract.md`.
 
+## Phase H WPF + Core integration (pending user Windows verification)
+
+- WPF time-first now has explicit local bare Git connect, clone, Fetch, Pull,
+  Push, and Stage → Commit → Push (without silent fetch or force push).
+- A time-first Pull returns semantic conflict IDs, never silently discarding
+  the active editor's unsaved edits or staging state. Segment switching and
+  replacement workspaces are guarded against data loss.
+- WPF entry orientation and separate explicit ADOFAI playback settings are
+  exposed. Export does a committed-snapshot validation preflight, reports
+  fail-closed reasons, and requires the exact measured song beside the output.
+- Loading a song for a persisted workspace verifies filename, decoded rate,
+  sample count and SHA-256. A stale waveform is cleared rather than displayed
+  against a different Git project. The music grid is locked while a persisted
+  time-first workspace is active, preventing uncommitted timing changes.
+- New `EXTREMEEDITOR_TIME_H_E2E_ONLY=1` test exercises two real local Git
+  clients from empty allocation → independent authoring → 2-parent merge →
+  committed `.adofai` export → loader roundtrip. Linux PASS.
+- New `EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY=1` WPF structural regression
+  checks all required F/G UI wiring; needs execution on Windows.
+- `docs/together-time-first-phase-h-manual.md` supplies two-client manual
+  interaction, error and stock-game confirmation steps.
+
 ## Unresolved
 
-- Phase H: Windows Core/WPF build, real two-client GUI workflow and manual
-  .adofai/game validation; GUI automation remains prohibited.
-- Connect Phase F remote operations and Phase G export validation to WPF UI;
-  surface fail-closed diagnostics and explicit playback settings.
-- More complex chart events and automated tempo fitting are unsupported by
-  Phase G and must not be presented as production-ready.
+- Run Windows WPF build and dedicated UI regressions, and perform actual
+  mouse/keyboard two-client interaction plus stock-game playback. GUI automation
+  remains prohibited.
+- Complex chart effects and automatic tempo fitting remain unsupported and
+  must not be presented as production-ready.
 
 ## Next concrete work
 
-Add Phase F remote operations and a three-way merge for time-first manifests
-and independently owned Segment files. Exercise two cloned workspaces, edits to
-different Segments, same-Segment conflicts, dirty-worktree protection, and
-preservation of local history and parked revisions.
+User runs the Windows commands and manual steps in
+`docs/together-time-first-phase-h-manual.md`, reporting any compiler failures,
+UI issues or gameplay mismatch for targeted fixes before marking H complete.

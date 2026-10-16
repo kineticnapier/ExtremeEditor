@@ -76,7 +76,8 @@ public partial class TogetherWorkspaceWindow : Window
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(audioPath);
         string fullPath = Path.GetFullPath(audioPath);
-        if (_plannedTimeline is { Partitions.Count: > 0 } &&
+        if (_timeWorkspace is null &&
+            _plannedTimeline is { Partitions.Count: > 0 } &&
             _timelineAudioPath is not null &&
             !string.Equals(_timelineAudioPath, fullPath,
                 StringComparison.OrdinalIgnoreCase))
@@ -87,6 +88,7 @@ public partial class TogetherWorkspaceWindow : Window
         MeasuredAudioText.Text = "音源を解析しています…";
         AudioWaveformData waveform = await Task.Run(() =>
             AudioWaveformLoader.Load(fullPath));
+        ValidateLoadedTimeAudio(fullPath, waveform);
         if (_plannedTimeline is { Partitions.Count: > 0 } &&
             _plannedTimeline.SampleRate != waveform.SampleRate)
         {
@@ -102,7 +104,9 @@ public partial class TogetherWorkspaceWindow : Window
             BpmBox.Text = level.InitialBpm.ToString(
                 "0.########", CultureInfo.InvariantCulture);
 
-        _musicTimingMap = BuildMusicTimingMap(waveform);
+        _musicTimingMap = _timeSnapshot is not null
+            ? MusicTimingMap.Build(waveform.SampleRate, _timeSnapshot.TimingPoints)
+            : BuildMusicTimingMap(waveform);
         if (_plannedTimeline is null ||
             _plannedTimeline.SampleRate != waveform.SampleRate)
             _plannedTimeline = new SegmentTimeTimeline(
@@ -122,6 +126,19 @@ public partial class TogetherWorkspaceWindow : Window
         _notice =
             "音源の実測サンプル周波数でタイムラインを読み込みました。ドラッグして担当範囲を選択できます。";
         UpdateTimelineNavigation();
+    }
+
+    private void ValidateLoadedTimeAudio(string path, AudioWaveformData waveform)
+    {
+        if (_timeSnapshot is not TimeFirstSegmentSnapshot committed) return;
+        if (waveform.SampleRate != committed.Audio.SampleRate ||
+            waveform.TotalSamples != committed.Audio.TotalSamples ||
+            !string.Equals(Path.GetFileName(path), committed.Audio.FileName,
+                StringComparison.Ordinal) ||
+            !string.Equals(ComputeSha256(path), committed.Audio.Sha256,
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "この音源は共同編集に保存された音源と一致しません（名前・サンプル周波数・長さ・SHA-256）。既存の担当区間を保持しています。");
     }
 
     private MusicTimingMap BuildMusicTimingMap(AudioWaveformData waveform)
@@ -147,6 +164,9 @@ public partial class TogetherWorkspaceWindow : Window
         {
             if (_timelineWaveform is null)
                 return;
+            if (_timeWorkspace is not null)
+                throw new InvalidOperationException(
+                    "作成済みWorkspaceの音楽グリッドは履歴から復元されます。ここでの変更はできません。");
             _musicTimingMap = BuildMusicTimingMap(_timelineWaveform);
             MusicTimeline.SetTimingMap(_musicTimingMap);
             _notice = "BPMと拍オフセットを音楽グリッドに反映しました。";
@@ -276,6 +296,8 @@ public partial class TogetherWorkspaceWindow : Window
             forCreation ? Visibility.Visible : Visibility.Collapsed;
         OpenWorkspaceButton.Visibility =
             forCreation ? Visibility.Collapsed : Visibility.Visible;
+        CloneWorkspaceButton.Visibility =
+            forCreation ? Visibility.Collapsed : Visibility.Visible;
         _notice = forCreation
             ? "新しい作業フォルダーを指定してください。作成前に「詳細設定」で音声のサンプル周波数を確認してください。"
             : "既にコピーされた共同編集の作業フォルダーを指定してください。招待リンクからの参加には未対応です。";
@@ -286,6 +308,7 @@ public partial class TogetherWorkspaceWindow : Window
     private void CreateWorkspaceClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            RefuseWorkspaceReplacement();
             string workspacePath = RequiredPath(WorkspacePathBox.Text, "作業フォルダー");
             string owner = RequiredOwner();
             if (ConfirmSampleRateBox.IsChecked != true)
@@ -356,6 +379,7 @@ public partial class TogetherWorkspaceWindow : Window
     private void OpenWorkspaceClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            RefuseWorkspaceReplacement();
             string path = RequiredPath(WorkspacePathBox.Text, "作業フォルダー");
             string owner = RequiredOwner();
             if (File.Exists(Path.Combine(path, "time-first-workspace.json")))
@@ -373,14 +397,50 @@ public partial class TogetherWorkspaceWindow : Window
             SetupPanel.Visibility = Visibility.Collapsed;
         });
 
+    private void CloneWorkspaceClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            RefuseWorkspaceReplacement();
+            string remote = RequiredPath(BareRemoteBox.Text, "Git共有フォルダー");
+            string destination = RequiredPath(WorkspacePathBox.Text, "複製先の作業フォルダー");
+            string owner = RequiredOwner();
+            TimeFirstSegmentGitWorkspace cloned =
+                TimeFirstSegmentGitRemoteSync.CloneLocalBare(remote, destination);
+            OpenTimeFirstWorkspace(cloned.Directory, owner);
+            SetupPanel.Visibility = Visibility.Collapsed;
+            _notice = "Git共有先を複製しました。自分の担当区間を選択し、編集できます。";
+        });
+
+    /// <summary>
+    /// Do not replace an editor session while it owns unsaved authored tiles,
+    /// or replace a staged snapshot before it is committed. Neither case may
+    /// silently discard work during Join/Clone/Pull/segment selection.
+    /// </summary>
+    private void RefuseWorkspaceReplacement()
+    {
+        RefuseUnsafeTimeEditorSwitch();
+        if (_timeWorkspace is not null ||
+            _controller.Display.WorkspaceDirectory is not null)
+            throw new InvalidOperationException(
+                "別のWorkspaceに切り替えるには共同編集ウィンドウを開き直してください。現在の作業内容は保持しています。");
+    }
+
+    private void RefuseUnsafeTimeEditorSwitch()
+    {
+        if (_timeEditor?.IsDirty == true)
+            throw new InvalidOperationException(
+                "担当区間に未保存の編集があります。保存準備と履歴記録を済ませてから切り替えてください。");
+        if (_timeStaged)
+            throw new InvalidOperationException(
+                "保存準備済みの時間区間があるため切り替えません。先に履歴へ記録してください。");
+    }
+
     private void ReloadViewClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
             if (_timeWorkspace is not null)
             {
-                if (_timeEditor?.IsDirty == true)
-                    throw new InvalidOperationException(
-                        "未保存の時間区間編集があるため再読込しません。先に保存準備してください。");
+                RefuseUnsafeTimeEditorSwitch();
                 ApplyTimeFirstSnapshot(_timeWorkspace.Load());
                 _notice = "Gitの記録内容から時間区間と担当を再読込しました。";
             }
@@ -398,12 +458,31 @@ public partial class TogetherWorkspaceWindow : Window
 
         if (_timeWorkspace is not null)
         {
+            if (string.Equals(_timeSelectedSegmentId, segment.SegmentId,
+                StringComparison.Ordinal))
+                return;
+            if (_timeEditor?.IsDirty == true || _timeStaged)
+            {
+                // Restore the previous row rather than losing the undo stack.
+                _refreshing = true;
+                try
+                {
+                    SegmentList.SelectedItem = SegmentList.Items.Cast<TogetherSegmentDisplay>()
+                        .FirstOrDefault(row => row.SegmentId == _timeSelectedSegmentId);
+                }
+                finally { _refreshing = false; }
+                _notice = "保存準備・履歴記録が済むまでは担当区間を切り替えられません。";
+                RefreshStatus();
+                return;
+            }
             _timeSelectedSegmentId = segment.SegmentId;
             if (segment.CanEdit)
             {
                 _timeEditor = TimeFirstSegmentEditorSession.Open(
                     _timeSnapshot!, segment.SegmentId, _timeOwnerId!);
                 AuthoredTileList.ItemsSource = _timeEditor.Current.Tiles;
+                EntryAngleBox.Text = _timeEditor.Current.EntryAngle.ToString(
+                    "0.########", CultureInfo.InvariantCulture);
             }
             else
             {
@@ -453,17 +532,7 @@ public partial class TogetherWorkspaceWindow : Window
         {
             if (_timeWorkspace is not null)
             {
-                if (_timeStaged)
-                    throw new InvalidOperationException(
-                        "準備済みの時間区間編集を先に履歴へ記録してください。");
-                TimeFirstSegmentEditorSession timeEditor = _timeEditor ??
-                    throw new InvalidOperationException(
-                        "自分の担当時間区間を選択してください。");
-                string revision = timeEditor.Current.SegmentId + "-" +
-                    Guid.NewGuid().ToString("N");
-                _timeSnapshot = timeEditor.CreateRevision(_timeSnapshot!, revision);
-                _timeWorkspace.Save(_timeSnapshot);
-                _timeStaged = true;
+                StageTimeEditor();
                 _notice =
                     "角度と時刻アンカーを含む担当区間を保存準備しました。履歴への記録後に共有できます。";
                 return;
@@ -481,8 +550,7 @@ public partial class TogetherWorkspaceWindow : Window
                 if (!_timeStaged)
                     throw new InvalidOperationException(
                         "履歴へ記録する時間区間編集がありません。");
-                string timeRevision = _timeWorkspace.Commit(
-                    CommitMessageBox.Text.Trim());
+                string timeRevision = _timeWorkspace.Commit(CommitMessage());
                 _timeStaged = false;
                 _notice =
                     $"時間区間の変更をローカル履歴に記録しました（{ShortSha(timeRevision)}）。";
@@ -492,9 +560,25 @@ public partial class TogetherWorkspaceWindow : Window
             _notice = $"変更をローカル履歴に記録しました（{ShortSha(revision)}）。共有先への送信はまだです。";
         });
 
+    private void SetEntryAngleClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            if (_timeStaged)
+                throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
+            TimeFirstSegmentEditorSession editor = _timeEditor ??
+                throw new InvalidOperationException("自分の担当時間区間を選択してください。");
+            double entry = ParseFiniteDouble(EntryAngleBox.Text, "入口角度");
+            editor.SetEntryAngle(entry);
+            EntryAngleBox.Text = editor.Current.EntryAngle.ToString(
+                "0.########", CultureInfo.InvariantCulture);
+            _notice = $"区間の入口角度を {editor.Current.EntryAngle:0.###}° に設定しました。";
+        });
+
     private void PlaceTimeTileClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeStaged)
+                throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
             TimeFirstSegmentEditorSession editor = _timeEditor ??
                 throw new InvalidOperationException(
                     "先に自分の担当時間区間を選択してください。");
@@ -521,6 +605,8 @@ public partial class TogetherWorkspaceWindow : Window
     private void RemoveTimeTileClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeStaged)
+                throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
             TimeFirstSegmentEditorSession editor = _timeEditor ??
                 throw new InvalidOperationException(
                     "先に自分の担当時間区間を選択してください。");
@@ -534,6 +620,8 @@ public partial class TogetherWorkspaceWindow : Window
     private void UndoTimeTileClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeStaged)
+                throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
             (_timeEditor ?? throw new InvalidOperationException(
                 "編集中の担当時間区間がありません。")).Undo();
             RefreshTimeTileEditor();
@@ -543,6 +631,8 @@ public partial class TogetherWorkspaceWindow : Window
     private void RedoTimeTileClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeStaged)
+                throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
             (_timeEditor ?? throw new InvalidOperationException(
                 "編集中の担当時間区間がありません。")).Redo();
             RefreshTimeTileEditor();
@@ -559,16 +649,21 @@ public partial class TogetherWorkspaceWindow : Window
     private void ConnectClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
-            _controller.ConnectLocalBare(RequiredPath(
-                BareRemoteBox.Text, "Git共有フォルダー"));
+            string remote = RequiredPath(BareRemoteBox.Text, "Git共有フォルダー");
+            if (_timeWorkspace is not null)
+                TimeFirstSegmentGitRemoteSync.ConnectLocalBare(_timeWorkspace, remote);
+            else
+                _controller.ConnectLocalBare(remote);
             _notice = "ローカルGit共有フォルダーに接続しました。変更はまだ送信していません。";
         });
 
     private void FetchClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
-            string remote = _controller.Fetch();
-            _notice = $"共有先の履歴を取得しました（{ShortSha(remote)}）。メイン画面の譜面は変更していません。";
+            string remote = _timeWorkspace is not null
+                ? TimeFirstSegmentGitRemoteSync.Fetch(_timeWorkspace)
+                : _controller.Fetch();
+            _notice = $"共有先の履歴を取得しました（{ShortSha(remote)}）。作業内容は変更していません。";
         });
 
     private void PullClick(object sender, RoutedEventArgs e) =>
@@ -579,6 +674,26 @@ public partial class TogetherWorkspaceWindow : Window
 
     private void ReceiveChanges()
     {
+        if (_timeWorkspace is not null)
+        {
+            RefuseUnsafeTimeEditorSwitch();
+            TimeFirstSegmentPullResult timeResult =
+                TimeFirstSegmentGitRemoteSync.Pull(_timeWorkspace);
+            if (timeResult.Success)
+            {
+                ApplyTimeFirstSnapshot(_timeWorkspace.Load());
+                _notice = $"時間区間のGit変更を取り込みました（{ShortSha(timeResult.LocalCommit)}）。";
+            }
+            else
+            {
+                // Semantic conflicts never overwrite the local HEAD or authored files.
+                string ids = string.Join("、", timeResult.ContentConflictSegmentIds);
+                string timeline = string.Join("、", timeResult.TimelineConflicts
+                    .Select(conflict => conflict.SegmentId));
+                _notice = $"時間区間の競合を検出しました。ローカルの編集内容と履歴は保持しています。内容競合: {ids} ／ 割当競合: {timeline}。";
+            }
+            return;
+        }
         SegmentGitPullResult result = _controller.Pull(_host.TogetherCurrentEditor);
         if (result.Success)
         {
@@ -595,7 +710,11 @@ public partial class TogetherWorkspaceWindow : Window
     private void PushClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
-            string published = _controller.Push();
+            if (_timeWorkspace is not null)
+                RefuseUnsafeTimeEditorSwitch();
+            string published = _timeWorkspace is not null
+                ? TimeFirstSegmentGitRemoteSync.Push(_timeWorkspace)
+                : _controller.Push();
             _notice = $"ローカルGit共有フォルダーへ送信しました（{ShortSha(published)}）。";
         });
 
@@ -606,6 +725,25 @@ public partial class TogetherWorkspaceWindow : Window
     private void ShareChangesClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeWorkspace is not null)
+            {
+                if (_timeEditor?.IsDirty == true)
+                {
+                    if (_timeStaged)
+                        throw new InvalidOperationException(
+                            "保存準備済みの区間があるため新しい編集を共有できません。");
+                    StageTimeEditor();
+                }
+                if (_timeStaged)
+                {
+                    _timeWorkspace.Commit(CommitMessage());
+                    _timeStaged = false;
+                }
+                // No automatic Pull/rebase. Non-FF Push leaves committed work intact.
+                string timePublished = TimeFirstSegmentGitRemoteSync.Push(_timeWorkspace);
+                _notice = $"時間区間の編集を共有しました（{ShortSha(timePublished)}）。";
+                return;
+            }
             TogetherWorkspaceDisplay current = _controller.Display;
             if (current.WorkspaceDirectory is null)
                 throw new InvalidOperationException("先に共同編集を作成または参加してください。");
@@ -641,6 +779,36 @@ public partial class TogetherWorkspaceWindow : Window
     private void ExportClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeWorkspace is not null)
+            {
+                RefuseUnsafeTimeEditorSwitch();
+                _timeWorkspace.AssertCleanOwnedWorktree();
+                TimeFirstAdoFaiSettings settings = ExplicitExportSettings();
+                TimeFirstSegmentSnapshot snapshot =
+                    _timeWorkspace.ReadAt(_timeWorkspace.HeadCommit);
+                TimeFirstAdoFaiCompositionResult preview =
+                    TimeFirstSegmentAdoFaiExporter.ComposeAndValidate(snapshot, settings);
+                if (!preview.Accepted)
+                    throw new InvalidOperationException(
+                        "完成譜面の検証に失敗しました。変更は保持されています: " +
+                        string.Join(" / ", preview.Issues));
+
+                var timeDialog = new SaveFileDialog
+                {
+                    Title = "時間区間から完成ADOFAI譜面を書き出す",
+                    Filter = "ADOFAI 譜面 (*.adofai)|*.adofai",
+                    DefaultExt = ".adofai", AddExtension = true,
+                    OverwritePrompt = true,
+                    FileName = "Together-完成譜面.adofai"
+                };
+                if (timeDialog.ShowDialog(this) != true) return;
+                TimeFirstAdoFaiExportResult completed =
+                    TimeFirstSegmentAdoFaiExporter.ExportValidated(
+                        _timeWorkspace, settings, timeDialog.FileName,
+                        overwriteExisting: File.Exists(timeDialog.FileName));
+                _notice = $"完成譜面を書き出しました（{completed.FloorCount}床、{completed.ActionCount}イベント、履歴 {ShortSha(completed.SourceCommit)}）。保存先: {completed.DestinationPath}";
+                return;
+            }
             if (RequiredEditor().IsDirty)
                 throw new InvalidOperationException(
                     "メイン画面に未共有の編集があります。担当区間の変更を共有するか、編集内容を保存してから書き出してください。");
@@ -660,6 +828,47 @@ public partial class TogetherWorkspaceWindow : Window
                 _controller.Export(dialog.FileName, overwriteExisting: overwrite);
             _notice = $"完成譜面を書き出しました（{published.FloorCount}床、履歴 {ShortSha(published.SourceCommit)}）。保存先: {published.DestinationPath}";
         });
+
+    private static double ParseFiniteDouble(string value, string label)
+    {
+        if (!double.TryParse(value.Trim(), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out double number) ||
+            !double.IsFinite(number))
+            throw new ArgumentException($"{label}には有限の数値を入力してください。");
+        return number;
+    }
+
+    private TimeFirstAdoFaiSettings ExplicitExportSettings()
+    {
+        double bpm = ParseFiniteDouble(ExportBpmBox.Text, "ADOFAI BPM");
+        double offset = ParseFiniteDouble(ExportOffsetBox.Text, "ADOFAI Offset");
+        double pitch = ParseFiniteDouble(ExportPitchBox.Text, "Pitch");
+        if (!int.TryParse(ExportCountdownBox.Text.Trim(),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out int ticks))
+            throw new ArgumentException("Countdownには整数を入力してください。");
+        return new TimeFirstAdoFaiSettings(bpm, offset, pitch, ticks,
+            ExportSeparateCountdownBox.IsChecked == true);
+    }
+
+    private string CommitMessage() => string.IsNullOrWhiteSpace(CommitMessageBox.Text)
+        ? "担当区間を編集" : CommitMessageBox.Text.Trim();
+
+    private void StageTimeEditor()
+    {
+        if (_timeStaged)
+            throw new InvalidOperationException("先に保存準備済みの編集を履歴へ記録してください。");
+        TimeFirstSegmentEditorSession editor = _timeEditor ??
+            throw new InvalidOperationException("自分の担当時間区間を選択してください。");
+        if (!editor.IsDirty)
+            throw new InvalidOperationException("保存準備する変更がありません。");
+        _timeWorkspace!.AssertCleanOwnedWorktree();
+        string revision = editor.Current.SegmentId + "-" +
+            Guid.NewGuid().ToString("N");
+        TimeFirstSegmentSnapshot updated = editor.CreateRevision(_timeSnapshot!, revision);
+        _timeWorkspace.Save(updated);
+        _timeSnapshot = updated;
+        _timeStaged = true;
+    }
 
     private void LoadIntoEditor()
     {
@@ -713,27 +922,37 @@ public partial class TogetherWorkspaceWindow : Window
         try
         {
             SegmentList.ItemsSource = rows;
-            if (state.SelectedSegmentId is string id)
+            string? activeId = timeLoaded
+                ? _timeSelectedSegmentId : state.SelectedSegmentId;
+            if (activeId is not null)
                 SegmentList.SelectedItem =
-                    rows.FirstOrDefault(s => s.SegmentId == id);
+                    rows.FirstOrDefault(s => s.SegmentId == activeId);
         }
         finally
         {
             _refreshing = false;
         }
 
+        EntryAngleBox.IsEnabled = timeLoaded && _timeEditor is not null && !_timeStaged;
+        SetEntryAngleButton.IsEnabled = EntryAngleBox.IsEnabled;
+        BpmBox.IsEnabled = !timeLoaded;
+        BeatOffsetBox.IsEnabled = !timeLoaded;
+        AddTimeSegmentButton.IsEnabled = !timeLoaded;
+        CloneWorkspaceButton.IsEnabled = !loaded;
         SaveSegmentButton.IsEnabled = timeLoaded
             ? _timeEditor?.IsDirty == true && !_timeStaged
             : loaded && state.SelectedSegmentId is not null && !state.HasStagedChanges;
         CommitButton.IsEnabled = timeLoaded
             ? _timeStaged
             : loaded && state.HasStagedChanges;
-        FetchButton.IsEnabled = !timeLoaded && loaded;
-        PullButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
-        PushButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
-        ExportButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
-        ShareChangesButton.IsEnabled = !timeLoaded && loaded;
-        ReceiveChangesButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
+        FetchButton.IsEnabled = loaded;
+        PullButton.IsEnabled = loaded && (timeLoaded
+            ? !_timeStaged && _timeEditor?.IsDirty != true
+            : !state.HasStagedChanges);
+        PushButton.IsEnabled = PullButton.IsEnabled;
+        ExportButton.IsEnabled = PullButton.IsEnabled;
+        ShareChangesButton.IsEnabled = loaded;
+        ReceiveChangesButton.IsEnabled = PullButton.IsEnabled;
         ReloadViewButton.IsEnabled = loaded;
         PlaceTimeTileButton.IsEnabled = timeLoaded && _timeEditor is not null && !_timeStaged;
         RemoveTimeTileButton.IsEnabled = timeLoaded && _timeEditor is not null && !_timeStaged;
@@ -750,15 +969,19 @@ public partial class TogetherWorkspaceWindow : Window
             return;
         }
 
-        string staged = state.HasStagedChanges
-            ? "ローカルで保存準備済み（履歴への記録が必要）"
-            : "保存準備中の変更なし";
+        string staged = timeLoaded
+            ? (_timeStaged ? "時間区間の編集を保存準備済み（Commitが必要）"
+                : _timeEditor?.IsDirty == true ? "時間区間に未保存の編集があります"
+                : "時間区間の保存準備中の変更なし")
+            : state.HasStagedChanges
+                ? "ローカルで保存準備済み（履歴への記録が必要）"
+                : "保存準備中の変更なし";
         string conflicts = state.ContentConflictSegmentIds.Count == 0 &&
                            state.TimelineConflicts.Count == 0
             ? string.Empty
             : $" ／ 競合あり: {string.Join("、", state.ContentConflictSegmentIds)}（編集内容は保持）";
         string prefix = timeLoaded
-            ? $"時間区間Workspace: {_timeWorkspace!.Directory} ／ 履歴: {ShortSha(_timeWorkspace.HeadCommit)} ／ 明示的な空区間を保存済み"
+            ? $"時間区間Workspace: {_timeWorkspace!.Directory} ／ 履歴: {ShortSha(_timeWorkspace.HeadCommit)} ／ {staged}"
             : $"作業フォルダー: {state.WorkspaceDirectory} ／ 履歴: {ShortSha(state.CurrentCommit)} ／ {staged}{conflicts}";
         TogetherStatusText.Text =
             _notice is null ? prefix : $"{_notice}\n{prefix}";
@@ -821,6 +1044,10 @@ public partial class TogetherWorkspaceWindow : Window
             technical.Contains("non fast forward", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("fetch first", StringComparison.OrdinalIgnoreCase))
             return "共有先に新しい変更があります。送信を拒否しました。編集内容は保持されています。必要な変更を取り込んでから再度共有してください。";
+        if (technical.Contains("song file", StringComparison.OrdinalIgnoreCase) ||
+            technical.Contains("measured input audio", StringComparison.OrdinalIgnoreCase) ||
+            technical.Contains("source audio", StringComparison.OrdinalIgnoreCase))
+            return "書き出し先のフォルダーに元の音源が見つからないか、SHA-256が一致しません。同じファイル名・内容の音源を置いてください。";
         if (technical.Contains("remote", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("origin", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("bare", StringComparison.OrdinalIgnoreCase))
@@ -829,6 +1056,10 @@ public partial class TogetherWorkspaceWindow : Window
             technical.Contains("dirty", StringComparison.OrdinalIgnoreCase) ||
             technical.Contains("unsaved", StringComparison.OrdinalIgnoreCase))
             return "未保存の編集があるため操作を中止しました。担当区間の変更を保存してから操作してください。";
+        // Human-readable diagnostics from the completion preflight must not
+        // be hidden behind a generic Segment ownership warning.
+        if (technical.Any(c => c >= '\u3040' && c <= '\u9fff'))
+            return technical;
         if (technical.Contains("Segment", StringComparison.Ordinal) ||
             technical.Contains("ownership", StringComparison.OrdinalIgnoreCase))
             return "担当区間以外の変更、または区間の割り当てを確認できないため、操作を中止しました。編集内容は保持されています。";
@@ -895,10 +1126,12 @@ public partial class TogetherWorkspaceWindow : Window
     {
         TimeFirstSegmentGitWorkspace workspace =
             TimeFirstSegmentGitWorkspace.Open(workspacePath);
+        TimeFirstSegmentSnapshot snapshot = workspace.Load();
+        TimeFirstSegmentGitWorkspace.ValidateSnapshot(snapshot);
         _timeWorkspace = workspace;
         _timeOwnerId = ownerId;
         _timeSelectedSegmentId = null;
-        ApplyTimeFirstSnapshot(workspace.Load());
+        ApplyTimeFirstSnapshot(snapshot);
     }
 
     private void ApplyTimeFirstSnapshot(TimeFirstSegmentSnapshot snapshot)
@@ -922,20 +1155,30 @@ public partial class TogetherWorkspaceWindow : Window
                 snapshot.Timeline.SampleRate).ToString(
                     "0.###", CultureInfo.InvariantCulture);
         }
-        if (_timelineWaveform is not null &&
+        if (_timelineWaveform is not null && _timelineAudioPath is not null &&
             _timelineWaveform.SampleRate == snapshot.Audio.SampleRate &&
-            _timelineWaveform.TotalSamples == snapshot.Audio.TotalSamples)
+            _timelineWaveform.TotalSamples == snapshot.Audio.TotalSamples &&
+            string.Equals(Path.GetFileName(_timelineAudioPath), snapshot.Audio.FileName,
+                StringComparison.Ordinal) &&
+            File.Exists(_timelineAudioPath) &&
+            string.Equals(ComputeSha256(_timelineAudioPath), snapshot.Audio.Sha256,
+                StringComparison.OrdinalIgnoreCase))
         {
             MusicTimeline.Load(
                 _timelineWaveform, _musicTimingMap, snapshot.Timeline.Partitions);
         }
         else
         {
-            MusicTimeline.SetTimingMap(_musicTimingMap);
-            MusicTimeline.SetSegments(snapshot.Timeline.Partitions);
+            _timelineWaveform = null;
+            _timelineAudioPath = null;
+            MusicTimeline.Clear();
             MeasuredAudioText.Text =
                 $"保存音源: {snapshot.Audio.FileName} ／ {snapshot.Audio.SampleRate:N0} Hz ／ 再表示には同じ音源を選択";
         }
+        _selectionStartSample = null;
+        _selectionEndSampleExclusive = null;
+        SelectionStartSampleText.Text = "―";
+        SelectionEndSampleText.Text = "―";
     }
 
     private static string ComputeSha256(string path)

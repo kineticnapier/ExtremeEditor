@@ -80,6 +80,19 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         RaiseViewportChanged();
     }
 
+    internal void Clear()
+    {
+        _waveform = null;
+        _timingMap = null;
+        _viewport = null;
+        _frame = null;
+        _segments = Array.Empty<SegmentTimePartition>();
+        _selectionAnchor = null;
+        _selectionCurrent = null;
+        InvalidateVisual();
+        RaiseViewportChanged();
+    }
+
     internal void SetTimingMap(MusicTimingMap timingMap)
     {
         if (_waveform is null)

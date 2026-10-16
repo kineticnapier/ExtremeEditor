@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_H_E2E_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TimeFirstTogetherEndToEndRegression.Run();
+    Console.WriteLine("PASS: complete two-client time-first author/merge/export E2E regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_EXPORT_ONLY"),
     "1", StringComparison.Ordinal))
 {

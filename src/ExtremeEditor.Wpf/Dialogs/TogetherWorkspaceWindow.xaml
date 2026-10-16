@@ -80,6 +80,9 @@
                     <Button x:Name="OpenWorkspaceButton" Content="既存の作業フォルダーを開く"
                             Style="{StaticResource SecondaryTogetherButton}"
                             Click="OpenWorkspaceClick"/>
+                    <Button x:Name="CloneWorkspaceButton" Content="Git共有先から複製して参加"
+                            Style="{StaticResource SecondaryTogetherButton}"
+                            Click="CloneWorkspaceClick"/>
                 </StackPanel>
             </Grid>
         </GroupBox>
@@ -184,8 +187,9 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="自分の担当区間を選んで、メインの譜面編集画面で編集してください。他の人の区間は共有できません。"
+                <TextBlock Text="自分の担当区間を選んで、空区間からタイルを制作します。変更はローカル履歴へ記録してからGitで送信します。"
                            Foreground="#FF666666" TextWrapping="Wrap" Margin="0,0,0,8"/>
                 <ListView x:Name="SegmentList" Grid.Row="1"
                           SelectionChanged="SegmentSelectionChanged">
@@ -235,6 +239,15 @@
                     <ListBox x:Name="AuthoredTileList" Grid.Column="8" Height="30"
                              DisplayMemberPath="TileId" ToolTip="選択中区間の実タイル"/>
                 </Grid>
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,7,0,0">
+                    <TextBlock Text="区間の入口角度 (°)" VerticalAlignment="Center"/>
+                    <TextBox x:Name="EntryAngleBox" Width="82" Text="0" Margin="8,0,8,0"
+                             ToolTip="区間境界のADOFAI入口角度。自動補正しません"/>
+                    <Button x:Name="SetEntryAngleButton" Content="入口角度を設定" Padding="9,4"
+                            Click="SetEntryAngleClick"/>
+                    <TextBlock Margin="12,0,0,0" VerticalAlignment="Center"
+                               Text="音楽BPMと書き出し時のADOFAI BPMは別です"/>
+                </StackPanel>
             </Grid>
         </GroupBox>
 
@@ -306,6 +319,23 @@
                         <Button x:Name="PushButton" Content="送信（Push）"
                                 Style="{StaticResource SecondaryTogetherButton}" Click="PushClick"/>
                     </StackPanel>
+                    <Separator Margin="0,9"/>
+                    <TextBlock Text="完成譜面の再生設定（ADOFAI）。音楽グリッドのBPMとは別に明示してください。"
+                               TextWrapping="Wrap" Margin="0,0,0,4"/>
+                    <WrapPanel Margin="0,2,0,5">
+                        <TextBlock Text="BPM" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ExportBpmBox" Width="73" Text="120" Margin="5,0,10,0"/>
+                        <TextBlock Text="Offset(ms)" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ExportOffsetBox" Width="75" Text="0" Margin="5,0,10,0"/>
+                        <TextBlock Text="Pitch(%)" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ExportPitchBox" Width="65" Text="100" Margin="5,0,10,0"/>
+                        <TextBlock Text="Countdown" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ExportCountdownBox" Width="48" Text="0" Margin="5,0,10,0"/>
+                        <CheckBox x:Name="ExportSeparateCountdownBox" Content="SeparateCountdownTime"
+                                  IsChecked="False" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                    <TextBlock Text="Time-first完成譜面はコミット済みデータからのみ書き出します。音源は出力する.adofaiと同じフォルダーに、元と同じ内容・ファイル名で必要です。"
+                               TextWrapping="Wrap" Margin="0,0,0,5"/>
                     <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
                         <Button x:Name="SaveSegmentButton" Content="選択区間を準備（Stage）"
                                 Style="{StaticResource SecondaryTogetherButton}" Click="SaveSegmentClick"/>
