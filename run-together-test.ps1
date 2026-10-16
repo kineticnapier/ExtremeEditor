@@ -7,9 +7,9 @@ $root = $PSScriptRoot
 $service = Join-Path $root "cloudflare\together-bundle"
 $exe = Join-Path $root "src\ExtremeEditor.Wpf\bin\Release\net8.0-windows\ExtremeEditor.Wpf.exe"
 $vars = Join-Path $service ".dev.vars"
-if (Test-Path -LiteralPath $vars) {
-    throw "Existing .dev.vars found. Back it up or remove it manually before running this isolated local test launcher."
-}
+$previousDevVars = if (Test-Path -LiteralPath $vars -PathType Leaf) {
+    [IO.File]::ReadAllBytes($vars)
+} else { $null }
 if (-not (Test-Path (Join-Path $service "node_modules\wrangler"))) {
     throw "Wrangler is missing. Run npm install in cloudflare\together-bundle."
 }
@@ -65,7 +65,8 @@ try {
 }
 finally {
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $vars) { Remove-Item -LiteralPath $vars -Force }
+    if ($null -ne $previousDevVars) { [IO.File]::WriteAllBytes($vars, $previousDevVars) }
+    elseif (Test-Path -LiteralPath $vars) { Remove-Item -LiteralPath $vars -Force }
     [Environment]::SetEnvironmentVariable("TOGETHER_BUNDLE_MASTER_KEY", $oldMaster, "Process")
     [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_URL", $oldUrl, "Process")
     [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_DEV_MEMBER", $oldMember, "Process")
