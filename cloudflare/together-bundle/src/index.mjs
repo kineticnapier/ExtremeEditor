@@ -1,3 +1,4 @@
+import { authorizeMember } from "./member-auth.mjs";
 const LIMIT = 32 * 1024 * 1024;
 const ROOM_RE = /^[a-zA-Z0-9_-]{12,80}$/;
 
@@ -10,9 +11,14 @@ export default {
       return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, PUT" } });
     // Derive a different bearer capability for every room. The master key is
     // never distributed to clients; a room capability does not unlock other rooms.
-    if (!env.TOGETHER_BUNDLE_MASTER_KEY ||
-        !(await verifyRoomToken(request, env.TOGETHER_BUNDLE_MASTER_KEY, match[1])))
+    if (!env.TOGETHER_BUNDLE_MASTER_KEY)
       return new Response("Unauthorized", { status: 401 });
+    const identity = await authorizeMember(request, env.TOGETHER_BUNDLE_MASTER_KEY, match[1]);
+    if (!identity) return new Response("Unauthorized", { status: 401 });
+    // Until server-side Git/ownership validation exists, only the host can
+    // publish a bundle. Guests can safely download for offline editing.
+    if (request.method === "PUT" && identity.role !== "host")
+      return new Response("Forbidden", { status: 403 });
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]));
     return room.fetch(request);
   }
