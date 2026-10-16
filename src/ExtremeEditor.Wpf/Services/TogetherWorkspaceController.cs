@@ -190,7 +190,7 @@ internal sealed class TogetherWorkspaceController
                 : throw new InvalidOperationException("An active Segment has no content."))
             .Where(start => start > 0)
             .OrderBy(start => start).ToArray();
-        LevelSegment[] sliced = LevelSegmentPartitioner.Split(edited, cuts);
+        LevelSegment[] sliced = LevelSegmentPartitioner.Split(edited, cuts).ToArray();
         var byStart = sliced.ToDictionary(s => s.StartFloor);
         var content = original.Segments.ToDictionary(
             kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
