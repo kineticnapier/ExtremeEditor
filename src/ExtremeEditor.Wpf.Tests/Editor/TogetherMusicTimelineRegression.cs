@@ -182,6 +182,20 @@ internal static class TogetherMusicTimelineRegression
             "single click seeking must not replace range dragging");
         Check(player.Contains("public AudioPlayer() : this(loadHitSoundAssets: true)", StringComparison.Ordinal),
             "normal AudioPlayer construction must keep the existing hit-sound graph");
+        Check(timeline.Contains("Keyboard.Modifiers & ModifierKeys.Control", StringComparison.Ordinal)
+                && timeline.Contains("_viewport.ScrollByPixels(", StringComparison.Ordinal),
+            "Ctrl+wheel must zoom, plain wheel must pan horizontally");
+        Check(timeline.Contains("TogetherTimelineEndpointRequestedEventArgs", StringComparison.Ordinal)
+                && timeline.Contains("SetSelectionEndpoints(", StringComparison.Ordinal),
+            "start/end markers must be independently selectable and visible");
+        foreach (string control in new[] { "PreviewSetStartButton", "PreviewSetEndButton" })
+            Check(xaml.Contains(control, StringComparison.Ordinal),
+                "preview must provide a separate selection-endpoint button: " + control);
+        Check(code.Contains("MusicTimelineEndpointRequested", StringComparison.Ordinal)
+                && code.Contains("SetSelectionEndpointAtPreview", StringComparison.Ordinal),
+            "preview must wire independent selection endpoints");
+        Check(code.Contains("TimelineZoomSlider.Value = MusicTimeline.ZoomLevel", StringComparison.Ordinal),
+            "Ctrl+wheel must synchronize the visible zoom slider");
     }
 
     private static string FindRepositoryRoot()
