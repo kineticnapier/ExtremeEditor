@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Diagnostics;
 using ExtremeEditor.Core;
 
@@ -77,7 +80,74 @@ internal static class TimeFirstSegmentGitRegression
         finally
         {
             CleanupRoot(root);
+            RunHttpBundleRemote();
+    }
+    }
+
+    private sealed class MemoryBundleServer : HttpMessageHandler
+    {
+        private byte[]? _bundle;
+        private int _version;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken) => Task.FromResult(Send(request, cancellationToken));
+
+        protected override HttpResponseMessage Send(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Headers.Authorization?.Parameter != "test-token")
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            if (request.Method == HttpMethod.Get)
+            {
+                if (_bundle is null) return new HttpResponseMessage(HttpStatusCode.NotFound);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(_bundle),
+                    Headers = { ETag = new EntityTagHeaderValue($"\"{_version}\"") }
+                };
+            }
+            if (request.Method != HttpMethod.Put)
+                return new HttpResponseMessage(HttpStatusCode.MethodNotAllowed);
+            bool valid = _bundle is null
+                ? request.Headers.IfNoneMatch.Any(x => x.Tag == "*")
+                : request.Headers.IfMatch.Any(x => x.Tag == $"\"{_version}\"");
+            if (!valid) return new HttpResponseMessage(HttpStatusCode.PreconditionFailed);
+            _bundle = request.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+            _version++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
+    }
+
+    private static void RunHttpBundleRemote()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"extreme-http-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var client = new HttpClient(new MemoryBundleServer());
+            var remote = new HttpBundleTimeFirstSegmentRemote(
+                client, new Uri("https://example.invalid/rooms/test/bundle"), "test-token");
+            var a = TimeFirstSegmentGitWorkspace.Initialize(Path.Combine(root, "A"));
+            a.Save(Fixture());
+            a.Commit("base");
+            Check(remote.Push(a, "main") == a.HeadCommit, "HTTP first publish");
+            var b = TimeFirstSegmentGitWorkspace.Initialize(Path.Combine(root, "B"));
+            string fetched = remote.Fetch(b, "main");
+            RunGit(Path.Combine(root, "B"), "reset", "--hard", fetched);
+            Check(b.Load().Timeline.Partitions.Count == 2, "HTTP first download");
+            a.Save(Edit(a.Load(), "A", "alice", "http-a", "a-http", Rate * 2L, 0));
+            a.Commit("A offline edit");
+            b.Save(Edit(b.Load(), "B", "bob", "http-b", "b-http", Rate * 12L, 90));
+            b.Commit("B offline edit");
+            remote.Push(a, "main");
+            ExpectRejected(() => remote.Push(b, "main"), "HTTP stale push rejected");
+            Check(TimeFirstSegmentGitRemoteSync.Pull(b, remote: remote).Success,
+                "HTTP transport semantic merge");
+            remote.Push(b, "main");
+            Check(TimeFirstSegmentGitRemoteSync.Pull(a, remote: remote).Success,
+                "HTTP transport merged version distributes");
+            Check(a.Load().Authored?.Count == 2, "HTTP both owners edits present");
+        }
+        finally { CleanupRoot(root); }
     }
 
     private sealed class CountingRemote : ITimeFirstSegmentRemote
