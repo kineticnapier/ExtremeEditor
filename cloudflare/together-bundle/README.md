@@ -10,6 +10,41 @@ Create requires `If-None-Match: *`; updates require the last fetched
 `If-Match`. A room Durable Object serializes updates and stores an immutable
 R2 object before publishing a new room pointer. Competing stale writes return 412.
 
+## One-command local two-client E2E test (Windows)
+
+From the ExtremeEditor repository root, after installing Wrangler with
+`npm install` once in `cloudflare/together-bundle`:
+
+```powershell
+.\run-together-test.ps1 -E2E
+```
+
+This builds **Core.Tests** (not WPF), starts local Wrangler, generates an
+isolated random test room plus separate `host` / `guest` tokens and exercises
+the real HTTP API without clicking the GUI. Two independent local Git workspaces
+simulate the two clients. The test verifies:
+
+- Initial canonical publish, host trusted ref fetch, guest clone and matching audio identity
+- Guest submits their segment while host edits its own segment
+- Host downloads, validates and semantically merges the guest proposal
+- Host publishes the merged result and guest receives both edits
+- Guest cannot overwrite canonical or submit to the host's proposal slot
+- Unauthorized modification of the host's segment is rejected by client validation
+
+No real songs are uploaded: a temporary synthetic audio-identity file and
+sample-level chart fixture are generated for the test. All temporary test
+workspaces are removed on exit. The test launcher restores an existing
+`.dev.vars` file and prior process environment values.
+
+For a previously built test executable, add `-NoBuild`. To avoid conflicts
+with another running local Wrangler, use `-Port 8791` or stop the other instance.
+
+The normal `.\run-together-test.ps1` (without `-E2E`) still starts the WPF
+application with development-only Cloudflare fields prefilled.
+
+This test does not verify WPF GUI interaction or supply production server-side
+Git authorization. A successful E2E run is **not** a production security audit.
+
 ## Manual setup
 
 1. Create an R2 bucket named `extremeeditor-together-bundles`.
