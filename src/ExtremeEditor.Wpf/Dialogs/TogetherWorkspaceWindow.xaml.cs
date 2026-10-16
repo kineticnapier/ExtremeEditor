@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.IO;
 using System.Globalization;
 using System.Windows.Input;
@@ -935,6 +936,56 @@ public partial class TogetherWorkspaceWindow : Window
         AuthoredTileList.ItemsSource = _timeEditor?.Current.Tiles ??
             Array.Empty<TimeFirstAuthoredTile>();
     }
+
+    private HttpTimeFirstSubmissionInbox CreateSubmissionInbox(HttpClient client)
+    {
+        string raw = CloudRoomUrlBox.Text.Trim();
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out Uri? uri))
+            throw new ArgumentException("CloudflareのルームURLを入力してください。");
+        string token = CloudMemberTokenBox.Password;
+        return new HttpTimeFirstSubmissionInbox(client, uri, token);
+    }
+
+    private async void SubmitProposalClick(object sender, RoutedEventArgs e) =>
+        await SafelyAsync(async () =>
+        {
+            TimeFirstSegmentGitWorkspace workspace = _timeWorkspace ??
+                throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
+            RefuseUnsafeTimeEditorSwitch();
+            string member = CloudMemberBox.Text.Trim();
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var inbox = CreateSubmissionInbox(client);
+            string sha = await Task.Run(() => inbox.SubmitProposal(workspace, member));
+            _notice = $"変更を未確定の提出物として送信しました（{ShortSha(sha)}）。";
+        });
+
+    private async void MergeProposalClick(object sender, RoutedEventArgs e) =>
+        await SafelyAsync(async () =>
+        {
+            TimeFirstSegmentGitWorkspace workspace = _timeWorkspace ??
+                throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
+            RefuseUnsafeTimeEditorSwitch();
+            string member = CloudSourceMemberBox.Text.Trim();
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var inbox = CreateSubmissionInbox(client);
+            // The trusted baseline comes from the host's previously fetched
+            // canonical history, never from data provided by a participant.
+            string baseline = await Task.Run(() => workspace.Transport.ExecuteGit(
+                "rev-parse", "--verify", "refs/remotes/origin/main^{commit}").Trim());
+            TimeFirstSegmentPullResult result = await Task.Run(() =>
+            {
+                inbox.FetchProposal(workspace, member);
+                return TimeFirstSegmentGitRemoteSync.MergeSubmission(
+                    workspace, baseline, member);
+            });
+            if (result.Success)
+            {
+                ApplyTimeFirstSnapshot(workspace.Load());
+                _notice = $"提出物を検証して統合しました（{ShortSha(result.LocalCommit)}）。";
+            }
+            else
+                _notice = $"競合により統合を保留しました。内容: {string.Join("、", result.ContentConflictSegmentIds)}";
+        });
 
     private void ConnectClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
