@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_MUSIC_TIMING_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.MusicTimingPointRegression.Run();
+    Console.WriteLine("PASS: musical timing point grid regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_MUSIC_GRID_ONLY"),
     "1", StringComparison.Ordinal))
 {
