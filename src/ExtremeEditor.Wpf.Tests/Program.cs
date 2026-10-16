@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                TogetherMusicTimelineRegression.Run();
+                Console.WriteLine("PASS: WPF Together music timeline regression.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_JA_UI_ONLY"),
                 "1", StringComparison.Ordinal))
             {
