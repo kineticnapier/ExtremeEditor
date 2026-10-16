@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase F — Time-first Git collaboration (next RED).
+Phase H — Windows integration and final E2E review (after applying F/G patch series).
 
 ## Completed
 
@@ -44,7 +44,9 @@ Phase F — Time-first Git collaboration (next RED).
 
 ## Last verified implementation commit
 
-`bae1ee235b19e8a119ec40f2422152602baf3741`
+Previous Windows-verified upstream: `bae1ee235b19e8a119ec40f2422152602baf3741`.
+F/G implementation is provided as an offline three-commit patch series and
+has not been pushed or Windows-verified as part of this handoff.
 
 ## Windows verification
 
@@ -73,11 +75,30 @@ Phase E RED was `7e7cd35`; its dedicated test failed for the expected
 `TimeFirstSegmentEditorSession.Open` `NotImplementedException` after a
 successful Release build.
 
+## Phase F/G Core implementation (Linux, pending local Windows verification)
+
+- Phase F: trusted local bare Git clone/connect, non-force Push, Fetch,
+  FF Pull and two-parent domain-merged Pull; independent Segment contents
+  survive and same-Segment changes report explicit conflicts preserving HEAD.
+- Phase F conflicts also cover incompatible audio identities and divergent
+  music timing-point edits; the legacy floor-aligned transport is unchanged.
+- Phase G: immutable committed-chart composition/export with strict completed
+  interval coverage, sample-vs-ADOFAI timing checks, authored entry orientation,
+  global action floor remapping, permitted action types, source audio SHA256,
+  and atomic no-clobber .adofai output verified by the production loader.
+- Linux .NET SDK 8.0.423: Core Release build 0 warnings/errors; all 19
+  focused Core regressions and the default Core timing regression pass.
+  This does **not** constitute Windows WPF or stock-game verification.
+- Contract and restrictions: `docs/together-time-first-export-contract.md`.
+
 ## Unresolved
 
-- Time-first Git synchronization, semantic composition, and safe export.
-- Final manual GUI interaction review remains required; GUI automation is
-  prohibited.
+- Phase H: Windows Core/WPF build, real two-client GUI workflow and manual
+  .adofai/game validation; GUI automation remains prohibited.
+- Connect Phase F remote operations and Phase G export validation to WPF UI;
+  surface fail-closed diagnostics and explicit playback settings.
+- More complex chart events and automated tempo fitting are unsupported by
+  Phase G and must not be presented as production-ready.
 
 ## Next concrete work
 

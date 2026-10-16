@@ -74,24 +74,47 @@ internal static class TimeFirstSegmentAdoFaiExportRegression
                 "rejected publication never modifies existing output");
             workspace.Save(snapshot);
 
+            var emptyParts = snapshot.Timeline.Partitions.Select(p => p.SegmentId == "B"
+                ? p with { ContentRevisionId = null } : p).ToArray();
+            SegmentTimeTimeline emptyTimeline = new(Rate, emptyParts);
             var emptyContent = snapshot.Content.ToDictionary(x => x.Key, x => x.Value);
             emptyContent["B"] = SegmentContentPlanner.CreateEmpty(
-                snapshot.Timeline.Partitions.Single(p => p.SegmentId == "B"));
+                emptyTimeline.Partitions.Single(p => p.SegmentId == "B"));
             var emptyAuthored = snapshot.Authored!.ToDictionary(x => x.Key, x => x.Value);
             emptyAuthored.Remove("B");
             // An empty segment must also have an empty draft and no authored revision.
             var emptyDrafts = snapshot.Drafts.ToDictionary(x => x.Key, x => x.Value);
             emptyDrafts["B"] = SegmentTimeDraftEditor.Open(
-                snapshot.Timeline, emptyContent, "B", "bob");
-            var emptyParts = snapshot.Timeline.Partitions.Select(p => p.SegmentId == "B"
-                ? p with { ContentRevisionId = null } : p).ToArray();
+                emptyTimeline, emptyContent, "B", "bob");
             TimeFirstSegmentSnapshot incomplete = snapshot with
             {
-                Timeline = new SegmentTimeTimeline(Rate, emptyParts),
+                Timeline = emptyTimeline,
                 Content = emptyContent, Drafts = emptyDrafts, Authored = emptyAuthored
             };
             Check(!TimeFirstSegmentAdoFaiExporter.ComposeAndValidate(
                 incomplete, settings).Accepted, "an assigned empty Segment is not complete");
+            var rotated = TimeFirstSegmentEditorSession.Open(snapshot, "B", "bob");
+            rotated.SetEntryAngle(0);
+            TimeFirstSegmentSnapshot seamBroken = rotated.CreateRevision(snapshot, "B-entry-mismatch");
+            Check(!TimeFirstSegmentAdoFaiExporter.ComposeAndValidate(
+                seamBroken, settings).Accepted,
+                "incompatible Segment entry orientation is rejected");
+            var unsafeEvent = TimeFirstSegmentEditorSession.Open(snapshot, "B", "bob");
+            unsafeEvent.ReplaceActions("b-note", [new LevelAction(1, "PositionTrack", true,
+                null, null, null, null)]);
+            TimeFirstSegmentSnapshot unsupported = unsafeEvent.CreateRevision(snapshot, "B-unsafe");
+            Check(!TimeFirstSegmentAdoFaiExporter.ComposeAndValidate(
+                unsupported, settings).Accepted,
+                "unverified cross-boundary effects must fail closed");
+
+            File.WriteAllBytes(songPath, [0xAA, 0xBB]);
+            ExpectRejected(() => TimeFirstSegmentAdoFaiExporter.ExportValidated(
+                workspace, settings, destination, overwriteExisting: true),
+                "substituting the measured audio cannot silently publish");
+            Check(File.ReadAllBytes(destination).SequenceEqual(firstOutput),
+                "audio hash mismatch keeps the previous export intact");
+            File.WriteAllBytes(songPath, audioBytes);
+
             Check(!TimeFirstSegmentAdoFaiExporter.ComposeAndValidate(
                 snapshot, settings with { InitialBpm = 240 }).Accepted,
                 "an unrelated music BPM cannot substitute for chart timing");
