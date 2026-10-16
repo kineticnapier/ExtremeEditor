@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_GIT_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TimeFirstSegmentGitRegression.Run();
+    Console.WriteLine("PASS: two-client time-first semantic Git sync regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TIME_AUTHORING_ONLY"),
     "1", StringComparison.Ordinal))
 {
