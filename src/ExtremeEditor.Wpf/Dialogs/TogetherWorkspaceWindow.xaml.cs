@@ -953,6 +953,10 @@ public partial class TogetherWorkspaceWindow : Window
                 throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
             RefuseUnsafeTimeEditorSwitch();
             string member = CloudMemberBox.Text.Trim();
+            if (member.Length == 0 || member.Length > 64 ||
+                !member.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+                throw new ArgumentException(
+                    "参加者IDは1～64文字の半角英数字・ハイフン・アンダースコアで指定してください（例: alice）。表示名とは別です。");
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             var inbox = CreateSubmissionInbox(client);
             string sha = await Task.Run(() => inbox.SubmitProposal(workspace, member));
@@ -966,12 +970,25 @@ public partial class TogetherWorkspaceWindow : Window
                 throw new InvalidOperationException("先にTime-first共同編集を開いてください。");
             RefuseUnsafeTimeEditorSwitch();
             string member = CloudSourceMemberBox.Text.Trim();
+            if (member.Length == 0 || member.Length > 64 ||
+                !member.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+                throw new ArgumentException(
+                    "取得する参加者IDを入力してください（例: alice）。半角英数字・ハイフン・アンダースコアのみ使用できます。");
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             var inbox = CreateSubmissionInbox(client);
             // The trusted baseline comes from the host's previously fetched
             // canonical history, never from data provided by a participant.
-            string baseline = await Task.Run(() =>
-                TimeFirstSegmentGitRemoteSync.CanonicalCommit(workspace));
+            string baseline;
+            try
+            {
+                baseline = await Task.Run(() =>
+                    TimeFirstSegmentGitRemoteSync.CanonicalCommit(workspace));
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new InvalidOperationException(
+                    "正本（origin/main）の履歴がありません。初回はホストが共同編集の正本をクラウドへ公開し、参加者がその正本を取得してから提出物を統合してください。現在の画面には初回公開の操作が未実装です。", ex);
+            }
             TimeFirstSegmentPullResult result = await Task.Run(() =>
             {
                 inbox.FetchProposal(workspace, member);
