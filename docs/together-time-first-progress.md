@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase E — Time-first chart authoring (next RED).
+Phase F — Time-first Git collaboration (next RED).
 
 ## Completed
 
@@ -34,10 +34,17 @@ Phase E — Time-first chart authoring (next RED).
   Segments; caller collections are frozen on reload.
 - The WPF create/open flow now stores and restores planned time Segments while
   leaving legacy floor-aligned workspaces unchanged.
+- Phase E: owner-scoped time-first authoring stores real destination angles and
+  local ADOFAI actions separately from sample anchors.
+- The immutable editor session supports place/remove/action edits and Undo/Redo,
+  then atomically promotes the draft, content entry, and allocation revision.
+- WPF users can open their own time Segment, place/remove real tiles at snapped
+  samples, Undo/Redo, Stage, Commit, and reopen the same authored content;
+  another owner's Segment remains read-only.
 
 ## Last verified implementation commit
 
-`2ac6a396c6d55e0a4ba3e5e30df47111bb7dffbd`
+`bae1ee235b19e8a119ec40f2422152602baf3741`
 
 ## Windows verification
 
@@ -54,6 +61,7 @@ Phase E — Time-first chart authoring (next RED).
 - `EXTREMEEDITOR_TOGETHER_WPF_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_TIME_WORKSPACE_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_GIT_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_TIME_AUTHORING_ONLY=1` — exit 0.
 
 Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`. Phase C RED was
 `3575adc`; its WPF test failed for the expected `AudioWaveformLoader.Load`
@@ -61,16 +69,19 @@ Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`. Phase C RED was
 `75a8a4c`; its dedicated test failed for the expected
 `TimeFirstSegmentGitWorkspace.Initialize` `NotImplementedException` after a
 successful Release build.
+Phase E RED was `7e7cd35`; its dedicated test failed for the expected
+`TimeFirstSegmentEditorSession.Open` `NotImplementedException` after a
+successful Release build.
 
 ## Unresolved
 
-- Real tile authoring, time-first Git synchronization, semantic composition,
-  and safe export.
+- Time-first Git synchronization, semantic composition, and safe export.
 - Final manual GUI interaction review remains required; GUI automation is
   prohibited.
 
 ## Next concrete work
 
-Define a Phase E authored-tile representation that resolves each draft marker
-to real ADOFAI geometry and events, preserves entry/exit musical state, supports
-Undo/Redo and save/reopen, and is editable only by the active Segment owner.
+Add Phase F remote operations and a three-way merge for time-first manifests
+and independently owned Segment files. Exercise two cloned workspaces, edits to
+different Segments, same-Segment conflicts, dirty-worktree protection, and
+preservation of local history and parked revisions.
