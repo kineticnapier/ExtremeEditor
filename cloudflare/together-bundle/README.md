@@ -37,3 +37,17 @@ while developing.
 
 The .NET client rejects non-fast-forward pushes and validates time-first
 snapshots on fetch. R2 may retain previous immutable bundle versions.
+
+## Unconfirmed participant submissions
+
+`GET /rooms/<room-id>/submissions/<member-id>` downloads that member's
+latest proposed Git bundle. Any authenticated member of the room may read
+a proposal. `PUT` to the same endpoint requires the **matching member's**
+token and uses the same conditional ETag contract as the canonical bundle.
+The canonical `/bundle` endpoint remains host-write-only.
+
+**Submissions are untrusted proposals, not accepted chart edits.** The Worker
+does not inspect Git trees, validate owned segments, verify the claimed author
+inside commits, or advance the canonical project. Clients must verify and
+semantically merge submissions before use. Do not automatically execute,
+checkout, or promote downloaded content as an authorized edit.
