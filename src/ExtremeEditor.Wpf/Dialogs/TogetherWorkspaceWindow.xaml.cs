@@ -1,6 +1,8 @@
 using System.IO;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using Microsoft.Win32;
 
@@ -16,14 +18,241 @@ public partial class TogetherWorkspaceWindow : Window
     private readonly MainWindow _host;
     private readonly TogetherWorkspaceController _controller = new();
     private bool _refreshing;
+    private bool _updatingTimelineControls;
     private string? _notice;
+    private AudioWaveformData? _timelineWaveform;
+    private MusicTimingMap? _musicTimingMap;
+    private SegmentTimeTimeline? _plannedTimeline;
+    private string? _timelineAudioPath;
+    private long? _selectionStartSample;
+    private long? _selectionEndSampleExclusive;
 
     internal TogetherWorkspaceWindow(MainWindow host)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         Owner = host;
         InitializeComponent();
+        MusicTimeline.ViewportChanged += (_, _) => UpdateTimelineNavigation();
         RefreshStatus();
+    }
+
+    private async void TogetherWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_timelineWaveform is not null)
+            return;
+        await SafelyAsync(async () =>
+        {
+            string? songPath = _host.TogetherCurrentLevel?.ResolveSongPath();
+            if (songPath is null || !File.Exists(songPath))
+            {
+                MeasuredAudioText.Text =
+                    "音源が未選択です。「音源を選択…」から読み込んでください";
+                return;
+            }
+            await LoadMusicTimelineAsync(songPath);
+        });
+    }
+
+    private async void BrowseTimelineAudioClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "音楽タイムラインに表示する音源を選択",
+            Filter = "音声ファイル (*.wav;*.ogg;*.mp3)|*.wav;*.ogg;*.mp3|すべてのファイル (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        await SafelyAsync(() => LoadMusicTimelineAsync(dialog.FileName));
+    }
+
+    private async Task LoadMusicTimelineAsync(string audioPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(audioPath);
+        string fullPath = Path.GetFullPath(audioPath);
+        if (_plannedTimeline is { Partitions.Count: > 0 } &&
+            _timelineAudioPath is not null &&
+            !string.Equals(_timelineAudioPath, fullPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "作成予定の担当区間があるため、別の音源へ切り替えません。区間を保持したまま新しい共同編集画面を開いてください。");
+        }
+        MeasuredAudioText.Text = "音源を解析しています…";
+        AudioWaveformData waveform = await Task.Run(() =>
+            AudioWaveformLoader.Load(fullPath));
+        if (_plannedTimeline is { Partitions.Count: > 0 } &&
+            _plannedTimeline.SampleRate != waveform.SampleRate)
+        {
+            throw new InvalidOperationException(
+                "作成予定の担当区間と音源のサンプル周波数が異なるため、区間を破棄せず読み込みを中止しました。");
+        }
+        _timelineWaveform = waveform;
+        _timelineAudioPath = fullPath;
+
+        LevelDocument? level = _host.TogetherCurrentLevel;
+        if (level is not null && level.InitialBpm > 0 &&
+            string.Equals(BpmBox.Text, "120", StringComparison.Ordinal))
+            BpmBox.Text = level.InitialBpm.ToString(
+                "0.########", CultureInfo.InvariantCulture);
+
+        _musicTimingMap = BuildMusicTimingMap(waveform);
+        if (_plannedTimeline is null ||
+            _plannedTimeline.SampleRate != waveform.SampleRate)
+            _plannedTimeline = new SegmentTimeTimeline(
+                waveform.SampleRate, Array.Empty<SegmentTimePartition>());
+
+        MusicTimeline.Load(
+            waveform,
+            _musicTimingMap,
+            _plannedTimeline.Partitions);
+        MusicTimeline.SetSubdivision(SelectedSubdivision());
+
+        SampleRateBox.Text = waveform.SampleRate.ToString(CultureInfo.InvariantCulture);
+        ConfirmSampleRateBox.IsChecked = true;
+        double seconds = (double)waveform.TotalSamples / waveform.SampleRate;
+        MeasuredAudioText.Text =
+            $"実測 {waveform.SampleRate:N0} Hz ／ {TimeSpan.FromSeconds(seconds):mm\\:ss\\.fff} ／ {Path.GetFileName(fullPath)}";
+        _notice =
+            "音源の実測サンプル周波数でタイムラインを読み込みました。ドラッグして担当範囲を選択できます。";
+        UpdateTimelineNavigation();
+    }
+
+    private MusicTimingMap BuildMusicTimingMap(AudioWaveformData waveform)
+    {
+        if (!decimal.TryParse(BpmBox.Text.Trim(), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out decimal bpm) || bpm <= 0)
+            throw new ArgumentException("BPMには0より大きい数値を入力してください。");
+        if (!decimal.TryParse(BeatOffsetBox.Text.Trim(), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out decimal offsetMilliseconds))
+            throw new ArgumentException("拍オフセットにはミリ秒を数値で入力してください。");
+        decimal sample = decimal.Round(
+            offsetMilliseconds * waveform.SampleRate / 1000m,
+            0,
+            MidpointRounding.AwayFromZero);
+        if (sample < long.MinValue || sample > long.MaxValue)
+            throw new OverflowException("拍オフセットが音声サンプル範囲を超えています。");
+        return MusicTimingMap.Build(waveform.SampleRate,
+            [new MusicTimingPoint((long)sample, bpm)]);
+    }
+
+    private void MusicGridSettingsChanged(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            if (_timelineWaveform is null)
+                return;
+            _musicTimingMap = BuildMusicTimingMap(_timelineWaveform);
+            MusicTimeline.SetTimingMap(_musicTimingMap);
+            _notice = "BPMと拍オフセットを音楽グリッドに反映しました。";
+        });
+
+    private void SnapSubdivisionChanged(
+        object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsInitialized)
+            return;
+        MusicTimeline.SetSubdivision(SelectedSubdivision());
+    }
+
+    private MusicBeatSubdivision SelectedSubdivision()
+    {
+        string? tag = (SnapSubdivisionBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        return tag switch
+        {
+            "1" => MusicBeatSubdivision.One,
+            "2" => MusicBeatSubdivision.Half,
+            "3" => MusicBeatSubdivision.Third,
+            "4" => MusicBeatSubdivision.Quarter,
+            "8" => MusicBeatSubdivision.Eighth,
+            "16" => MusicBeatSubdivision.Sixteenth,
+            _ => MusicBeatSubdivision.Quarter
+        };
+    }
+
+    private void MusicTimelineSelectionChanged(
+        object? sender,
+        TogetherTimelineSelectionChangedEventArgs e)
+    {
+        _selectionStartSample = e.StartSample;
+        _selectionEndSampleExclusive = e.EndSampleExclusive;
+        SelectionStartSampleText.Text = e.StartSample.ToString("N0");
+        SelectionEndSampleText.Text = e.EndSampleExclusive.ToString("N0");
+        _notice =
+            $"音楽上の範囲 [{e.StartSample:N0}, {e.EndSampleExclusive:N0}) samples を選択しました。";
+        RefreshStatus();
+    }
+
+    private void AddTimeSegmentClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            if (_plannedTimeline is null || _timelineWaveform is null)
+                throw new InvalidOperationException(
+                    "先に音源を読み込んで時間範囲を選択してください。");
+            if (_selectionStartSample is not long start ||
+                _selectionEndSampleExclusive is not long end || end <= start)
+                throw new InvalidOperationException(
+                    "タイムラインをドラッグして空でない担当範囲を選択してください。");
+            string owner = SegmentOwnerBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(owner))
+                throw new ArgumentException("担当者名を入力してください。");
+
+            string segmentId = NextPlannedSegmentId(_plannedTimeline);
+            _plannedTimeline = SegmentTimePlanner.CreateEmpty(
+                _plannedTimeline, segmentId, start, end, owner);
+            MusicTimeline.SetSegments(_plannedTimeline.Partitions);
+            _notice =
+                $"{segmentId} を [{start:N0}, {end:N0}) samples、担当「{owner}」として追加しました。床が0枚でも有効です。";
+        });
+
+    private void TimelineZoomChanged(
+        object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_updatingTimelineControls || !IsInitialized)
+            return;
+        MusicTimeline.SetZoomLevel(e.NewValue);
+    }
+
+    private void TimelineScrollChanged(
+        object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_updatingTimelineControls || !IsInitialized)
+            return;
+        MusicTimeline.SetScrollSample(
+            checked((long)Math.Round(e.NewValue,
+                MidpointRounding.AwayFromZero)));
+    }
+
+    private void UpdateTimelineNavigation()
+    {
+        if (MusicTimeline.TotalSamples <= 0)
+            return;
+        _updatingTimelineControls = true;
+        try
+        {
+            long visible = MusicTimeline.VisibleEndSampleExclusive -
+                MusicTimeline.VisibleStartSample;
+            long maximum = Math.Max(0, MusicTimeline.TotalSamples - visible);
+            TimelineScrollBar.Maximum = maximum;
+            TimelineScrollBar.ViewportSize = visible;
+            TimelineScrollBar.SmallChange = Math.Max(
+                1, MusicTimeline.SamplesPerPixel * 40);
+            TimelineScrollBar.LargeChange = Math.Max(1, visible * 0.8);
+            TimelineScrollBar.Value = Math.Clamp(
+                MusicTimeline.VisibleStartSample, 0, maximum);
+        }
+        finally
+        {
+            _updatingTimelineControls = false;
+        }
+    }
+
+    private static string NextPlannedSegmentId(SegmentTimeTimeline timeline)
+    {
+        int number = timeline.Partitions.Count + 1;
+        while (timeline.Partitions.Any(partition => string.Equals(
+                   partition.SegmentId, $"segment-{number}",
+                   StringComparison.Ordinal)))
+            number++;
+        return $"segment-{number}";
     }
 
     private void ShowCreateProjectClick(object sender, RoutedEventArgs e) =>
@@ -129,6 +358,17 @@ public partial class TogetherWorkspaceWindow : Window
     {
         if (_refreshing || SegmentList.SelectedItem is not TogetherSegmentDisplay segment)
             return;
+
+        if (_controller.Display.WorkspaceDirectory is null &&
+            _plannedTimeline?.Partitions.Any(partition => string.Equals(
+                partition.SegmentId, segment.SegmentId,
+                StringComparison.Ordinal)) == true)
+        {
+            _notice =
+                $"作成予定の「{segment.SegmentId}」: {segment.SampleRangeLabel} samples、担当「{segment.OwnerId}」。";
+            RefreshStatus();
+            return;
+        }
 
         if (!segment.CanEdit)
         {
@@ -292,20 +532,39 @@ public partial class TogetherWorkspaceWindow : Window
     private void RefreshStatus()
     {
         TogetherWorkspaceDisplay state = _controller.Display;
+        bool loaded = state.WorkspaceDirectory is not null;
+        IReadOnlyList<TogetherSegmentDisplay> rows = state.Segments;
+        if (!loaded && _plannedTimeline is not null)
+        {
+            rows = _plannedTimeline.Partitions
+                .OrderBy(partition => partition.StartSample)
+                .Select(partition => new TogetherSegmentDisplay(
+                    partition.SegmentId,
+                    -1,
+                    -1,
+                    partition.StartSample,
+                    partition.EndSampleExclusive,
+                    partition.OwnerId,
+                    partition.Status,
+                    partition.ContentRevisionId,
+                    false,
+                    string.Equals(partition.OwnerId, SegmentOwnerBox.Text.Trim(),
+                        StringComparison.Ordinal)))
+                .ToArray();
+        }
         _refreshing = true;
         try
         {
-            SegmentList.ItemsSource = state.Segments;
+            SegmentList.ItemsSource = rows;
             if (state.SelectedSegmentId is string id)
                 SegmentList.SelectedItem =
-                    state.Segments.FirstOrDefault(s => s.SegmentId == id);
+                    rows.FirstOrDefault(s => s.SegmentId == id);
         }
         finally
         {
             _refreshing = false;
         }
 
-        bool loaded = state.WorkspaceDirectory is not null;
         SaveSegmentButton.IsEnabled =
             loaded && state.SelectedSegmentId is not null && !state.HasStagedChanges;
         CommitButton.IsEnabled = loaded && state.HasStagedChanges;
@@ -319,8 +578,11 @@ public partial class TogetherWorkspaceWindow : Window
 
         if (!loaded)
         {
+            string planned = _plannedTimeline is { Partitions.Count: > 0 }
+                ? $"作成予定の時間区間: {_plannedTimeline.Partitions.Count}件"
+                : "共同編集はまだ開かれていません";
             TogetherStatusText.Text = _notice ??
-                "共同編集はまだ開かれていません。.adofai 譜面を開いてから、作成または参加してください。";
+                $"{planned}。音源または.adofai譜面を読み込み、時間範囲を指定してください。";
             return;
         }
 
@@ -343,6 +605,31 @@ public partial class TogetherWorkspaceWindow : Window
         try
         {
             action();
+            RefreshStatus();
+        }
+        catch (OperationCanceledException)
+        {
+            _notice = "操作をキャンセルしました。編集内容はそのまま残っています。";
+            RefreshStatus();
+        }
+        catch (Exception ex) when (
+            ex is IOException or InvalidOperationException or ArgumentException or
+            InvalidDataException or UnauthorizedAccessException or OverflowException)
+        {
+            _notice = LocalizeError(ex);
+            RefreshStatus();
+            TogetherStatusText.ToolTip = ex.ToString();
+            MessageBox.Show(this, _notice, "ExtremeEditor 共同編集",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task SafelyAsync(Func<Task> action)
+    {
+        _notice = null;
+        try
+        {
+            await action();
             RefreshStatus();
         }
         catch (OperationCanceledException)

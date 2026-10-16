@@ -1,9 +1,11 @@
 <Window x:Class="ExtremeEditor.Wpf.TogetherWorkspaceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ExtremeEditor 共同編集" Width="940" Height="740"
-        MinWidth="790" MinHeight="620"
+        xmlns:local="clr-namespace:ExtremeEditor.Wpf"
+        Title="ExtremeEditor 共同編集" Width="1040" Height="900"
+        MinWidth="860" MinHeight="720"
         WindowStartupLocation="CenterOwner"
+        Loaded="TogetherWindowLoaded"
         Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}">
     <Window.Resources>
         <Style x:Key="PrimaryTogetherButton" TargetType="Button">
@@ -20,6 +22,7 @@
     </Window.Resources>
     <Grid Margin="18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -81,7 +84,101 @@
             </Grid>
         </GroupBox>
 
-        <GroupBox Grid.Row="3" Header="担当区間" Padding="9" MinHeight="145">
+        <GroupBox Grid.Row="3" Header="音楽タイムライン" Padding="9"
+                  Margin="0,0,0,10">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="190"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="0,0,0,7">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="75"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="105"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="BPM" VerticalAlignment="Center"/>
+                    <TextBox x:Name="BpmBox" Grid.Column="1" Text="120"
+                             Margin="5,0,12,0" LostFocus="MusicGridSettingsChanged"/>
+                    <TextBlock Grid.Column="2" Text="拍オフセット(ms)" VerticalAlignment="Center"/>
+                    <TextBox x:Name="BeatOffsetBox" Grid.Column="3" Text="0"
+                             Margin="5,0,12,0" LostFocus="MusicGridSettingsChanged"
+                             ToolTip="音楽グリッドの基準時刻。ADOFAIのOffsetとは別に確認してください"/>
+                    <TextBlock Grid.Column="4" Text="スナップ" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="SnapSubdivisionBox" Grid.Column="5"
+                              SelectedIndex="3" Margin="5,0,12,0"
+                              SelectionChanged="SnapSubdivisionChanged">
+                        <ComboBoxItem Content="1/1" Tag="1"/>
+                        <ComboBoxItem Content="1/2" Tag="2"/>
+                        <ComboBoxItem Content="1/3" Tag="3"/>
+                        <ComboBoxItem Content="1/4" Tag="4"/>
+                        <ComboBoxItem Content="1/8" Tag="8"/>
+                        <ComboBoxItem Content="1/16" Tag="16"/>
+                    </ComboBox>
+                    <TextBlock x:Name="MeasuredAudioText" Grid.Column="6"
+                               Text="音源を読み込むと実測情報を表示します"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <Button Grid.Column="7" Content="音源を選択…" Padding="10,4"
+                            Click="BrowseTimelineAudioClick"/>
+                </Grid>
+                <local:TogetherMusicTimelineControl x:Name="MusicTimeline" Grid.Row="1"
+                    Focusable="True"
+                    SelectionChanged="MusicTimelineSelectionChanged"
+                    ToolTip="ドラッグして音楽上の担当範囲を選択。マウスホイールでも拡大縮小できます"/>
+                <Grid Grid.Row="2" Margin="0,6,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="ズーム" VerticalAlignment="Center"/>
+                    <Slider x:Name="TimelineZoomSlider" Grid.Column="1"
+                            Minimum="0" Maximum="1" Value="0" Margin="7,0,15,0"
+                            ValueChanged="TimelineZoomChanged"/>
+                    <TextBlock Grid.Column="2" Text="表示位置" VerticalAlignment="Center"/>
+                    <ScrollBar x:Name="TimelineScrollBar" Grid.Column="3"
+                               Orientation="Horizontal" Minimum="0" Maximum="0"
+                               SmallChange="1000" LargeChange="10000"
+                               ValueChanged="TimelineScrollChanged"/>
+                </Grid>
+                <Grid Grid.Row="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="125"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="125"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="開始sample" VerticalAlignment="Center"/>
+                    <TextBox x:Name="SelectionStartSampleText" Grid.Column="1"
+                             IsReadOnly="True" Margin="5,0,10,0"/>
+                    <TextBlock Grid.Column="2" Text="終了sample" VerticalAlignment="Center"/>
+                    <TextBox x:Name="SelectionEndSampleText" Grid.Column="3"
+                             IsReadOnly="True" Margin="5,0,10,0"/>
+                    <TextBlock Grid.Column="4" Text="担当者" VerticalAlignment="Center"/>
+                    <TextBox x:Name="SegmentOwnerBox" Grid.Column="5"
+                             Text="author-A" Margin="5,0,10,0"/>
+                    <TextBlock Grid.Column="6" Text="床がない区間も作成できます"
+                               Foreground="#FF666666" VerticalAlignment="Center"/>
+                    <Button x:Name="AddTimeSegmentButton" Grid.Column="7"
+                            Content="選択範囲を担当区間に追加" Padding="12,6"
+                            Click="AddTimeSegmentClick"/>
+                </Grid>
+            </Grid>
+        </GroupBox>
+
+        <GroupBox Grid.Row="4" Header="担当区間" Padding="9" MinHeight="145">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -101,6 +198,8 @@
                                             DisplayMemberBinding="{Binding StateLabel}"/>
                             <GridViewColumn Header="床の範囲" Width="160"
                                             DisplayMemberBinding="{Binding FloorRangeLabel}"/>
+                            <GridViewColumn Header="音楽sample範囲" Width="190"
+                                            DisplayMemberBinding="{Binding SampleRangeLabel}"/>
                             <GridViewColumn Header="権限" Width="95"
                                             DisplayMemberBinding="{Binding WritableLabel}"/>
                         </GridView>
@@ -109,7 +208,7 @@
             </Grid>
         </GroupBox>
 
-        <Grid Grid.Row="4" Margin="0,12,0,5">
+        <Grid Grid.Row="5" Margin="0,12,0,5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -127,12 +226,12 @@
                     Click="ExportClick" Margin="10,0,0,0"/>
         </Grid>
 
-        <Expander x:Name="AdvancedControlsExpander" Grid.Row="5"
+        <Expander x:Name="AdvancedControlsExpander" Grid.Row="6"
                   Header="詳細設定（Git・分割・音声）" IsExpanded="False"
                   Margin="0,5,0,8" MaxHeight="250">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="10,8,10,12">
-                    <TextBlock Text="作成時の分割（空欄なら床数の中間で自動分割）と担当者。音声の周波数は自動判定していません。"
+                    <TextBlock Text="作成時の分割と担当者。音源をタイムラインへ読み込むと周波数を実測します。未読込時の48kHzは初期値です。"
                                TextWrapping="Wrap" Margin="0,0,0,6"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -190,7 +289,7 @@
             </ScrollViewer>
         </Expander>
 
-        <Border Grid.Row="6" BorderBrush="#FFAAAAAA"
+        <Border Grid.Row="7" BorderBrush="#FFAAAAAA"
                 BorderThickness="1" Padding="9" MinHeight="46">
             <TextBlock x:Name="TogetherStatusText"
                        Text="共同編集はまだ開かれていません。.adofai 譜面を開いてから、作成または参加してください。"
