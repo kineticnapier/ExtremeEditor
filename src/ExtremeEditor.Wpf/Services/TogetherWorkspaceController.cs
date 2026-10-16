@@ -18,7 +18,17 @@ internal sealed record TogetherSegmentDisplay(
     SegmentPartitionStatus Status,
     string? ContentRevisionId,
     bool IsSelected,
-    bool CanEdit);
+    bool CanEdit)
+{
+    public string StateLabel => Status == SegmentPartitionStatus.Active ? "編集対象" : "保留中";
+    public string WritableLabel => CanEdit ? "編集できます" : "閲覧のみ";
+    public string FloorRangeLabel =>
+        StartFloor < 0 || EndFloorExclusive <= StartFloor
+            ? "範囲なし"
+            : $"{StartFloor} ～ {EndFloorExclusive - 1}";
+    public string SampleRangeLabel =>
+        $"{StartSample:N0} ～ {EndSampleExclusive:N0}";
+}
 
 internal sealed record TogetherWorkspaceDisplay(
     string? WorkspaceDirectory,
