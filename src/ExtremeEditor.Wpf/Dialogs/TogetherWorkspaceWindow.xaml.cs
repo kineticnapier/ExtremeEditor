@@ -29,6 +29,7 @@ public partial class TogetherWorkspaceWindow : Window
     private string? _timeSelectedSegmentId;
     private TimeFirstSegmentEditorSession? _timeEditor;
     private bool _timeStaged;
+    private string? _suggestedWorkspacePath;
     private bool _refreshing;
     private bool _updatingTimelineControls;
     private string? _notice;
@@ -621,8 +622,31 @@ public partial class TogetherWorkspaceWindow : Window
     private void ShowJoinProjectClick(object sender, RoutedEventArgs e) =>
         ShowSetup(forCreation: false);
 
+    private string? SuggestedWorkspaceForCurrentChart()
+    {
+        string? path = _host.TogetherCurrentLevel?.SourcePath;
+        if (string.IsNullOrWhiteSpace(path) || path == "<synthetic>" ||
+            !File.Exists(path) ||
+            !string.Equals(Path.GetExtension(path), ".adofai", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!,
+            Path.GetFileNameWithoutExtension(path) + ".together");
+    }
+
     private void ShowSetup(bool forCreation)
     {
+        if (forCreation)
+        {
+            string? suggested = SuggestedWorkspaceForCurrentChart();
+            if (suggested is not null &&
+                (string.IsNullOrWhiteSpace(WorkspacePathBox.Text) ||
+                 string.Equals(WorkspacePathBox.Text.Trim(), _suggestedWorkspacePath,
+                     StringComparison.OrdinalIgnoreCase)))
+            {
+                WorkspacePathBox.Text = suggested;
+                _suggestedWorkspacePath = suggested;
+            }
+        }
         SetupPanel.Visibility = Visibility.Visible;
         SetupPanel.Header = forCreation ? "共同編集を新しく作成" : "既存の共同編集に参加";
         CreateWorkspaceButton.Visibility =
@@ -632,7 +656,7 @@ public partial class TogetherWorkspaceWindow : Window
         CloneWorkspaceButton.Visibility =
             forCreation ? Visibility.Collapsed : Visibility.Visible;
         _notice = forCreation
-            ? "音源を選び、区間ごとの担当者を設定してから保存先を指定してください。"
+            ? "音源と担当者を設定してください。保存先は譜面と同じフォルダーに自動提案します（変更も可能）。"
             : "受け取った共同編集フォルダーを指定して開いてください。";
         RefreshStatus();
         WorkspacePathBox.Focus();
@@ -656,11 +680,36 @@ public partial class TogetherWorkspaceWindow : Window
 
             _plannedTimeline = TogetherSectionPlanner.FinalizeTimeline(plan);
             string owner = plan.Sections[0].OwnerName!;
-            CreateTimeFirstWorkspace(workspacePath, plan.SampleRate, owner);
+            string marker = Path.Combine(workspacePath, "time-first-workspace.json");
+            if (Directory.Exists(workspacePath) && File.Exists(marker))
+            {
+                // Never reinitialize a pre-existing Together workspace.
+                TimeFirstSegmentGitWorkspace existing = TimeFirstSegmentGitWorkspace.Open(workspacePath);
+                TimeFirstSegmentSnapshot saved = existing.Load();
+                if (_timelineAudioPath is null || _timelineWaveform is null ||
+                    !string.Equals(saved.Audio.FileName, Path.GetFileName(_timelineAudioPath), StringComparison.Ordinal) ||
+                    saved.Audio.SampleRate != _timelineWaveform.SampleRate ||
+                    saved.Audio.TotalSamples != _timelineWaveform.TotalSamples ||
+                    !string.Equals(saved.Audio.Sha256, ComputeSha256(_timelineAudioPath),
+                        StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "既存の共同編集フォルダーは現在の音源と一致しません。別の保存先を指定してください。");
+                OpenTimeFirstWorkspace(workspacePath);
+                _timeOwnerId = owner;
+                _notice = "既存の共同編集を開きました。履歴や編集内容は初期化していません。";
+            }
+            else
+            {
+                if (Directory.Exists(workspacePath) &&
+                    Directory.EnumerateFileSystemEntries(workspacePath).Any())
+                    throw new InvalidOperationException(
+                        "指定した保存先は空ではなく、共同編集フォルダーでもありません。別の保存先を指定してください。");
+                CreateTimeFirstWorkspace(workspacePath, plan.SampleRate, owner);
+                _notice = "共同編集を作成しました。空の区間もそのまま保存されています。";
+            }
             SetupPanel.Visibility = Visibility.Collapsed;
             ParticipantNameBox.Text = owner;
-            _notice =
-                "共同編集を作成しました。空の区間もそのまま保存されています。共有先の設定は「詳細設定」から行えます。";
+
         });
 
     private void OpenWorkspaceClick(object sender, RoutedEventArgs e) =>
