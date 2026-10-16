@@ -19,17 +19,23 @@ public sealed class HttpTimeFirstSubmissionInbox
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         if (roomRoot is null || !roomRoot.IsAbsoluteUri ||
-            roomRoot.Scheme != Uri.UriSchemeHttps ||
+            !IsAllowedTransport(roomRoot) ||
             !string.IsNullOrEmpty(roomRoot.UserInfo) ||
             !string.IsNullOrEmpty(roomRoot.Fragment) ||
             !roomRoot.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
-            throw new ArgumentException("An HTTPS room URL ending in '/' is required.", nameof(roomRoot));
+            throw new ArgumentException("An HTTPS room URL (or HTTP loopback development URL) ending in '/' is required.", nameof(roomRoot));
         if (string.IsNullOrWhiteSpace(memberToken) || memberToken.Contains('\r') ||
             memberToken.Contains('\n'))
             throw new ArgumentException("A member token is required.", nameof(memberToken));
         _roomRoot = roomRoot;
         _token = memberToken;
     }
+
+    private static bool IsAllowedTransport(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttps ||
+        (uri.Scheme == Uri.UriSchemeHttp &&
+         (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+          uri.Host == "127.0.0.1" || uri.Host == "[::1]" || uri.Host == "::1"));
 
     /// <summary>Publish this workspace's committed branch to its own proposal slot.
     /// Does not modify canonical remote refs. The endpoint enforces member identity.
