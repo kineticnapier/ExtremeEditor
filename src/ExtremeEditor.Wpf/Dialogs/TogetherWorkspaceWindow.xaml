@@ -98,6 +98,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0" Margin="0,0,0,7">
                     <Grid.ColumnDefinitions>
@@ -139,7 +140,8 @@
                         Focusable="True"
                         SelectionChanged="MusicTimelineSelectionChanged"
                         SeekRequested="MusicTimelineSeekRequested"
-                        ToolTip="クリックで再生位置を移動。ドラッグで担当範囲を選択。ホイールでズーム"/>
+                        EndpointRequested="MusicTimelineEndpointRequested"
+                        ToolTip="クリック: シーク / Shift+クリック: 始点 / Alt+クリック: 終点 / Ctrl+ホイール: ズーム / ホイール: 左右移動"/>
                     <Canvas IsHitTestVisible="False" ClipToBounds="True">
                         <Rectangle x:Name="PreviewPlayhead" Width="2" Fill="#FFFF8056"
                             Height="{Binding ActualHeight, ElementName=MusicTimeline}"
@@ -153,7 +155,7 @@
                             Margin="6,0,0,0" Click="PreviewStopClick" IsEnabled="False"/>
                     <CheckBox x:Name="PreviewLoopCheckBox" Content="選択区間をループ"
                               Margin="16,0,0,0" VerticalAlignment="Center"
-                              ToolTip="ドラッグで選択した範囲、または担当区間をループ"/>
+                              ToolTip="始点・終点で選択した範囲、または担当区間をループ"/>
                     <TextBlock x:Name="PreviewPositionText" Text="00:00.000 / 00:00.000"
                                Margin="20,0,0,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="PreviewAudioStatusText" Text="音源を読み込むと試聴できます"
@@ -177,7 +179,19 @@
                                SmallChange="1000" LargeChange="10000"
                                ValueChanged="TimelineScrollChanged"/>
                 </Grid>
-                <Grid Grid.Row="4">
+                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,1,0,6">
+                    <Button x:Name="PreviewSetStartButton" Content="現在位置→始点"
+                            Padding="9,5" Click="PreviewSetStartClick"
+                            ToolTip="再生位置を拍にスナップして区間の始点に指定"/>
+                    <Button x:Name="PreviewSetEndButton" Content="現在位置→終点"
+                            Margin="6,0,0,0" Padding="9,5"
+                            Click="PreviewSetEndClick"
+                            ToolTip="再生位置を拍にスナップして区間の終点に指定"/>
+                    <TextBlock Margin="15,0,0,0" VerticalAlignment="Center"
+                               Foreground="#FF666666"
+                               Text="Shift+クリック: 始点 / Alt+クリック: 終点"/>
+                </StackPanel>
+                <Grid Grid.Row="5">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="125"/>

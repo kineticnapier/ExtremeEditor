@@ -40,9 +40,16 @@ Also rerun existing `EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY=1`,
   millisecond counter should agree and Stop should reset to the beginning.
 - Click the waveform to seek to the **un-snapped** sample, including while
   playing. The orange playhead should follow the device playback clock.
-- Drag to select an owned interval: clicking must not create an interval,
-  and dragging must not seek. Toggle **選択区間をループ**, play, and verify that
-  the audible playback returns to the beginning of the selected range.
+- Ordinary wheel scrolls horizontally (down moves later, up earlier);
+  **Ctrl+wheel** zooms around the pointer. The zoom slider must update without
+  shifting the viewport unexpectedly.
+- **Shift+click** places the start marker, **Alt+click** places the end marker,
+  both beat-snapped. Alternatively, seek first, then use **現在位置→始点** and
+  **現在位置→終点**. Either marker can be repositioned alone. The range remains
+  visible even after releasing the mouse; end must exceed start to allocate.
+- Drag selection remains compatible with the old workflow; plain click must
+  only seek without creating an interval. Toggle **選択区間をループ**, play, and
+  verify that playback returns to the beginning of the marked range.
 - Zoom and scroll during playback. The playhead should track the projected
   position without repainting the full waveform at audio-clock frequency.
 - Close Together while playing: audio must stop and release the device.

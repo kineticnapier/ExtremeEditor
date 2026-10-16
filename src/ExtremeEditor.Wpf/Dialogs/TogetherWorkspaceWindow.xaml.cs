@@ -184,7 +184,7 @@ public partial class TogetherWorkspaceWindow : Window
         MeasuredAudioText.Text =
             $"実測 {waveform.SampleRate:N0} Hz ／ {TimeSpan.FromSeconds(seconds):mm\\:ss\\.fff} ／ {Path.GetFileName(fullPath)}";
         _notice =
-            "音源の実測サンプル周波数でタイムラインを読み込みました。ドラッグして担当範囲を選択できます。";
+            "音源を読み込みました。Shift+クリックで始点、Alt+クリックで終点を指定できます。";
         UpdateTimelineNavigation();
         UpdatePreviewHead();
     }
@@ -411,10 +411,50 @@ public partial class TogetherWorkspaceWindow : Window
     {
         _selectionStartSample = e.StartSample;
         _selectionEndSampleExclusive = e.EndSampleExclusive;
-        SelectionStartSampleText.Text = e.StartSample.ToString("N0");
-        SelectionEndSampleText.Text = e.EndSampleExclusive.ToString("N0");
-        _notice =
-            $"音楽上の範囲 [{e.StartSample:N0}, {e.EndSampleExclusive:N0}) samples を選択しました。";
+        RefreshSelectedInterval();
+    }
+
+    private void MusicTimelineEndpointRequested(
+        object? sender, TogetherTimelineEndpointRequestedEventArgs e) =>
+        SetSelectionEndpoint(e.Endpoint, e.AudioSample);
+
+    private void PreviewSetStartClick(object sender, RoutedEventArgs e) =>
+        Safely(() => SetSelectionEndpointAtPreview(TogetherTimelineEndpoint.Start));
+
+    private void PreviewSetEndClick(object sender, RoutedEventArgs e) =>
+        Safely(() => SetSelectionEndpointAtPreview(TogetherTimelineEndpoint.End));
+
+    private void SetSelectionEndpointAtPreview(TogetherTimelineEndpoint endpoint)
+    {
+        if (_musicTimingMap is null || _timelineWaveform is null)
+            throw new InvalidOperationException("先に音源を読み込んでください。");
+        long snap = _musicTimingMap.Snap(
+            PreviewSamplePosition(), SelectedSubdivision()).AudioSample;
+        SetSelectionEndpoint(endpoint,
+            Math.Clamp(snap, 0, _timelineWaveform.TotalSamples));
+    }
+
+    private void SetSelectionEndpoint(TogetherTimelineEndpoint endpoint, long sample)
+    {
+        if (endpoint == TogetherTimelineEndpoint.Start)
+            _selectionStartSample = sample;
+        else
+            _selectionEndSampleExclusive = sample;
+        RefreshSelectedInterval();
+    }
+
+    private void RefreshSelectedInterval()
+    {
+        SelectionStartSampleText.Text = _selectionStartSample?.ToString("N0") ?? "―";
+        SelectionEndSampleText.Text = _selectionEndSampleExclusive?.ToString("N0") ?? "―";
+        MusicTimeline.SetSelectionEndpoints(
+            _selectionStartSample, _selectionEndSampleExclusive);
+        _notice = _selectionStartSample is long start &&
+                  _selectionEndSampleExclusive is long end
+            ? end > start
+                ? $"音楽上の範囲 [{start:N0}, {end:N0}) samples を選択しました。"
+                : "終点は始点より後に指定してください。"
+            : "始点・終点を個別に指定できます（Shift+クリック／Alt+クリック）。";
         RefreshStatus();
     }
 
@@ -427,7 +467,7 @@ public partial class TogetherWorkspaceWindow : Window
             if (_selectionStartSample is not long start ||
                 _selectionEndSampleExclusive is not long end || end <= start)
                 throw new InvalidOperationException(
-                    "タイムラインをドラッグして空でない担当範囲を選択してください。");
+                    "始点と終点を指定し、終点を始点より後にしてください。");
             string owner = SegmentOwnerBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(owner))
                 throw new ArgumentException("担当者名を入力してください。");
@@ -475,6 +515,9 @@ public partial class TogetherWorkspaceWindow : Window
             TimelineScrollBar.LargeChange = Math.Max(1, visible * 0.8);
             TimelineScrollBar.Value = Math.Clamp(
                 MusicTimeline.VisibleStartSample, 0, maximum);
+            // Ctrl+wheel also adjusts the slider without re-zooming around
+            // the slider's center point.
+            TimelineZoomSlider.Value = MusicTimeline.ZoomLevel;
         }
         finally
         {

@@ -25,6 +25,15 @@ public sealed class TogetherTimelineSeekRequestedEventArgs(long audioSample) : E
     public long AudioSample { get; } = audioSample;
 }
 
+public enum TogetherTimelineEndpoint { Start, End }
+
+public sealed class TogetherTimelineEndpointRequestedEventArgs(
+    TogetherTimelineEndpoint endpoint, long audioSample) : EventArgs
+{
+    public TogetherTimelineEndpoint Endpoint { get; } = endpoint;
+    public long AudioSample { get; } = audioSample;
+}
+
 public sealed class TogetherMusicTimelineControl : FrameworkElement
 {
     private static readonly Brush BackgroundBrush =
@@ -39,6 +48,10 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         new SolidColorBrush(Color.FromArgb(75, 90, 170, 255));
     private static readonly Pen SelectionPen =
         new(new SolidColorBrush(Color.FromRgb(90, 170, 255)), 1.5);
+    private static readonly Pen StartMarkerPen =
+        new(new SolidColorBrush(Color.FromRgb(110, 230, 170)), 2);
+    private static readonly Pen EndMarkerPen =
+        new(new SolidColorBrush(Color.FromRgb(255, 130, 150)), 2);
     private static readonly Brush SegmentBrush =
         new SolidColorBrush(Color.FromArgb(105, 116, 92, 196));
     private static readonly Typeface LabelTypeface = new(
@@ -55,17 +68,43 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
     private long? _selectionAnchor;
     private long? _selectionCurrent;
     private double _mouseDownX;
+    private long? _startMarker;
+    private long? _endMarker;
 
     public event EventHandler<TogetherTimelineSelectionChangedEventArgs>?
         SelectionChanged;
     public event EventHandler? ViewportChanged;
     public event EventHandler<TogetherTimelineSeekRequestedEventArgs>? SeekRequested;
+    public event EventHandler<TogetherTimelineEndpointRequestedEventArgs>? EndpointRequested;
 
     internal long TotalSamples => _viewport?.TotalSamples ?? 0;
     internal long VisibleStartSample => _viewport?.VisibleStartSample ?? 0;
     internal long VisibleEndSampleExclusive =>
         _viewport?.VisibleEndSampleExclusive ?? 0;
     internal double SamplesPerPixel => _viewport?.SamplesPerPixel ?? 1;
+    internal double ZoomLevel
+    {
+        get
+        {
+            if (_viewport is null) return 0;
+            double fullScale = Math.Max(1d / 64d,
+                _viewport.TotalSamples / Math.Max(1, ActualWidth));
+            return Math.Clamp(Math.Log2(fullScale / _viewport.SamplesPerPixel) / 16, 0, 1);
+        }
+    }
+
+    internal void SetSelectionEndpoints(long? startSample, long? endSample)
+    {
+        if (_viewport is not null &&
+            (startSample < 0 || endSample < 0 ||
+             startSample > _viewport.TotalSamples ||
+             endSample > _viewport.TotalSamples))
+            throw new ArgumentOutOfRangeException(nameof(startSample),
+                "Selection endpoints must be within the decoded song.");
+        _startMarker = startSample;
+        _endMarker = endSample;
+        InvalidateVisual();
+    }
 
     internal void Load(
         AudioWaveformData waveform,
@@ -83,6 +122,8 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             Math.Max(1d / 64d, waveform.TotalSamples / width));
         _selectionAnchor = null;
         _selectionCurrent = null;
+        _startMarker = null;
+        _endMarker = null;
         RefreshFrame();
         RaiseViewportChanged();
     }
@@ -96,6 +137,8 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         _segments = Array.Empty<SegmentTimePartition>();
         _selectionAnchor = null;
         _selectionCurrent = null;
+        _startMarker = null;
+        _endMarker = null;
         InvalidateVisual();
         RaiseViewportChanged();
     }
@@ -210,8 +253,19 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             long sample = (long)Math.Round(
                 Math.Clamp(requested, 0, _viewport.TotalSamples),
                 MidpointRounding.AwayFromZero);
-            SeekRequested?.Invoke(this,
-                new TogetherTimelineSeekRequestedEventArgs(sample));
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                EndpointRequested?.Invoke(this,
+                    new TogetherTimelineEndpointRequestedEventArgs(
+                        TogetherTimelineEndpoint.Start,
+                        _viewport.SnapAtPixel(x, _subdivision).AudioSample));
+            else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+                EndpointRequested?.Invoke(this,
+                    new TogetherTimelineEndpointRequestedEventArgs(
+                        TogetherTimelineEndpoint.End,
+                        _viewport.SnapAtPixel(x, _subdivision).AudioSample));
+            else
+                SeekRequested?.Invoke(this,
+                    new TogetherTimelineSeekRequestedEventArgs(sample));
         }
         else if (_selectionCurrent is long current && current != anchor)
         {
@@ -220,6 +274,8 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             SelectionChanged?.Invoke(this,
                 new TogetherTimelineSelectionChangedEventArgs(start, end));
         }
+        _selectionAnchor = null;
+        _selectionCurrent = null;
         InvalidateVisual();
         e.Handled = true;
     }
@@ -229,8 +285,18 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         base.OnMouseWheel(e);
         if (_viewport is null)
             return;
-        _viewport.ZoomAt(e.GetPosition(this).X,
-            e.Delta > 0 ? 0.8 : 1.25);
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            // Zoom around the cursor only when Ctrl is held.
+            _viewport.ZoomAt(e.GetPosition(this).X,
+                Math.Pow(0.8, e.Delta / 120d));
+        }
+        else
+        {
+            // Wheel down moves to later audio; wheel up to earlier audio.
+            _viewport.ScrollByPixels(-e.Delta / 120d *
+                Math.Max(64d, ActualWidth * 0.15));
+        }
         RefreshFrame();
         RaiseViewportChanged();
         e.Handled = true;
@@ -285,6 +351,20 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
                     Math.Max(0.5, bottom - top)));
         }
 
+        if (_startMarker is long start &&
+            _endMarker is long end && end > start && _viewport is not null)
+        {
+            double x1 = (start - _viewport.VisibleStartSample) / _viewport.SamplesPerPixel;
+            double x2 = (end - _viewport.VisibleStartSample) / _viewport.SamplesPerPixel;
+            double left = Math.Clamp(x1, 0, ActualWidth);
+            double right = Math.Clamp(x2, 0, ActualWidth);
+            if (right > left)
+                drawingContext.DrawRectangle(SelectionBrush, null,
+                    new Rect(left, 0, right - left, ActualHeight));
+        }
+        DrawSelectionEndpoint(drawingContext, _startMarker, StartMarkerPen);
+        DrawSelectionEndpoint(drawingContext, _endMarker, EndMarkerPen);
+
         if (_selectionAnchor is long anchor &&
             _selectionCurrent is long current && _viewport is not null)
         {
@@ -298,6 +378,18 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
             drawingContext.DrawRectangle(
                 SelectionBrush, SelectionPen, selection);
         }
+    }
+
+    private void DrawSelectionEndpoint(DrawingContext drawingContext,
+        long? marker, Pen pen)
+    {
+        if (marker is not long sample || _viewport is null)
+            return;
+        double x = (sample - _viewport.VisibleStartSample) /
+            _viewport.SamplesPerPixel;
+        if (x >= 0 && x <= ActualWidth)
+            drawingContext.DrawLine(pen,
+                new Point(x, 0), new Point(x, ActualHeight));
     }
 
     private void RefreshFrame()
