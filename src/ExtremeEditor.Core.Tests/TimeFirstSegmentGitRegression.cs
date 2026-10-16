@@ -215,14 +215,14 @@ internal static class TimeFirstSegmentGitRegression
             Check(RunGit(guestPath, "status", "--porcelain") == "",
                 "cloud join working directory is clean");
 
-            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+            ExpectCloudJoinRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
                 remote, guestPath, audioPath), "cloud join rejects existing destination");
             Check(guest.HeadCommit == published,
                 "existing guest project is untouched after repeated join");
 
             File.WriteAllText(audioPath, "wrong-song-data");
             string badPath = Path.Combine(root, "Bad");
-            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+            ExpectCloudJoinRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
                 remote, badPath, audioPath), "cloud join requires matching audio SHA-256");
             Check(!Directory.Exists(badPath) &&
                   !Directory.EnumerateDirectories(root, "Bad.joining-*").Any(),
@@ -237,7 +237,7 @@ internal static class TimeFirstSegmentGitRegression
             remote.Push(host, "main");
             File.WriteAllBytes(audioPath, song);
             string unsafePath = Path.Combine(root, "Unsafe");
-            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+            ExpectCloudJoinRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
                 remote, unsafePath, audioPath), "cloud join rejects unexpected Git paths");
             Check(!Directory.Exists(unsafePath),
                 "unexpected cloud content cannot populate the destination");
@@ -476,6 +476,14 @@ internal static class TimeFirstSegmentGitRegression
             }
         }
         Directory.Delete(root, recursive: true);
+    }
+
+    private static void ExpectCloudJoinRejected(Action action, string label)
+    {
+        try { action(); }
+        catch (InvalidOperationException) { return; }
+        catch (InvalidDataException) { return; }
+        throw new InvalidOperationException("Unsafe cloud join accepted: " + label);
     }
 
     private static void ExpectRejected(Action action, string label)
