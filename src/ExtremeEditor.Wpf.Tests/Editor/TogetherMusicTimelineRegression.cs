@@ -194,6 +194,16 @@ internal static class TogetherMusicTimelineRegression
         Check(code.Contains("MusicTimelineEndpointRequested", StringComparison.Ordinal)
                 && code.Contains("SetSelectionEndpointAtPreview", StringComparison.Ordinal),
             "preview must wire independent selection endpoints");
+        // Prevent regressions in the three reported Together preview UX bugs.
+        Check(code.Contains("Keyboard.FocusedElement is TextBoxBase or PasswordBox", StringComparison.Ordinal),
+            "Space must work when non-editing buttons and the timeline own keyboard focus");
+        Check(!code.Contains("e.OriginalSource is TextBox or PasswordBox or ComboBox or Button", StringComparison.Ordinal),
+            "Space must not be discarded just because a button has focus");
+        Check(timeline.Contains("new Point(mark.X, segmentHeight)", StringComparison.Ordinal),
+            "beat grid lines must start below the segment label band");
+        Check(xaml.Contains("VerticalScrollBarVisibility=\"Auto\"", StringComparison.Ordinal)
+                && xaml.Contains("Height=\"116\" SelectionChanged=\"SegmentSelectionChanged\"", StringComparison.Ordinal),
+            "section list must retain readable height in vertically constrained windows");
         Check(code.Contains("TimelineZoomSlider.Value = MusicTimeline.ZoomLevel", StringComparison.Ordinal),
             "Ctrl+wheel must synchronize the visible zoom slider");
     }
