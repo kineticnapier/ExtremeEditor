@@ -91,12 +91,11 @@ public static class TimeFirstSegmentGitRemoteSync
                         "The selected song SHA-256 differs from the cloud project's audio.");
             }
 
-            // Initialize() created these two UNTRACKED markers and an empty
-            // segment directory in the exclusively owned staging folder.
-            // Remove only these known temporary files before the first checkout.
-            File.Delete(Path.Combine(staging, SegmentGitWorkspace.MarkerFileName));
-            File.Delete(Path.Combine(staging, MarkerName));
-            Directory.Delete(Path.Combine(staging, FolderName));
+            // Create a disposable local seed commit so Git can safely switch
+            // tracked files to the imported canonical history without --force.
+            // The local seed has no branch ref after the switch.
+            workspace.Save(snapshot);
+            workspace.Commit("Temporary cloud join seed");
 
             workspace.Transport.ExecuteGit("switch", "-C", branchName,
                 "refs/remotes/origin/" + branchName);
