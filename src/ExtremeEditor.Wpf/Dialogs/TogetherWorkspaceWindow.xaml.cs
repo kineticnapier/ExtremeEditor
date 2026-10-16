@@ -970,8 +970,8 @@ public partial class TogetherWorkspaceWindow : Window
             var inbox = CreateSubmissionInbox(client);
             // The trusted baseline comes from the host's previously fetched
             // canonical history, never from data provided by a participant.
-            string baseline = await Task.Run(() => workspace.Transport.ExecuteGit(
-                "rev-parse", "--verify", "refs/remotes/origin/main^{commit}").Trim());
+            string baseline = await Task.Run(() =>
+                TimeFirstSegmentGitRemoteSync.CanonicalCommit(workspace));
             TimeFirstSegmentPullResult result = await Task.Run(() =>
             {
                 inbox.FetchProposal(workspace, member);
