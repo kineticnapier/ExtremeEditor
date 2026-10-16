@@ -114,3 +114,26 @@ test("participant submissions remain isolated from canonical and other members",
       "Content-Type": "application/octet-stream" }, body: bundle
   }), env)).status, 412);
 });
+
+test("rejected writes consume request bodies before sending responses", async () => {
+  const env = fakeEnvironment();
+  const endpoint = "https://example.invalid/rooms/exampleRoom123456/submissions/alice";
+  const alice = await auth("exampleRoom123456", "reader", "alice");
+  const bob = await auth("exampleRoom123456", "reader", "bob");
+  const first = new Request(endpoint, { method: "PUT",
+    headers: { ...alice, "Content-Type": "application/octet-stream", "If-None-Match": "*" },
+    body: bundle });
+  assert.equal((await worker.fetch(first, env)).status, 200);
+
+  const stale = new Request(endpoint, { method: "PUT",
+    headers: { ...alice, "Content-Type": "application/octet-stream", "If-None-Match": "*" },
+    body: bundle });
+  assert.equal((await worker.fetch(stale, env)).status, 412);
+  assert.equal(stale.bodyUsed, true, "stale PUT body is consumed");
+
+  const forbidden = new Request(endpoint, { method: "PUT",
+    headers: { ...bob, "Content-Type": "application/octet-stream", "If-None-Match": "*" },
+    body: bundle });
+  assert.equal((await worker.fetch(forbidden, env)).status, 403);
+  assert.equal(forbidden.bodyUsed, true, "forbidden PUT body is consumed");
+});
