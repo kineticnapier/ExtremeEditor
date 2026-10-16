@@ -83,6 +83,7 @@ internal static class TimeFirstSegmentGitRegression
         }
         RunLoopbackTransportPolicy();
         RunHttpBundleRemote();
+        RunCloudClone();
         RunSubmissionInbox();
         RunSubmissionValidation();
     }
@@ -175,6 +176,71 @@ internal static class TimeFirstSegmentGitRegression
             Check(TimeFirstSegmentGitRemoteSync.Pull(a, remote: remote).Success,
                 "HTTP transport merged version distributes");
             Check(a.Load().Authored?.Count == 2, "HTTP both owners edits present");
+        }
+        finally { CleanupRoot(root); }
+    }
+
+    private static void RunCloudClone()
+    {
+        string root = Path.Combine(Path.GetTempPath(),
+            $"extreme-cloud-clone-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var client = new HttpClient(new MemoryBundleServer());
+            var remote = new HttpBundleTimeFirstSegmentRemote(
+                client, new Uri("https://example.invalid/rooms/test/bundle"), "test-token");
+
+            string audioPath = Path.Combine(root, "song.ogg");
+            byte[] song = System.Text.Encoding.UTF8.GetBytes("local-song-fixture");
+            File.WriteAllBytes(audioPath, song);
+            string digest = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(song)).ToLowerInvariant();
+            var host = TimeFirstSegmentGitWorkspace.Initialize(Path.Combine(root, "Host"));
+            host.Save(Fixture() with
+            {
+                Audio = Fixture().Audio with { Sha256 = digest }
+            });
+            string published = host.Commit("host initial project");
+            remote.Push(host, "main");
+
+            string guestPath = Path.Combine(root, "Guest");
+            var guest = TimeFirstSegmentGitRemoteSync.CloneRemote(remote, guestPath, audioPath);
+            Check(guest.HeadCommit == published, "cloud join preserves canonical Git HEAD");
+            Check(guest.CurrentBranch == "main", "cloud join checks out main branch");
+            Check(TimeFirstSegmentGitRemoteSync.CanonicalCommit(guest) == published,
+                "cloud join retains canonical reference for proposal validation");
+            Check(guest.Load().Timeline.Partitions.Count == 2,
+                "cloud join restores full time-first workspace");
+            Check(RunGit(guestPath, "status", "--porcelain") == "",
+                "cloud join working directory is clean");
+
+            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+                remote, guestPath, audioPath), "cloud join rejects existing destination");
+            Check(guest.HeadCommit == published,
+                "existing guest project is untouched after repeated join");
+
+            File.WriteAllText(audioPath, "wrong-song-data");
+            string badPath = Path.Combine(root, "Bad");
+            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+                remote, badPath, audioPath), "cloud join requires matching audio SHA-256");
+            Check(!Directory.Exists(badPath) &&
+                  !Directory.EnumerateDirectories(root, "Bad.joining-*").Any(),
+                "failed cloud join cleans only its temporary directory");
+
+            // Extra tracked files must not be checked out from remote Git.
+            File.WriteAllText(Path.Combine(host.Directory, "unexpected.txt"), "unknown");
+            RunGit(host.Directory, "add", "unexpected.txt");
+            RunGit(host.Directory, "-c", "user.name=Test",
+                "-c", "user.email=test@example.invalid",
+                "commit", "-m", "unexpected extra data");
+            remote.Push(host, "main");
+            File.WriteAllBytes(audioPath, song);
+            string unsafePath = Path.Combine(root, "Unsafe");
+            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.CloneRemote(
+                remote, unsafePath, audioPath), "cloud join rejects unexpected Git paths");
+            Check(!Directory.Exists(unsafePath),
+                "unexpected cloud content cannot populate the destination");
         }
         finally { CleanupRoot(root); }
     }
