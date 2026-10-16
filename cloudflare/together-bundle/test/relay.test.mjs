@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { BundleRoom } from "../src/index.mjs";
+import worker, { BundleRoom, deriveRoomToken } from "../src/index.mjs";
 
 function fakeEnvironment() {
   const objects = new Map();
@@ -23,14 +23,15 @@ function fakeEnvironment() {
   };
   const room = new BundleRoom(state, { BUNDLES: bucket });
   return {
-    TOGETHER_BUNDLE_TOKEN: "private-token",
+    TOGETHER_BUNDLE_MASTER_KEY: "development-only-master-key-32-bytes-long",
     ROOMS: { idFromName: name => name, get: () => room }
   };
 }
 
 const url = "https://example.invalid/rooms/exampleRoom123456/bundle";
 const bundle = new TextEncoder().encode("# v2 git bundle\nabcdef0123456789\n");
-const auth = { Authorization: "Bearer private-token" };
+const auth = () => deriveRoomToken("development-only-master-key-32-bytes-long", "exampleRoom123456")
+  .then(token => ({ Authorization: "Bearer " + token }));
 
 test("conditional creation, fetch and stale update rejection", async () => {
   const env = fakeEnvironment();
@@ -57,8 +58,21 @@ test("reject unauthenticated, invalid room, and oversized requests", async () =>
   assert.equal((await worker.fetch(new Request(
     "https://example.invalid/rooms/a/bundle", { headers: auth }), env)).status, 404);
   assert.equal((await worker.fetch(new Request(url, {
-    method: "PUT", headers: { ...auth, "If-None-Match": "*",
+    method: "PUT", headers: { ...await auth(), "If-None-Match": "*",
       "Content-Type": "application/octet-stream" },
     body: new Uint8Array(32 * 1024 * 1024 + 1)
   }), env)).status, 413);
+});
+
+test("room capabilities cannot be reused for another room", async () => {
+  const env = fakeEnvironment();
+  const sharedToken = await auth();
+  const otherRoom = "https://example.invalid/rooms/differentRoom56789/bundle";
+  const res = await worker.fetch(new Request(otherRoom, { headers: sharedToken }), env);
+  assert.equal(res.status, 401);
+  const tokenForOther = await deriveRoomToken(env.TOGETHER_BUNDLE_MASTER_KEY, "differentRoom56789");
+  assert.notEqual(tokenForOther, sharedToken.Authorization.slice(7));
+  assert.equal((await worker.fetch(new Request(otherRoom, {
+    headers: { Authorization: "Bearer " + tokenForOther }
+  }), env)).status, 404);
 });
