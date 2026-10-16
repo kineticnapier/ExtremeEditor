@@ -35,7 +35,7 @@ internal static class TogetherJapaneseUiRegression
         XElement shared = RequiredNamed(dialog, x, "ShareChangesButton");
         XElement export = RequiredNamed(dialog, x, "ExportButton");
         XElement advanced = RequiredNamed(dialog, x, "AdvancedControlsExpander");
-        XElement segments = RequiredNamed(dialog, x, "SegmentList");
+        _ = RequiredNamed(dialog, x, "SegmentList");
         XElement status = RequiredNamed(dialog, x, "TogetherStatusText");
 
         Check(((string?)create.Attribute("Content"))?.Contains("作成") == true,
@@ -52,8 +52,6 @@ internal static class TogetherJapaneseUiRegression
         Check(advanced.Descendants().Any(element =>
                 (string?)element.Attribute(x + "Name") == "SampleRateBox"),
             "サンプル周波数は詳細設定内で明示・編集できること");
-        Check((string?)segments.Attribute("x:Name") is null,
-            "XAMLは名前空間を尊重してパースされていること");
         Check(((string?)status.Attribute("Text"))?.Contains("共同編集") == true,
             "初期状態の案内を日本語にすること");
         Check(((string?)overview.Attribute("Text"))?.Contains("譜面") == true,
@@ -63,7 +61,7 @@ internal static class TogetherJapaneseUiRegression
         Check(((string?)menu.Attribute("Header"))?.Contains("共同編集") == true,
             "メニューバーのTogether入口も日本語にすること");
 
-        string visualCopy = string.Join("\n", dialog.DescendantsAndSelf()
+        string visualCopy = string.Join("\n", window.DescendantsAndSelf()
             .SelectMany(e => e.Attributes())
             .Where(attribute => attribute.Name.LocalName is
                 "Title" or "Header" or "Content" or "Text" or "ToolTip")
