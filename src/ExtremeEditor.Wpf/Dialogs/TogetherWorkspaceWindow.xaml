@@ -1,113 +1,200 @@
 <Window x:Class="ExtremeEditor.Wpf.TogetherWorkspaceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ExtremeEditor Together" Width="840" Height="700"
-        MinWidth="700" MinHeight="560"
+        Title="ExtremeEditor 共同編集" Width="940" Height="740"
+        MinWidth="790" MinHeight="620"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}">
-    <Grid Margin="14">
+    <Window.Resources>
+        <Style x:Key="PrimaryTogetherButton" TargetType="Button">
+            <Setter Property="Padding" Value="18,11"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinHeight" Value="43"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="SecondaryTogetherButton" TargetType="Button">
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <GroupBox Header="Local workspace" Grid.Row="0" Padding="8">
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="共同編集" FontSize="22" FontWeight="SemiBold"/>
+            <TextBlock x:Name="ProjectOverviewText"
+                       Text="今開いている .adofai 譜面を、担当区間に分けて編集できます。まずは共同編集を作成するか、既存の作業フォルダーに参加してください。"
+                       TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#FF555555"/>
+            <TextBlock Text="試験版：同期先はローカルのGit共有フォルダーのみ。招待URL・リアルタイム同期には未対応です。"
+                       TextWrapping="Wrap" Foreground="#FF777777" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="CreateProjectButton" Grid.Column="0" Content="＋ 共同編集を作成"
+                    Margin="0,0,6,0" Padding="14,12" FontSize="15"
+                    Click="ShowCreateProjectClick"/>
+            <Button x:Name="JoinProjectButton" Grid.Column="1" Content="共同編集に参加"
+                    Margin="6,0,0,0" Padding="14,12" FontSize="15"
+                    Click="ShowJoinProjectClick"/>
+        </Grid>
+
+        <GroupBox x:Name="SetupPanel" Grid.Row="2" Header="共同編集の準備"
+                  Visibility="Collapsed" Padding="10" Margin="0,0,0,10">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="112"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="102"/>
+                    <ColumnDefinition Width="125"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock Text="Workspace path" VerticalAlignment="Center" Grid.Row="0" Grid.Column="0"/>
-                <TextBox x:Name="WorkspacePathBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3"
-                         MinWidth="280" Margin="4" ToolTip="New empty folder for Create; existing Together folder for Open"/>
-                <TextBlock Text="My owner ID" VerticalAlignment="Center" Grid.Row="1" Grid.Column="0"/>
-                <TextBox x:Name="OwnerIdBox" Grid.Row="1" Grid.Column="1" Margin="4" Text="author-A"/>
-                <TextBlock Text="Sample rate" VerticalAlignment="Center" Grid.Row="1" Grid.Column="2"/>
-                <TextBox x:Name="SampleRateBox" Grid.Row="1" Grid.Column="3" Margin="4" Text="48000"/>
-                <TextBlock Text="Cut floors" VerticalAlignment="Center" Grid.Row="2" Grid.Column="0"/>
-                <TextBox x:Name="CutFloorsBox" Grid.Row="2" Grid.Column="1" Margin="4" Text="3"
-                         ToolTip="Comma-separated floor numbers, e.g. 3,6. Whole-floor boundaries only."/>
-                <TextBlock Text="Owners" VerticalAlignment="Center" Grid.Row="2" Grid.Column="2"/>
-                <TextBox x:Name="OwnersBox" Grid.Row="2" Grid.Column="3" Margin="4"
-                         Text="author-A,author-B"
-                         ToolTip="Comma-separated owner IDs; one for each region. First is A, second B."/>
-                <StackPanel Grid.Row="3" Grid.ColumnSpan="4" Orientation="Horizontal" Margin="0,6,0,0">
-                    <Button x:Name="CreateWorkspaceButton" Content="Create" Width="105" Margin="0,0,8,0"
+                <TextBlock Text="作業フォルダー" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center"/>
+                <TextBox x:Name="WorkspacePathBox" Grid.Column="1" Grid.Row="0" Margin="5,2"
+                         ToolTip="作成時は新しい空フォルダー、参加時は既存のTogether作業フォルダーのパス"/>
+                <TextBlock Text="自分の識別名" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
+                <TextBox x:Name="OwnerIdBox" Grid.Column="1" Grid.Row="1" Margin="5,2"
+                         Text="author-A" ToolTip="担当者一覧と同じ名前を入力してください"/>
+                <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal"
+                            Margin="5,8,0,2">
+                    <Button x:Name="CreateWorkspaceButton" Content="この譜面から作成"
+                            Style="{StaticResource SecondaryTogetherButton}"
                             Click="CreateWorkspaceClick"/>
-                    <Button x:Name="OpenWorkspaceButton" Content="Open existing" Width="112"
-                            Margin="0,0,8,0" Click="OpenWorkspaceClick"/>
-                    <Button x:Name="ReloadViewButton" Content="Reload editor from Git"
-                            Width="170" Click="ReloadViewClick"/>
+                    <Button x:Name="OpenWorkspaceButton" Content="既存の作業フォルダーを開く"
+                            Style="{StaticResource SecondaryTogetherButton}"
+                            Click="OpenWorkspaceClick"/>
                 </StackPanel>
             </Grid>
         </GroupBox>
 
-        <GroupBox Grid.Row="1" Header="Local bare Git collaboration" Margin="0,8,0,0" Padding="8">
-            <DockPanel LastChildFill="True">
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                    <Button Content="Connect" Width="80" Margin="6,0,0,0" Click="ConnectClick"/>
-                    <Button x:Name="FetchButton" Content="Fetch" Width="70"
-                            Margin="6,0,0,0" Click="FetchClick"/>
-                    <Button x:Name="PullButton" Content="Pull" Width="70"
-                            Margin="6,0,0,0" Click="PullClick"/>
-                    <Button x:Name="PushButton" Content="Push" Width="70"
-                            Margin="6,0,0,0" Click="PushClick"/>
-                </StackPanel>
-                <TextBox x:Name="BareRemoteBox" MinWidth="220" VerticalAlignment="Center"
-                         ToolTip="Trusted local bare Git repository path; no URL or SSH remotes"/>
-            </DockPanel>
+        <GroupBox Grid.Row="3" Header="担当区間" Padding="9" MinHeight="145">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="自分の担当区間を選んで、メインの譜面編集画面で編集してください。他の人の区間は共有できません。"
+                           Foreground="#FF666666" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <ListView x:Name="SegmentList" Grid.Row="1"
+                          SelectionChanged="SegmentSelectionChanged">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="区間ID" Width="110"
+                                            DisplayMemberBinding="{Binding SegmentId}"/>
+                            <GridViewColumn Header="担当者" Width="125"
+                                            DisplayMemberBinding="{Binding OwnerId}"/>
+                            <GridViewColumn Header="状態" Width="80"
+                                            DisplayMemberBinding="{Binding StateLabel}"/>
+                            <GridViewColumn Header="床の範囲" Width="160"
+                                            DisplayMemberBinding="{Binding FloorRangeLabel}"/>
+                            <GridViewColumn Header="権限" Width="95"
+                                            DisplayMemberBinding="{Binding WritableLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </Grid>
         </GroupBox>
 
-        <GroupBox Header="Segments — select your own active region to stage" Grid.Row="2" Margin="0,8,0,0" Padding="8">
-            <ListView x:Name="SegmentList" SelectionChanged="SegmentSelectionChanged">
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="ID" Width="70" DisplayMemberBinding="{Binding SegmentId}"/>
-                        <GridViewColumn Header="Owner" Width="110" DisplayMemberBinding="{Binding OwnerId}"/>
-                        <GridViewColumn Header="State" Width="75" DisplayMemberBinding="{Binding Status}"/>
-                        <GridViewColumn Header="Start floor" Width="85" DisplayMemberBinding="{Binding StartFloor}"/>
-                        <GridViewColumn Header="End floor" Width="85" DisplayMemberBinding="{Binding EndFloorExclusive}"/>
-                        <GridViewColumn Header="Start sample" Width="120" DisplayMemberBinding="{Binding StartSample}"/>
-                        <GridViewColumn Header="End sample" Width="120" DisplayMemberBinding="{Binding EndSampleExclusive}"/>
-                        <GridViewColumn Header="Writable" Width="70" DisplayMemberBinding="{Binding CanEdit}"/>
-                    </GridView>
-                </ListView.View>
-            </ListView>
-        </GroupBox>
-
-        <Grid Grid.Row="3" Margin="0,10,0,0">
+        <Grid Grid.Row="4" Margin="0,12,0,5">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Grid.Column="0" VerticalAlignment="Center">
-                <Button x:Name="SaveSegmentButton" Content="Stage selected Segment"
-                        Padding="12,6" Click="SaveSegmentClick" Margin="0,0,8,0"/>
-                <Button x:Name="CommitButton" Content="Commit" Padding="12,6"
-                        Click="CommitClick" Margin="0,0,8,0"/>
-            </StackPanel>
-            <TextBox x:Name="CommitMessageBox" Grid.Column="1" Margin="4,0,8,0"
-                     VerticalContentAlignment="Center" Text="Edit selected Segment"/>
-            <Button x:Name="ExportButton" Grid.Column="2"
-                    Content="Export published .adofai…" Padding="10,6" Click="ExportClick"/>
+            <Button x:Name="ShareChangesButton" Grid.Column="0"
+                    Content="変更を共有" Style="{StaticResource PrimaryTogetherButton}"
+                    Click="ShareChangesClick"/>
+            <Button x:Name="ReceiveChangesButton" Grid.Column="1"
+                    Content="最新の変更を取り込む" Style="{StaticResource SecondaryTogetherButton}"
+                    Click="ReceiveChangesClick" VerticalAlignment="Center"/>
+            <Button x:Name="ExportButton" Grid.Column="3"
+                    Content="完成譜面を書き出す…" Style="{StaticResource PrimaryTogetherButton}"
+                    Click="ExportClick" Margin="10,0,0,0"/>
         </Grid>
 
-        <Border Grid.Row="4" BorderThickness="1" BorderBrush="#FF909090"
-                Padding="8" Margin="0,10,0,0">
-            <TextBlock x:Name="TogetherStatusText" Text="No Together workspace opened."
-                       TextWrapping="Wrap" MinHeight="38"/>
+        <Expander x:Name="AdvancedControlsExpander" Grid.Row="5"
+                  Header="詳細設定（Git・分割・音声）" IsExpanded="False"
+                  Margin="0,5,0,8" MaxHeight="250">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="10,8,10,12">
+                    <TextBlock Text="作成時の分割（空欄なら床数の中間で自動分割）と担当者。音声の周波数は自動判定していません。"
+                               TextWrapping="Wrap" Margin="0,0,0,6"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="112"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="125"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="分割する床番号" VerticalAlignment="Center"/>
+                        <TextBox x:Name="CutFloorsBox" Grid.Row="0" Grid.Column="1"
+                                 Margin="5,3" ToolTip="カンマ区切り。空欄なら床数の中間で自動分割"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="担当者名（順番）" VerticalAlignment="Center"/>
+                        <TextBox x:Name="OwnersBox" Grid.Row="0" Grid.Column="3"
+                                 Margin="5,3" ToolTip="カンマ区切り。空欄なら先頭が自分、残りが他の編集者"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="音声サンプル周波数" VerticalAlignment="Center"/>
+                        <TextBox x:Name="SampleRateBox" Grid.Row="1" Grid.Column="1" Text="48000"
+                                 Margin="5,3" ToolTip="48,000 Hzは初期値です。使用する音声ファイルの実際のサンプル周波数を指定してください"/>
+                        <CheckBox x:Name="ConfirmSampleRateBox" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2"
+                                  VerticalAlignment="Center" Margin="8,3"
+                                  Content="音声ファイルと照合した"/>
+                    </Grid>
+                    <Separator Margin="0,10"/>
+                    <TextBlock Text="ローカルGit共有フォルダー（Bare Repository）のパス。通常のWeb招待リンクは使用できません。"
+                               TextWrapping="Wrap"/>
+                    <DockPanel Margin="0,4,0,4">
+                        <Button Content="同期先を接続" DockPanel.Dock="Right"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="ConnectClick"/>
+                        <TextBox x:Name="BareRemoteBox" Margin="0,2,5,2"
+                                 ToolTip="ローカルのBare Gitリポジトリのパス"/>
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
+                        <Button x:Name="ReloadViewButton" Content="Gitの内容を再読込"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="ReloadViewClick"/>
+                        <Button x:Name="FetchButton" Content="取得（Fetch）"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="FetchClick"/>
+                        <Button x:Name="PullButton" Content="統合（Pull）"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="PullClick"/>
+                        <Button x:Name="PushButton" Content="送信（Push）"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="PushClick"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                        <Button x:Name="SaveSegmentButton" Content="選択区間を準備（Stage）"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="SaveSegmentClick"/>
+                        <Button x:Name="CommitButton" Content="履歴に記録（Commit）"
+                                Style="{StaticResource SecondaryTogetherButton}" Click="CommitClick"/>
+                        <TextBox x:Name="CommitMessageBox" Margin="5,2" MinWidth="180"
+                                 VerticalContentAlignment="Center" Text="担当区間を編集"
+                                 ToolTip="変更履歴の説明文"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Expander>
+
+        <Border Grid.Row="6" BorderBrush="#FFAAAAAA"
+                BorderThickness="1" Padding="9" MinHeight="46">
+            <TextBlock x:Name="TogetherStatusText"
+                       Text="共同編集はまだ開かれていません。.adofai 譜面を開いてから、作成または参加してください。"
+                       TextWrapping="Wrap" VerticalAlignment="Center"/>
         </Border>
     </Grid>
 </Window>
