@@ -35,7 +35,7 @@ public partial class TogetherWorkspaceWindow : Window
                 throw new ArgumentException("Enter a positive decoded audio sample rate.");
 
             int[] cuts = ParseCuts(CutFloorsBox.Text);
-            LevelSegment[] sections = LevelSegmentPartitioner.Split(source, cuts);
+            LevelSegment[] sections = LevelSegmentPartitioner.Split(source, cuts).ToArray();
             string[] owners = OwnersBox.Text.Split(',', StringSplitOptions.TrimEntries);
             if (owners.Length != sections.Length ||
                 owners.Any(string.IsNullOrWhiteSpace))
