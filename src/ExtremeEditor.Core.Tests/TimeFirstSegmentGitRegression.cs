@@ -172,6 +172,36 @@ internal static class TimeFirstSegmentGitRegression
         }
     }
 
+    private sealed class SubmissionUploadHandler : HttpMessageHandler
+    {
+        public int PutCount { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
+
+        protected override HttpResponseMessage Send(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath !=
+                "/rooms/testroom1234/submissions/alice" ||
+                request.Headers.Authorization?.Parameter != "guest-token")
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            if (request.Method == HttpMethod.Get)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (request.Method != HttpMethod.Put ||
+                !request.Headers.IfNoneMatch.Any(item => item.Tag == "*"))
+                return new HttpResponseMessage(HttpStatusCode.PreconditionFailed);
+            byte[] submitted = request.Content!.ReadAsByteArrayAsync()
+                .GetAwaiter().GetResult();
+            if (!System.Text.Encoding.ASCII.GetString(submitted, 0,
+                    Math.Min(16, submitted.Length)).StartsWith("# v2 git bundle",
+                    StringComparison.Ordinal))
+                return new HttpResponseMessage(HttpStatusCode.BadRequest);
+            PutCount++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     private static void RunSubmissionInbox()
     {
         string root = Path.Combine(Path.GetTempPath(), $"extreme-inbox-test-{Guid.NewGuid():N}");
@@ -213,6 +243,14 @@ internal static class TimeFirstSegmentGitRegression
             Check(remoteBefore == remoteAfter, "canonical remote ref unchanged");
             Check(System.Text.Json.JsonSerializer.Serialize(receiver.Load()) == projectBefore,
                 "proposal fetch does not change local project files");
+            var uploadHandler = new SubmissionUploadHandler();
+            using var uploaderClient = new HttpClient(uploadHandler);
+            var uploader = new HttpTimeFirstSubmissionInbox(uploaderClient,
+                new Uri("https://example.invalid/rooms/testroom1234/"), "guest-token");
+            Check(uploader.SubmitProposal(receiver, "alice") == headBefore,
+                "offline committed proposal uploaded");
+            Check(uploadHandler.PutCount == 1, "proposal uploads once with create precondition");
+            Check(receiver.HeadCommit == headBefore, "proposal upload preserves HEAD");
         }
         finally { CleanupRoot(root); }
     }
