@@ -88,6 +88,157 @@ internal static class TimeFirstSegmentGitRegression
         RunSubmissionValidation();
     }
 
+    /// <summary>
+    /// Real HTTP end-to-end integration against a disposable local Wrangler room.
+    /// Set EXTREMEEDITOR_TOGETHER_E2E_URL / _HOST_TOKEN / _GUEST_TOKEN.
+    /// Only synthetic chart content is used; no real audio is uploaded.
+    /// </summary>
+    public static void RunLiveCloudE2E()
+    {
+        string roomUrl = Environment.GetEnvironmentVariable(
+            "EXTREMEEDITOR_TOGETHER_E2E_URL") ??
+            throw new InvalidOperationException("Missing E2E room URL.");
+        string hostToken = Environment.GetEnvironmentVariable(
+            "EXTREMEEDITOR_TOGETHER_E2E_HOST_TOKEN") ??
+            throw new InvalidOperationException("Missing E2E host token.");
+        string guestToken = Environment.GetEnvironmentVariable(
+            "EXTREMEEDITOR_TOGETHER_E2E_GUEST_TOKEN") ??
+            throw new InvalidOperationException("Missing E2E guest token.");
+
+        Uri room = new(roomUrl, UriKind.Absolute);
+        if (!room.IsLoopback || room.Scheme != Uri.UriSchemeHttp ||
+            !room.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Live E2E is restricted to local HTTP loopback rooms.");
+
+        string root = Path.Combine(Path.GetTempPath(),
+            $"extreme-live-cloud-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
+            var hostRemote = new HttpBundleTimeFirstSegmentRemote(
+                client, new Uri(room, "bundle"), hostToken);
+            var guestRemote = new HttpBundleTimeFirstSegmentRemote(
+                client, new Uri(room, "bundle"), guestToken);
+            var hostInbox = new HttpTimeFirstSubmissionInbox(client, room, hostToken);
+            var guestInbox = new HttpTimeFirstSubmissionInbox(client, room, guestToken);
+
+            byte[] sampleAudio = System.Text.Encoding.UTF8.GetBytes(
+                "ExtremeEditor disposable synthetic E2E audio identity");
+            string audioPath = Path.Combine(root, "song.ogg");
+            File.WriteAllBytes(audioPath, sampleAudio);
+            string digest = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(sampleAudio))
+                .ToLowerInvariant();
+
+            SegmentTimeTimeline timeline = new(Rate, []);
+            timeline = SegmentTimePlanner.CreateEmpty(
+                timeline, "A", 0, Rate * 10L, "host");
+            timeline = SegmentTimePlanner.CreateEmpty(
+                timeline, "B", Rate * 10L, Rate * 20L, "guest");
+            var content = timeline.Partitions.ToDictionary(
+                p => p.SegmentId,
+                SegmentContentPlanner.CreateEmpty, StringComparer.Ordinal);
+            var drafts = timeline.Partitions.ToDictionary(
+                p => p.SegmentId,
+                p => SegmentTimeDraftEditor.Open(
+                    timeline, content, p.SegmentId, p.OwnerId!),
+                StringComparer.Ordinal);
+            var initial = new TimeFirstSegmentSnapshot(
+                new TimeFirstAudioIdentity(
+                    "song.ogg", digest, Rate, Rate * 20L),
+                [new MusicTimingPoint(0, 120m)], timeline, content, drafts);
+
+            var host = TimeFirstSegmentGitWorkspace.Initialize(
+                Path.Combine(root, "host-workspace"));
+            host.Save(initial);
+            string baseCommit = host.Commit("E2E initial canonical");
+            Check(TimeFirstSegmentGitRemoteSync.Push(
+                    host, remote: hostRemote) == baseCommit,
+                "host publishes canonical over live HTTP");
+            Check(TimeFirstSegmentGitRemoteSync.Fetch(
+                    host, remote: hostRemote) == baseCommit,
+                "host fetches the trusted canonical baseline");
+            Check(TimeFirstSegmentGitRemoteSync.CanonicalCommit(host) == baseCommit,
+                "canonical tracking ref is available");
+
+            var guest = TimeFirstSegmentGitRemoteSync.CloneRemote(
+                guestRemote, Path.Combine(root, "guest-workspace"), audioPath);
+            Check(guest.HeadCommit == baseCommit,
+                "guest initial cloud join reproduces canonical history");
+
+            guest.Save(Edit(guest.Load(), "B", "guest",
+                "guest-b1", "guest-tile", Rate * 12L, 90));
+            string guestCommit = guest.Commit("E2E guest edits own B");
+            Check(guestInbox.SubmitProposal(guest, "guest") == guestCommit,
+                "guest submits own bundle via HTTP");
+
+            host.Save(Edit(host.Load(), "A", "host",
+                "host-a1", "host-tile", Rate * 2L, 0));
+            string hostEdit = host.Commit("E2E host edits A");
+            Check(hostInbox.FetchProposal(host, "guest") == guestCommit,
+                "host downloads guest proposal via HTTP");
+            TimeFirstSegmentPullResult merged =
+                TimeFirstSegmentGitRemoteSync.MergeSubmission(
+                    host, baseCommit, "guest");
+            Check(merged.Success && host.HeadCommit != hostEdit,
+                "valid guest proposal merges into the host's independent edit");
+            Check(host.Load().Authored?.Count == 2,
+                "host retains both independently edited segments");
+            string accepted = TimeFirstSegmentGitRemoteSync.Push(
+                host, remote: hostRemote);
+            Check(accepted == host.HeadCommit,
+                "host publishes accepted semantic merge");
+
+            TimeFirstSegmentPullResult updated =
+                TimeFirstSegmentGitRemoteSync.Pull(guest, remote: guestRemote);
+            Check(updated.Success && guest.HeadCommit == accepted,
+                "guest receives canonical merged history");
+            Check(guest.Load().Authored?.ContainsKey("A") == true &&
+                  guest.Load().Authored?.ContainsKey("B") == true,
+                "both authored segments arrive at guest");
+
+            try
+            {
+                TimeFirstSegmentGitRemoteSync.Push(guest, remote: guestRemote);
+                throw new InvalidOperationException(
+                    "Guest was permitted to overwrite canonical.");
+            }
+            catch (HttpRequestException error)
+                when (error.StatusCode == HttpStatusCode.Forbidden) { }
+            Check(host.HeadCommit == accepted,
+                "rejected canonical write keeps host history intact");
+
+            // The client-side owner argument is not proof of authorization.
+            // Forge an otherwise well-formed edit to the host's segment and
+            // ensure the trusted-baseline validator refuses it.
+            guest.Save(Edit(guest.Load(), "A", "host",
+                "forged-a", "forged-tile", Rate * 3L, 180));
+            guest.Commit("E2E unauthorized host segment edit");
+            guestInbox.SubmitProposal(guest, "guest");
+            hostInbox.FetchProposal(host, "guest");
+            string hostBeforeRejection = host.HeadCommit;
+            try
+            {
+                TimeFirstSegmentGitRemoteSync.MergeSubmission(
+                    host, accepted, "guest");
+                throw new InvalidOperationException(
+                    "Unauthorized guest segment edit was accepted.");
+            }
+            catch (InvalidOperationException error)
+                when (error.Message != "Unauthorized guest segment edit was accepted.") { }
+            Check(host.HeadCommit == hostBeforeRejection,
+                "rejected proposal cannot move canonical HEAD");
+
+            Console.WriteLine("PASS: live HTTP host publish, guest join, proposal, merge, refresh, authorization.");
+        }
+        finally
+        {
+            CleanupRoot(root);
+        }
+    }
+
     private static void RunLoopbackTransportPolicy()
     {
         using var client = new HttpClient();
