@@ -30,12 +30,27 @@ public static class TimeFirstSubmissionValidator
         static string Canonical(object? value) => JsonSerializer.Serialize(value);
         if (Canonical(before.Audio) != Canonical(after.Audio) ||
             Canonical(before.TimingPoints) != Canonical(after.TimingPoints) ||
-            Canonical(before.Timeline) != Canonical(after.Timeline))
+            before.Timeline.SampleRate != after.Timeline.SampleRate)
             throw new InvalidOperationException("Submission changes protected project metadata.");
 
         var permitted = before.Timeline.Partitions
             .Where(p => p.OwnerId == memberId && p.Status == SegmentPartitionStatus.Active)
             .Select(p => p.SegmentId).ToHashSet(StringComparer.Ordinal);
+
+        var priorParts = before.Timeline.Partitions.ToDictionary(p => p.SegmentId, StringComparer.Ordinal);
+        var nextParts = after.Timeline.Partitions.ToDictionary(p => p.SegmentId, StringComparer.Ordinal);
+        if (!priorParts.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(nextParts.Keys))
+            throw new InvalidOperationException("Submission changes the segment allocation.");
+        foreach (string id in priorParts.Keys)
+        {
+            SegmentTimePartition prior = priorParts[id];
+            SegmentTimePartition next = nextParts[id];
+            // Only ContentRevisionId may change, and only for the assigned segment.
+            if (Canonical(prior with { ContentRevisionId = null }) !=
+                    Canonical(next with { ContentRevisionId = null }) ||
+                (!permitted.Contains(id) && prior.ContentRevisionId != next.ContentRevisionId))
+                throw new InvalidOperationException("Submission changes protected segment allocation: " + id);
+        }
         if (permitted.Count == 0)
             throw new InvalidOperationException("Member has no assigned segment in trusted base.");
 
@@ -60,6 +75,7 @@ public static class TimeFirstSubmissionValidator
         foreach (string path in diff.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             string normalized = path.TrimEnd('\r');
+            if (normalized == "time-first-project.json") continue;
             if (!normalized.StartsWith("time-first-segments/", StringComparison.Ordinal) ||
                 !normalized.EndsWith(".json", StringComparison.Ordinal))
                 throw new InvalidOperationException("Submission touches a protected Git path.");
