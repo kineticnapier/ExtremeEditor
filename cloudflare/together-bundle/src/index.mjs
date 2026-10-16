@@ -20,7 +20,7 @@ export default {
     if (request.method === "PUT" && (match[3] ? match[3] !== identity.member : identity.role !== "host"))
       return new Response("Forbidden", { status: 403 });
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]));
-    return room.fetch(request, match[3] ? "submission:" + match[3] : "current");
+    return room.fetch(request);
   }
 };
 
@@ -54,7 +54,10 @@ export class BundleRoom {
     this.bucket = env.BUNDLES;
   }
 
-  async fetch(request, storageKey = "current") {
+  async fetch(request) {
+    const match = /^\/rooms\/[^/]+\/(bundle|submissions\/([A-Za-z0-9_-]{1,64}))$/.exec(new URL(request.url).pathname);
+    if (!match) return new Response("Not found", { status: 404 });
+    const storageKey = match[2] ? "submission:" + match[2] : "current";
     if (request.method === "GET") {
       const current = await this.state.storage.get(storageKey);
       if (!current) return new Response("Not found", { status: 404 });
