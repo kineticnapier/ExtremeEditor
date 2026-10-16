@@ -196,6 +196,9 @@ public partial class TogetherWorkspaceWindow : Window
         RefreshParticipantChoices();
         UpdateTimelineNavigation();
         UpdatePreviewHead();
+        // Return keyboard focus from setup fields to the playable timeline.
+        // Without this, Space can be interpreted as text input after loading.
+        MusicTimeline.Focus();
     }
 
     private void TogetherWindowClosed(object? sender, EventArgs e)
@@ -209,9 +212,13 @@ public partial class TogetherWorkspaceWindow : Window
 
     private void TogetherPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Space ||
-            Keyboard.FocusedElement is TextBoxBase or PasswordBox or
-                ComboBox { IsEditable: true })
+        Key key = e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key;
+        if (key != Key.Space)
+            return;
+        // Space is a global preview shortcut, except while editing text.
+        // A ComboBox or button may keep focus after being clicked; neither
+        // should prevent playback from toggling.
+        if (Keyboard.FocusedElement is TextBoxBase or PasswordBox)
             return;
         e.Handled = true;
         Safely(PreviewTogglePlayback);
