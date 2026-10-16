@@ -4,7 +4,7 @@ Updated: 2026-10-16 (Asia/Tokyo)
 
 ## Current phase
 
-Phase B — Musical Timing Points (next RED).
+Phase C — WPF music timeline (next RED).
 
 ## Completed
 
@@ -15,27 +15,32 @@ Phase B — Musical Timing Points (next RED).
 - Nearest-line snapping has deterministic midpoint behavior.
 - Visible-range generation is half-open, immutable, and explicitly bounded.
 - The music grid remains separate from ADOFAI floor/`SetSpeed`/`Pause` timing.
+- Phase B: immutable, strictly ordered musical timing points with BPM changes.
+- Timing sections are half-open; a cut is emitted once as the new section's
+  whole-beat origin, and snapping rejects old-BPM lines beyond the cut.
+- Multi-section visible generation retains one total line budget and copies
+  caller-owned timing-point data.
 
 ## Last verified implementation commit
 
-`ee8a864edce301b6d74750cabed85808641ee3e3`
+`d79141423267443b82b4efa656271e818f5ccf96`
 
 ## Windows verification
 
 - `dotnet build .\src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj -c Release`
   — exit 0, 0 warnings, 0 errors.
 - `EXTREMEEDITOR_MUSIC_GRID_ONLY=1` — exit 0.
+- `EXTREMEEDITOR_MUSIC_TIMING_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_SEARCH_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_DRAFT_ONLY=1` — exit 0.
 - `EXTREMEEDITOR_SEGMENT_EMPTY_ONLY=1` — exit 0.
 
-The preceding RED commit was `0c6ce75`; its dedicated test failed for the
-expected `MusicBeatGrid.CreateConstant` `NotImplementedException` after a
-successful Release build.
+Phase A RED was `0c6ce75`. Phase B RED was `b598a6b`; its dedicated test
+failed for the expected `MusicTimingMap.Build` `NotImplementedException`
+after a successful Release build.
 
 ## Unresolved
 
-- Multiple BPM timing points and continuity across their boundaries.
 - WPF waveform/grid timeline and time-range ownership creation.
 - Time-first draft persistence, real tile authoring, Git integration,
   semantic composition, and safe export.
@@ -44,6 +49,7 @@ successful Release build.
 
 ## Next concrete work
 
-Add a Phase B RED for an immutable timing-point map that validates ordered
-sample boundaries, preserves beat phase across BPM changes, snaps at section
-cuts without duplicate grid lines, and generates only visible lines.
+Add a Phase C controller/structural RED for a WPF timeline that projects only
+the visible sample range, exposes waveform peaks and musical grid lines,
+supports zoom/scroll and all six snap choices, and creates sample-time Segment
+selections without depending on existing floors.
