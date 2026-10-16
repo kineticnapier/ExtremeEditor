@@ -80,8 +80,8 @@ internal static class TimeFirstSegmentGitRegression
         finally
         {
             CleanupRoot(root);
-            RunHttpBundleRemote();
-    }
+        }
+        RunHttpBundleRemote();
     }
 
     private sealed class MemoryBundleServer : HttpMessageHandler
