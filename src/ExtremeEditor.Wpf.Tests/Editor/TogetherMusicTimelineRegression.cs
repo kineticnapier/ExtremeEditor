@@ -195,6 +195,10 @@ internal static class TogetherMusicTimelineRegression
                 && code.Contains("SetSelectionEndpointAtPreview", StringComparison.Ordinal),
             "preview must wire independent selection endpoints");
         // Prevent regressions in the three reported Together preview UX bugs.
+        Check(code.Contains("MusicTimeline.Focus();", StringComparison.Ordinal),
+            "audio loading must transfer focus from setup fields to the timeline");
+        Check(code.Contains("e.ImeProcessedKey", StringComparison.Ordinal),
+            "IME-processed Space must also toggle playback");
         Check(code.Contains("Keyboard.FocusedElement is TextBoxBase or PasswordBox", StringComparison.Ordinal),
             "Space must work when non-editing buttons and the timeline own keyboard focus");
         Check(!code.Contains("e.OriginalSource is TextBox or PasswordBox or ComboBox or Button", StringComparison.Ordinal),
