@@ -17,3 +17,7 @@ FloorMesh.cs
 
 dist/
 *_wpftmp.csproj
+
+# Local Wrangler development secrets
+.dev.vars
+.dev.vars.*
