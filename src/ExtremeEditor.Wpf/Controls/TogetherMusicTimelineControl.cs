@@ -333,7 +333,7 @@ public sealed class TogetherMusicTimelineControl : FrameworkElement
         {
             Pen pen = mark.Line.IsWholeBeat ? WholeBeatPen : SubdivisionPen;
             drawingContext.DrawLine(pen,
-                new Point(mark.X, 0), new Point(mark.X, ActualHeight));
+                new Point(mark.X, segmentHeight), new Point(mark.X, ActualHeight));
         }
 
         double waveformTop = segmentHeight + 4;
