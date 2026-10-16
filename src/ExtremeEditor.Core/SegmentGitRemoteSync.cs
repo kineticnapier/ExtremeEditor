@@ -54,6 +54,17 @@ public static class SegmentGitRemoteSync
     public static SegmentGitWorkspace CloneLocalBare(
         string bareRepositoryPath, string destinationDirectory)
     {
+        SegmentGitWorkspace workspace = CloneLocalBareTransport(
+            bareRepositoryPath, destinationDirectory);
+        workspace.ReadAt("HEAD"); // Preserve legacy schema validation.
+        return workspace;
+    }
+
+    // Shared safe, local-only transport; the time-first format validates its
+    // own schema after opening the cloned working tree.
+    internal static SegmentGitWorkspace CloneLocalBareTransport(
+        string bareRepositoryPath, string destinationDirectory)
+    {
         string bare = ValidateLocalBare(bareRepositoryPath);
         string destination = NormalizeDestination(destinationDirectory);
         if (IsInside(destination, bare) || IsInside(bare, destination) ||
@@ -85,10 +96,7 @@ public static class SegmentGitRemoteSync
             "clone", "--no-hardlinks", "--no-tags",
             "--branch", "main", "--", bare, destination);
 
-        // The marker/schema must exist in the checked-out commit. Never trust
-        // an arbitrary bare repository merely because Git clone succeeds.
         SegmentGitWorkspace workspace = SegmentGitWorkspace.Open(destination);
-        workspace.ReadAt("HEAD");
         string configured = ReadOrigin(workspace);
         if (!SamePath(configured, bare))
             throw new InvalidOperationException(

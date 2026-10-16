@@ -53,6 +53,8 @@ public sealed class TimeFirstSegmentGitWorkspace
 
     private readonly SegmentGitWorkspace _git;
 
+    internal SegmentGitWorkspace Transport => _git;
+
     private TimeFirstSegmentGitWorkspace(SegmentGitWorkspace git) => _git = git;
 
     public string Directory => _git.Directory;
@@ -145,6 +147,38 @@ public sealed class TimeFirstSegmentGitWorkspace
         });
     }
 
+    /// <summary>Read a committed snapshot without checking out its Git tree.</summary>
+    public TimeFirstSegmentSnapshot ReadAt(string revision)
+    {
+        RequireWorkspace();
+        if (string.IsNullOrWhiteSpace(revision) || revision.Length > 255 ||
+            !revision.All(static c => char.IsAsciiLetterOrDigit(c) ||
+                c is '/' or '_' or '-' or '.') ||
+            revision.StartsWith('-') || revision.Contains("..", StringComparison.Ordinal) ||
+            revision.Contains("//", StringComparison.Ordinal))
+            throw new ArgumentException("Unsafe time-first Git revision.", nameof(revision));
+
+        string sha = _git.ExecuteGit(
+            "rev-parse", "--verify", "--end-of-options", revision + "^{commit}").Trim();
+        if (sha.Length is not (40 or 64) || !sha.All(char.IsAsciiHexDigit))
+            throw new InvalidDataException("Git did not resolve a commit ID.");
+        string FromTree(string path)
+        {
+            string treeLine = _git.ExecuteGit("ls-tree", sha, "--", path).TrimEnd();
+            // Do not permit Git symlinks (120000), submodules or executable
+            // payloads to masquerade as collaboration-owned JSON files.
+            if (!treeLine.StartsWith("100644 blob ", StringComparison.Ordinal) ||
+                !treeLine.EndsWith("\t" + path, StringComparison.Ordinal) ||
+                treeLine.Split('\n').Length != 1)
+                throw new InvalidDataException(
+                    $"Committed time-first file '{path}' is missing or is not a regular JSON blob.");
+            return _git.ExecuteGit("show", sha + ":" + path);
+        }
+        VerifyMarker(FromTree(MarkerName));
+        return ReadSnapshot(FromTree(ProjectName),
+            id => FromTree(SegmentRelativePath(id)));
+    }
+
     public string Commit(string message)
     {
         RequireWorkspace();
@@ -177,7 +211,7 @@ public sealed class TimeFirstSegmentGitWorkspace
         RequireWorkspace();
         string status = _git.ExecuteGit(
             "status", "--porcelain", "--untracked-files=all", "--",
-            MarkerName, ProjectName, SegmentDirectoryName);
+            SegmentGitWorkspace.MarkerFileName, MarkerName, ProjectName, SegmentDirectoryName);
         if (!string.IsNullOrWhiteSpace(status))
             throw new InvalidOperationException(
                 "Time-first collaboration data contains uncommitted changes.");
