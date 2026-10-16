@@ -40,6 +40,15 @@ public static class TimeFirstSegmentGitRemoteSync
         return workspace;
     }
 
+    /// <summary>Return the previously fetched canonical commit without network access.</summary>
+    public static string CanonicalCommit(TimeFirstSegmentGitWorkspace workspace,
+        string branchName = "main")
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        SegmentGitWorkspace.ValidateBranchName(branchName);
+        return ResolveCommit(workspace, "refs/remotes/origin/" + branchName);
+    }
+
     public static string Push(
         TimeFirstSegmentGitWorkspace workspace, string branchName = "main",
         ITimeFirstSegmentRemote? remote = null)
