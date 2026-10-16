@@ -67,6 +67,8 @@ public partial class TogetherWorkspaceWindow : Window
             CloudRoomUrlBox.Text = developmentUrl;
             CloudMemberBox.Text = developmentMember;
             CloudMemberTokenBox.Password = developmentToken;
+            JoinCloudRoomUrlBox.Text = developmentUrl;
+            JoinCloudTokenBox.Password = developmentToken;
         }
         MusicTimeline.ViewportChanged += (_, _) =>
         {
@@ -635,17 +637,21 @@ public partial class TogetherWorkspaceWindow : Window
 
     private void ShowSetup(bool forCreation)
     {
-        if (forCreation)
+        string? suggested = SuggestedWorkspaceForCurrentChart();
+        if (suggested is not null &&
+            (string.IsNullOrWhiteSpace(WorkspacePathBox.Text) ||
+             string.Equals(WorkspacePathBox.Text.Trim(), _suggestedWorkspacePath,
+                 StringComparison.OrdinalIgnoreCase)))
         {
-            string? suggested = SuggestedWorkspaceForCurrentChart();
-            if (suggested is not null &&
-                (string.IsNullOrWhiteSpace(WorkspacePathBox.Text) ||
-                 string.Equals(WorkspacePathBox.Text.Trim(), _suggestedWorkspacePath,
-                     StringComparison.OrdinalIgnoreCase)))
-            {
-                WorkspacePathBox.Text = suggested;
-                _suggestedWorkspacePath = suggested;
-            }
+            WorkspacePathBox.Text = suggested;
+            _suggestedWorkspacePath = suggested;
+        }
+        if (!forCreation)
+        {
+            if (string.IsNullOrWhiteSpace(JoinCloudRoomUrlBox.Text))
+                JoinCloudRoomUrlBox.Text = CloudRoomUrlBox.Text;
+            if (string.IsNullOrEmpty(JoinCloudTokenBox.Password))
+                JoinCloudTokenBox.Password = CloudMemberTokenBox.Password;
         }
         SetupPanel.Visibility = Visibility.Visible;
         SetupPanel.Header = forCreation ? "共同編集を新しく作成" : "既存の共同編集に参加";
@@ -655,9 +661,11 @@ public partial class TogetherWorkspaceWindow : Window
             forCreation ? Visibility.Collapsed : Visibility.Visible;
         CloneWorkspaceButton.Visibility =
             forCreation ? Visibility.Collapsed : Visibility.Visible;
+        JoinCloudPanel.Visibility =
+            forCreation ? Visibility.Collapsed : Visibility.Visible;
         _notice = forCreation
             ? "音源と担当者を設定してください。保存先は譜面と同じフォルダーに自動提案します（変更も可能）。"
-            : "受け取った共同編集フォルダーを指定して開いてください。";
+            : "初めて参加する場合はルームURLと招待トークンでクラウドから取得してください。既存の作業フォルダーも開けます。";
         RefreshStatus();
         WorkspacePathBox.Focus();
     }
@@ -734,6 +742,31 @@ public partial class TogetherWorkspaceWindow : Window
                 _notice = "共同編集に参加しました。自分の担当区間を選んで編集してください。";
                 SetupPanel.Visibility = Visibility.Collapsed;
             }
+        });
+
+    private async void JoinCloudClick(object sender, RoutedEventArgs e) =>
+        await SafelyAsync(async () =>
+        {
+            RefuseWorkspaceReplacement();
+            string destination = RequiredPath(WorkspacePathBox.Text, "共同編集の保存先");
+            string audio = _timelineAudioPath ??
+                throw new InvalidOperationException(
+                    "クラウドから参加する前に、上の「音源を選択…」からローカルの曲ファイルを読み込んでください。");
+            string rawUrl = JoinCloudRoomUrlBox.Text.Trim();
+            if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out Uri? roomUrl) ||
+                !roomUrl.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+                throw new ArgumentException("ルームURLは末尾 / を含むURLを入力してください。");
+            string token = JoinCloudTokenBox.Password;
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            var remote = new HttpBundleTimeFirstSegmentRemote(
+                client, new Uri(roomUrl, "bundle"), token);
+            string folder = await Task.Run(() =>
+                TimeFirstSegmentGitRemoteSync.CloneRemote(
+                    remote, destination, audio).Directory);
+            OpenTimeFirstWorkspace(folder);
+            CloudRoomUrlBox.Text = rawUrl;
+            CloudMemberTokenBox.Password = token;
+            _notice = "クラウドから共同編集を取得しました。参加者名で担当者を選び「この名前で編集」を押してください。";
         });
 
     private void CloneWorkspaceClick(object sender, RoutedEventArgs e) =>
