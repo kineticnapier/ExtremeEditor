@@ -40,6 +40,120 @@ public static class TimeFirstSegmentGitRemoteSync
         return workspace;
     }
 
+    /// <summary>
+    /// Join a published time-first workspace from an untrusted bundle into a NEW
+    /// directory. The caller's local music file must match the published audio.
+    /// Existing destinations are never reset, overwritten or deleted.
+    /// </summary>
+    public static TimeFirstSegmentGitWorkspace CloneRemote(
+        ITimeFirstSegmentRemote remote, string destinationDirectory,
+        string localAudioPath, string branchName = "main")
+    {
+        ArgumentNullException.ThrowIfNull(remote);
+        SegmentGitWorkspace.ValidateBranchName(branchName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(localAudioPath);
+
+        string destination = Path.GetFullPath(destinationDirectory);
+        string audio = Path.GetFullPath(localAudioPath);
+        if (Directory.Exists(destination) || File.Exists(destination))
+            throw new InvalidOperationException(
+                "The cloud join destination already exists. Open the existing workspace or choose a different folder.");
+        if (!File.Exists(audio))
+            throw new FileNotFoundException("The local song file is required for cloud joining.", audio);
+
+        string? parent = Path.GetDirectoryName(destination);
+        if (parent is null || !Directory.Exists(parent))
+            throw new DirectoryNotFoundException("The cloud join destination's parent folder does not exist.");
+
+        // This uniquely named staging directory is created by this operation
+        // alone. Never run Git checkout on a directory owned by the user.
+        string staging = destination + ".joining-" + Guid.NewGuid().ToString("N");
+        bool published = false;
+        try
+        {
+            TimeFirstSegmentGitWorkspace workspace =
+                TimeFirstSegmentGitWorkspace.Initialize(staging);
+            string sha = remote.Fetch(workspace, branchName);
+            TimeFirstSegmentSnapshot snapshot = workspace.ReadAt(sha);
+            ValidateJoinTree(workspace, sha, snapshot);
+            if (!string.Equals(Path.GetFileName(audio), snapshot.Audio.FileName,
+                    StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "The selected song filename differs from the cloud project's audio.");
+            using (FileStream stream = File.OpenRead(audio))
+            {
+                string hash = Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(stream));
+                if (!string.Equals(hash, snapshot.Audio.Sha256,
+                        StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "The selected song SHA-256 differs from the cloud project's audio.");
+            }
+
+            // Initialize() created these two UNTRACKED markers and an empty
+            // segment directory in the exclusively owned staging folder.
+            // Remove only these known temporary files before the first checkout.
+            File.Delete(Path.Combine(staging, SegmentGitWorkspace.MarkerFileName));
+            File.Delete(Path.Combine(staging, MarkerName));
+            Directory.Delete(Path.Combine(staging, FolderName));
+
+            workspace.Transport.ExecuteGit("switch", "-C", branchName,
+                "refs/remotes/origin/" + branchName);
+            TimeFirstSegmentGitWorkspace checkout = TimeFirstSegmentGitWorkspace.Open(staging);
+            _ = checkout.Load();
+            if (!string.Equals(checkout.HeadCommit, sha, StringComparison.Ordinal))
+                throw new InvalidDataException("The cloud checkout does not match the fetched commit.");
+            // Fails rather than replacing a destination created concurrently.
+            Directory.Move(staging, destination);
+            published = true;
+            return TimeFirstSegmentGitWorkspace.Open(destination);
+        }
+        finally
+        {
+            if (!published && Directory.Exists(staging))
+            {
+                // Only this GUID-named, freshly initialized staging directory
+                // is eligible for automatic cleanup; user folders are untouched.
+                try { Directory.Delete(staging, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    private static void ValidateJoinTree(TimeFirstSegmentGitWorkspace workspace,
+        string sha, TimeFirstSegmentSnapshot snapshot)
+    {
+        // A Git bundle is untrusted. Prevent arbitrary paths, executable blobs,
+        // symlinks and submodules from ever being checked out onto the disk.
+        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        {
+            SegmentGitWorkspace.MarkerFileName, MarkerName, ProjectName
+        };
+        foreach (string id in snapshot.Drafts.Keys)
+            allowed.Add(FolderName + "/" + id + ".json");
+
+        string listing = workspace.Transport.ExecuteGit(
+            "ls-tree", "-rz", "--full-tree", sha);
+        string[] entries = listing.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string entry in entries)
+        {
+            int tab = entry.IndexOf('\t');
+            if (tab <= 0 || tab + 1 >= entry.Length)
+                throw new InvalidDataException("Invalid Git tree entry in cloud project.");
+            string header = entry[..tab];
+            string name = entry[(tab + 1)..];
+            if (!header.StartsWith("100644 blob ", StringComparison.Ordinal) ||
+                !allowed.Contains(name) || !seen.Add(name))
+                throw new InvalidDataException(
+                    "The cloud project contains a file outside the allowed time-first schema.");
+        }
+        if (seen.Count != allowed.Count)
+            throw new InvalidDataException("The cloud project is missing a required file.");
+    }
+
     /// <summary>Return the previously fetched canonical commit without network access.</summary>
     public static string CanonicalCommit(TimeFirstSegmentGitWorkspace workspace,
         string branchName = "main")
