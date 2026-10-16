@@ -240,6 +240,21 @@ internal static class TimeFirstSegmentGitRegression
                 ws, baseline, outside, "alice"), "Alice cannot submit Bob's edit");
 
             RunGit(ws.Directory, "reset", "--hard", baseline);
+            ws.Save(Edit(ws.Load(), "B", "bob", "local-B", "local-bob", Rate * 12L, 0));
+            ws.Commit("Bob's independent edit");
+            RunGit(ws.Directory, "update-ref",
+                "refs/extremeeditor/submissions/alice/main", valid);
+            string canonicalBefore = ws.HeadCommit;
+            TimeFirstSegmentPullResult accepted =
+                TimeFirstSegmentGitRemoteSync.MergeSubmission(ws, baseline, "alice");
+            Check(accepted.Success && ws.Load().Authored?.Count == 2,
+                "valid Alice proposal merges with Bob's independent edit");
+            Check(ws.HeadCommit != canonicalBefore,
+                "accepted proposal creates the merged local commit");
+            ExpectRejected(() => TimeFirstSegmentGitRemoteSync.MergeSubmission(
+                ws, baseline, "bob"), "cannot claim another participant's proposal");
+
+            RunGit(ws.Directory, "reset", "--hard", baseline);
             var altered = ws.Load();
             ws.Save(altered with { Audio = altered.Audio with { FileName = "other.ogg" } });
             string alteredMetadata = ws.Commit("Change audio identity");
