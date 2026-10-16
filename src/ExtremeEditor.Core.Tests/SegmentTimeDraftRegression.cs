@@ -66,6 +66,12 @@ internal static class SegmentTimeDraftRegression
         Check(one.TileAnchors.Select(t => t.TileId).SequenceEqual(["middle"]),
             "previous placement snapshot remains unchanged");
 
+        Check(four.TileAnchors is not SegmentDraftTileAnchor[],
+            "published draft snapshots cannot expose a writable array");
+        if (four.TileAnchors is IList<SegmentDraftTileAnchor> list)
+            Check(list.IsReadOnly,
+                "published anchor list must prevent mutation through an IList cast");
+
         SegmentTimeDraft removed = SegmentTimeDraftEditor.RemoveAnchor(
             four, "middle");
         Check(removed.TileAnchors.Select(t => t.TileId).SequenceEqual(
@@ -95,6 +101,33 @@ internal static class SegmentTimeDraftRegression
             "tile ID must be nonempty");
         ExpectRejected(() => SegmentTimeDraftEditor.RemoveAnchor(initial, "missing"),
             "removing an unknown marker must be rejected");
+
+        var unsorted = four with
+        {
+            TileAnchors =
+            [
+                new SegmentDraftTileAnchor("later", S(79)),
+                new SegmentDraftTileAnchor("earlier", S(50))
+            ]
+        };
+        ExpectRejected(() => SegmentTimeDraftEditor.PlaceAnchor(
+            unsorted, "new", S(60)),
+            "a forged unsorted draft must never pass binary insertion");
+        ExpectRejected(() => SegmentTimeDraftEditor.RemoveAnchor(
+            unsorted, "earlier"),
+            "a forged unsorted draft must never be accepted as a valid snapshot");
+
+        var forgedDuplicate = four with
+        {
+            TileAnchors =
+            [
+                new SegmentDraftTileAnchor("dup", S(50)),
+                new SegmentDraftTileAnchor("dup", S(50))
+            ]
+        };
+        ExpectRejected(() => SegmentTimeDraftEditor.PlaceAnchor(
+            forgedDuplicate, "new", S(51)),
+            "a malformed snapshot with repeated tile IDs is rejected");
 
         ExpectRejected(() => SegmentTimeDraftEditor.Open(
             timeline, entries, "drop", "A"),
