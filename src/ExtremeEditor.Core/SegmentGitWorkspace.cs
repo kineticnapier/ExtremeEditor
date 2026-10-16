@@ -184,6 +184,23 @@ public sealed class SegmentGitWorkspace
         }
     }
 
+    /// <summary>
+    /// Returns the immutable commit ID of this collaboration checkout.
+    /// Does not expose general-purpose Git command execution to the UI.
+    /// </summary>
+    public string HeadCommit
+    {
+        get
+        {
+            RequireWorkspace();
+            string sha = RunGit(
+                "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}").Trim();
+            if (sha.Length is not (40 or 64) || !sha.All(char.IsAsciiHexDigit))
+                throw new InvalidOperationException("Invalid collaboration HEAD commit.");
+            return sha;
+        }
+    }
+
     public void CreateBranch(string branchName)
     {
         RequireWorkspace();
@@ -279,7 +296,7 @@ public sealed class SegmentGitWorkspace
     private static string Serialize<T>(T value) =>
         JsonSerializer.Serialize(value, JsonOptions);
 
-    internal static void ValidateSnapshot(SegmentGitSnapshot snapshot)
+    public static void ValidateSnapshot(SegmentGitSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(snapshot.Timeline);
@@ -431,7 +448,7 @@ public sealed class SegmentGitWorkspace
             throw new InvalidOperationException("Symbolic links and junctions are not allowed in collaboration paths.");
     }
 
-    internal void AssertCleanOwnedWorktree()
+    public void AssertCleanOwnedWorktree()
     {
         RequireWorkspace();
         string status = RunGit(
