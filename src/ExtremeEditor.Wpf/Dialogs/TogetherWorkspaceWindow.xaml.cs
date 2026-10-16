@@ -22,6 +22,8 @@ public partial class TogetherWorkspaceWindow : Window
     private TimeFirstSegmentSnapshot? _timeSnapshot;
     private string? _timeOwnerId;
     private string? _timeSelectedSegmentId;
+    private TimeFirstSegmentEditorSession? _timeEditor;
+    private bool _timeStaged;
     private bool _refreshing;
     private bool _updatingTimelineControls;
     private string? _notice;
@@ -376,6 +378,9 @@ public partial class TogetherWorkspaceWindow : Window
         {
             if (_timeWorkspace is not null)
             {
+                if (_timeEditor?.IsDirty == true)
+                    throw new InvalidOperationException(
+                        "未保存の時間区間編集があるため再読込しません。先に保存準備してください。");
                 ApplyTimeFirstSnapshot(_timeWorkspace.Load());
                 _notice = "Gitの記録内容から時間区間と担当を再読込しました。";
             }
@@ -394,8 +399,23 @@ public partial class TogetherWorkspaceWindow : Window
         if (_timeWorkspace is not null)
         {
             _timeSelectedSegmentId = segment.SegmentId;
+            if (segment.CanEdit)
+            {
+                _timeEditor = TimeFirstSegmentEditorSession.Open(
+                    _timeSnapshot!, segment.SegmentId, _timeOwnerId!);
+                AuthoredTileList.ItemsSource = _timeEditor.Current.Tiles;
+            }
+            else
+            {
+                _timeEditor = null;
+                AuthoredTileList.ItemsSource =
+                    _timeSnapshot?.Authored is not null &&
+                    _timeSnapshot.Authored.TryGetValue(
+                        segment.SegmentId, out TimeFirstAuthoredSegment? authored)
+                        ? authored.Tiles : Array.Empty<TimeFirstAuthoredTile>();
+            }
             _notice = segment.CanEdit
-                ? $"担当区間「{segment.SegmentId}」を選択しました。空区間からの譜面編集は次の制作画面で行います。"
+                ? $"担当区間「{segment.SegmentId}」を開きました。タイムラインで位置を選び、角度を指定して実タイルを配置できます。"
                 : $"「{segment.SegmentId}」は他の担当者の区間です。閲覧のみ可能です。";
             RefreshStatus();
             return;
@@ -431,6 +451,23 @@ public partial class TogetherWorkspaceWindow : Window
     private void SaveSegmentClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeWorkspace is not null)
+            {
+                if (_timeStaged)
+                    throw new InvalidOperationException(
+                        "準備済みの時間区間編集を先に履歴へ記録してください。");
+                TimeFirstSegmentEditorSession timeEditor = _timeEditor ??
+                    throw new InvalidOperationException(
+                        "自分の担当時間区間を選択してください。");
+                string revision = timeEditor.Current.SegmentId + "-" +
+                    Guid.NewGuid().ToString("N");
+                _timeSnapshot = timeEditor.CreateRevision(_timeSnapshot!, revision);
+                _timeWorkspace.Save(_timeSnapshot);
+                _timeStaged = true;
+                _notice =
+                    "角度と時刻アンカーを含む担当区間を保存準備しました。履歴への記録後に共有できます。";
+                return;
+            }
             EditorSession editor = RequiredEditor();
             _controller.StageSelected(editor);
             _notice = "選択中の担当区間を保存準備しました。共有するには履歴に記録して送信してください。";
@@ -439,9 +476,85 @@ public partial class TogetherWorkspaceWindow : Window
     private void CommitClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
+            if (_timeWorkspace is not null)
+            {
+                if (!_timeStaged)
+                    throw new InvalidOperationException(
+                        "履歴へ記録する時間区間編集がありません。");
+                string timeRevision = _timeWorkspace.Commit(
+                    CommitMessageBox.Text.Trim());
+                _timeStaged = false;
+                _notice =
+                    $"時間区間の変更をローカル履歴に記録しました（{ShortSha(timeRevision)}）。";
+                return;
+            }
             string revision = _controller.Commit(CommitMessageBox.Text.Trim());
             _notice = $"変更をローカル履歴に記録しました（{ShortSha(revision)}）。共有先への送信はまだです。";
         });
+
+    private void PlaceTimeTileClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TimeFirstSegmentEditorSession editor = _timeEditor ??
+                throw new InvalidOperationException(
+                    "先に自分の担当時間区間を選択してください。");
+            if (_selectionStartSample is not long sample)
+                throw new InvalidOperationException(
+                    "タイムライン上で配置時刻を選択してください。");
+            if (!double.TryParse(TimeTileAngleBox.Text.Trim(),
+                    NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double angle) || !double.IsFinite(angle))
+                throw new ArgumentException("角度を有限の数値で入力してください。");
+            string tileId = TimeTileIdBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(tileId))
+            {
+                int number = editor.Current.Tiles.Count + 1;
+                do { tileId = $"tile-{number++}"; }
+                while (editor.Current.Tiles.Any(tile => tile.TileId == tileId));
+            }
+            editor.PlaceTile(tileId, sample, angle);
+            TimeTileIdBox.Clear();
+            RefreshTimeTileEditor();
+            _notice = $"実タイル「{tileId}」を {sample:N0} sample、角度 {angle:0.###}° で配置しました。";
+        });
+
+    private void RemoveTimeTileClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            TimeFirstSegmentEditorSession editor = _timeEditor ??
+                throw new InvalidOperationException(
+                    "先に自分の担当時間区間を選択してください。");
+            if (AuthoredTileList.SelectedItem is not TimeFirstAuthoredTile tile)
+                throw new InvalidOperationException("削除する実タイルを一覧から選択してください。");
+            editor.RemoveTile(tile.TileId);
+            RefreshTimeTileEditor();
+            _notice = $"実タイル「{tile.TileId}」を削除しました。";
+        });
+
+    private void UndoTimeTileClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            (_timeEditor ?? throw new InvalidOperationException(
+                "編集中の担当時間区間がありません。")).Undo();
+            RefreshTimeTileEditor();
+            _notice = "時間区間のタイル編集を元に戻しました。";
+        });
+
+    private void RedoTimeTileClick(object sender, RoutedEventArgs e) =>
+        Safely(() =>
+        {
+            (_timeEditor ?? throw new InvalidOperationException(
+                "編集中の担当時間区間がありません。")).Redo();
+            RefreshTimeTileEditor();
+            _notice = "時間区間のタイル編集をやり直しました。";
+        });
+
+    private void RefreshTimeTileEditor()
+    {
+        AuthoredTileList.ItemsSource = null;
+        AuthoredTileList.ItemsSource = _timeEditor?.Current.Tiles ??
+            Array.Empty<TimeFirstAuthoredTile>();
+    }
 
     private void ConnectClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
@@ -609,9 +722,12 @@ public partial class TogetherWorkspaceWindow : Window
             _refreshing = false;
         }
 
-        SaveSegmentButton.IsEnabled = !timeLoaded &&
-            loaded && state.SelectedSegmentId is not null && !state.HasStagedChanges;
-        CommitButton.IsEnabled = !timeLoaded && loaded && state.HasStagedChanges;
+        SaveSegmentButton.IsEnabled = timeLoaded
+            ? _timeEditor?.IsDirty == true && !_timeStaged
+            : loaded && state.SelectedSegmentId is not null && !state.HasStagedChanges;
+        CommitButton.IsEnabled = timeLoaded
+            ? _timeStaged
+            : loaded && state.HasStagedChanges;
         FetchButton.IsEnabled = !timeLoaded && loaded;
         PullButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
         PushButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
@@ -619,6 +735,10 @@ public partial class TogetherWorkspaceWindow : Window
         ShareChangesButton.IsEnabled = !timeLoaded && loaded;
         ReceiveChangesButton.IsEnabled = !timeLoaded && loaded && !state.HasStagedChanges;
         ReloadViewButton.IsEnabled = loaded;
+        PlaceTimeTileButton.IsEnabled = timeLoaded && _timeEditor is not null && !_timeStaged;
+        RemoveTimeTileButton.IsEnabled = timeLoaded && _timeEditor is not null && !_timeStaged;
+        UndoTimeTileButton.IsEnabled = timeLoaded && _timeEditor?.CanUndo == true && !_timeStaged;
+        RedoTimeTileButton.IsEnabled = timeLoaded && _timeEditor?.CanRedo == true && !_timeStaged;
 
         if (!loaded)
         {
@@ -785,6 +905,9 @@ public partial class TogetherWorkspaceWindow : Window
     {
         TimeFirstSegmentGitWorkspace.ValidateSnapshot(snapshot);
         _timeSnapshot = snapshot;
+        _timeEditor = null;
+        _timeSelectedSegmentId = null;
+        _timeStaged = false;
         _plannedTimeline = snapshot.Timeline;
         _musicTimingMap = MusicTimingMap.Build(
             snapshot.Timeline.SampleRate, snapshot.TimingPoints);

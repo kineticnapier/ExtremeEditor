@@ -91,7 +91,10 @@ internal static class TogetherMusicTimelineRegression
             "MusicTimeline", "BpmBox", "BeatOffsetBox",
             "SnapSubdivisionBox", "TimelineZoomSlider", "TimelineScrollBar",
             "SelectionStartSampleText", "SelectionEndSampleText",
-            "SegmentOwnerBox", "AddTimeSegmentButton", "MeasuredAudioText"
+            "SegmentOwnerBox", "AddTimeSegmentButton", "MeasuredAudioText",
+            "TimeTileIdBox", "TimeTileAngleBox", "PlaceTimeTileButton",
+            "RemoveTimeTileButton", "UndoTimeTileButton", "RedoTimeTileButton",
+            "AuthoredTileList"
         })
         {
             Check(document.Descendants().Any(element =>
@@ -107,7 +110,9 @@ internal static class TogetherMusicTimelineRegression
             "TimelineScrollChanged", "CreateTimeFirstWorkspace",
             "OpenTimeFirstWorkspace", "ApplyTimeFirstSnapshot",
             "TimeFirstSegmentGitWorkspace", "SegmentContentPlanner.CreateEmpty",
-            "SegmentTimeDraftEditor.Open"
+            "SegmentTimeDraftEditor.Open", "TimeFirstSegmentEditorSession.Open",
+            "PlaceTimeTileClick", "RemoveTimeTileClick",
+            "UndoTimeTileClick", "RedoTimeTileClick"
         })
             Check(code.Contains(handler, StringComparison.Ordinal),
                 "WPF music timeline is not wired to " + handler);

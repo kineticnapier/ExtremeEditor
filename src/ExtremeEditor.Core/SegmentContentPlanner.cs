@@ -129,7 +129,8 @@ public static class SegmentContentPlanner
 
             if (entry.Kind == SegmentContentKind.Empty)
             {
-                if (entry.FloorAlignedContent is not null)
+                if (entry.FloorAlignedContent is not null ||
+                    entry.TimeAuthoredContent is not null)
                     issues.Add(new(
                         SegmentContentIssueKind.InvalidContentEntry,
                         partition.SegmentId,
@@ -144,7 +145,8 @@ public static class SegmentContentPlanner
             else if (entry.Kind == SegmentContentKind.FloorAligned)
             {
                 if (entry.FloorAlignedContent is not LevelSegment payload ||
-                    !IsValidFloorPayload(payload))
+                    !IsValidFloorPayload(payload) ||
+                    entry.TimeAuthoredContent is not null)
                 {
                     issues.Add(new(
                         SegmentContentIssueKind.InvalidContentEntry,
@@ -161,6 +163,54 @@ public static class SegmentContentPlanner
                         SegmentContentIssueKind.RevisionMismatch,
                         partition.SegmentId,
                         "Authored content must refer to its exact allocated revision."));
+                }
+            }
+            else if (entry.Kind == SegmentContentKind.TimeAuthored)
+            {
+                if (entry.FloorAlignedContent is not null ||
+                    entry.TimeAuthoredContent is not TimeFirstAuthoredSegment authored)
+                {
+                    issues.Add(new(
+                        SegmentContentIssueKind.InvalidContentEntry,
+                        partition.SegmentId,
+                        "Time-authored content is missing or mixed with a floor payload."));
+                }
+                else
+                {
+                    try
+                    {
+                        TimeFirstSegmentEditorSession.Validate(authored);
+                        if (!string.Equals(authored.SegmentId, partition.SegmentId,
+                                StringComparison.Ordinal) ||
+                            !string.Equals(authored.OwnerId, partition.OwnerId,
+                                StringComparison.Ordinal) ||
+                            authored.SampleRate != timeline.SampleRate ||
+                            authored.StartSample != partition.StartSample ||
+                            authored.EndSampleExclusive != partition.EndSampleExclusive)
+                            throw new ArgumentException(
+                                "Time-authored metadata differs from its allocation.");
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        issues.Add(new(
+                            SegmentContentIssueKind.InvalidContentEntry,
+                            partition.SegmentId,
+                            ex.Message));
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(partition.ContentRevisionId) ||
+                    string.IsNullOrWhiteSpace(entry.RevisionId) ||
+                    !string.Equals(entry.RevisionId, partition.ContentRevisionId,
+                        StringComparison.Ordinal) ||
+                    entry.TimeAuthoredContent is null ||
+                    !string.Equals(entry.TimeAuthoredContent.RevisionId,
+                        partition.ContentRevisionId, StringComparison.Ordinal))
+                {
+                    issues.Add(new(
+                        SegmentContentIssueKind.RevisionMismatch,
+                        partition.SegmentId,
+                        "Time-authored content must refer to its exact allocated revision."));
                 }
             }
             else

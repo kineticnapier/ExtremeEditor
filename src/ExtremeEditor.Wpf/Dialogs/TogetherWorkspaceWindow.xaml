@@ -183,6 +183,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock Text="自分の担当区間を選んで、メインの譜面編集画面で編集してください。他の人の区間は共有できません。"
                            Foreground="#FF666666" TextWrapping="Wrap" Margin="0,0,0,8"/>
@@ -205,6 +206,35 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+                <Grid Grid.Row="2" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="105"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="75"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="タイルID" VerticalAlignment="Center"/>
+                    <TextBox x:Name="TimeTileIdBox" Grid.Column="1" Margin="5,0,10,0"
+                             ToolTip="空欄なら自動採番"/>
+                    <TextBlock Grid.Column="2" Text="角度" VerticalAlignment="Center"/>
+                    <TextBox x:Name="TimeTileAngleBox" Grid.Column="3" Text="0"
+                             Margin="5,0,10,0" ToolTip="ADOFAI destination angle（度）"/>
+                    <Button x:Name="PlaceTimeTileButton" Grid.Column="4" Content="選択開始へ配置"
+                            Padding="9,4" Margin="0,0,6,0" Click="PlaceTimeTileClick"/>
+                    <Button x:Name="RemoveTimeTileButton" Grid.Column="5" Content="削除"
+                            Padding="9,4" Margin="0,0,6,0" Click="RemoveTimeTileClick"/>
+                    <Button x:Name="UndoTimeTileButton" Grid.Column="6" Content="元に戻す"
+                            Padding="9,4" Margin="0,0,6,0" Click="UndoTimeTileClick"/>
+                    <Button x:Name="RedoTimeTileButton" Grid.Column="7" Content="やり直す"
+                            Padding="9,4" Margin="0,0,8,0" Click="RedoTimeTileClick"/>
+                    <ListBox x:Name="AuthoredTileList" Grid.Column="8" Height="30"
+                             DisplayMemberPath="TileId" ToolTip="選択中区間の実タイル"/>
+                </Grid>
             </Grid>
         </GroupBox>
 

@@ -221,15 +221,57 @@ public sealed class TimeFirstSegmentGitWorkspace
             throw new ArgumentException(
                 "Every active Segment must have exactly one persisted draft.", nameof(snapshot));
 
+        var emptyPartitions = new List<SegmentTimePartition>();
+        var emptyDrafts = new Dictionary<string, SegmentTimeDraft>(StringComparer.Ordinal);
+        var authoredIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (string id in activeIds)
         {
             ValidateSegmentId(id);
             if (!snapshot.Content.TryGetValue(id, out SegmentContentEntry? content) ||
-                content is null || content.Kind != SegmentContentKind.Empty)
+                content is null)
                 throw new ArgumentException(
-                    "Time-first drafts require explicit empty content.", nameof(snapshot));
+                    "Every active time-first Segment requires explicit content.", nameof(snapshot));
+            SegmentTimePartition partition = snapshot.Timeline.Partitions.Single(
+                item => item.SegmentId == id);
+            SegmentTimeDraft draft = snapshot.Drafts[id];
+            if (content.Kind == SegmentContentKind.Empty)
+            {
+                if (snapshot.Authored?.ContainsKey(id) == true)
+                    throw new ArgumentException(
+                        "An explicitly empty Segment cannot also have authored content.", nameof(snapshot));
+                emptyPartitions.Add(partition);
+                emptyDrafts.Add(id, draft);
+            }
+            else if (content.Kind == SegmentContentKind.TimeAuthored &&
+                     content.TimeAuthoredContent is TimeFirstAuthoredSegment embedded)
+            {
+                if (snapshot.Authored is null ||
+                    !snapshot.Authored.TryGetValue(id, out TimeFirstAuthoredSegment? authored))
+                    throw new ArgumentException(
+                        "Time-authored content is absent from the authored map.", nameof(snapshot));
+                TimeFirstSegmentEditorSession.Validate(authored);
+                if (!AuthoredEqual(embedded, authored) ||
+                    !draft.TileAnchors.Select(anchor => (anchor.TileId, anchor.AudioSample))
+                        .SequenceEqual(authored.Tiles.Select(tile =>
+                            (tile.TileId, tile.AudioSample))))
+                    throw new ArgumentException(
+                        "Authored geometry and its persisted draft anchors differ.", nameof(snapshot));
+                authoredIds.Add(id);
+            }
+            else
+            {
+                throw new ArgumentException(
+                    "A time-first workspace cannot contain legacy floor-aligned content.", nameof(snapshot));
+            }
         }
-        _ = SegmentDraftTimeSearchIndex.Build(snapshot.Timeline, snapshot.Drafts);
+        if (snapshot.Authored is not null &&
+            !authoredIds.SetEquals(snapshot.Authored.Keys))
+            throw new ArgumentException(
+                "The authored map contains an unknown or inactive Segment.", nameof(snapshot));
+        if (emptyPartitions.Count != 0)
+            _ = SegmentDraftTimeSearchIndex.Build(
+                new SegmentTimeTimeline(snapshot.Timeline.SampleRate,
+                    Array.AsReadOnly(emptyPartitions.ToArray())), emptyDrafts);
 
         var fileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string id in snapshot.Timeline.Partitions.Select(
@@ -248,6 +290,7 @@ public sealed class TimeFirstSegmentGitWorkspace
         ProjectFile project = ReadProject(projectJson);
         var content = new Dictionary<string, SegmentContentEntry>(StringComparer.Ordinal);
         var drafts = new Dictionary<string, SegmentTimeDraft>(StringComparer.Ordinal);
+        var authored = new Dictionary<string, TimeFirstAuthoredSegment>(StringComparer.Ordinal);
         foreach (string id in project.SegmentIds)
         {
             ValidateSegmentId(id);
@@ -259,7 +302,15 @@ public sealed class TimeFirstSegmentGitWorkspace
                 file.Content is null || file.Draft is null)
                 throw new InvalidDataException(
                     $"Segment '{id}' payload does not match its manifest.");
-            content.Add(id, file.Content with { });
+            SegmentContentEntry entry = file.Content;
+            if (entry.TimeAuthoredContent is TimeFirstAuthoredSegment timeAuthored)
+            {
+                TimeFirstAuthoredSegment frozen =
+                    TimeFirstSegmentEditorSession.Freeze(timeAuthored);
+                authored.Add(id, frozen);
+                entry = entry with { TimeAuthoredContent = frozen };
+            }
+            content.Add(id, entry with { });
             drafts.Add(id, FreezeDraft(file.Draft));
         }
 
@@ -270,7 +321,8 @@ public sealed class TimeFirstSegmentGitWorkspace
                 Array.AsReadOnly(project.Partitions.Select(static partition =>
                     partition with { }).ToArray())),
             new System.Collections.ObjectModel.ReadOnlyDictionary<string, SegmentContentEntry>(content),
-            new System.Collections.ObjectModel.ReadOnlyDictionary<string, SegmentTimeDraft>(drafts));
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, SegmentTimeDraft>(drafts),
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string, TimeFirstAuthoredSegment>(authored));
         try { ValidateSnapshot(snapshot); }
         catch (ArgumentException ex)
         {
@@ -288,6 +340,27 @@ public sealed class TimeFirstSegmentGitWorkspace
             throw new InvalidDataException("Unsupported time-first project schema.");
         foreach (string id in project.SegmentIds) ValidateSegmentId(id);
         return project;
+    }
+
+    private static bool AuthoredEqual(
+        TimeFirstAuthoredSegment left, TimeFirstAuthoredSegment right)
+    {
+        if (left.SegmentId != right.SegmentId || left.OwnerId != right.OwnerId ||
+            left.SampleRate != right.SampleRate || left.StartSample != right.StartSample ||
+            left.EndSampleExclusive != right.EndSampleExclusive ||
+            left.RevisionId != right.RevisionId || left.EntryAngle != right.EntryAngle ||
+            left.Tiles.Count != right.Tiles.Count)
+            return false;
+        for (int i = 0; i < left.Tiles.Count; i++)
+        {
+            TimeFirstAuthoredTile a = left.Tiles[i];
+            TimeFirstAuthoredTile b = right.Tiles[i];
+            if (a.TileId != b.TileId || a.AudioSample != b.AudioSample ||
+                a.DestinationAngle != b.DestinationAngle ||
+                JsonSerializer.Serialize(a.Actions) != JsonSerializer.Serialize(b.Actions))
+                return false;
+        }
+        return true;
     }
 
     private void RequireWorkspace()
