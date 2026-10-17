@@ -302,6 +302,8 @@ public partial class TogetherWorkspaceWindow : Window
 
     private void TogetherWindowClosed(object? sender, EventArgs e)
     {
+        _discordLoginLifetime.Cancel();
+        _discordLoginLifetime.Dispose();
         _previewClosed = true;
         ++_previewLoadVersion;
         _previewTimer.Stop();
