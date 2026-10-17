@@ -79,6 +79,84 @@ public partial class TogetherWorkspaceWindow : Window
         RefreshStatus();
     }
 
+    private readonly CancellationTokenSource _discordLoginLifetime = new();
+    private const string DiscordWorkerOrigin =
+        "https://extremeeditor-together-bundle.stopping-bypass.workers.dev";
+
+    private async void DiscordLoginClick(object sender, RoutedEventArgs e)
+    {
+        DiscordLoginButton.IsEnabled = false;
+        DiscordLoginStatusText.Text = "Discord認証の準備中…";
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var start = new HttpRequestMessage(
+                HttpMethod.Post, DiscordWorkerOrigin + "/auth/desktop/start");
+            using HttpResponseMessage startResponse =
+                await http.SendAsync(start, _discordLoginLifetime.Token);
+            startResponse.EnsureSuccessStatusCode();
+            using var startJson = System.Text.Json.JsonDocument.Parse(
+                await startResponse.Content.ReadAsStringAsync(_discordLoginLifetime.Token));
+            var data = startJson.RootElement;
+            string id = data.GetProperty("id").GetString()
+                ?? throw new InvalidDataException("Missing desktop request ID.");
+            string verifier = data.GetProperty("verifier").GetString()
+                ?? throw new InvalidDataException("Missing desktop verifier.");
+            string loginUrl = data.GetProperty("login_url").GetString()
+                ?? throw new InvalidDataException("Missing Discord login URL.");
+            if (id.Length != 64 || verifier.Length != 64 ||
+                !Uri.TryCreate(loginUrl, UriKind.Absolute, out Uri? authUri) ||
+                authUri.Scheme != Uri.UriSchemeHttps ||
+                authUri.Host != "extremeeditor-together-bundle.stopping-bypass.workers.dev" ||
+                authUri.AbsolutePath != "/auth/discord/start")
+                throw new InvalidDataException("Invalid desktop login response.");
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(loginUrl)
+            {
+                UseShellExecute = true
+            });
+            DiscordLoginStatusText.Text = "ブラウザで認証してください…";
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                _discordLoginLifetime.Token);
+            timeout.CancelAfter(TimeSpan.FromMinutes(5));
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), timeout.Token);
+                using var poll = new HttpRequestMessage(
+                    HttpMethod.Post, DiscordWorkerOrigin + "/auth/desktop/status");
+                poll.Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(new { id, verifier }),
+                    System.Text.Encoding.UTF8, "application/json");
+                using HttpResponseMessage reply = await http.SendAsync(poll, timeout.Token);
+                if (reply.StatusCode == System.Net.HttpStatusCode.Accepted)
+                    continue;
+                reply.EnsureSuccessStatusCode();
+                using var result = System.Text.Json.JsonDocument.Parse(
+                    await reply.Content.ReadAsStringAsync(timeout.Token));
+                string name = result.RootElement.GetProperty("user")
+                    .GetProperty("global_name").ValueKind == System.Text.Json.JsonValueKind.String
+                    ? result.RootElement.GetProperty("user").GetProperty("global_name").GetString()!
+                    : result.RootElement.GetProperty("user").GetProperty("username").GetString()!;
+                DiscordLoginStatusText.Text = "Discord: " + name;
+                break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!_discordLoginLifetime.IsCancellationRequested)
+                DiscordLoginStatusText.Text = "認証時間切れです。もう一度お試しください。";
+        }
+        catch (Exception ex)
+        {
+            DiscordLoginStatusText.Text = "認証失敗: " + ex.Message;
+        }
+        finally
+        {
+            if (!_discordLoginLifetime.IsCancellationRequested)
+                DiscordLoginButton.IsEnabled = true;
+        }
+    }
+
     private async void TogetherWindowLoaded(object sender, RoutedEventArgs e)
     {
         if (_timelineWaveform is not null)
