@@ -39,10 +39,10 @@ function Read-LocalSecret([string]$path) {
 
 try {
     if (-not $EnvFile) {
-        $candidates = @(
+        $candidates = @(@(
             (Join-Path $service ".env"),
             (Join-Path $root ".env")
-        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
         if ($candidates.Count -ne 1) {
             throw "Expected exactly one .env in the repo root or cloudflare/together-bundle. Pass -EnvFile <path> to select explicitly."
         }
