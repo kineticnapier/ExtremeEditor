@@ -106,10 +106,19 @@ internal static class TimeFirstSegmentGitRegression
             throw new InvalidOperationException("Missing E2E guest token.");
 
         Uri room = new(roomUrl, UriKind.Absolute);
-        if (!room.IsLoopback || room.Scheme != Uri.UriSchemeHttp ||
-            !room.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+        bool local = room.IsLoopback && room.Scheme == Uri.UriSchemeHttp;
+        bool dedicatedPublic =
+            room.Scheme == Uri.UriSchemeHttps &&
+            room.Host.Equals("extremeeditor-together-bundle.stopping-bypass.workers.dev",
+                StringComparison.OrdinalIgnoreCase);
+        if ((!local && !dedicatedPublic) ||
+            !room.AbsolutePath.StartsWith("/rooms/", StringComparison.Ordinal) ||
+            !room.AbsolutePath.EndsWith("/", StringComparison.Ordinal) ||
+            !string.IsNullOrEmpty(room.UserInfo) ||
+            !string.IsNullOrEmpty(room.Query) ||
+            !string.IsNullOrEmpty(room.Fragment))
             throw new InvalidOperationException(
-                "Live E2E is restricted to local HTTP loopback rooms.");
+                "Live E2E requires the local loopback server or the dedicated public Worker room.");
 
         string root = Path.Combine(Path.GetTempPath(),
             $"extreme-live-cloud-e2e-{Guid.NewGuid():N}");
