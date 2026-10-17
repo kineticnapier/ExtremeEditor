@@ -200,6 +200,7 @@ public partial class TogetherWorkspaceWindow : Window
             DiscordLoginStatusText.Text = "Discord: " + name;
             if (_timeWorkspace is null) ParticipantNameBox.Text = name;
             RefreshParticipantIdentityUi();
+            if (_timeWorkspace is not null) AutoJoinDiscordOwnedPartitions();
         }
         catch (OperationCanceledException) { }
         catch (Exception)
@@ -314,6 +315,7 @@ public partial class TogetherWorkspaceWindow : Window
                         SegmentOwnerBox.Text = name;
                 }
                 RefreshParticipantIdentityUi();
+                if (_timeWorkspace is not null) AutoJoinDiscordOwnedPartitions();
                 break;
             }
         }
@@ -769,7 +771,7 @@ public partial class TogetherWorkspaceWindow : Window
                 _selectionEndSampleExclusive is not long end || end <= start)
                 throw new InvalidOperationException(
                     "始点と終点を指定し、終点を始点より後にしてください。");
-            string owner = SegmentOwnerBox.Text.Trim();
+            string owner = RequiredDiscordOwnerId();
             if (string.IsNullOrWhiteSpace(owner))
                 throw new ArgumentException("担当者名を入力してください。");
 
@@ -822,7 +824,7 @@ public partial class TogetherWorkspaceWindow : Window
         Safely(() =>
         {
             TogetherSectionPlan plan = RequiredSectionPlan();
-            string owner = SegmentOwnerBox.Text.Trim();
+            string owner = RequiredDiscordOwnerId();
             _sectionPlan = TogetherSectionPlanner.AssignOwner(
                 plan, RequiredPlannedSelection(), owner);
             ApplySectionPlan($"選択した区間の担当者を「{owner}」に設定しました。");
@@ -901,19 +903,27 @@ public partial class TogetherWorkspaceWindow : Window
             Path.GetFileNameWithoutExtension(path) + ".together");
     }
 
+    private string RequiredDiscordOwnerId() =>
+        _discordUserId ?? throw new InvalidOperationException(
+            "Discordでログインしてから操作してください。");
+
     private void RefreshParticipantIdentityUi()
     {
-        // Existing workspaces may use legacy free-form owner IDs.
-        // Discord identity is not yet authoritative for ownership claims.
-        bool creating = CreateWorkspaceButton.Visibility == Visibility.Visible;
-        bool loggedIn = _discordUserId is not null;
-        ParticipantNameBox.IsEnabled = !creating || !loggedIn;
-        ChooseParticipantButton.Visibility =
-            creating ? Visibility.Collapsed : Visibility.Visible;
-        ParticipantNameLabel.Text = creating && loggedIn
-            ? "Discordアカウント" : "参加者名（従来方式）";
-        if (creating && loggedIn && _discordDisplayName is not null)
-            ParticipantNameBox.Text = _discordDisplayName;
+        ParticipantNameLabel.Text = "Discordアカウント";
+        DiscordIdentityLabel.Text = _discordDisplayName is null || _discordUserId is null
+            ? "未ログイン" : _discordDisplayName + " (" + _discordUserId + ")";
+        ParticipantNameBox.Text = _discordUserId ?? "";
+        SegmentOwnerBox.Text = _discordUserId ?? "";
+    }
+
+    private void AutoJoinDiscordOwnedPartitions()
+    {
+        _timeOwnerId = null;
+        if (_timeSnapshot is null || _discordUserId is null) return;
+        if (_timeSnapshot.Timeline.Partitions.Any(partition =>
+            partition.Status == SegmentPartitionStatus.Active &&
+            string.Equals(partition.OwnerId, _discordUserId, StringComparison.Ordinal)))
+            _timeOwnerId = _discordUserId;
     }
 
     private void ShowSetup(bool forCreation)
@@ -958,7 +968,12 @@ public partial class TogetherWorkspaceWindow : Window
             RefuseWorkspaceReplacement();
             string workspacePath = RequiredPath(
                 WorkspacePathBox.Text, "保存先フォルダー");
+            string owner = RequiredDiscordOwnerId();
             TogetherSectionPlan plan = RequiredSectionPlan();
+            foreach (TogetherSection section in plan.Sections.Where(section =>
+                string.IsNullOrWhiteSpace(section.OwnerName)).ToArray())
+                plan = TogetherSectionPlanner.AssignOwner(plan, section.InternalId, owner);
+            _sectionPlan = plan;
             TogetherSection? missing = plan.Sections.FirstOrDefault(
                 section => string.IsNullOrWhiteSpace(section.OwnerName));
             if (missing is not null)
@@ -971,7 +986,8 @@ public partial class TogetherWorkspaceWindow : Window
             _plannedTimeline = TogetherSectionPlanner.FinalizeTimeline(plan);
             // Until Discord ID ownership migration, the section plan keeps
             // its original owner IDs. Never silently rewrite existing assignments.
-            string owner = plan.Sections[0].OwnerName!;
+            if (!string.Equals(plan.Sections[0].OwnerName, owner, StringComparison.Ordinal))
+                throw new InvalidOperationException("最初の区間を自分のDiscordアカウントに割り当ててください。");
             string marker = Path.Combine(workspacePath, "time-first-workspace.json");
             if (Directory.Exists(workspacePath) && File.Exists(marker))
             {
@@ -1002,7 +1018,8 @@ public partial class TogetherWorkspaceWindow : Window
                 _notice = "共同編集を作成しました。空の区間もそのまま保存されています。";
             }
             SetupPanel.Visibility = Visibility.Collapsed;
-            ParticipantNameBox.Text = owner;
+            _timeOwnerId = owner;
+            _notice += " Discordアカウントで自動参加しました。";
 
         });
 
@@ -1015,12 +1032,15 @@ public partial class TogetherWorkspaceWindow : Window
             if (timeFirst)
             {
                 OpenTimeFirstWorkspace(path);
-                _notice =
-                    "共同編集を開きました。参加者名を選んで「この名前で編集」を押してください。";
+                AutoJoinDiscordOwnedPartitions();
+                _notice = _timeOwnerId is null
+                    ? "共同編集を開きました。Discord IDの担当区間がないため閲覧のみです。"
+                    : "Discordアカウントで自動参加しました。";
+                SetupPanel.Visibility = Visibility.Collapsed;
             }
             else
             {
-                string owner = RequiredOwner();
+                string owner = RequiredDiscordOwnerId();
                 _controller.Open(path, ReadSourceTemplate(), owner);
                 LoadIntoEditor();
                 _notice = "共同編集に参加しました。自分の担当区間を選んで編集してください。";
@@ -1050,7 +1070,8 @@ public partial class TogetherWorkspaceWindow : Window
             OpenTimeFirstWorkspace(folder);
             CloudRoomUrlBox.Text = rawUrl;
             CloudMemberTokenBox.Password = token;
-            _notice = "クラウドから共同編集を取得しました。参加者名で担当者を選び「この名前で編集」を押してください。";
+            AutoJoinDiscordOwnedPartitions();
+            _notice = _timeOwnerId is null ? "取得しました。Discord IDの担当区間がありません。" : "取得して自動参加しました。";
         });
 
     private void CloneWorkspaceClick(object sender, RoutedEventArgs e) =>
@@ -1062,26 +1083,8 @@ public partial class TogetherWorkspaceWindow : Window
             TimeFirstSegmentGitWorkspace cloned =
                 TimeFirstSegmentGitRemoteSync.CloneLocalBare(remote, destination);
             OpenTimeFirstWorkspace(cloned.Directory);
-            _notice = "共同編集を複製しました。参加者名を選んでください。";
-        });
-
-    private void ChooseParticipantClick(object sender, RoutedEventArgs e) =>
-        Safely(() =>
-        {
-            string owner = RequiredOwner();
-            if (_timeSnapshot is null)
-                throw new InvalidOperationException("先に既存の共同編集を開いてください。");
-            if (!_timeSnapshot.Timeline.Partitions.Any(partition =>
-                    partition.Status == SegmentPartitionStatus.Active &&
-                    string.Equals(partition.OwnerId, owner, StringComparison.Ordinal)))
-                throw new ArgumentException(
-                    "その名前の担当区間はありません。担当者一覧から自分の名前を選んでください。");
-            RefuseUnsafeTimeEditorSwitch();
-            _timeOwnerId = owner;
-            _timeSelectedSegmentId = null;
-            _timeEditor = null;
-            SetupPanel.Visibility = Visibility.Collapsed;
-            _notice = $"「{owner}」として参加しました。自分の担当区間を選ぶと編集できます。";
+            AutoJoinDiscordOwnedPartitions();
+            _notice = _timeOwnerId is null ? "複製しました。Discord IDの担当区間がありません。" : "複製して自動参加しました。";
         });
 
     /// <summary>
@@ -1889,7 +1892,7 @@ public partial class TogetherWorkspaceWindow : Window
 
     private string RequiredOwner()
     {
-        string owner = ParticipantNameBox.Text.Trim();
+        string owner = RequiredDiscordOwnerId();
         if (string.IsNullOrWhiteSpace(owner))
             throw new ArgumentException("参加者一覧から自分の名前を選択してください。");
         return owner;
@@ -2059,9 +2062,7 @@ public partial class TogetherWorkspaceWindow : Window
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static owner => owner, StringComparer.Ordinal)
             .ToArray();
-        string previous = ParticipantNameBox.Text;
-        ParticipantNameBox.ItemsSource = names;
-        ParticipantNameBox.Text = previous;
+        ParticipantNameBox.Text = _discordUserId ?? string.Empty;
     }
 
     private static string ComputeSha256(string path)
