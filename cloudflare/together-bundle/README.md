@@ -45,6 +45,36 @@ application with development-only Cloudflare fields prefilled.
 This test does not verify WPF GUI interaction or supply production server-side
 Git authorization. A successful E2E run is **not** a production security audit.
 
+## Discord OAuth2 browser bootstrap (Stage A)
+
+The existing Discord Application uses Client ID `1558905252282114178`.
+Configure the following exact redirect URI in Discord Developer Portal:
+
+`https://extremeeditor-together-bundle.stopping-bypass.workers.dev/auth/discord/callback`
+
+Store the OAuth2 client secret exclusively in the Worker:
+
+```powershell
+npx wrangler secret put DISCORD_CLIENT_SECRET
+```
+
+After running `npm test` and `npx wrangler deploy`, visit:
+
+`https://extremeeditor-together-bundle.stopping-bypass.workers.dev/auth/discord/start`
+
+This starts a browser authorization-code flow scoped to `identify` and sets
+short-lived HttpOnly Secure SameSite=Lax cookies. `GET /auth/me` returns
+the authenticated Discord user's public profile; `POST /auth/logout` clears
+the browser session (same-origin only).
+
+**Stage A boundary:** Browser verification is not WPF login yet. No OAuth
+credential, cookie or Discord identity grants access to existing
+`/rooms/:id/bundle` or `/rooms/:id/submissions/:member` endpoints.
+Those continue to use the current room bearer capability until the
+room-membership and desktop session designs are implemented. Do not distribute
+Discord OAuth secrets or the room master key to desktop clients. Avoid creating
+production rooms based solely on OAuth login.
+
 ## Manual setup
 
 1. Create an R2 bucket named `extremeeditor-together-bundles`.
