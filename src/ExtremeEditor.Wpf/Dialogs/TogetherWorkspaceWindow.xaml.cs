@@ -141,6 +141,7 @@ public partial class TogetherWorkspaceWindow : Window
         PreviewAudioStatusText.Text = "試聴エンジンを準備中…";
         AudioPlayer? preview = null;
         string? previewError = null;
+        double previewVolume = PreviewVolumeSlider.Value;
         try
         {
             preview = await Task.Run(() =>
@@ -149,7 +150,7 @@ public partial class TogetherWorkspaceWindow : Window
                 try
                 {
                     // Avoid the unattenuated 100% output used by default.
-                    player.SongVolumePercent = 25.0;
+                    player.SongVolumePercent = previewVolume;
                     player.Load(fullPath);
                     return player;
                 }
@@ -242,6 +243,12 @@ public partial class TogetherWorkspaceWindow : Window
             return;
         e.Handled = true;
         Safely(PreviewTogglePlayback);
+    }
+
+    private void PreviewVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_previewPlayer is not null)
+            _previewPlayer.SongVolumePercent = e.NewValue;
     }
 
     private void PreviewPlayPauseClick(object sender, RoutedEventArgs e) =>
