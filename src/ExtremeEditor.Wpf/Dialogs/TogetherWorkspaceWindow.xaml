@@ -175,6 +175,13 @@
                             Click="PreviewPlayPauseClick" IsEnabled="False"/>
                     <Button x:Name="PreviewStopButton" Content="停止 ■" Padding="14,4"
                             Margin="6,0,0,0" Click="PreviewStopClick" IsEnabled="False"/>
+                    <TextBlock Text="試聴音量" Margin="14,0,5,0" VerticalAlignment="Center"/>
+                    <Slider x:Name="PreviewVolumeSlider" Minimum="0" Maximum="100"
+                            Value="25" Width="110" VerticalAlignment="Center"
+                            ValueChanged="PreviewVolumeChanged"
+                            ToolTip="共同編集の試聴音量（本体の再生音量とは独立）"/>
+                    <TextBlock Width="42" Margin="5,0,0,0" VerticalAlignment="Center"
+                               Text="{Binding ElementName=PreviewVolumeSlider, Path=Value, StringFormat={}{0:0}%}"/>
                     <CheckBox x:Name="PreviewLoopCheckBox" Content="選択区間をループ"
                               Margin="16,0,0,0" VerticalAlignment="Center"
                               ToolTip="始点・終点で選択した範囲、または担当区間をループ"/>
