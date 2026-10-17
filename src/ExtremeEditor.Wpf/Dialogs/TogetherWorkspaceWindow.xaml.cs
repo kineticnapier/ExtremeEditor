@@ -148,6 +148,8 @@ public partial class TogetherWorkspaceWindow : Window
                 var player = new AudioPlayer(loadHitSoundAssets: false);
                 try
                 {
+                    // Avoid the unattenuated 100% output used by default.
+                    player.SongVolumePercent = 25.0;
                     player.Load(fullPath);
                     return player;
                 }
@@ -1230,9 +1232,9 @@ public partial class TogetherWorkspaceWindow : Window
                 {
                     CommitTimeEditor();
                 }
-                // No automatic Pull/rebase. Non-FF Push leaves committed work intact.
-                string timePublished = TimeFirstSegmentGitRemoteSync.Push(_timeWorkspace);
-                _notice = $"時間区間の編集を共有しました（{ShortSha(timePublished)}）。";
+                // Cloudflare proposals are explicit and member-scoped. Do not
+                // accidentally invoke the unrelated local-bare Git transport.
+                _notice = "区間の変更をローカル履歴に保存しました。クラウドへ送るには「自分の変更を提出」を押してください。";
                 return;
             }
             TogetherWorkspaceDisplay current = _controller.Display;
