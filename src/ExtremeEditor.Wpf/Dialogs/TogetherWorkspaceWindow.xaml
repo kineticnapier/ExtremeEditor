@@ -412,6 +412,16 @@
                         <Button Content="取得・検証・統合" Click="MergeProposalClick"
                                 Style="{StaticResource SecondaryTogetherButton}"/>
                     </StackPanel>
+                    <GroupBox Header="Discord参加者（Stage B）" Margin="0,8,0,8" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="上のCloudflareルームURLと認証トークンで接続します。Discordログインも必要です。"
+                                       TextWrapping="Wrap" Margin="0,0,0,5"/>
+                            <Button x:Name="RefreshPresenceButton" Content="オンライン参加者を更新"
+                                    HorizontalAlignment="Left" Padding="10,5" Click="RefreshRoomPresenceClick"/>
+                            <TextBlock x:Name="RoomPresenceStatusText" Text="未接続" Margin="0,5"/>
+                            <ListBox x:Name="RoomPresenceList" Height="95"/>
+                        </StackPanel>
+                    </GroupBox>
                     <TextBlock Text="未確定の提出物は担当区間を検証してから統合します。サーバー側検証は未対応です。"
                                TextWrapping="Wrap" Margin="0,0,0,4"/>
                     <Separator Margin="0,9"/>
