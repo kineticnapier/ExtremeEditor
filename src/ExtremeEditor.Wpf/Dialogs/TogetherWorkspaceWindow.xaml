@@ -40,6 +40,8 @@
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <Button x:Name="DiscordLoginButton" Content="Discordでログイン"
                         Click="DiscordLoginClick" Padding="10,5"/>
+                <Button x:Name="DiscordLogoutButton" Content="ログアウト"
+                        Click="DiscordLogoutClick" Padding="10,5" Margin="8,0,0,0"/>
                 <TextBlock x:Name="DiscordLoginStatusText" Text="未ログイン"
                            Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
