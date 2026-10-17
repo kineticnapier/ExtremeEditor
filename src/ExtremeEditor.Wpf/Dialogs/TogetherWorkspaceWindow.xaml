@@ -79,7 +79,7 @@
                 <TextBlock Text="保存先フォルダー" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center"/>
                 <TextBox x:Name="WorkspacePathBox" Grid.Column="1" Grid.Row="0" Margin="5,2"
                          ToolTip="作成時は新しい空フォルダー、参加時は既存のTogether作業フォルダーのパス"/>
-                <TextBlock Text="参加者名" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
+                <TextBlock x:Name="ParticipantNameLabel" Text="参加者名（従来方式）" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
                 <DockPanel Grid.Column="1" Grid.Row="1" Margin="5,2">
                     <Button x:Name="ChooseParticipantButton" Content="この名前で編集"
                             DockPanel.Dock="Right" Margin="6,0,0,0" Padding="10,4"
