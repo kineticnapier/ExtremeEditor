@@ -79,13 +79,91 @@ public partial class TogetherWorkspaceWindow : Window
             UpdatePreviewHead();
         };
         _previewTimer.Tick += PreviewTimerTick;
+        _roomPresenceTimer.Tick += async (_, _) => await RefreshRoomPresenceAsync();
+
         RefreshStatus();
         _ = RestoreDiscordLoginAsync();
     }
 
+    private readonly DispatcherTimer _roomPresenceTimer = new()
+    {
+        Interval = TimeSpan.FromSeconds(25)
+    };
+    private bool _roomPresenceBusy;
+
     private readonly CancellationTokenSource _discordLoginLifetime = new();
     private const string DiscordWorkerOrigin =
         "https://extremeeditor-together-bundle.stopping-bypass.workers.dev";
+
+    private async void RefreshRoomPresenceClick(object sender, RoutedEventArgs e)
+    {
+        _roomPresenceTimer.Stop();
+        await RefreshRoomPresenceAsync();
+    }
+
+    private async Task RefreshRoomPresenceAsync()
+    {
+        if (_roomPresenceBusy || _discordLoginLifetime.IsCancellationRequested) return;
+        string? session = _discordSession;
+        if (session is null)
+        {
+            RoomPresenceStatusText.Text = "先にDiscordへログインしてください。";
+            return;
+        }
+        string input = CloudRoomUrlBox.Text.Trim();
+        string bearer = CloudMemberTokenBox.Password.Trim();
+        if (!Uri.TryCreate(input, UriKind.Absolute, out Uri? uri) ||
+            uri.Scheme != Uri.UriSchemeHttps ||
+            uri.Host != "extremeeditor-together-bundle.stopping-bypass.workers.dev" ||
+            !System.Text.RegularExpressions.Regex.IsMatch(uri.AbsolutePath,
+                @"^/rooms/[A-Za-z0-9_-]{12,80}/?$") ||
+            string.IsNullOrWhiteSpace(bearer))
+        {
+            RoomPresenceStatusText.Text = "CloudflareルームURLと認証トークンを設定してください。";
+            return;
+        }
+        _roomPresenceBusy = true;
+        RefreshPresenceButton.IsEnabled = false;
+        try
+        {
+            string endpoint = uri.GetLeftPart(UriPartial.Path).TrimEnd('/') + "/presence";
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            message.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+            message.Content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { session }),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await http.SendAsync(message, _discordLoginLifetime.Token);
+            response.EnsureSuccessStatusCode();
+            using var data = System.Text.Json.JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(_discordLoginLifetime.Token));
+            var members = data.RootElement.GetProperty("members")
+                .EnumerateArray().Select(item =>
+                {
+                    var user = item.GetProperty("user");
+                    var display = user.GetProperty("global_name");
+                    string name = display.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? display.GetString()! : user.GetProperty("username").GetString()!;
+                    return name + " (" + item.GetProperty("member").GetString() + ") · オンライン";
+                }).ToArray();
+            RoomPresenceList.ItemsSource = members;
+            RoomPresenceStatusText.Text = "オンライン " + members.Length + " 人";
+            _roomPresenceTimer.Start();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _roomPresenceTimer.Stop();
+            RoomPresenceStatusText.Text = "参加者の取得に失敗: " + ex.Message;
+        }
+        finally
+        {
+            _roomPresenceBusy = false;
+            if (!_discordLoginLifetime.IsCancellationRequested)
+                RefreshPresenceButton.IsEnabled = true;
+        }
+    }
 
     private async Task RestoreDiscordLoginAsync()
     {
@@ -400,6 +478,7 @@ public partial class TogetherWorkspaceWindow : Window
 
     private void TogetherWindowClosed(object? sender, EventArgs e)
     {
+        _roomPresenceTimer.Stop();
         _discordLoginLifetime.Cancel();
         _discordLoginLifetime.Dispose();
         _previewClosed = true;
