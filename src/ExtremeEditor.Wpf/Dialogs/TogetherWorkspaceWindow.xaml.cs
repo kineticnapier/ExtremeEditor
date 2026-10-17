@@ -26,6 +26,7 @@ public partial class TogetherWorkspaceWindow : Window
     private TimeFirstSegmentGitWorkspace? _timeWorkspace;
     private TimeFirstSegmentSnapshot? _timeSnapshot;
     private string? _timeOwnerId;
+    private string? _discordSession;
     private string? _discordUserId;
     private string? _discordDisplayName;
     private string? _timeSelectedSegmentId;
@@ -79,11 +80,87 @@ public partial class TogetherWorkspaceWindow : Window
         };
         _previewTimer.Tick += PreviewTimerTick;
         RefreshStatus();
+        _ = RestoreDiscordLoginAsync();
     }
 
     private readonly CancellationTokenSource _discordLoginLifetime = new();
     private const string DiscordWorkerOrigin =
         "https://extremeeditor-together-bundle.stopping-bypass.workers.dev";
+
+    private async Task RestoreDiscordLoginAsync()
+    {
+        string? session = DiscordDesktopSessionStore.Load();
+        if (session is null) return;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var payload = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { session }),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await http.PostAsync(
+                DiscordWorkerOrigin + "/auth/desktop/me", payload, _discordLoginLifetime.Token);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                DiscordDesktopSessionStore.Clear();
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            using var json = System.Text.Json.JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(_discordLoginLifetime.Token));
+            var user = json.RootElement.GetProperty("user");
+            string id = user.GetProperty("id").GetString()!;
+            if (!System.Text.RegularExpressions.Regex.IsMatch(id, @"^\d{16,22}$"))
+                throw new InvalidDataException("Invalid Discord identity.");
+            string name = user.GetProperty("global_name").ValueKind ==
+                System.Text.Json.JsonValueKind.String
+                ? user.GetProperty("global_name").GetString()!
+                : user.GetProperty("username").GetString()!;
+            if (_discordLoginLifetime.IsCancellationRequested) return;
+            _discordSession = session;
+            _discordUserId = id;
+            _discordDisplayName = name;
+            DiscordLoginStatusText.Text = "Discord: " + name;
+            if (_timeWorkspace is null) ParticipantNameBox.Text = name;
+            RefreshParticipantIdentityUi();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            if (!_discordLoginLifetime.IsCancellationRequested)
+                DiscordLoginStatusText.Text = "Discord認証の復元に失敗（再接続で確認）";
+            // A transient network failure must not erase a valid session.
+        }
+    }
+
+    private async void DiscordLogoutClick(object sender, RoutedEventArgs e)
+    {
+        string? session = _discordSession ?? DiscordDesktopSessionStore.Load();
+        if (session is not null)
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                using var payload = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(new { session }),
+                    System.Text.Encoding.UTF8, "application/json");
+                using var response = await http.PostAsync(
+                    DiscordWorkerOrigin + "/auth/desktop/logout", payload);
+                response.EnsureSuccessStatusCode();
+            }
+            catch (Exception ex)
+            {
+                DiscordLoginStatusText.Text = "ログアウト通信失敗: " + ex.Message;
+                return;
+            }
+        }
+        DiscordDesktopSessionStore.Clear();
+        _discordSession = null;
+        _discordUserId = null;
+        _discordDisplayName = null;
+        DiscordLoginStatusText.Text = "未ログイン";
+        ParticipantNameBox.IsEnabled = true;
+        RefreshParticipantIdentityUi();
+    }
 
     private async void DiscordLoginClick(object sender, RoutedEventArgs e)
     {
@@ -144,6 +221,10 @@ public partial class TogetherWorkspaceWindow : Window
                     ?? throw new InvalidDataException("Missing Discord user ID.");
                 if (!System.Text.RegularExpressions.Regex.IsMatch(discordId, @"^\d{16,22}$"))
                     throw new InvalidDataException("Invalid Discord user ID.");
+                string session = result.RootElement.GetProperty("session").GetString()
+                    ?? throw new InvalidDataException("Missing desktop session.");
+                DiscordDesktopSessionStore.Save(session);
+                _discordSession = session;
                 _discordUserId = discordId;
                 _discordDisplayName = name;
                 DiscordLoginStatusText.Text = "Discord: " + name;
