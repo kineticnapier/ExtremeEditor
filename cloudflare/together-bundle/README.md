@@ -75,6 +75,15 @@ redemption. WPF displays the Discord username after the browser completes OAuth.
 The profile is only displayed locally in this first iteration; it is **not** a
 room authorization session, and the UI does not yet persist a desktop login.
 
+**Persistent desktop login (prototype):** After a successful one-time handoff,
+the server issues a random, revocable 30-day desktop session. WPF protects
+the session handle with Windows DPAPI (CurrentUser) in the user's local
+ExtremeEditor application data, checks it against `POST /auth/desktop/me`
+when opening Together, and calls `POST /auth/desktop/logout` to revoke it.
+Temporary network errors never silently delete a valid stored session.
+Only identity is retained; existing room bearer-token authorization is
+unchanged. This is not Discord token persistence.
+
 **Stage A boundary:** Browser verification is not yet room membership. No OAuth
 credential, cookie or Discord identity grants access to existing
 `/rooms/:id/bundle` or `/rooms/:id/submissions/:member` endpoints.
