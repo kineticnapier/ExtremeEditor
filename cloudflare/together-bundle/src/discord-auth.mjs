@@ -1,3 +1,4 @@
+import { completeDesktopHandoff } from "./desktop-handoff.mjs";
 // Browser OAuth bootstrap only. Does not grant room privileges.
 const CLIENT_ID = "1558905252282114178";
 const CALLBACK_PATH = "/auth/discord/callback";
@@ -67,14 +68,18 @@ export async function handleDiscordAuth(request, env) {
     return response("Method not allowed", 405);
   if (url.pathname === "/auth/discord/start") {
     const state = randomToken();
+    const desktop = url.searchParams.get("desktop");
+    if (desktop !== null && !/^[0-9a-f]{64}$/.test(desktop)) return response("Invalid login request",400);
     const authorize = new URL("https://discord.com/oauth2/authorize");
     authorize.search = new URLSearchParams({
       response_type: "code", client_id: CLIENT_ID, redirect_uri: callbackUrl(url),
       scope: "identify", state, prompt: "consent"
     }).toString();
-    return response(null,302,{
-      Location: authorize.toString(), "Set-Cookie": cookie("ee_oauth_state",state,300)
-    });
+    const headers=new Headers({Location:authorize.toString(),"Cache-Control":"no-store"});
+    headers.append("Set-Cookie",cookie("ee_oauth_state",state,300));
+    if(desktop) headers.append("Set-Cookie",cookie("ee_oauth_desktop",desktop,300));
+    else headers.append("Set-Cookie",cookie("ee_oauth_desktop","",0));
+    return new Response(null,{status:302,headers});
   }
   if (url.pathname === CALLBACK_PATH) {
     const c = cookies(request);
@@ -105,6 +110,10 @@ export async function handleDiscordAuth(request, env) {
       const user = await profile.json();
       if (!/^\d{16,22}$/.test(user.id) || typeof user.username !== "string")
         return response("Unexpected Discord identity",502,{"Set-Cookie":clear});
+      if (c.ee_oauth_desktop) {
+        const transferred = await completeDesktopHandoff(env,c.ee_oauth_desktop,user);
+        if (!transferred) return response("Desktop login request expired",410,{"Set-Cookie":clear});
+      }
       const session = await encodeSession(env.TOGETHER_BUNDLE_MASTER_KEY,user);
       const name = escapeHtml(user.global_name || user.username);
       const headers = new Headers({
@@ -113,8 +122,9 @@ export async function handleDiscordAuth(request, env) {
         "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'"
       });
       headers.append("Set-Cookie",clear);
+      headers.append("Set-Cookie",cookie("ee_oauth_desktop","",0));
       headers.append("Set-Cookie",cookie("ee_session",session,3600));
-      return new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><title>ExtremeEditor Together</title><body><h2>Discord認証成功</h2><p>${name} としてログインしました。</p><p>ブラウザを閉じてください。WPFとの連携は次の実装段階です。</p></body></html>`,{status:200,headers});
+      return new Response(`<!doctype html><html lang="ja"><meta charset="utf-8"><title>ExtremeEditor Together</title><body><h2>Discord認証成功</h2><p>${name} としてログインしました。</p><p>ブラウザを閉じてExtremeEditorに戻ってください。</p></body></html>`,{status:200,headers});
     } catch {
       return response("Discord login temporarily unavailable",502,{"Set-Cookie":clear});
     }
