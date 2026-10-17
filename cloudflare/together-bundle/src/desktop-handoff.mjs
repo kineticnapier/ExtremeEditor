@@ -48,7 +48,7 @@ export async function handleDesktopHandoffStorage(request,storage) {
   const now=Date.now();
   if(path==="/_desktop/create") {
     if (!valid(data.verifierHash)) return json({error:"invalid_request"},400);
-    await storage.put(key,{verifierHash:data.verifierHash,expiry:now+300000,completed:false},{expirationTtl:600});
+    await storage.put(key,{verifierHash:data.verifierHash,expiry:now+300000,completed:false});
     return json({ok:true});
   }
   const entry=await storage.get(key);
@@ -58,7 +58,7 @@ export async function handleDesktopHandoffStorage(request,storage) {
   }
   if(path==="/_desktop/complete"){
     if(entry.completed || !/^\d{16,22}$/.test(data.user?.id||"")) return json({error:"invalid_request"},400);
-    await storage.put(key,{...entry,completed:true,user:data.user},{expirationTtl:600});
+    await storage.put(key,{...entry,completed:true,user:data.user});
     return json({ok:true});
   }
   if(data.verifierHash!==entry.verifierHash) return json({error:"unauthorized"},401);
