@@ -37,6 +37,12 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
             <TextBlock Text="共同編集" FontSize="22" FontWeight="SemiBold"/>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="DiscordLoginButton" Content="Discordでログイン"
+                        Click="DiscordLoginClick" Padding="10,5"/>
+                <TextBlock x:Name="DiscordLoginStatusText" Text="未ログイン"
+                           Margin="10,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
             <TextBlock x:Name="ProjectOverviewText"
                        Text="音源または既存の譜面を選び、曲を区切って担当者を決めるだけで共同制作を始められます。"
                        TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#FF555555"/>
