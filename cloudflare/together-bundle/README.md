@@ -67,7 +67,15 @@ short-lived HttpOnly Secure SameSite=Lax cookies. `GET /auth/me` returns
 the authenticated Discord user's public profile; `POST /auth/logout` clears
 the browser session (same-origin only).
 
-**Stage A boundary:** Browser verification is not WPF login yet. No OAuth
+**Stage A desktop bridge:** WPF now initiates a one-time desktop handoff via
+`POST /auth/desktop/start`, opens the browser authorization page, and polls
+`POST /auth/desktop/status` with a secret verifier. A Durable Object stores
+the temporary request for up to five minutes and deletes it after one successful
+redemption. WPF displays the Discord username after the browser completes OAuth.
+The profile is only displayed locally in this first iteration; it is **not** a
+room authorization session, and the UI does not yet persist a desktop login.
+
+**Stage A boundary:** Browser verification is not yet room membership. No OAuth
 credential, cookie or Discord identity grants access to existing
 `/rooms/:id/bundle` or `/rooms/:id/submissions/:member` endpoints.
 Those continue to use the current room bearer capability until the
