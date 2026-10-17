@@ -1,6 +1,7 @@
 import { handleDiscordAuth } from "./discord-auth.mjs";
 import { handleDesktopHandoff, handleDesktopHandoffStorage } from "./desktop-handoff.mjs";
 import { authorizeMember } from "./member-auth.mjs";
+import { handleRoomPresence, handleRoomPresenceStorage } from "./room-presence.mjs";
 const LIMIT = 32 * 1024 * 1024;
 const ROOM_RE = /^[a-zA-Z0-9_-]{12,80}$/;
 
@@ -8,6 +9,8 @@ export default {
   async fetch(request, env) {
     const desktopResponse = await handleDesktopHandoff(request,env);
     if (desktopResponse) return desktopResponse;
+    const presenceResponse = await handleRoomPresence(request,env,authorizeMember);
+    if (presenceResponse) return presenceResponse;
     const authResponse = await handleDiscordAuth(request, env);
     if (authResponse) return authResponse;
     const url = new URL(request.url);
@@ -70,6 +73,8 @@ export class BundleRoom {
   }
 
   async fetch(request) {
+    const presence = await handleRoomPresenceStorage(request,this.state.storage);
+    if (presence) return presence;
     const desktop = await handleDesktopHandoffStorage(request,this.state.storage);
     if (desktop) return desktop;
     const match = /^\/rooms\/[^/]+\/(bundle|submissions\/([A-Za-z0-9_-]{1,64}))$/.exec(new URL(request.url).pathname);
