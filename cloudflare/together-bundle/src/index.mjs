@@ -1,9 +1,12 @@
+import { handleDiscordAuth } from "./discord-auth.mjs";
 import { authorizeMember } from "./member-auth.mjs";
 const LIMIT = 32 * 1024 * 1024;
 const ROOM_RE = /^[a-zA-Z0-9_-]{12,80}$/;
 
 export default {
   async fetch(request, env) {
+    const authResponse = await handleDiscordAuth(request, env);
+    if (authResponse) return authResponse;
     const url = new URL(request.url);
     const match = /^\/rooms\/([^/]+)\/(bundle|submissions\/([A-Za-z0-9_-]{1,64}))$/.exec(url.pathname);
     if (!match || !ROOM_RE.test(match[1])) return new Response("Not found", { status: 404 });
