@@ -8,10 +8,18 @@ async function hash(value) {
 }
 export async function handleDesktopHandoff(request,env) {
   const url = new URL(request.url);
-  if (!["/auth/desktop/start","/auth/desktop/status"].includes(url.pathname)) return null;
+  if (!["/auth/desktop/start","/auth/desktop/status","/auth/desktop/me","/auth/desktop/logout"].includes(url.pathname)) return null;
   if (request.method !== "POST") return json({error:"method_not_allowed"},405);
   if (!env.ROOMS || !env.DISCORD_CLIENT_SECRET) return json({error:"unavailable"},503);
   const stub = env.ROOMS.get(env.ROOMS.idFromName("desktop-auth-v1"));
+  if (url.pathname === "/auth/desktop/me" || url.pathname === "/auth/desktop/logout") {
+    let payload;
+    try { payload=await request.json(); } catch { return json({error:"invalid_request"},400); }
+    if (!valid(payload?.session)) return json({error:"invalid_request"},400);
+    return stub.fetch("https://internal.invalid/_desktop/"+(url.pathname.endsWith("logout")?"logout":"me"),{
+      method:"POST",body:JSON.stringify({sessionHash:await hash(payload.session)})
+    });
+  }
   if (url.pathname === "/auth/desktop/start") {
     const id=secret(), verifier=secret();
     const result=await stub.fetch("https://internal.invalid/_desktop/create",{
@@ -39,10 +47,21 @@ export async function completeDesktopHandoff(env,id,user) {
 }
 export async function handleDesktopHandoffStorage(request,storage) {
   const path=new URL(request.url).pathname;
-  if (!["/_desktop/create","/_desktop/poll","/_desktop/complete"].includes(path) ||
+  if (!["/_desktop/create","/_desktop/poll","/_desktop/complete","/_desktop/me","/_desktop/logout"].includes(path) ||
       request.method!=="POST") return null;
   let data;
   try { data=await request.json(); } catch { return json({error:"invalid_request"},400); }
+  if (path==="/_desktop/me" || path==="/_desktop/logout") {
+    if(!valid(data?.sessionHash)) return json({error:"invalid_request"},400);
+    const sessionKey="desktop-session:"+data.sessionHash;
+    const session=await storage.get(sessionKey);
+    if(!session || session.expiry<=Date.now()) {
+      if(session) await storage.delete(sessionKey);
+      return json({error:"unauthorized"},401);
+    }
+    if(path==="/_desktop/logout") { await storage.delete(sessionKey);return json({ok:true}); }
+    return json({user:session.user,expires_at:session.expiry});
+  }
   if (!valid(data?.id)) return json({error:"invalid_request"},400);
   const key="desktop:"+data.id;
   const now=Date.now();
@@ -63,6 +82,9 @@ export async function handleDesktopHandoffStorage(request,storage) {
   }
   if(data.verifierHash!==entry.verifierHash) return json({error:"unauthorized"},401);
   if(!entry.completed) return json({status:"pending"},202);
+  const session=secret();
+  const expiry=now+30*24*60*60*1000;
+  await storage.put("desktop-session:"+await hash(session),{user:entry.user,expiry});
   await storage.delete(key);
-  return json({status:"complete",user:entry.user});
+  return json({status:"complete",user:entry.user,session,expires_at:expiry});
 }
