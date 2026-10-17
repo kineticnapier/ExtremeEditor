@@ -35,3 +35,20 @@ test("expired handoff is rejected and deleted",async()=>{
   assert.equal((await act(store,"/_desktop/poll",{id,verifierHash})).status,410);
   assert.equal(await store.get("desktop:"+id),undefined);
 });
+
+test("issued long-lived session validates and can be revoked",async()=>{
+  const store=storage();
+  await act(store,"/_desktop/create",{id,verifierHash});
+  await act(store,"/_desktop/complete",{id,user:{
+    id:"1558905252282114178",username:"Test",global_name:"Example",avatar:null
+  }});
+  const response=await act(store,"/_desktop/poll",{id,verifierHash});
+  const complete=await response.json();
+  assert.match(complete.session,/^[0-9a-f]{64}$/);
+  const crypto=await import("node:crypto");
+  const sessionHash=crypto.createHash("sha256").update(complete.session).digest("hex");
+  const me=await act(store,"/_desktop/me",{id,sessionHash});
+  assert.equal((await me.json()).user.id,"1558905252282114178");
+  assert.equal((await act(store,"/_desktop/logout",{id,sessionHash})).status,200);
+  assert.equal((await act(store,"/_desktop/me",{id,sessionHash})).status,401);
+});
