@@ -198,7 +198,6 @@ public partial class TogetherWorkspaceWindow : Window
             _discordUserId = id;
             _discordDisplayName = name;
             DiscordLoginStatusText.Text = "Discord: " + name;
-            if (_timeWorkspace is null) ParticipantNameBox.Text = name;
             RefreshParticipantIdentityUi();
             if (_timeWorkspace is not null) AutoJoinDiscordOwnedPartitions();
         }
@@ -237,7 +236,8 @@ public partial class TogetherWorkspaceWindow : Window
         _discordUserId = null;
         _discordDisplayName = null;
         DiscordLoginStatusText.Text = "未ログイン";
-        ParticipantNameBox.IsEnabled = true;
+        _timeOwnerId = null;
+        _timeEditor = null;
         RefreshParticipantIdentityUi();
     }
 
@@ -310,7 +310,6 @@ public partial class TogetherWorkspaceWindow : Window
                 // Do not change ownership in already-opened workspaces.
                 if (_timeWorkspace is null)
                 {
-                    ParticipantNameBox.Text = name;
                     if (_sectionPlan is not null && SegmentOwnerBox.Text.Length == 0)
                         SegmentOwnerBox.Text = name;
                 }
@@ -1018,8 +1017,8 @@ public partial class TogetherWorkspaceWindow : Window
                 _notice = "共同編集を作成しました。空の区間もそのまま保存されています。";
             }
             SetupPanel.Visibility = Visibility.Collapsed;
-            _timeOwnerId = owner;
-            _notice += " Discordアカウントで自動参加しました。";
+            AutoJoinDiscordOwnedPartitions();
+            _notice += _timeOwnerId is null ? " 担当区間はありません。" : " Discordアカウントで自動参加しました。";
 
         });
 
@@ -1743,7 +1742,6 @@ public partial class TogetherWorkspaceWindow : Window
         JoinSectionButton.IsEnabled = !loaded && _selectedPlanSectionId is not null;
         MoveBoundaryButton.IsEnabled = JoinSectionButton.IsEnabled;
         AssignOwnerButton.IsEnabled = JoinSectionButton.IsEnabled;
-        ChooseParticipantButton.IsEnabled = timeLoaded;
         CloneWorkspaceButton.IsEnabled = !loaded;
         SaveSegmentButton.IsEnabled = timeLoaded
             ? _timeEditor?.IsDirty == true && !_timeStaged
