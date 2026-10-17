@@ -1,10 +1,13 @@
 import { handleDiscordAuth } from "./discord-auth.mjs";
+import { handleDesktopHandoff, handleDesktopHandoffStorage } from "./desktop-handoff.mjs";
 import { authorizeMember } from "./member-auth.mjs";
 const LIMIT = 32 * 1024 * 1024;
 const ROOM_RE = /^[a-zA-Z0-9_-]{12,80}$/;
 
 export default {
   async fetch(request, env) {
+    const desktopResponse = await handleDesktopHandoff(request,env);
+    if (desktopResponse) return desktopResponse;
     const authResponse = await handleDiscordAuth(request, env);
     if (authResponse) return authResponse;
     const url = new URL(request.url);
@@ -67,6 +70,8 @@ export class BundleRoom {
   }
 
   async fetch(request) {
+    const desktop = await handleDesktopHandoffStorage(request,this.state.storage);
+    if (desktop) return desktop;
     const match = /^\/rooms\/[^/]+\/(bundle|submissions\/([A-Za-z0-9_-]{1,64}))$/.exec(new URL(request.url).pathname);
     if (!match) return new Response("Not found", { status: 404 });
     const storageKey = match[2] ? "submission:" + match[2] : "current";
