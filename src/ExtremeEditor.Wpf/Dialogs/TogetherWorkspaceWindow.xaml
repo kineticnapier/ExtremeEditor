@@ -82,13 +82,9 @@
                 <TextBox x:Name="WorkspacePathBox" Grid.Column="1" Grid.Row="0" Margin="5,2"
                          ToolTip="作成時は新しい空フォルダー、参加時は既存のTogether作業フォルダーのパス"/>
                 <TextBlock x:Name="ParticipantNameLabel" Text="参加者名（従来方式）" Grid.Column="0" Grid.Row="1" VerticalAlignment="Center"/>
-                <DockPanel Grid.Column="1" Grid.Row="1" Margin="5,2">
-                    <Button x:Name="ChooseParticipantButton" Content="この名前で編集"
-                            DockPanel.Dock="Right" Margin="6,0,0,0" Padding="10,4"
-                            Click="ChooseParticipantClick"/>
-                    <ComboBox x:Name="ParticipantNameBox" IsEditable="True"
-                              Text="" ToolTip="共同編集を開いた後、担当者一覧から自分の名前を選択してください"/>
-                </DockPanel>
+                <TextBlock x:Name="DiscordIdentityLabel" Grid.Column="1" Grid.Row="1"
+                           Margin="5,2" VerticalAlignment="Center" Text="未ログイン"/>
+                <ComboBox x:Name="ParticipantNameBox" Visibility="Collapsed" IsEditable="False"/>
                 <StackPanel Grid.Column="1" Grid.Row="2" Orientation="Horizontal"
                             Margin="5,8,0,2">
                     <Button x:Name="CreateWorkspaceButton" Content="この譜面から作成"
@@ -225,9 +221,9 @@
                     <Button x:Name="MoveBoundaryButton" Content="境界を現在位置へ移動"
                             Margin="6,0,0,0" Padding="11,5" Click="MoveBoundaryClick"/>
                     <TextBlock Text="担当者" Margin="18,0,0,0" VerticalAlignment="Center"/>
-                    <TextBox x:Name="SegmentOwnerBox" Width="130" Margin="6,0"
+                    <TextBox x:Name="SegmentOwnerBox" Width="130" Margin="6,0" IsReadOnly="True"
                              ToolTip="選択中の区間を担当する人の名前"/>
-                    <Button x:Name="AssignOwnerButton" Content="担当者を設定"
+                    <Button x:Name="AssignOwnerButton" Content="自分を担当者に設定"
                             Padding="11,5" Click="AssignOwnerClick"/>
                 </StackPanel>
                 <Expander x:Name="DetailedRangeExpander" Grid.Row="5"
