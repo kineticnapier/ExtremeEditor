@@ -212,6 +212,12 @@ public partial class TogetherWorkspaceWindow : Window
 
     private async void DiscordLogoutClick(object sender, RoutedEventArgs e)
     {
+        try { RefuseUnsafeTimeEditorSwitch(); }
+        catch (InvalidOperationException ex)
+        {
+            DiscordLoginStatusText.Text = ex.Message;
+            return;
+        }
         string? session = _discordSession ?? DiscordDesktopSessionStore.Load();
         if (session is not null)
         {
@@ -308,11 +314,6 @@ public partial class TogetherWorkspaceWindow : Window
                 _discordDisplayName = name;
                 DiscordLoginStatusText.Text = "Discord: " + name;
                 // Do not change ownership in already-opened workspaces.
-                if (_timeWorkspace is null)
-                {
-                    if (_sectionPlan is not null && SegmentOwnerBox.Text.Length == 0)
-                        SegmentOwnerBox.Text = name;
-                }
                 RefreshParticipantIdentityUi();
                 if (_timeWorkspace is not null) AutoJoinDiscordOwnedPartitions();
                 break;
