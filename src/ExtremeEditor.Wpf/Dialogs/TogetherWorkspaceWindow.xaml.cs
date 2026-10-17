@@ -26,6 +26,8 @@ public partial class TogetherWorkspaceWindow : Window
     private TimeFirstSegmentGitWorkspace? _timeWorkspace;
     private TimeFirstSegmentSnapshot? _timeSnapshot;
     private string? _timeOwnerId;
+    private string? _discordUserId;
+    private string? _discordDisplayName;
     private string? _timeSelectedSegmentId;
     private TimeFirstSegmentEditorSession? _timeEditor;
     private bool _timeStaged;
@@ -137,7 +139,22 @@ public partial class TogetherWorkspaceWindow : Window
                     .GetProperty("global_name").ValueKind == System.Text.Json.JsonValueKind.String
                     ? result.RootElement.GetProperty("user").GetProperty("global_name").GetString()!
                     : result.RootElement.GetProperty("user").GetProperty("username").GetString()!;
+                string discordId = result.RootElement.GetProperty("user")
+                    .GetProperty("id").GetString()
+                    ?? throw new InvalidDataException("Missing Discord user ID.");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(discordId, @"^\d{16,22}$"))
+                    throw new InvalidDataException("Invalid Discord user ID.");
+                _discordUserId = discordId;
+                _discordDisplayName = name;
                 DiscordLoginStatusText.Text = "Discord: " + name;
+                // Do not change ownership in already-opened workspaces.
+                if (_timeWorkspace is null)
+                {
+                    ParticipantNameBox.Text = name;
+                    if (_sectionPlan is not null && SegmentOwnerBox.Text.Length == 0)
+                        SegmentOwnerBox.Text = name;
+                }
+                RefreshParticipantIdentityUi();
                 break;
             }
         }
@@ -724,6 +741,21 @@ public partial class TogetherWorkspaceWindow : Window
             Path.GetFileNameWithoutExtension(path) + ".together");
     }
 
+    private void RefreshParticipantIdentityUi()
+    {
+        // Existing workspaces may use legacy free-form owner IDs.
+        // Discord identity is not yet authoritative for ownership claims.
+        bool creating = CreateWorkspaceButton.Visibility == Visibility.Visible;
+        bool loggedIn = _discordUserId is not null;
+        ParticipantNameBox.IsEnabled = !creating || !loggedIn;
+        ChooseParticipantButton.Visibility =
+            creating ? Visibility.Collapsed : Visibility.Visible;
+        ParticipantNameLabel.Text = creating && loggedIn
+            ? "Discordアカウント" : "参加者名（従来方式）";
+        if (creating && loggedIn && _discordDisplayName is not null)
+            ParticipantNameBox.Text = _discordDisplayName;
+    }
+
     private void ShowSetup(bool forCreation)
     {
         string? suggested = SuggestedWorkspaceForCurrentChart();
@@ -752,6 +784,7 @@ public partial class TogetherWorkspaceWindow : Window
             forCreation ? Visibility.Collapsed : Visibility.Visible;
         JoinCloudPanel.Visibility =
             forCreation ? Visibility.Collapsed : Visibility.Visible;
+        RefreshParticipantIdentityUi();
         _notice = forCreation
             ? "音源と担当者を設定してください。保存先は譜面と同じフォルダーに自動提案します（変更も可能）。"
             : "初めて参加する場合はルームURLと招待トークンでクラウドから取得してください。既存の作業フォルダーも開けます。";
@@ -776,6 +809,8 @@ public partial class TogetherWorkspaceWindow : Window
             }
 
             _plannedTimeline = TogetherSectionPlanner.FinalizeTimeline(plan);
+            // Until Discord ID ownership migration, the section plan keeps
+            // its original owner IDs. Never silently rewrite existing assignments.
             string owner = plan.Sections[0].OwnerName!;
             string marker = Path.Combine(workspacePath, "time-first-workspace.json");
             if (Directory.Exists(workspacePath) && File.Exists(marker))
