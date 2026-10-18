@@ -6,6 +6,12 @@
 
 namespace ee
 {
+void Renderer::SetShowFloorNumbers(bool enabled) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    show_floor_numbers_ = enabled;
+}
+
 void Renderer::SetCleanView(bool enabled) noexcept
 {
     std::lock_guard lock(scene_mutex_);
