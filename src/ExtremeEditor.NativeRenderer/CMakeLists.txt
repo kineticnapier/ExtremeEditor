@@ -159,6 +159,7 @@ target_include_directories(floor_hit_order_tests PRIVATE ${CMAKE_CURRENT_SOURCE_
 
 add_executable(editor_hud_zoom_tests tests/editor_hud_zoom_tests.cpp)
 target_compile_features(editor_hud_zoom_tests PRIVATE cxx_std_20)
+target_compile_definitions(editor_hud_zoom_tests PRIVATE NOMINMAX)
 target_include_directories(editor_hud_zoom_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_executable(background_layer_contract_tests tests/background_layer_contract_tests.cpp)
