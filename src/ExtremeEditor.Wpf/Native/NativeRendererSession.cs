@@ -25,7 +25,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 23;
+    private const uint ExpectedApiVersion = 24;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -429,6 +429,12 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer != nint.Zero)
             NativeRendererNative.SetShowFloorNumbers(_renderer, enabled ? 1 : 0);
+    }
+
+    internal void SetEditorHudDeleteButton(int buttonIndex)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetEditorHudDeleteButton(_renderer, buttonIndex);
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
