@@ -170,6 +170,15 @@ public sealed partial class NativeLevelViewport : HwndHost
         LastLevelUploadMetrics = UploadPendingLevel();
     }
 
+    private void SyncBackwardHudButton()
+    {
+        int button = _level is not null && _selectedFloors.Length == 1
+            ? global::ExtremeEditor.Wpf.AdoFaiPathDirection.GetBackwardHudButtonIndex(
+                _level.Angles, _primarySelection)
+            : -1;
+        _session?.SetEditorHudDeleteButton(button);
+    }
+
     public void SetSelection(IEnumerable<int> floors, int primaryFloor)
     {
         if (_level is null)
@@ -177,6 +186,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             _selectedFloors = [];
             _primarySelection = -1;
             _session?.SetSelection(_selectedFloors, _primarySelection);
+            SyncBackwardHudButton();
             return;
         }
 
@@ -189,6 +199,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             ? primaryFloor
             : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
         _session?.SetSelection(_selectedFloors, _primarySelection);
+        SyncBackwardHudButton();
     }
 
     public void SetPlaybackTimeline(TimingMap timingMap)
@@ -391,6 +402,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         var uploadWatch = Stopwatch.StartNew();
         _session.SetLevel(_snapshot);
         _session.SetSelection(_selectedFloors, _primarySelection);
+        SyncBackwardHudButton();
         uploadWatch.Stop();
 
         return new NativeLevelUploadMetrics(
