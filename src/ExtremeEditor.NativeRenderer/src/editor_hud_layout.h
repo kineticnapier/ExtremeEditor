@@ -9,12 +9,6 @@
 
 namespace ee
 {
-enum class EditorHudShape : std::uint8_t
-{
-    Diamond,
-    RoundedRect
-};
-
 struct EditorHudButton
 {
     EeEditorAction action = EE_EDITOR_ACTION_NONE;
@@ -23,21 +17,18 @@ struct EditorHudButton
     float center_y = 0.0f;
     float half_width = 0.0f;
     float half_height = 0.0f;
-    EditorHudShape shape = EditorHudShape::Diamond;
     const wchar_t* label = L"";
-    const wchar_t* sublabel = L"";
-    bool destructive = false;
-    bool accent = false;
 };
 
 inline constexpr std::size_t EditorHudButtonCount = 8;
 
- // The native floor geometry is scaled by the camera's world-to-screen zoom.
- // Keep its editor controls in the same coordinate space. 28 is the native
- // editor's default zoom, so the existing layout is unchanged at 1x.
+// The native floor geometry uses this same camera zoom. Keep the HUD in
+// world-relative units so both the spacing and the hit regions scale with it.
 inline constexpr float EditorHudReferenceZoom = 28.0f;
-// Below this scale the floor and its buttons are too small to interact with.
 inline constexpr float EditorHudMinimumZoom = 14.0f;
+inline constexpr float EditorHudCornerRadius = 3.5f;
+inline constexpr float EditorHudButtonHalfWidth = 14.0f;
+inline constexpr float EditorHudButtonHalfHeight = 14.5f;
 
 inline float EditorHudScaleForZoom(float zoom) noexcept
 {
@@ -46,25 +37,29 @@ inline float EditorHudScaleForZoom(float zoom) noexcept
     return zoom / EditorHudReferenceZoom;
 }
 
+// A compact eight-way keypad around the currently selected floor. The units
+// here are reference-zoom pixels; both rendering and pointer hit-testing use
+// this one definition (including the actual rounded corners).
 inline std::array<EditorHudButton, EditorHudButtonCount> BuildEditorHudButtons(
     float anchor_x,
     float anchor_y) noexcept
 {
-    constexpr float diagonal = 25.0f;
-    constexpr float x_near = 62.0f;
-    constexpr float y_near = 58.0f;
-    constexpr float x_axis = 86.0f;
-    constexpr float y_axis = 80.0f;
+    constexpr float diagonal_x = 43.0f;
+    constexpr float diagonal_y = 43.0f;
+    constexpr float axis_x = 49.0f;
+    constexpr float axis_y = 57.0f;
+    constexpr float hw = EditorHudButtonHalfWidth;
+    constexpr float hh = EditorHudButtonHalfHeight;
 
     return {{
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 135.0, anchor_x - x_near, anchor_y - y_near, diagonal, diagonal, EditorHudShape::Diamond, L"Q", L"135\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE,  90.0, anchor_x,          anchor_y - y_axis, diagonal, diagonal, EditorHudShape::Diamond, L"W", L"90\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE,  45.0, anchor_x + x_near, anchor_y - y_near, diagonal, diagonal, EditorHudShape::Diamond, L"E", L"45\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 180.0, anchor_x - x_axis, anchor_y,          diagonal, diagonal, EditorHudShape::Diamond, L"A", L"180\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE,   0.0, anchor_x + x_axis, anchor_y,          diagonal, diagonal, EditorHudShape::Diamond, L"D", L"0\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 225.0, anchor_x - x_near, anchor_y + y_near, diagonal, diagonal, EditorHudShape::Diamond, L"Z", L"225\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 270.0, anchor_x,          anchor_y + y_axis, diagonal, diagonal, EditorHudShape::Diamond, L"S", L"270\x00B0", false, false },
-        { EE_EDITOR_ACTION_INSERT_ANGLE, 315.0, anchor_x + x_near, anchor_y + y_near, diagonal, diagonal, EditorHudShape::Diamond, L"C", L"315\x00B0", false, false }
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 135.0, anchor_x - diagonal_x, anchor_y - diagonal_y, hw, hh, L"Q" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE,  90.0, anchor_x,              anchor_y - axis_y,     hw, hh, L"W" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE,  45.0, anchor_x + diagonal_x, anchor_y - diagonal_y, hw, hh, L"E" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 180.0, anchor_x - axis_x,     anchor_y,              hw, hh, L"A" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE,   0.0, anchor_x + axis_x,     anchor_y,              hw, hh, L"D" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 225.0, anchor_x - diagonal_x, anchor_y + diagonal_y, hw, hh, L"Z" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 270.0, anchor_x,              anchor_y + axis_y,     hw, hh, L"S" },
+        { EE_EDITOR_ACTION_INSERT_ANGLE, 315.0, anchor_x + diagonal_x, anchor_y + diagonal_y, hw, hh, L"C" }
     }};
 }
 
@@ -72,18 +67,18 @@ inline bool HitTestEditorHudButton(const EditorHudButton& button, float x, float
 {
     const float dx = std::abs(x - button.center_x);
     const float dy = std::abs(y - button.center_y);
-    if (button.shape == EditorHudShape::Diamond)
-    {
-        const float radius = std::max(button.half_width, button.half_height);
-        return dx + dy <= radius;
-    }
+    if (dx > button.half_width || dy > button.half_height)
+        return false;
 
-    return dx <= button.half_width && dy <= button.half_height;
+    // Direct2D RoundedRect removes quarter circles from the four corners;
+    // a box-only hit-test would accept clicks in these transparent areas.
+    const float radius = std::min(
+        EditorHudCornerRadius, std::min(button.half_width, button.half_height));
+    const float corner_x = std::max(0.0f, dx - (button.half_width - radius));
+    const float corner_y = std::max(0.0f, dy - (button.half_height - radius));
+    return corner_x * corner_x + corner_y * corner_y <= radius * radius;
 }
 
-// Rendering uses a scale transform about the selected floor's projected
-// position. Undo that SAME transform for pointer hit-testing so the visual
-// diamond/rect and its clickable area always agree at every camera zoom.
 inline int HitTestEditorHudButtons(
     float anchor_x,
     float anchor_y,
@@ -95,6 +90,7 @@ inline int HitTestEditorHudButtons(
     if (scale == 0.0f || !std::isfinite(screen_x) || !std::isfinite(screen_y))
         return -1;
 
+    // Undo the same anchor-relative scale transform used by Direct2D.
     const float local_x = anchor_x + (screen_x - anchor_x) / scale;
     const float local_y = anchor_y + (screen_y - anchor_y) / scale;
     const auto buttons = BuildEditorHudButtons(anchor_x, anchor_y);
