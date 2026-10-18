@@ -12,6 +12,8 @@ public partial class MainWindow
     //   Backspace = delete selected floor(s)
     //   Delete    = delete the floor after a single selection
     // and the QWE/ASD/etc. keys create floors directly.
+    private bool _showAllFloorNumbers;
+
     private void AdoFaiPreviewKeyDown(object sender, KeyEventArgs e)
     {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
@@ -23,6 +25,23 @@ public partial class MainWindow
 
         if (TryHandleCleanPlayShortcut(e, key, modifiers))
             return;
+
+        // Ctrl+F toggles all visible tile indices in the editor, not a selection badge.
+        // Input is routed identically for WPF and the child HWND.
+        if (control && !shift && !alt && !windows && key == Key.F &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+            {
+                _showAllFloorNumbers = !_showAllFloorNumbers;
+                NativeViewport.SetShowFloorNumbers(_showAllFloorNumbers);
+                StatusText.Text = _showAllFloorNumbers
+                    ? "Floor numbers visible (Ctrl+F)"
+                    : "Floor numbers hidden (Ctrl+F)";
+            }
+            e.Handled = true;
+            return;
+        }
 
         if (control && !shift && !alt && !windows && key == Key.G)
         {
