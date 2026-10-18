@@ -117,17 +117,24 @@ void D2DBackend::DrawEditorHud(
         return;
 
     zoom = std::clamp(zoom, 0.05f, 400.0f);
+    const float hud_scale = EditorHudScaleForZoom(zoom);
+    if (hud_scale == 0.0f)
+        return;
     const EeFloor& floor = scene.floors[static_cast<std::size_t>(selected_floor)];
     const float anchor_x = (floor.x - camera_x) * zoom + static_cast<float>(width_) * 0.5f;
     const float anchor_y = (camera_y - floor.y) * zoom + static_cast<float>(height_) * 0.5f;
 
-    // Keep the editor chrome attached to the selected floor but use screen-space
-    // sizes so it remains usable regardless of chart zoom.
+    // Editor chrome shares the floor's world-to-screen zoom. Scale about the
+    // projected floor anchor so the relative button positions, shapes, text,
+    // and borders change proportionally with the rendered tile.
+    const D2D1::Matrix3x2F hud_transform = D2D1::Matrix3x2F::Scale(
+        D2D1::SizeF(hud_scale, hud_scale),
+        D2D1::Point2F(anchor_x, anchor_y));
     const D2D1_ROUNDED_RECT center_panel = D2D1::RoundedRect(
         D2D1::RectF(anchor_x - 38.0f, anchor_y - 22.0f, anchor_x + 38.0f, anchor_y + 22.0f),
         4.0f,
         4.0f);
-    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+    d2d_context_->SetTransform(hud_transform);
     d2d_context_->FillRoundedRectangle(center_panel, hud_center_brush_.Get());
     d2d_context_->DrawRoundedRectangle(center_panel, border_brush_.Get(), 1.5f);
 
@@ -153,9 +160,11 @@ void D2DBackend::DrawEditorHud(
         if (button.shape == EditorHudShape::Diamond)
         {
             const float half = button.half_width * inverse_sqrt_two;
-            d2d_context_->SetTransform(D2D1::Matrix3x2F::Rotation(
-                45.0f,
-                D2D1::Point2F(button.center_x, button.center_y)));
+            d2d_context_->SetTransform(
+                D2D1::Matrix3x2F::Rotation(
+                    45.0f,
+                    D2D1::Point2F(button.center_x, button.center_y)) *
+                hud_transform);
             const D2D1_RECT_F rect = D2D1::RectF(
                 button.center_x - half,
                 button.center_y - half,
@@ -163,7 +172,7 @@ void D2DBackend::DrawEditorHud(
                 button.center_y + half);
             d2d_context_->FillRectangle(rect, fill);
             d2d_context_->DrawRectangle(rect, border_brush_.Get(), 1.0f);
-            d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+            d2d_context_->SetTransform(hud_transform);
         }
         else
         {
