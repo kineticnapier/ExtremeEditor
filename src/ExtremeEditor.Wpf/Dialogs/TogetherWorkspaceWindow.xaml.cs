@@ -1584,8 +1584,9 @@ public partial class TogetherWorkspaceWindow : Window
             {
                 TogetherPackageExportResult result = await Task.Run(() =>
                     TogetherPackageExporter.ExportBlankPackages(
-                        plan, audioFile, destination, bpm));
-                _notice = $"区間別の空譜面を{result.PackageCount}件生成しました。各区間のZIP・空譜面・音源・案内文を生成しました。保存先: {result.Directory}";
+                        plan, audioFile, destination, bpm,
+                        new TogetherAudioWaveClipWriter()));
+                _notice = $"区間別の空譜面を{result.PackageCount}件生成しました。各区間のZIP・空譜面・切断済みWAV音源・案内文を生成しました。保存先: {result.Directory}";
             }
             finally
             {
