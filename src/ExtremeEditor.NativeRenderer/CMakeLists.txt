@@ -157,6 +157,13 @@ add_executable(floor_hit_order_tests tests/floor_hit_order_tests.cpp)
 target_compile_features(floor_hit_order_tests PRIVATE cxx_std_20)
 target_include_directories(floor_hit_order_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(editor_floor_numbers_contract_tests tests/editor_floor_numbers_contract_tests.cpp)
+target_compile_features(editor_floor_numbers_contract_tests PRIVATE cxx_std_20)
+target_compile_definitions(editor_floor_numbers_contract_tests PRIVATE
+    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    EE_WPF_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ExtremeEditor.Wpf"
+)
+
 add_executable(editor_hud_zoom_tests tests/editor_hud_zoom_tests.cpp)
 target_compile_features(editor_hud_zoom_tests PRIVATE cxx_std_20)
 target_compile_definitions(editor_hud_zoom_tests PRIVATE NOMINMAX)
@@ -186,3 +193,4 @@ add_test(NAME track_animation_runtime_tests COMMAND track_animation_runtime_test
 add_test(NAME floor_hit_order_tests COMMAND floor_hit_order_tests)
 add_test(NAME background_layer_contract_tests COMMAND background_layer_contract_tests)
 add_test(NAME editor_hud_zoom_tests COMMAND editor_hud_zoom_tests)
+add_test(NAME editor_floor_numbers_contract_tests COMMAND editor_floor_numbers_contract_tests)
