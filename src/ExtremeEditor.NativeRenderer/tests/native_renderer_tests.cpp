@@ -10,9 +10,9 @@
 
 int main()
 {
-    if (EE_RENDERER_API_VERSION != 23u)
+    if (EE_RENDERER_API_VERSION != 24u)
     {
-        std::cerr << "Floor-number overlay ABI requires API version 23.\n";
+        std::cerr << "Reverse-direction HUD ABI requires API version 24.\n";
         return 1;
     }
 
