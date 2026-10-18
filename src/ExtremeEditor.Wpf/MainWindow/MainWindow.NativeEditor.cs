@@ -67,9 +67,9 @@ public partial class MainWindow
             }
             case NativeEditorAction.InsertAngle:
             {
-                int inserted = primary + 1;
-                editor.InsertAngle(primary, request.Value);
-                RefreshEditorAfterMutation(inserted);
+                // Use the same reverse-direction deletion logic as physical
+                // ADOFAI keybinds, including Midspin parity and selection.
+                ApplyAdoFaiDirection(editor, primary, request.Value);
                 break;
             }
 
