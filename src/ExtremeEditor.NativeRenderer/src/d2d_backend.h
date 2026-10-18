@@ -116,6 +116,7 @@ public:
     void SetBackgroundState(const EeBackgroundState& state) noexcept { background_state_ = state; }
     void SetShowFloorNumbers(bool enabled) noexcept { show_floor_numbers_ = enabled; }
     void SetEditorHudHover(int hovered) noexcept { editor_hud_hover_ = hovered; }
+    void SetEditorHudDeleteButton(int button_index) noexcept { delete_hud_button_ = button_index; }
     void DrawBackground() noexcept;
     void SyncBackgroundAssets(
         const std::unordered_map<std::uint32_t, std::wstring>* paths,
@@ -330,12 +331,16 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_button_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_shadow_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_hover_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_text_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_text_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_shadow_brush_;
     bool show_floor_numbers_ = false;
     int editor_hud_hover_ = -1;
+    int delete_hud_button_ = -1;
 
     FloorInstancedRenderer floor_renderer_;
     IconInstancedRenderer icon_renderer_;
