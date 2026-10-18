@@ -1,0 +1,98 @@
+using System.Text.Json;
+using ExtremeEditor.Core;
+
+namespace ExtremeEditor.Core.Tests;
+
+internal static class TogetherPackageExportRegression
+{
+    private const int Rate = 48_000;
+
+    public static void Run()
+    {
+        string root = Path.Combine(Path.GetTempPath(),
+            "extremeeditor-package-regression-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string audio = Path.Combine(root, "song.ogg");
+            byte[] bytes = [0x11, 0x22, 0x33, 0x44, 0x55];
+            File.WriteAllBytes(audio, bytes);
+            TogetherSectionPlan plan = TogetherSectionPlanner.CreateWholeSong(
+                Rate, Rate * 10L);
+            plan = TogetherSectionPlanner.Split(plan, "section-1", Rate * 4L);
+            plan = TogetherSectionPlanner.AssignOwner(plan, "section-1", "alice");
+            string output = Path.Combine(root, "packages");
+            TogetherPackageExportResult result =
+                TogetherPackageExporter.ExportBlankPackages(plan, audio, output, 120);
+
+            Check(result.PackageCount == 2 && Directory.Exists(output),
+                "both packages created");
+            using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
+                Path.Combine(output, "together-manifest.json")));
+            JsonElement parts = manifest.RootElement.GetProperty("parts");
+            Check(parts.GetArrayLength() == 2, "manifest section count");
+            Check(parts[0].GetProperty("startSample").GetInt64() == 0 &&
+                  parts[0].GetProperty("endSampleExclusive").GetInt64() == Rate * 4L &&
+                  parts[1].GetProperty("startSample").GetInt64() == Rate * 4L &&
+                  parts[1].GetProperty("endSampleExclusive").GetInt64() == Rate * 10L,
+                "manifest retains half-open time allocation");
+            Check(parts[0].GetProperty("ownerId").GetString() == "alice" &&
+                  parts[1].GetProperty("ownerId").ValueKind == JsonValueKind.Null,
+                "assigned and unassigned owners are preserved");
+
+            for (int index = 0; index < 2; index++)
+            {
+                string partFolder = Path.Combine(output, "Part-" + (index + 1).ToString("D3"));
+                string packagedAudio = Path.Combine(partFolder, "song.ogg");
+                string packagedChart = Path.Combine(partFolder,
+                    "Part-" + (index + 1).ToString("D3") + ".adofai");
+                Check(File.ReadAllBytes(packagedAudio).SequenceEqual(bytes),
+                    "full original audio preserved");
+                LevelDocument doc = AdoFaiLoader.Load(packagedChart).Document;
+                Check(doc.FloorCount == 2 && doc.ActionStore.ActionCount == 0 &&
+                      doc.SongFilename == "song.ogg" && doc.InitialBpm == 120,
+                    "stock-form template readback");
+                double audioOrigin = PlaybackClock.ChartToAudioTime(
+                    doc, TimingMapBuilder.Build(doc).GetEntryTime(0));
+                Check(Math.Abs(audioOrigin - (index == 0 ? 0.0 : 4.0)) <= 1e-9,
+                    "local floor zero aligns to original audio-time start");
+            }
+
+            byte[] previous = File.ReadAllBytes(
+                Path.Combine(output, "Part-001", "Part-001.adofai"));
+            ExpectRejected(() => TogetherPackageExporter.ExportBlankPackages(
+                plan, audio, output, 120), "do not overwrite existing output");
+            Check(File.ReadAllBytes(Path.Combine(
+                output, "Part-001", "Part-001.adofai")).SequenceEqual(previous),
+                "rejected duplicate export preserves package");
+            ExpectRejected(() => TogetherPackageExporter.ExportBlankPackages(
+                plan, audio, Path.Combine(root, "invalid"), double.NaN),
+                "invalid BPM");
+            ExpectRejected(() => TogetherPackageExporter.ExportBlankPackages(
+                plan, audio, Path.Combine(root, "bad-bpm"), 0),
+                "nonpositive BPM");
+            Check(!Directory.Exists(Path.Combine(root, "invalid")) &&
+                  !Directory.Exists(Path.Combine(root, "bad-bpm")),
+                "rejected input never creates output");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void ExpectRejected(Action action, string label)
+    {
+        try { action(); }
+        catch (Exception e) when (e is ArgumentException or IOException
+            or InvalidOperationException or NotSupportedException) { return; }
+        throw new InvalidOperationException("Expected rejection: " + label);
+    }
+
+    private static void Check(bool condition, string label)
+    {
+        if (!condition)
+            throw new InvalidOperationException("Together package regression: " + label);
+    }
+}
