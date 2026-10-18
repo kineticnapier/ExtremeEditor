@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using ExtremeEditor.Core;
 
@@ -46,6 +47,21 @@ internal static class TogetherPackageExportRegression
                 string packagedAudio = Path.Combine(partFolder, "song.ogg");
                 string packagedChart = Path.Combine(partFolder,
                     "Part-" + (index + 1).ToString("D3") + ".adofai");
+                string archivePath = partFolder + ".zip";
+                using (ZipArchive archive = ZipFile.OpenRead(archivePath))
+                {
+                    Check(archive.Entries.Any(entry => entry.Name == "song.ogg") &&
+                          archive.Entries.Any(entry => entry.Name == "README.txt") &&
+                          archive.Entries.Any(entry => entry.Name.EndsWith(".adofai",
+                              StringComparison.Ordinal)),
+                        "complete shareable per-part ZIP");
+                }
+                string guidance = File.ReadAllText(Path.Combine(partFolder, "README.txt"));
+                Check(guidance.Contains(index == 0 ? "00:00:00.000" : "00:00:04.000",
+                        StringComparison.Ordinal) &&
+                      guidance.Contains(index == 0 ? "00:00:04.000" : "00:00:10.000",
+                        StringComparison.Ordinal),
+                    "participant instructions carry actual interval");
                 Check(File.ReadAllBytes(packagedAudio).SequenceEqual(bytes),
                     "full original audio preserved");
                 LevelDocument doc = AdoFaiLoader.Load(packagedChart).Document;
