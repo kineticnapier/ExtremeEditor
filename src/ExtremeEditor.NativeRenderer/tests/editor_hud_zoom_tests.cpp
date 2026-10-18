@@ -42,13 +42,21 @@ int main()
             "keycap must retain the expected ADOFAI directional key");
         require(buttons[i].value == angles[i],
             "keycap must retain the existing ADOFAI angle command");
-        require(buttons[i].half_width <= 15.0f &&
-                buttons[i].half_height <= 15.0f,
-            "keycaps should be substantially smaller than legacy diamonds");
-        require(std::abs(buttons[i].center_x - anchor_x) <= 50.0f &&
-                std::abs(buttons[i].center_y - anchor_y) <= 58.0f,
-            "keycaps should stay compact around the selected tile");
+        require(buttons[i].half_width <= 8.0f &&
+                buttons[i].half_height <= 8.0f,
+            "keycaps should remain at most 16px across at reference zoom");
+        require(std::abs(buttons[i].center_x - anchor_x) <= 38.0f &&
+                std::abs(buttons[i].center_y - anchor_y) <= 41.0f,
+            "keycaps should sit immediately around the selected tile");
     }
+
+    // The user-visible layout was still too large at a typical working zoom.
+    // At zoom 48 the cap must be ~27px rather than the former ~48px.
+    const float working_zoom = 48.0f;
+    const float expected_cap_pixels = 2.0f * ee::EditorHudButtonHalfWidth *
+        ee::EditorHudScaleForZoom(working_zoom);
+    require(expected_cap_pixels >= 26.0f && expected_cap_pixels <= 28.0f,
+        "typical zoom keycaps must fit the compact 26-28px design");
 
     for (float zoom : zooms)
     {
