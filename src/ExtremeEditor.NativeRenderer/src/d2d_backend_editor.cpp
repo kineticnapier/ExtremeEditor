@@ -61,6 +61,90 @@ void DrawCenteredText(
 }
 }
 
+// Draw only viewport-visible floor labels, and only when explicitly enabled.
+// The label is an overlay (not chart content); neither song playback nor
+// headless export includes these numbers.
+void D2DBackend::DrawFloorNumbers(
+    const LevelScene& scene,
+    float camera_x,
+    float camera_y,
+    float zoom,
+    float camera_rotation,
+    RenderFrameStats& stats) noexcept
+{
+    if (!d2d_context_ || !show_floor_numbers_ || zoom < 16.0f)
+        return;
+
+    if (!dwrite_factory_)
+    {
+        HRESULT hr = DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
+        if (FAILED(hr))
+            return;
+    }
+    if (!EnsureTextFormat(
+            dwrite_factory_.Get(), floor_numbers_text_format_,
+            14.0f, DWRITE_FONT_WEIGHT_BOLD))
+        return;
+
+    // Brushes belong to the active D2D render target. They must be recreated
+    // after swap-chain/target recreation, just like the direction HUD brushes.
+    static thread_local ID2D1Bitmap1* floor_numbers_target = nullptr;
+    if (floor_numbers_target != target_bitmap_.Get())
+    {
+        floor_numbers_target = target_bitmap_.Get();
+        floor_numbers_brush_.Reset();
+        floor_numbers_shadow_brush_.Reset();
+    }
+    if (!floor_numbers_brush_ &&
+        FAILED(d2d_context_->CreateSolidColorBrush(
+            D2D1::ColorF(0xF014C8, 1.0f), floor_numbers_brush_.GetAddressOf())))
+        return;
+    if (!floor_numbers_shadow_brush_ &&
+        FAILED(d2d_context_->CreateSolidColorBrush(
+            D2D1::ColorF(0x160D1B, 0.85f), floor_numbers_shadow_brush_.GetAddressOf())))
+        return;
+
+    const float scale = zoom / 28.0f;
+    const float c = std::cos(camera_rotation);
+    const float sin_r = std::sin(camera_rotation);
+    const float half_w = static_cast<float>(width_) * 0.5f;
+    const float half_h = static_cast<float>(height_) * 0.5f;
+
+    for (const std::uint32_t index : visible_candidates_)
+    {
+        if (index >= scene.floors.size())
+            continue;
+
+        const EeFloor& floor = scene.floors[index];
+        const float dx = floor.x - camera_x;
+        const float dy = floor.y - camera_y;
+        const float anchor_x = (c * dx + sin_r * dy) * zoom + half_w;
+        const float anchor_y = (sin_r * dx - c * dy) * zoom + half_h;
+        // The number follows the same camera zoom as the underlying tile.
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Scale(
+            D2D1::SizeF(scale, scale), D2D1::Point2F(anchor_x, anchor_y)));
+
+        const std::wstring label = std::to_wstring(index);
+        const D2D1_RECT_F text_rect = D2D1::RectF(
+            anchor_x - 30.0f, anchor_y - 14.0f,
+            anchor_x + 30.0f, anchor_y + 14.0f);
+        const D2D1_RECT_F shadow_rect = D2D1::RectF(
+            text_rect.left + 1.0f, text_rect.top + 1.0f,
+            text_rect.right + 1.0f, text_rect.bottom + 1.0f);
+        DrawCenteredText(
+            d2d_context_.Get(), label.c_str(), floor_numbers_text_format_.Get(),
+            floor_numbers_shadow_brush_.Get(), shadow_rect);
+        DrawCenteredText(
+            d2d_context_.Get(), label.c_str(), floor_numbers_text_format_.Get(),
+            floor_numbers_brush_.Get(), text_rect);
+        stats.draw_calls += 2u;
+    }
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
 void D2DBackend::DrawEditorHud(
     const LevelScene& scene,
     float camera_x,
@@ -78,7 +162,6 @@ void D2DBackend::DrawEditorHud(
     if (hud_target != target_bitmap_.Get())
     {
         hud_target = target_bitmap_.Get();
-        hud_center_brush_.Reset();
         hud_subtext_brush_.Reset();
         hud_text_brush_.Reset();
         hud_accent_brush_.Reset();
@@ -97,8 +180,7 @@ void D2DBackend::DrawEditorHud(
     }
 
     if (!EnsureTextFormat(dwrite_factory_.Get(), hud_text_format_, 16.0f, DWRITE_FONT_WEIGHT_BOLD) ||
-        !EnsureTextFormat(dwrite_factory_.Get(), hud_subtext_format_, 9.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD) ||
-        !EnsureTextFormat(dwrite_factory_.Get(), hud_center_format_, 13.0f, DWRITE_FONT_WEIGHT_BOLD))
+        !EnsureTextFormat(dwrite_factory_.Get(), hud_subtext_format_, 9.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD))
         return;
 
     auto ensure_brush = [this](ComPtr<ID2D1SolidColorBrush>& brush, D2D1_COLOR_F color) noexcept -> bool
@@ -112,8 +194,7 @@ void D2DBackend::DrawEditorHud(
         !ensure_brush(hud_destructive_brush_, D2D1::ColorF(0xFA575C, 0.98f)) ||
         !ensure_brush(hud_accent_brush_, D2D1::ColorF(0x38D870, 0.95f)) ||
         !ensure_brush(hud_text_brush_, D2D1::ColorF(0x111318, 1.0f)) ||
-        !ensure_brush(hud_subtext_brush_, D2D1::ColorF(0xF22E43, 1.0f)) ||
-        !ensure_brush(hud_center_brush_, D2D1::ColorF(0x39DE73, 0.82f)))
+        !ensure_brush(hud_subtext_brush_, D2D1::ColorF(0xF22E43, 1.0f)))
         return;
 
     zoom = std::clamp(zoom, 0.05f, 400.0f);
@@ -130,22 +211,9 @@ void D2DBackend::DrawEditorHud(
     const D2D1::Matrix3x2F hud_transform = D2D1::Matrix3x2F::Scale(
         D2D1::SizeF(hud_scale, hud_scale),
         D2D1::Point2F(anchor_x, anchor_y));
-    const D2D1_ROUNDED_RECT center_panel = D2D1::RoundedRect(
-        D2D1::RectF(anchor_x - 38.0f, anchor_y - 22.0f, anchor_x + 38.0f, anchor_y + 22.0f),
-        4.0f,
-        4.0f);
+    // The selection outline is drawn by DrawSceneOverlaysCamera.
+    // Do not cover the selected tile with a permanent green floor-number badge.
     d2d_context_->SetTransform(hud_transform);
-    d2d_context_->FillRoundedRectangle(center_panel, hud_center_brush_.Get());
-    d2d_context_->DrawRoundedRectangle(center_panel, border_brush_.Get(), 1.5f);
-
-    const std::wstring floor_label = L"#" + std::to_wstring(selected_floor);
-    DrawCenteredText(
-        d2d_context_.Get(),
-        floor_label.c_str(),
-        hud_center_format_.Get(),
-        hud_text_brush_.Get(),
-        center_panel.rect);
-    stats.draw_calls += 3u;
 
     const auto buttons = BuildEditorHudButtons(anchor_x, anchor_y);
     constexpr float inverse_sqrt_two = 0.70710678f;
