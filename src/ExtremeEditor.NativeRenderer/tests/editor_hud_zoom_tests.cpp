@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <limits>
 
 int main()
@@ -20,6 +21,10 @@ int main()
     constexpr float anchor_x = 430.0f;
     constexpr float anchor_y = 270.0f;
     constexpr std::array<float, 5> zooms{14.0f, 28.0f, 56.0f, 112.0f, 400.0f};
+    constexpr std::array<const wchar_t*, 8> labels{
+        L"Q", L"W", L"E", L"A", L"D", L"Z", L"S", L"C"};
+    constexpr std::array<double, 8> angles{
+        135.0, 90.0, 45.0, 180.0, 0.0, 225.0, 270.0, 315.0};
     const auto buttons = ee::BuildEditorHudButtons(anchor_x, anchor_y);
 
     require(std::abs(ee::EditorHudScaleForZoom(28.0f) - 1.0f) < 0.00001f,
@@ -31,34 +36,58 @@ int main()
     require(ee::EditorHudScaleForZoom(std::numeric_limits<float>::quiet_NaN()) == 0.0f,
         "invalid zoom is hidden");
 
-    for (const float zoom : zooms)
+    for (std::size_t i = 0; i < buttons.size(); ++i)
+    {
+        require(std::wcscmp(buttons[i].label, labels[i]) == 0,
+            "keycap must retain the expected ADOFAI directional key");
+        require(buttons[i].value == angles[i],
+            "keycap must retain the existing ADOFAI angle command");
+        require(buttons[i].half_width <= 15.0f &&
+                buttons[i].half_height <= 15.0f,
+            "keycaps should be substantially smaller than legacy diamonds");
+        require(std::abs(buttons[i].center_x - anchor_x) <= 50.0f &&
+                std::abs(buttons[i].center_y - anchor_y) <= 58.0f,
+            "keycaps should stay compact around the selected tile");
+    }
+
+    for (float zoom : zooms)
     {
         const float scale = ee::EditorHudScaleForZoom(zoom);
         for (std::size_t i = 0; i < buttons.size(); ++i)
         {
-            const ee::EditorHudButton& button = buttons[i];
-
-            // Rendering applies Scale(scale, anchor) to this exact base layout.
+            const auto& button = buttons[i];
+            // Direct2D scales about the selected tile center.
             const float center_x = anchor_x + (button.center_x - anchor_x) * scale;
             const float center_y = anchor_y + (button.center_y - anchor_y) * scale;
-            require(ee::HitTestEditorHudButtons(
-                anchor_x, anchor_y, zoom, center_x, center_y) == static_cast<int>(i),
-                "scaled button center must hit the same action");
+            const auto hit = [&](float offset_x, float offset_y)
+            {
+                return ee::HitTestEditorHudButtons(
+                    anchor_x, anchor_y, zoom,
+                    center_x + offset_x * scale, center_y + offset_y * scale);
+            };
 
-            // The diamond is a rotated rectangle: its screen-space hit
-            // extents are half_width*scale in Manhattan distance.
-            const float outer_x = center_x + (button.half_width * scale + 2.0f);
-            require(ee::HitTestEditorHudButtons(
-                anchor_x, anchor_y, zoom, outer_x, center_y) != static_cast<int>(i),
-                "outside the scaled diamond does not hit its action");
+            require(hit(0.0f, 0.0f) == static_cast<int>(i),
+                "scaled keycap center must activate its own command");
+            require(hit(button.half_width + 2.0f, 0.0f) != static_cast<int>(i),
+                "outside a zoom-scaled keycap must not activate its command");
+            require(hit(button.half_width - 0.1f, button.half_height - 0.1f) !=
+                    static_cast<int>(i),
+                "rounded transparent corner must not be clickable");
+
+            const float corner = ee::EditorHudCornerRadius * 0.70f;
+            const float inside_x = button.half_width - ee::EditorHudCornerRadius + corner;
+            const float inside_y = button.half_height - ee::EditorHudCornerRadius + corner;
+            require(hit(inside_x, inside_y) == static_cast<int>(i),
+                "interior of rounded corner remains clickable");
         }
     }
+
     require(ee::HitTestEditorHudButtons(
-        anchor_x, anchor_y, 13.0f, anchor_x + 86.0f, anchor_y) == -1,
-        "hidden direction buttons cannot intercept clicks");
+        anchor_x, anchor_y, 13.0f, anchor_x + 49.0f, anchor_y) == -1,
+        "hidden direction buttons must not intercept clicks");
     require(ee::HitTestEditorHudButtons(
         anchor_x, anchor_y, 28.0f, anchor_x, anchor_y) == -1,
-        "center tile itself is not a direction button");
+        "selected tile itself must remain unobstructed");
 
     if (failures != 0)
         return 1;
