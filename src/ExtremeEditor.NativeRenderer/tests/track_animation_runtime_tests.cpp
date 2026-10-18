@@ -229,7 +229,9 @@ int main()
             "fade backward seek");
         require(Evaluate(EE_TRACK_APPEAR_FADE, EE_TRACK_DISAPPEAR_NONE, 1.25, 0, paused, state),
             "fade paused repeat");
-        require(Near(before.transform_opacity, 0.0f), "before trigger initial state");
+        // The tile remains visible before the appearance tween starts.
+        // Rewinding to pre-trigger time restores the resolved base opacity.
+        require(Near(before.transform_opacity, 1.0f), "before trigger preserves base opacity");
         require(Near(midpoint.transform_opacity, 0.5f), "seek midpoint");
         require(Near(complete.transform_opacity, 1.0f), "seek complete");
         require(Near(rewind.transform_opacity, 0.25f), "backward seek reconstruction");
