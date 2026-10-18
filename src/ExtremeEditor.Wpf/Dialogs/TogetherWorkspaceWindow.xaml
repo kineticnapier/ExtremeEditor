@@ -328,6 +328,10 @@
             <Button x:Name="ReceiveChangesButton" Grid.Column="1"
                     Content="最新の変更を取り込む" Style="{StaticResource SecondaryTogetherButton}"
                     Click="ReceiveChangesClick" VerticalAlignment="Center"/>
+            <Button x:Name="ExportPackagesButton" Grid.Column="2"
+                    Content="担当ファイルを一括生成…" Style="{StaticResource SecondaryTogetherButton}"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Click="ExportCollaborationPartsClick" IsEnabled="False"/>
             <Button x:Name="ExportButton" Grid.Column="3"
                     Content="完成譜面を書き出す…" Style="{StaticResource PrimaryTogetherButton}"
                     Click="ExportClick" Margin="10,0,0,0"/>
