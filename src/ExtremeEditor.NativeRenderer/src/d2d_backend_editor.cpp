@@ -172,6 +172,9 @@ void D2DBackend::DrawEditorHud(
         hud_accent_brush_.Reset();
         hud_button_brush_.Reset();
         hud_shadow_brush_.Reset();
+        hud_delete_brush_.Reset();
+        hud_delete_hover_brush_.Reset();
+        hud_delete_text_brush_.Reset();
     }
 
     if (!dwrite_factory_)
@@ -201,7 +204,10 @@ void D2DBackend::DrawEditorHud(
     if (!ensure_brush(hud_button_brush_, D2D1::ColorF(0xF6F5F2, 0.98f)) ||
         !ensure_brush(hud_accent_brush_, D2D1::ColorF(0xDCE9FC, 1.0f)) ||
         !ensure_brush(hud_text_brush_, D2D1::ColorF(0x151A23, 1.0f)) ||
-        !ensure_brush(hud_shadow_brush_, D2D1::ColorF(0x07090D, 0.48f)))
+        !ensure_brush(hud_shadow_brush_, D2D1::ColorF(0x07090D, 0.48f)) ||
+        !ensure_brush(hud_delete_brush_, D2D1::ColorF(0xFA575C, 0.98f)) ||
+        !ensure_brush(hud_delete_hover_brush_, D2D1::ColorF(0xFF797D, 1.0f)) ||
+        !ensure_brush(hud_delete_text_brush_, D2D1::ColorF(0xFFFFFF, 1.0f)))
         return;
 
     const EeFloor& floor = scene.floors[static_cast<std::size_t>(selected_floor)];
@@ -235,16 +241,20 @@ void D2DBackend::DrawEditorHud(
             EditorHudCornerRadius, EditorHudCornerRadius);
 
         d2d_context_->FillRoundedRectangle(shadow, hud_shadow_brush_.Get());
-        d2d_context_->FillRoundedRectangle(
-            rounded, static_cast<int>(i) == editor_hud_hover_
-                ? hud_accent_brush_.Get()
-                : hud_button_brush_.Get());
+        const bool is_delete = static_cast<int>(i) == delete_hud_button_;
+        const bool is_hover = static_cast<int>(i) == editor_hud_hover_;
+        ID2D1Brush* fill = is_delete
+            ? static_cast<ID2D1Brush*>(
+                is_hover ? hud_delete_hover_brush_.Get() : hud_delete_brush_.Get())
+            : static_cast<ID2D1Brush*>(
+                is_hover ? hud_accent_brush_.Get() : hud_button_brush_.Get());
+        d2d_context_->FillRoundedRectangle(rounded, fill);
         d2d_context_->DrawRoundedRectangle(rounded, border_brush_.Get(), 1.0f);
         DrawCenteredText(
             d2d_context_.Get(),
             button.label,
             hud_text_format_.Get(),
-            hud_text_brush_.Get(),
+            is_delete ? hud_delete_text_brush_.Get() : hud_text_brush_.Get(),
             rect);
         stats.draw_calls += 4u;
     }
