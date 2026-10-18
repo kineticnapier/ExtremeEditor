@@ -10,7 +10,7 @@
 
 int main()
 {
-    if (EE_RENDERER_API_VERSION != 22u)
+    if (EE_RENDERER_API_VERSION != 23u)
     {
         std::cerr << "Recording clean-view ABI requires API version 22.\n";
         return 1;
