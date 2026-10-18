@@ -16,6 +16,10 @@ int main()
         return 1;
     }
 
+    // Link/ABI smoke test for the new optional reverse-direction HUD setter.
+    // A null handle is explicitly a no-op and must never crash.
+    ee_renderer_set_editor_hud_delete_button(nullptr, -1);
+
     if (ee_renderer_get_api_version() != EE_RENDERER_API_VERSION)
     {
         std::cerr << "API version mismatch.\n";
