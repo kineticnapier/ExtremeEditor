@@ -49,6 +49,9 @@ try {
     foreach ($name in $tests) {
         $info = [System.Diagnostics.ProcessStartInfo]::new()
         $info.FileName = "dotnet"
+        # Audio test module initializers resolve source files relative to the repository root.
+        # PowerShell / ProcessStartInfo may otherwise inherit a profile directory.
+        $info.WorkingDirectory = $PSScriptRoot
         $info.Arguments = 'exec "' + $assemblies[$name] + '"'
         $info.UseShellExecute = $false
         $info.CreateNoWindow = $true
