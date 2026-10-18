@@ -80,7 +80,7 @@ public static class TogetherPackageExporter
                 double startMs = part.StartSample * 1000.0 / plan.SampleRate;
                 JsonObject chart = new()
                 {
-                    ["angleData"] = new JsonArray(0),
+                    ["angleData"] = new JsonArray(JsonValue.Create(0)),
                     ["settings"] = new JsonObject
                     {
                         ["bpm"] = initialBpm,
@@ -155,8 +155,13 @@ public static class TogetherPackageExporter
         }
         finally
         {
-            if (Directory.Exists(temp))
-                Directory.Delete(temp, recursive: true);
+            try
+            {
+                if (Directory.Exists(temp))
+                    Directory.Delete(temp, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 
