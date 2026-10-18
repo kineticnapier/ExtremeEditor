@@ -46,6 +46,28 @@ internal static class AdoFaiPathDirection
         return true;
     }
 
+    // The eight native HUD buttons are Q,W,E,A,D,Z,S,C in that order.
+    // Only highlight a deletion button when the exact reverse direction is
+    // available; arbitrary angles and malformed Midspin paths have none.
+    internal static int GetBackwardHudButtonIndex(
+        IReadOnlyList<double> angles,
+        int floor)
+    {
+        if (!TryGetBackwardDirection(angles, floor, out double backwards) ||
+            !double.IsFinite(backwards))
+            return -1;
+
+        ReadOnlySpan<double> buttonAngles = [135.0, 90.0, 45.0, 180.0,
+                                             0.0, 225.0, 270.0, 315.0];
+        for (int i = 0; i < buttonAngles.Length; i++)
+        {
+            double delta = Math.Abs(Normalize(backwards - buttonAngles[i]));
+            if (Math.Min(delta, 360.0 - delta) <= 0.0001)
+                return i;
+        }
+        return -1;
+    }
+
     private static bool IsMidspin(double angle) =>
         Math.Abs(angle - Midspin) < Epsilon;
 
