@@ -1561,6 +1561,10 @@ public partial class TogetherWorkspaceWindow : Window
             TogetherSectionPlan plan = RequiredSectionPlan();
             string audioFile = _timelineAudioPath ??
                 throw new InvalidOperationException("先に音源を読み込んでください。");
+            string extension = Path.GetExtension(audioFile).ToLowerInvariant();
+            if (extension is not (".wav" or ".ogg" or ".mp3"))
+                throw new InvalidOperationException(
+                    "担当ファイル生成に対応する音源形式はWAV・OGG・MP3です。");
             double bpm = ParseFiniteDouble(BpmBox.Text, "テンプレートBPM");
             if (bpm <= 0)
                 throw new ArgumentException("テンプレートBPMは0より大きい値にしてください。");
@@ -1581,7 +1585,7 @@ public partial class TogetherWorkspaceWindow : Window
                 TogetherPackageExportResult result = await Task.Run(() =>
                     TogetherPackageExporter.ExportBlankPackages(
                         plan, audioFile, destination, bpm));
-                _notice = $"区間別の空譜面を{result.PackageCount}件生成しました。音源は各フォルダーに同梱しています。保存先: {result.Directory}";
+                _notice = $"区間別の空譜面を{result.PackageCount}件生成しました。各区間のZIP・空譜面・音源・案内文を生成しました。保存先: {result.Directory}";
             }
             finally
             {
