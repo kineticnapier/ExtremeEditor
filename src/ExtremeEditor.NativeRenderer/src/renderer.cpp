@@ -1180,6 +1180,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const std::vector<std::int32_t>> selected_floors;
         std::int32_t selected_floor = -1;
         bool clean_view = false;
+        bool show_floor_numbers = false;
         PositionTrackDragPreview position_drag_preview;
         std::vector<InputWorldPoint> position_drag_base_positions;
         std::uint64_t scene_version = 0;
@@ -1222,6 +1223,7 @@ void Renderer::RenderLoop() noexcept
             selected_floors = selected_floors_;
             selected_floor = selected_floor_;
             clean_view = clean_view_;
+            show_floor_numbers = show_floor_numbers_;
             position_drag_preview = position_drag_preview_;
             position_drag_base_positions = position_drag_base_positions_;
             scene_version = scene_version_;
@@ -1346,6 +1348,7 @@ void Renderer::RenderLoop() noexcept
             backend.SetFilterState(ResolveFilterStateAtTime(filter_events.get(), chart_time));
             backend.SetBackgroundState(ResolveBackgroundAtTime(background_events.get(), chart_time));
             backend.SyncBackgroundAssets(background_assets.get(), background_assets_version);
+            backend.SetShowFloorNumbers(show_floor_numbers && !clean_view && !playback_active);
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(
