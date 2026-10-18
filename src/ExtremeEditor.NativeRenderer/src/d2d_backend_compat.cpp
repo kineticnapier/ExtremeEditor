@@ -252,7 +252,11 @@ HRESULT D2DBackend::RenderFrame(
             stats);
 
         if (!playback.active)
+        {
+            if (show_floor_numbers_)
+                DrawFloorNumbers(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
             DrawEditorHud(*scene, camera_x, camera_y, zoom, selected_floor, stats);
+        }
 
         DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
         if (playback.active)
