@@ -4,6 +4,14 @@ using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
+if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    TogetherAudioCutRegression.Run();
+    Console.WriteLine("PASS: sample-exact Together audio clipping regression.");
+    return 0;
+}
+
 TogetherAudioCutRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
