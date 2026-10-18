@@ -1181,6 +1181,7 @@ void Renderer::RenderLoop() noexcept
         std::int32_t selected_floor = -1;
         bool clean_view = false;
         bool show_floor_numbers = false;
+        int editor_hud_hover = -1;
         PositionTrackDragPreview position_drag_preview;
         std::vector<InputWorldPoint> position_drag_base_positions;
         std::uint64_t scene_version = 0;
@@ -1224,6 +1225,7 @@ void Renderer::RenderLoop() noexcept
             selected_floor = selected_floor_;
             clean_view = clean_view_;
             show_floor_numbers = show_floor_numbers_;
+            editor_hud_hover = hover_hud_button_;
             position_drag_preview = position_drag_preview_;
             position_drag_base_positions = position_drag_base_positions_;
             scene_version = scene_version_;
@@ -1349,6 +1351,7 @@ void Renderer::RenderLoop() noexcept
             backend.SetBackgroundState(ResolveBackgroundAtTime(background_events.get(), chart_time));
             backend.SyncBackgroundAssets(background_assets.get(), background_assets_version);
             backend.SetShowFloorNumbers(show_floor_numbers && !clean_view && !playback_active);
+            backend.SetEditorHudHover(clean_view || playback_active ? -1 : editor_hud_hover);
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(
