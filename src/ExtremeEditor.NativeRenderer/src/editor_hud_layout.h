@@ -26,9 +26,9 @@ inline constexpr std::size_t EditorHudButtonCount = 8;
 // world-relative units so both the spacing and the hit regions scale with it.
 inline constexpr float EditorHudReferenceZoom = 28.0f;
 inline constexpr float EditorHudMinimumZoom = 14.0f;
-inline constexpr float EditorHudCornerRadius = 3.5f;
-inline constexpr float EditorHudButtonHalfWidth = 14.0f;
-inline constexpr float EditorHudButtonHalfHeight = 14.5f;
+inline constexpr float EditorHudCornerRadius = 2.5f;
+inline constexpr float EditorHudButtonHalfWidth = 8.0f;
+inline constexpr float EditorHudButtonHalfHeight = 8.0f;
 
 inline float EditorHudScaleForZoom(float zoom) noexcept
 {
@@ -44,10 +44,10 @@ inline std::array<EditorHudButton, EditorHudButtonCount> BuildEditorHudButtons(
     float anchor_x,
     float anchor_y) noexcept
 {
-    constexpr float diagonal_x = 43.0f;
-    constexpr float diagonal_y = 43.0f;
-    constexpr float axis_x = 49.0f;
-    constexpr float axis_y = 57.0f;
+    constexpr float diagonal_x = 31.0f;
+    constexpr float diagonal_y = 31.0f;
+    constexpr float axis_x = 38.0f;
+    constexpr float axis_y = 41.0f;
     constexpr float hw = EditorHudButtonHalfWidth;
     constexpr float hh = EditorHudButtonHalfHeight;
 
