@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 23u
+#define EE_RENDERER_API_VERSION 24u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -477,6 +477,7 @@ EE_RENDERER_API HWND ee_renderer_get_child_hwnd(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t height);
 EE_RENDERER_API void ee_renderer_set_clean_view(EeRendererHandle renderer, int32_t enabled);
 EE_RENDERER_API void ee_renderer_set_show_floor_numbers(EeRendererHandle renderer, int32_t enabled);
+EE_RENDERER_API void ee_renderer_set_editor_hud_delete_button(EeRendererHandle renderer, int32_t button_index);
 EE_RENDERER_API EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,
