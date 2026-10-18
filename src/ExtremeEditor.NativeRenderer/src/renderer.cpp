@@ -135,6 +135,7 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     const bool had_scene = static_cast<bool>(scene_);
     scene_ = std::move(scene);
     pending_icon_states_.clear();
+    delete_hud_button_ = -1; // WPF will refresh this after updating the selected floor.
 
     if (!had_scene)
     {
@@ -1182,6 +1183,7 @@ void Renderer::RenderLoop() noexcept
         bool clean_view = false;
         bool show_floor_numbers = false;
         int editor_hud_hover = -1;
+        int delete_hud_button = -1;
         PositionTrackDragPreview position_drag_preview;
         std::vector<InputWorldPoint> position_drag_base_positions;
         std::uint64_t scene_version = 0;
@@ -1226,6 +1228,7 @@ void Renderer::RenderLoop() noexcept
             clean_view = clean_view_;
             show_floor_numbers = show_floor_numbers_;
             editor_hud_hover = hover_hud_button_;
+            delete_hud_button = delete_hud_button_;
             position_drag_preview = position_drag_preview_;
             position_drag_base_positions = position_drag_base_positions_;
             scene_version = scene_version_;
@@ -1352,6 +1355,7 @@ void Renderer::RenderLoop() noexcept
             backend.SyncBackgroundAssets(background_assets.get(), background_assets_version);
             backend.SetShowFloorNumbers(show_floor_numbers && !clean_view && !playback_active);
             backend.SetEditorHudHover(clean_view || playback_active ? -1 : editor_hud_hover);
+            backend.SetEditorHudDeleteButton(clean_view || playback_active ? -1 : delete_hud_button);
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(
