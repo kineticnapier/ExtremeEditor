@@ -105,6 +105,13 @@ void ee_renderer_set_show_floor_numbers(EeRendererHandle renderer, int32_t enabl
         static_cast<ee::Renderer*>(renderer)->SetShowFloorNumbers(enabled != 0);
 }
 
+void ee_renderer_set_editor_hud_delete_button(
+    EeRendererHandle renderer, int32_t button_index)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetEditorHudDeleteButton(button_index);
+}
+
 EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,
