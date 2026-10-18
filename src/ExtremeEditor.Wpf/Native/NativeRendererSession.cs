@@ -25,7 +25,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 22;
+    private const uint ExpectedApiVersion = 23;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -423,6 +423,12 @@ internal sealed class NativeRendererSession : IDisposable
     {
         if (_renderer != nint.Zero)
             NativeRendererNative.SetCleanView(_renderer, enabled ? 1 : 0);
+    }
+
+    internal void SetShowFloorNumbers(bool enabled)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetShowFloorNumbers(_renderer, enabled ? 1 : 0);
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
