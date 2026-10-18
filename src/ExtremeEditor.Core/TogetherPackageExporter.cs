@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -116,6 +118,28 @@ public static class TogetherPackageExporter
                         0.5 / plan.SampleRate + 1e-9)
                     throw new InvalidDataException(
                         "Generated chart failed loader/audio-origin readback.");
+
+                string startTime = TimeSpan.FromSeconds(
+                    (double)part.StartSample / plan.SampleRate).ToString(
+                    @"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture);
+                string endTime = TimeSpan.FromSeconds(
+                    (double)part.EndSampleExclusive / plan.SampleRate).ToString(
+                    @"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture);
+                File.WriteAllText(Path.Combine(partPath, "README.txt"),
+                    "ExtremeEditor 合作担当ファイル" + Environment.NewLine +
+                    "担当区間: " + startTime + " ～ " + endTime +
+                    " (終点は含まない)" + Environment.NewLine +
+                    "担当者ID: " + (part.OwnerName ?? "未割当") + Environment.NewLine +
+                    "譜面: " + chartFile + Environment.NewLine +
+                    "音源: " + songName + " (曲全体、無加工)" + Environment.NewLine +
+                    "開始時刻は音源の絶対時刻です。区間外を編集しないでください。" + Environment.NewLine +
+                    "この譜面は空の制作テンプレートであり、完成済み譜面からの切り出しではありません。" + Environment.NewLine +
+                    "先頭の1タイルは編集開始位置の目印です。採譜したノーツではありません。" + Environment.NewLine +
+                    "生成されたファイルが本家ADOFAIエディタで開けるか確認してください。" + Environment.NewLine,
+                    Encoding.UTF8);
+                ZipFile.CreateFromDirectory(partPath,
+                    Path.Combine(temp, folderName + ".zip"),
+                    CompressionLevel.Fastest, includeBaseDirectory: false);
 
                 manifestParts.Add(new JsonObject
                 {
