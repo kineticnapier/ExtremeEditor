@@ -99,6 +99,12 @@ void ee_renderer_set_clean_view(EeRendererHandle renderer, int32_t enabled)
         static_cast<ee::Renderer*>(renderer)->SetCleanView(enabled != 0);
 }
 
+void ee_renderer_set_show_floor_numbers(EeRendererHandle renderer, int32_t enabled)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetShowFloorNumbers(enabled != 0);
+}
+
 EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,
