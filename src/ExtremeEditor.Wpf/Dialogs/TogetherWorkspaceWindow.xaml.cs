@@ -1554,6 +1554,42 @@ public partial class TogetherWorkspaceWindow : Window
             _notice = $"変更を共有しました（{ShortSha(published)}）。";
         });
 
+    private async void ExportCollaborationPartsClick(object sender, RoutedEventArgs e)
+    {
+        await SafelyAsync(async () =>
+        {
+            TogetherSectionPlan plan = RequiredSectionPlan();
+            string audioFile = _timelineAudioPath ??
+                throw new InvalidOperationException("先に音源を読み込んでください。");
+            double bpm = ParseFiniteDouble(BpmBox.Text, "テンプレートBPM");
+            if (bpm <= 0)
+                throw new ArgumentException("テンプレートBPMは0より大きい値にしてください。");
+
+            var folderDialog = new OpenFolderDialog
+            {
+                Title = "担当ファイルの生成先となる親フォルダーを選択"
+            };
+            if (folderDialog.ShowDialog(this) != true)
+                return;
+
+            string folderName = "ExtremeEditor-Parts-" +
+                DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            string destination = Path.Combine(folderDialog.FolderName, folderName);
+            ExportPackagesButton.IsEnabled = false;
+            try
+            {
+                TogetherPackageExportResult result = await Task.Run(() =>
+                    TogetherPackageExporter.ExportBlankPackages(
+                        plan, audioFile, destination, bpm));
+                _notice = $"区間別の空譜面を{result.PackageCount}件生成しました。音源は各フォルダーに同梱しています。保存先: {result.Directory}";
+            }
+            finally
+            {
+                ExportPackagesButton.IsEnabled = true;
+            }
+        });
+    }
+
     private void ExportClick(object sender, RoutedEventArgs e) =>
         Safely(() =>
         {
@@ -1755,6 +1791,8 @@ public partial class TogetherWorkspaceWindow : Window
             ? !_timeStaged && _timeEditor?.IsDirty != true
             : !state.HasStagedChanges);
         PushButton.IsEnabled = PullButton.IsEnabled;
+        ExportPackagesButton.IsEnabled = !loaded && _sectionPlan is not null &&
+            _timelineAudioPath is not null;
         ExportButton.IsEnabled = PullButton.IsEnabled;
         ShareChangesButton.IsEnabled = loaded;
         ReceiveChangesButton.IsEnabled = PullButton.IsEnabled;
