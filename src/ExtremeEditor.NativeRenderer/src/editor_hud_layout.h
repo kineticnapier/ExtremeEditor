@@ -32,6 +32,20 @@ struct EditorHudButton
 
 inline constexpr std::size_t EditorHudButtonCount = 8;
 
+ // The native floor geometry is scaled by the camera's world-to-screen zoom.
+ // Keep its editor controls in the same coordinate space. 28 is the native
+ // editor's default zoom, so the existing layout is unchanged at 1x.
+inline constexpr float EditorHudReferenceZoom = 28.0f;
+// Below this scale the floor and its buttons are too small to interact with.
+inline constexpr float EditorHudMinimumZoom = 14.0f;
+
+inline float EditorHudScaleForZoom(float zoom) noexcept
+{
+    if (!std::isfinite(zoom) || zoom < EditorHudMinimumZoom)
+        return 0.0f;
+    return zoom / EditorHudReferenceZoom;
+}
+
 inline std::array<EditorHudButton, EditorHudButtonCount> BuildEditorHudButtons(
     float anchor_x,
     float anchor_y) noexcept
@@ -65,5 +79,30 @@ inline bool HitTestEditorHudButton(const EditorHudButton& button, float x, float
     }
 
     return dx <= button.half_width && dy <= button.half_height;
+}
+
+// Rendering uses a scale transform about the selected floor's projected
+// position. Undo that SAME transform for pointer hit-testing so the visual
+// diamond/rect and its clickable area always agree at every camera zoom.
+inline int HitTestEditorHudButtons(
+    float anchor_x,
+    float anchor_y,
+    float zoom,
+    float screen_x,
+    float screen_y) noexcept
+{
+    const float scale = EditorHudScaleForZoom(zoom);
+    if (scale == 0.0f || !std::isfinite(screen_x) || !std::isfinite(screen_y))
+        return -1;
+
+    const float local_x = anchor_x + (screen_x - anchor_x) / scale;
+    const float local_y = anchor_y + (screen_y - anchor_y) / scale;
+    const auto buttons = BuildEditorHudButtons(anchor_x, anchor_y);
+    for (std::size_t i = 0; i < buttons.size(); ++i)
+    {
+        if (HitTestEditorHudButton(buttons[i], local_x, local_y))
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 }
