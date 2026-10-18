@@ -115,6 +115,7 @@ public:
     void SetFilterState(const FilterVisualState& state) noexcept { filter_state_ = state; }
     void SetBackgroundState(const EeBackgroundState& state) noexcept { background_state_ = state; }
     void SetShowFloorNumbers(bool enabled) noexcept { show_floor_numbers_ = enabled; }
+    void SetEditorHudHover(int hovered) noexcept { editor_hud_hover_ = hovered; }
     void DrawBackground() noexcept;
     void SyncBackgroundAssets(
         const std::unordered_map<std::uint32_t, std::wstring>* paths,
@@ -316,7 +317,6 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_text_format_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_subtext_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> floor_numbers_text_format_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> grid_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush_;
@@ -329,13 +329,13 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_button_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_destructive_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_shadow_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_text_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_subtext_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_shadow_brush_;
     bool show_floor_numbers_ = false;
+    int editor_hud_hover_ = -1;
 
     FloorInstancedRenderer floor_renderer_;
     IconInstancedRenderer icon_renderer_;
