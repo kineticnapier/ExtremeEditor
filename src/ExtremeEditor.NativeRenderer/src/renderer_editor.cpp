@@ -90,16 +90,10 @@ int Renderer::HitTestEditorHud(int screen_x, int screen_y) noexcept
     const float anchor_x = (floor.x - camera_x_) * zoom_ + width * 0.5f;
     const float anchor_y = (camera_y_ - floor.y) * zoom_ + height * 0.5f;
 
-    const auto buttons = BuildEditorHudButtons(anchor_x, anchor_y);
-    for (std::size_t i = 0; i < buttons.size(); ++i)
-    {
-        if (HitTestEditorHudButton(
-                buttons[i],
-                static_cast<float>(screen_x),
-                static_cast<float>(screen_y)))
-            return static_cast<int>(i);
-    }
-    return -1;
+    return HitTestEditorHudButtons(
+        anchor_x, anchor_y, zoom_,
+        static_cast<float>(screen_x),
+        static_cast<float>(screen_y));
 }
 
 void Renderer::NotifyEditorAction(
