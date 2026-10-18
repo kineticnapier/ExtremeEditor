@@ -6,6 +6,14 @@
 
 namespace ee
 {
+void Renderer::SetEditorHudDeleteButton(int button_index) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    delete_hud_button_ =
+        button_index >= 0 && button_index < static_cast<int>(EditorHudButtonCount)
+            ? button_index : -1;
+}
+
 void Renderer::SetShowFloorNumbers(bool enabled) noexcept
 {
     std::lock_guard lock(scene_mutex_);
