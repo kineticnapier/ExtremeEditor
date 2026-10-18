@@ -40,58 +40,73 @@ foreach ($name in $tests) {
     }
 }
 
-$logDir = Join-Path ([IO.Path]::GetTempPath()) ("extremeeditor-parallel-tests-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $logDir | Out-Null
-$jobsStarted = @()
-$previousCore = [Environment]::GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY", "Process")
-$previousAudio = [Environment]::GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY", "Process")
+# Build outputs are shared; only test execution is parallel. Launch real
+# System.Diagnostics.Process objects rather than Start-Process -PassThru,
+# which did not expose reliable ExitCode values on the reporter's machine.
+$started = @()
 $failed = $false
 try {
     foreach ($name in $tests) {
-        # Set environment before process creation; each child inherits its own
-        # independent values. Restore the caller's environment in finally.
-        $coreOnly = if ($name -eq "Core" -and $Mode -ne "Full") { "1" } else { $null }
-        $audioOnly = if ($name -eq "Audio" -and $Mode -ne "Full") { "1" } else { $null }
-        [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY", $coreOnly, "Process")
-        [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY", $audioOnly, "Process")
+        $info = [System.Diagnostics.ProcessStartInfo]::new()
+        $info.FileName = "dotnet"
+        $info.Arguments = 'exec "' + $assemblies[$name] + '"'
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
 
-        $output = Join-Path $logDir ($name + ".stdout.txt")
-        $errors = Join-Path $logDir ($name + ".stderr.txt")
-        $quotedAssembly = '"' + $assemblies[$name] + '"'
-        $process = Start-Process -FilePath "dotnet" -ArgumentList @("exec", $quotedAssembly) -NoNewWindow -PassThru -RedirectStandardOutput $output -RedirectStandardError $errors
-        $jobsStarted += [pscustomobject]@{
+        # Do not mutate the invoking PowerShell session's environment.
+        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY")
+        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_AUDIO_CUT_ONLY")
+        if ($name -eq "Core" -and $Mode -ne "Full") {
+            $info.EnvironmentVariables["EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY"] = "1"
+        }
+        if ($name -eq "Audio" -and $Mode -ne "Full") {
+            $info.EnvironmentVariables["EXTREMEEDITOR_AUDIO_CUT_ONLY"] = "1"
+        }
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $info
+        if (-not $process.Start()) {
+            $process.Dispose()
+            throw "Could not start $name test process."
+        }
+        # Drain both pipes while both tests run, even when a test produces
+        # enough output to fill its pipe before WaitForExit.
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $started += [pscustomobject]@{
             Name = $name
             Process = $process
-            Output = $output
-            Errors = $errors
+            Stdout = $stdoutTask
+            Stderr = $stderrTask
         }
         Write-Host "Started $name tests (PID $($process.Id))."
     }
 
-    foreach ($job in $jobsStarted) {
+    foreach ($job in $started) {
         $job.Process.WaitForExit()
-        Write-Host ("--- {0} tests (exit {1}) ---" -f $job.Name, $job.Process.ExitCode)
-        if (Test-Path -LiteralPath $job.Output) {
-            Get-Content -LiteralPath $job.Output | Out-Host
+        $stdout = $job.Stdout.GetAwaiter().GetResult()
+        $stderr = $job.Stderr.GetAwaiter().GetResult()
+        [int]$exitCode = $job.Process.ExitCode
+        Write-Host ("--- {0} tests (exit {1}) ---" -f $job.Name, $exitCode)
+        if (-not [string]::IsNullOrEmpty($stdout)) { Write-Host $stdout.TrimEnd() }
+        if (-not [string]::IsNullOrEmpty($stderr)) {
+            [Console]::Error.WriteLine($stderr.TrimEnd())
         }
-        if (Test-Path -LiteralPath $job.Errors) {
-            Get-Content -LiteralPath $job.Errors | Out-Host
-        }
-        if ($job.Process.ExitCode -ne 0) { $failed = $true }
+        if ($exitCode -ne 0) { $failed = $true }
     }
 }
 finally {
-    [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY", $previousCore, "Process")
-    [Environment]::SetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY", $previousAudio, "Process")
-    foreach ($job in $jobsStarted) {
-        if (-not $job.Process.HasExited) { $job.Process.WaitForExit() }
-        $job.Process.Dispose()
-    }
-    if (Test-Path -LiteralPath $logDir) {
-        Remove-Item -LiteralPath $logDir -Recurse -Force
+    foreach ($job in $started) {
+        try {
+            if (-not $job.Process.HasExited) { $job.Process.WaitForExit() }
+        }
+        finally { $job.Process.Dispose() }
     }
 }
 
 $watch.Stop()
 Write-Host ("test-fast: {0:N2}s ({1}, {2} suite(s))" -f $watch.Elapsed.TotalSeconds, $Mode, $tests.Count)
 if ($failed) { exit 1 }
+exit 0
