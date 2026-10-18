@@ -185,7 +185,7 @@ void D2DBackend::DrawEditorHud(
     }
 
     if (!EnsureTextFormat(
-            dwrite_factory_.Get(), hud_text_format_, 15.0f, DWRITE_FONT_WEIGHT_BOLD))
+            dwrite_factory_.Get(), hud_text_format_, 10.5f, DWRITE_FONT_WEIGHT_BOLD))
         return;
 
     auto ensure_brush = [this](
@@ -230,8 +230,8 @@ void D2DBackend::DrawEditorHud(
             rect, EditorHudCornerRadius, EditorHudCornerRadius);
         const D2D1_ROUNDED_RECT shadow = D2D1::RoundedRect(
             D2D1::RectF(
-                rect.left + 1.0f, rect.top + 2.0f,
-                rect.right + 1.0f, rect.bottom + 2.0f),
+                rect.left + 0.6f, rect.top + 1.0f,
+                rect.right + 0.6f, rect.bottom + 1.0f),
             EditorHudCornerRadius, EditorHudCornerRadius);
 
         d2d_context_->FillRoundedRectangle(shadow, hud_shadow_brush_.Get());
