@@ -27,8 +27,10 @@ public static class TogetherPackageExporter
         TogetherSectionPlan plan,
         string audioFile,
         string destinationDirectory,
-        double initialBpm)
+        double initialBpm,
+        ITogetherAudioClipWriter clipWriter)
     {
+        ArgumentNullException.ThrowIfNull(clipWriter);
         TogetherSectionPlanner.Validate(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(audioFile);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
@@ -61,6 +63,7 @@ public static class TogetherPackageExporter
         using FileStream stream = File.OpenRead(source);
         string audioHash = Convert.ToHexString(SHA256.HashData(stream));
         var manifestParts = new JsonArray();
+        var clipRequests = new List<TogetherAudioClipRequest>(plan.Sections.Count);
         Directory.CreateDirectory(temp);
         try
         {
@@ -71,15 +74,19 @@ public static class TogetherPackageExporter
                     System.Globalization.CultureInfo.InvariantCulture);
                 string partPath = Path.Combine(temp, folderName);
                 Directory.CreateDirectory(partPath);
-                string songName = Path.GetFileName(source);
-                File.Copy(source, Path.Combine(partPath, songName));
+                string songName = folderName + ".wav";
+                clipRequests.Add(new TogetherAudioClipRequest(
+                    Path.Combine(partPath, songName),
+                    part.StartSample,
+                    part.EndSampleExclusive));
                 string chartFile = folderName + ".adofai";
                 string chartPath = Path.Combine(partPath, chartFile);
 
-                // Floor zero is the local editing origin on the original full
-                // audio timeline. One ordinary angle gives the stock editor a
-                // minimal editable path; it is NOT an authored musical note.
-                double startMs = part.StartSample * 1000.0 / plan.SampleRate;
+                // The audio itself is clipped to [start,end). Floor zero must
+                // now correspond to 0 seconds of the LOCAL clip, not the
+                // original absolute song time. The manifest records that time.
+                // One ordinary angle is a minimal editable path, not a note.
+                double startMs = 0;
                 JsonObject chart = new()
                 {
                     ["angleData"] = new JsonArray(JsonValue.Create(0)),
@@ -114,8 +121,7 @@ public static class TogetherPackageExporter
                 if (reopened.FloorCount != 2 ||
                     reopened.ActionStore.ActionCount != 0 ||
                     reopened.SongFilename != songName ||
-                    Math.Abs(actualStart - (double)part.StartSample / plan.SampleRate) >
-                        0.5 / plan.SampleRate + 1e-9)
+                    Math.Abs(actualStart) > 0.5 / plan.SampleRate + 1e-9)
                     throw new InvalidDataException(
                         "Generated chart failed loader/audio-origin readback.");
 
@@ -131,36 +137,52 @@ public static class TogetherPackageExporter
                     " (終点は含まない)" + Environment.NewLine +
                     "担当者ID: " + (part.OwnerName ?? "未割当") + Environment.NewLine +
                     "譜面: " + chartFile + Environment.NewLine +
-                    "音源: " + songName + " (曲全体、無加工)" + Environment.NewLine +
-                    "開始時刻は音源の絶対時刻です。区間外を編集しないでください。" + Environment.NewLine +
+                    "音源: " + songName + " (担当範囲だけ切断したPCM WAV)" + Environment.NewLine +
+                    "譜面の0秒は切断後の音源の0秒に一致します。" + Environment.NewLine +
+                    "元曲の担当開始・終了時刻は上記の通りです。区間外を編集しないでください。" + Environment.NewLine +
                     "この譜面は空の制作テンプレートであり、完成済み譜面からの切り出しではありません。" + Environment.NewLine +
                     "先頭の1タイルは編集開始位置の目印です。採譜したノーツではありません。" + Environment.NewLine +
                     "生成されたファイルが本家ADOFAIエディタで開けるか確認してください。" + Environment.NewLine,
                     Encoding.UTF8);
-                ZipFile.CreateFromDirectory(partPath,
-                    Path.Combine(temp, folderName + ".zip"),
-                    CompressionLevel.Fastest, includeBaseDirectory: false);
-
                 manifestParts.Add(new JsonObject
                 {
                     ["segmentId"] = part.InternalId,
                     ["ownerId"] = part.OwnerName,
                     ["folder"] = folderName,
                     ["chartFile"] = chartFile,
+                    ["audioFile"] = songName,
+                    ["clipSampleCount"] = part.EndSampleExclusive - part.StartSample,
                     ["startSample"] = part.StartSample,
                     ["endSampleExclusive"] = part.EndSampleExclusive
                 });
             }
 
+            // Decode once, then write each cut as lossless PCM WAV. If any
+            // decoder/cut fails, the temporary output is removed and no
+            // partially valid package gets published.
+            clipWriter.WriteClips(source, plan.SampleRate, clipRequests);
+            for (int i = 0; i < plan.Sections.Count; i++)
+            {
+                string folder = "Part-" + (i + 1).ToString("D3",
+                    System.Globalization.CultureInfo.InvariantCulture);
+                string audioPath = clipRequests[i].DestinationPath;
+                if (!File.Exists(audioPath) || new FileInfo(audioPath).Length <= 44)
+                    throw new InvalidDataException(
+                        "Cut audio was not generated for " + folder + ".");
+                ZipFile.CreateFromDirectory(Path.Combine(temp, folder),
+                    Path.Combine(temp, folder + ".zip"),
+                    CompressionLevel.Fastest, includeBaseDirectory: false);
+            }
+
             JsonObject manifest = new()
             {
-                ["format"] = "extremeeditor-blank-part-packages-v1",
+                ["format"] = "extremeeditor-blank-part-packages-v2",
                 ["audioFile"] = Path.GetFileName(source),
                 ["audioSha256"] = audioHash,
                 ["sampleRate"] = plan.SampleRate,
                 ["totalSamples"] = plan.TotalSamples,
                 ["initialBpm"] = initialBpm,
-                ["description"] = "Independent blank charts with full-length audio. Time ranges are assignment guidance only; native ADOFAI does not enforce them. This is not a lossless chart splitter.",
+                ["description"] = "Independent blank charts with sample-aligned audio cuts decoded as PCM16 WAV. Chart time zero is local cut time zero, original global boundaries are in parts. Native ADOFAI does not enforce assignments. Not a lossless chart splitter.",
                 ["parts"] = manifestParts
             };
             using (FileStream manifestStream = new(
