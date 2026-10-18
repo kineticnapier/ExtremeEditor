@@ -61,6 +61,9 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_set_show_floor_numbers", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetShowFloorNumbers(nint renderer, int enabled);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_hud_delete_button", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetEditorHudDeleteButton(nint renderer, int buttonIndex);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_level", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetLevel(
         nint renderer, nint floors, uint floorCount, nint geometries, uint geometryCount,
