@@ -4,6 +4,7 @@ using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
+TogetherAudioCutRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
