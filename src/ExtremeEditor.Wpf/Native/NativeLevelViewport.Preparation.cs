@@ -78,6 +78,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     private bool _frameAllPending;
     private bool _followPlayer = true;
     private bool _cleanView;
+    private bool _showFloorNumbers;
 
     public NativeLevelViewport()
     {
@@ -107,6 +108,12 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         _cleanView = enabled;
         _session?.SetCleanView(enabled);
+    }
+
+    public void SetShowFloorNumbers(bool enabled)
+    {
+        _showFloorNumbers = enabled;
+        _session?.SetShowFloorNumbers(enabled);
     }
 
     public void SetLevel(LevelDocument level)
@@ -284,6 +291,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session.EditorActionRequested += NativeEditorActionRequested;
         _session.SetFollowPlayer(_followPlayer);
         _session.SetCleanView(_cleanView);
+        _session.SetShowFloorNumbers(_showFloorNumbers);
         LastLevelUploadMetrics = UploadPendingLevel();
 
         var watch = Stopwatch.StartNew();
