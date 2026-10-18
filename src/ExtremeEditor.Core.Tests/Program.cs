@@ -2,6 +2,15 @@ using System.Reflection;
 using ExtremeEditor.Core;
 
 if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.TogetherPackageExportRegression.Run();
+    Console.WriteLine("PASS: local blank collaboration package export regression.");
+    return 0;
+}
+
+if (string.Equals(
     Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_CLOUD_E2E_ONLY"),
     "1", StringComparison.Ordinal))
 {
