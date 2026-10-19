@@ -1,4 +1,5 @@
 using System.IO;
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
@@ -22,6 +23,15 @@ internal sealed class EditorDocumentTab
 
     internal LevelDocument Document { get; }
     internal EditorSession Editor { get; }
+
+    // A tab retains its own transport and selection when another document is
+    // active. The native viewport remains shared for this first iteration.
+    internal AudioPlayer? Audio { get; set; }
+    internal TimingMap? TimingMap { get; set; }
+    internal HitSoundTimeline? HitSoundTimeline { get; set; }
+    internal int[] SelectedFloors { get; set; } = [0];
+    internal int PrimaryFloor { get; set; } = 0;
+
     internal bool IsDirty => Editor.IsDirty;
 
     internal string DisplayName
