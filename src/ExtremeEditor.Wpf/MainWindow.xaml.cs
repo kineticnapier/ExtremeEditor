@@ -111,6 +111,11 @@ public partial class MainWindow : Window
 
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
         _discordPresence.Dispose();
+        foreach (EditorDocumentTab tab in _documentTabs.Tabs)
+        {
+            if (tab.Audio is not null && !ReferenceEquals(tab.Audio, _audio))
+                tab.Audio.Dispose();
+        }
         _audio.Dispose();
 
         ShutdownDiagnostics.Begin("PlaybackDiagnosticLogger.Dispose");
@@ -140,6 +145,23 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
+        // The legacy Open pipeline replaces one editor and its audio player.
+        // Until document-aware file loading lands, never silently discard
+        // another open tab (or its unsaved edits).
+        if (_documentTabs.Tabs.Count > 1)
+        {
+            MessageBox.Show(
+                this,
+                "Opening existing files into multiple tabs is not available yet. " +
+                "The current tabs will not be replaced. Save the open charts and reopen " +
+                "with a single tab for now.",
+                "ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            e.Handled = true;
+            return;
+        }
+
         if (!ConfirmDiscardCurrentChanges())
         {
             e.Handled = true;
