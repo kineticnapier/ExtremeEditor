@@ -93,6 +93,7 @@ public partial class MainWindow : Window
     {
         ShutdownDiagnostics.Begin("MainWindow.OnClosed");
         _isClosed = true;
+        _editor?.Changed -= ActiveEditorSessionChanged;
         _loadGeneration++;
         _videoExportCancellation?.Cancel();
 
