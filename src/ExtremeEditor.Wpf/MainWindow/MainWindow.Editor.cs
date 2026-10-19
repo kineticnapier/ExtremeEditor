@@ -147,7 +147,7 @@ public partial class MainWindow
             _editor.Changed -= ActiveEditorSessionChanged;
 
         _editor = new EditorSession(_level);
-        _activeDocumentTab = new EditorDocumentTab(_level, _editor);
+        _documentTabs.ResetToSingle(new EditorDocumentTab(_level, _editor));
         _editor.Changed += ActiveEditorSessionChanged;
         RefreshActiveDocumentTab();
         CommandManager.InvalidateRequerySuggested();
