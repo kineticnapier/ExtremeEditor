@@ -85,7 +85,7 @@ internal static class DocumentTabScaffoldRegression
                 controller.Contains("previous.Audio = _audio", StringComparison.Ordinal) &&
                 controller.Contains("previous.SelectedFloors = _selection.SelectedFloors.ToArray()", StringComparison.Ordinal) &&
                 controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
-                controller.Contains("_editor.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
+                controller.Contains("_editor?.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
             "Switching tabs preserves the previous audio, selection and editor session.");
         string keyboard = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.AdoFaiKeybinds.cs"));
