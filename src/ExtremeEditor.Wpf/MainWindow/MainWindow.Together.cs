@@ -19,6 +19,17 @@ public partial class MainWindow
 
     private void OpenTogetherClick(object sender, RoutedEventArgs e)
     {
+        if (_documentTabs.Tabs.Count > 1)
+        {
+            MessageBox.Show(
+                this,
+                "Together cannot replace a document while multiple chart tabs are open.",
+                "ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         if (_togetherPanel is { IsLoaded: true })
         {
             _togetherPanel.Activate();
@@ -38,6 +49,9 @@ public partial class MainWindow
     internal void ApplyTogetherDocument(LevelDocument chart)
     {
         ArgumentNullException.ThrowIfNull(chart);
+        if (_documentTabs.Tabs.Count > 1)
+            throw new OperationCanceledException(
+                "Together cannot replace a chart while multiple tabs are open.");
         if (_editor?.IsDirty == true &&
             !ConfirmDiscardCurrentChanges())
             throw new OperationCanceledException("Editor reload cancelled.");
@@ -51,8 +65,16 @@ public partial class MainWindow
         _editorPlaybackRefreshPending = false;
         _editorPlaybackRefreshDocument = null;
 
+        _editor?.Changed -= ActiveEditorSessionChanged;
         _level = chart;
         _editor = new EditorSession(chart);
+        _documentTabs.ResetToSingle(new EditorDocumentTab(chart, _editor)
+        {
+            Audio = _audio,
+            SelectedFloors = [0],
+            PrimaryFloor = 0
+        });
+        _editor.Changed += ActiveEditorSessionChanged;
         _timingMap = TimingMapBuilder.Build(chart);
         _hitSoundTimeline = null;
         NativeViewport.SetLevel(chart);
@@ -63,6 +85,7 @@ public partial class MainWindow
         _togetherModeActive = true;
 
         RefreshInspector();
+        RefreshActiveDocumentTab();
         CommandManager.InvalidateRequerySuggested();
         StatusText.Text =
             $"Together | floors {chart.FloorCount:N0} | edits are saved through Stage / Commit";
