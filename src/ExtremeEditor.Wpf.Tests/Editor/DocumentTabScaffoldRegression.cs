@@ -90,7 +90,7 @@ internal static class DocumentTabScaffoldRegression
             "Switching tabs preserves the previous audio, selection and editor session.");
         Require(controller.Contains("foreach (EditorDocumentTab tab in _documentTabs.Tabs)", StringComparison.Ordinal) &&
                 controller.Contains("bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab)", StringComparison.Ordinal) &&
-                controller.Contains("DocumentTabsHost.Children.Add(button)", StringComparison.Ordinal) &&
+                controller.Contains("DocumentTabsHost.Children.Add(tabChrome)", StringComparison.Ordinal) &&
                 !controller.Contains("if (ReferenceEquals(tab, active))", StringComparison.Ordinal),
             "The active tab is rendered in its original position alongside every other tab.");
         string keyboard = File.ReadAllText(Path.Combine(
