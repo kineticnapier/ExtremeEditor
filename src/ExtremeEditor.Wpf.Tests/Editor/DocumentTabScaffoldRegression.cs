@@ -30,10 +30,20 @@ internal static class DocumentTabScaffoldRegression
         Require(tab.Header == "multi-editor-test.adofai",
             "The header tracks the filename after the document acquires a path.");
 
+        tab.PrimaryFloor = 1;
+        tab.SelectedFloors = [1];
+        tab.TimingMap = TimingMapBuilder.Build(document);
+        Require(tab.PrimaryFloor == 1 && tab.SelectedFloors.SequenceEqual([1]) &&
+                tab.TimingMap is not null,
+            "Per-document tab retains its own selection and playback timing.");
+
         var other = new LevelDocumentTabFixture();
         Require(!ReferenceEquals(tab.Document, other.Document) &&
                 !ReferenceEquals(tab.Editor, other.Tab.Editor),
             "Document and edit history must not be shared across tab models.");
+        Require(other.Tab.TimingMap is null && other.Tab.PrimaryFloor == 0,
+            "Inactive tab state is independent of the current chart.");
+
         VerifyTabCollection();
 
 
@@ -54,6 +64,11 @@ internal static class DocumentTabScaffoldRegression
         Require(markup.IndexOf("DocumentTabStrip", StringComparison.Ordinal) <
                 markup.IndexOf("EditorShellGrid", StringComparison.Ordinal),
             "Document tabs must be displayed above the editor viewport.");
+        Require(markup.Contains("x:Name=\"OtherDocumentTabsHost\"", StringComparison.Ordinal) &&
+                markup.Contains("x:Name=\"AddDocumentTabButton\"", StringComparison.Ordinal) &&
+                markup.Contains("Click=\"NewDocumentTabClick\"", StringComparison.Ordinal),
+            "A plus button and inactive-tab host allow the next chart to be opened.");
+
 
         string source = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.Editor.cs"));
@@ -64,6 +79,26 @@ internal static class DocumentTabScaffoldRegression
             "A new or saved editor updates the tab header.");
         Require(source.Contains("_documentTabs.ResetToSingle(", StringComparison.Ordinal),
             "Legacy single-document Open uses the explicit compatibility bridge.");
+        string controller = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.DocumentTabs.cs"));
+        Require(controller.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
+                controller.Contains("previous.Audio = _audio", StringComparison.Ordinal) &&
+                controller.Contains("previous.SelectedFloors = _selection.SelectedFloors.ToArray()", StringComparison.Ordinal) &&
+                controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
+                controller.Contains("_editor.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
+            "Switching tabs preserves the previous audio, selection and editor session.");
+        string keyboard = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.AdoFaiKeybinds.cs"));
+        Require(keyboard.Contains("key == Key.N", StringComparison.Ordinal) &&
+                keyboard.Contains("CreateNewDocumentTab();", StringComparison.Ordinal),
+            "Ctrl+N reaches tab creation through the native HWND keyboard bridge.");
+        string main = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "MainWindow.xaml.cs"));
+        Require(main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
+            "Legacy Open must not drop other tabs during migration.");
+        Require(source.Contains("Other chart tabs have unsaved changes.", StringComparison.Ordinal),
+            "Closing the window protects modified inactive charts.");
+
 
     }
 
