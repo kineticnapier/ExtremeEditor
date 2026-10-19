@@ -100,8 +100,10 @@ internal static class DocumentTabScaffoldRegression
             "Ctrl+N reaches tab creation through the native HWND keyboard bridge.");
         string main = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow.xaml.cs"));
-        Require(main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
-            "Legacy Open must not drop other tabs during migration.");
+        Require(main.Contains("_documentTabs.FindByPath(dialog.FileName)", StringComparison.Ordinal) &&
+                main.Contains("ActivateDocumentTab(existing)", StringComparison.Ordinal) &&
+                !main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
+            "Open reuses an existing chart tab instead of replacing other tabs.");
         Require(source.Contains("Other chart tabs have unsaved changes.", StringComparison.Ordinal),
             "Closing the window protects modified inactive charts.");
         Require(source.Contains("_documentTabs.FindByPath(path!)", StringComparison.Ordinal),

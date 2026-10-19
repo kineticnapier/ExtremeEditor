@@ -81,7 +81,10 @@ public partial class MainWindow
         return true;
     }
 
-    private void ActivateDocumentTab(EditorDocumentTab tab)
+    private void ActivateDocumentTab(
+        EditorDocumentTab tab,
+        Native.PreparedNativeLevel? preparedLevel = null,
+        bool deferPlaybackTimeline = false)
     {
         if (!CanSwitchDocumentTabs() ||
             !_documentTabs.Tabs.Contains(tab) ||
@@ -126,8 +129,12 @@ public partial class MainWindow
 
         // NativeLevelViewport remains a single HWND for this iteration.
         // Rebuild only the visible chart; inactive charts do not render.
-        NativeViewport.SetLevel(tab.Document);
-        NativeViewport.SetPlaybackTimeline(_timingMap);
+        if (preparedLevel is Native.PreparedNativeLevel nativeLevel)
+            NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
+        else
+            NativeViewport.SetLevel(tab.Document);
+        if (!deferPlaybackTimeline)
+            NativeViewport.SetPlaybackTimeline(_timingMap);
         _selection.SetFloorCount(tab.Document.FloorCount);
         _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);

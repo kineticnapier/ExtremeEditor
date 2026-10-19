@@ -145,28 +145,13 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
-        // The legacy Open pipeline replaces one editor and its audio player.
-        // Until document-aware file loading lands, never silently discard
-        // another open tab (or its unsaved edits).
-        if (_documentTabs.Tabs.Count > 1)
+        if (!CanSwitchDocumentTabs())
         {
-            MessageBox.Show(
-                this,
-                "Opening existing files into multiple tabs is not available yet. " +
-                "The current tabs will not be replaced. Save the open charts and reopen " +
-                "with a single tab for now.",
-                "ExtremeEditor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
             e.Handled = true;
             return;
         }
 
-        if (!ConfirmDiscardCurrentChanges())
-        {
-            e.Handled = true;
-            return;
-        }
+        EnsureEditorSession();
 
         var dialog = new OpenFileDialog
         {
@@ -175,14 +160,20 @@ public partial class MainWindow : Window
         };
 
         if (dialog.ShowDialog(this) == true)
-            await LoadLevelAsync(dialog.FileName);
+        {
+            EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
+            if (existing is not null)
+                ActivateDocumentTab(existing);
+            else
+                await LoadLevelAsync(dialog.FileName);
+        }
 
         e.Handled = true;
     }
 
     private void CanExecuteOpen(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = !_isLoading;
+        e.CanExecute = !_isClosed && !_isLoading && !_playbackPreparationPending && !IsCleanPlay;
         e.Handled = true;
     }
 
@@ -194,10 +185,7 @@ public partial class MainWindow : Window
         {
             _isLoading = true;
             _playbackPreparationPending = false;
-            _editorPlaybackRefreshTimer?.Stop();
-            _editorPlaybackRefreshPending = false;
-            _editorPlaybackRefreshDocument = null;
-            CommandManager.InvalidateRequerySuggested();
+             CommandManager.InvalidateRequerySuggested();
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Loading…";
 
@@ -218,21 +206,6 @@ public partial class MainWindow : Window
                 $"hitsounds={playback.HitSoundTime.TotalMilliseconds:N1}ms " +
                 $"resolveSong={playback.ResolveSongTime.TotalMilliseconds:N1}ms");
 
-            var phase = Stopwatch.StartNew();
-            StopPlayback();
-            _audio.Unload();
-            TimeSpan audioUnload = phase.Elapsed;
-
-            // Switching to a normal chart explicitly leaves Together mode.
-            // An existing Together panel must not keep applying its old
-            // workspace snapshot to this newly loaded document.
-            _togetherPanel?.Close();
-            _togetherModeActive = false;
-
-            _level = loaded.Document;
-            _timingMap = playback.TimingMap;
-            _hitSoundTimeline = playback.HitSoundTimeline;
-
             Task<Native.PreparedNativeLevel> nativeLevelTask =
                 NativeLoadPreparationCache.TryGetLevel(
                     loaded.Document,
@@ -245,17 +218,31 @@ public partial class MainWindow : Window
             if (generation != _loadGeneration || _isClosed)
                 return;
 
-            NativeLevelLoadMetrics nativeMetrics =
-                NativeViewport.SetPreparedLevelProfiled(loaded.Document, preparedNativeLevel);
-            _selection.SetFloorCount(loaded.Document.FloorCount);
-            _selection.SetSelection([0], 0);
-            NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-            EnsureEditorSession();
-            RefreshInspector();
+            var tab = new EditorDocumentTab(
+                loaded.Document, new EditorSession(loaded.Document))
+            {
+                Audio = new AudioPlayer(),
+                TimingMap = playback.TimingMap,
+                HitSoundTimeline = playback.HitSoundTimeline,
+                SelectedFloors = [0],
+                PrimaryFloor = 0
+            };
+            if (!_documentTabs.Add(tab, activate: false))
+            {
+                tab.Audio.Dispose();
+                throw new InvalidOperationException("This ADOFAI chart is already open in another tab.");
+            }
+
+            // Switch only after loading and preparing a valid chart. The old
+            // editor/selection/audio remain owned by the preceding tab.
+            _isLoading = false;
+            var switchWatch = Stopwatch.StartNew();
+            ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            TimeSpan tabSwitch = switchWatch.Elapsed;
+            Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 
             TimeSpan editorReadyTime = totalWatch.Elapsed;
             editorReady = true;
-            _isLoading = false;
             _playbackPreparationPending = true;
             Mouse.OverrideCursor = null;
             CommandManager.InvalidateRequerySuggested();
@@ -264,7 +251,7 @@ public partial class MainWindow : Window
                 $"[load] editor-ready floors={loaded.Document.FloorCount:N0} " +
                 $"actions={loaded.Document.ActionCount:N0} " +
                 $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
-                $"nativeUpload={nativeMetrics.Upload.TotalMilliseconds:N1}ms " +
+                $"nativeUpload={nativeMetrics.NativeUpload.TotalMilliseconds:N1}ms " +
                 $"total={editorReadyTime.TotalMilliseconds:N1}ms");
 
             StatusText.Text =
@@ -290,6 +277,8 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
+                if (audioPrepareTask.IsCompletedSuccessfully)
+                    audioPrepareTask.Result.Dispose();
                 if (generation == _loadGeneration && !_isClosed)
                 {
                     _playbackPreparationPending = false;
@@ -320,13 +309,14 @@ public partial class MainWindow : Window
             preparedAudio.Player.PlaybackSpeed = _playbackSpeed;
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
+            tab.Audio = _audio;
             previousAudio.Dispose();
 
             _playbackPreparationPending = false;
             CommandManager.InvalidateRequerySuggested();
 
             Console.WriteLine(
-                $"[load] audio unload={audioUnload.TotalMilliseconds:N1}ms " +
+                $"[load] tabSwitch={tabSwitch.TotalMilliseconds:N1}ms " +
                 $"configure={preparedAudio.ConfigureTime.TotalMilliseconds:N1}ms " +
                 $"load={preparedAudio.LoadTime.TotalMilliseconds:N1}ms");
             if (_audio.IsLoaded)
