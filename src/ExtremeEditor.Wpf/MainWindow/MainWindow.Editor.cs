@@ -271,6 +271,19 @@ public partial class MainWindow
             path = dialog.FileName;
         }
 
+        EditorDocumentTab? fileOwner = _documentTabs.FindByPath(path!);
+        if (fileOwner is not null && !ReferenceEquals(fileOwner, _documentTabs.ActiveTab))
+        {
+            MessageBox.Show(
+                this,
+                "That chart is already open in another tab. Select the existing tab " +
+                "or save with a different filename.",
+                "ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
