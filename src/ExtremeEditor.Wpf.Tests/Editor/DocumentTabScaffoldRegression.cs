@@ -34,6 +34,8 @@ internal static class DocumentTabScaffoldRegression
         Require(!ReferenceEquals(tab.Document, other.Document) &&
                 !ReferenceEquals(tab.Editor, other.Tab.Editor),
             "Document and edit history must not be shared across tab models.");
+        VerifyTabCollection();
+
 
         string root = FindRepositoryRoot();
         string markup = File.ReadAllText(Path.Combine(
@@ -60,6 +62,71 @@ internal static class DocumentTabScaffoldRegression
             "Current editor notifications are swapped along with the active document.");
         Require(source.Contains("RefreshActiveDocumentTab();", StringComparison.Ordinal),
             "A new or saved editor updates the tab header.");
+        Require(source.Contains("_documentTabs.ResetToSingle(", StringComparison.Ordinal),
+            "Legacy single-document Open uses the explicit compatibility bridge.");
+
+    }
+
+    private static void VerifyTabCollection()
+    {
+        var tabs = new EditorDocumentTabs();
+        var firstDocument = LevelDocument.CreateSynthetic(2);
+        firstDocument.SourcePath = Path.Combine(Path.GetTempPath(), "tab-one.adofai");
+        var firstEditor = new EditorSession(firstDocument);
+        var first = new EditorDocumentTab(firstDocument, firstEditor);
+
+        var secondDocument = LevelDocument.CreateSynthetic(2);
+        secondDocument.SourcePath = Path.Combine(Path.GetTempPath(), "tab-two.adofai");
+        var secondEditor = new EditorSession(secondDocument);
+        var second = new EditorDocumentTab(secondDocument, secondEditor);
+
+        var thirdDocument = LevelDocument.CreateSynthetic(2);
+        var third = new EditorDocumentTab(thirdDocument, new EditorSession(thirdDocument));
+
+        Require(tabs.ActiveTab is null && tabs.Tabs.Count == 0,
+            "A fresh tab collection has no active chart.");
+        Require(tabs.Add(first), "First chart can be registered.");
+        Require(tabs.ActiveTab == first && tabs.Tabs.Count == 1,
+            "The first chart automatically becomes active.");
+        Require(tabs.Add(second, activate: false) &&
+                tabs.ActiveTab == first && tabs.Tabs.Count == 2,
+            "Background registration preserves the active tab.");
+        Require(!tabs.Add(first) && tabs.Tabs.Count == 2,
+            "A chart cannot be added twice by document identity.");
+
+        var duplicateDocument = LevelDocument.CreateSynthetic(2);
+        duplicateDocument.SourcePath = firstDocument.SourcePath.ToUpperInvariant();
+        var duplicate = new EditorDocumentTab(
+            duplicateDocument, new EditorSession(duplicateDocument));
+        Require(!tabs.Add(duplicate) && tabs.Tabs.Count == 2,
+            "A different editor cannot open the same path in a second tab.");
+        Require(tabs.FindByPath(firstDocument.SourcePath) == first &&
+                tabs.FindByPath(firstDocument.SourcePath.ToUpperInvariant()) == first,
+            "Existing tabs are found by case-insensitive normalized path.");
+
+        firstEditor.InsertAngle(0, 90.0);
+        Require(first.IsDirty && !second.IsDirty,
+            "Editing one tab never dirties another editor.");
+        Require(tabs.Add(third) && tabs.ActiveTab == third &&
+                tabs.Tabs[0] == first && tabs.Tabs[1] == second &&
+                tabs.Tabs[2] == third,
+            "Adding a tab preserves ordering and may select it.");
+        Require(tabs.Activate(second) && tabs.ActiveTab == second,
+            "An existing tab can become active without recreating it.");
+        Require(!tabs.Activate(duplicate) && tabs.ActiveTab == second,
+            "An unregistered tab cannot be activated.");
+        Require(tabs.Remove(second) && tabs.ActiveTab == third,
+            "Closing the active middle tab selects the next one.");
+        Require(tabs.Remove(third) && tabs.ActiveTab == first && first.IsDirty,
+            "Closing the final tab selects the previous one and retains its history.");
+        Require(tabs.Remove(first) && tabs.ActiveTab is null && tabs.Tabs.Count == 0,
+            "Closing the last chart empties the collection.");
+        Require(!tabs.Remove(first), "A closed chart cannot be closed twice.");
+
+        Require(tabs.Add(first) && tabs.Add(second), "Tabs can be reopened.");
+        tabs.ResetToSingle(third);
+        Require(tabs.ActiveTab == third && tabs.Tabs.Count == 1 && tabs.Tabs[0] == third,
+            "The legacy single-document Open path can replace its tab identity.");
     }
 
     private sealed class LevelDocumentTabFixture
