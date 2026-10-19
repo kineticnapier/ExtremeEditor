@@ -71,7 +71,8 @@ internal static class DocumentTabScaffoldRegression
     {
         var tabs = new EditorDocumentTabs();
         var firstDocument = LevelDocument.CreateSynthetic(2);
-        firstDocument.SourcePath = Path.Combine(Path.GetTempPath(), "tab-one.adofai");
+        string firstPath = Path.Combine(Path.GetTempPath(), "tab-one.adofai");
+        firstDocument.SourcePath = firstPath;
         var firstEditor = new EditorSession(firstDocument);
         var first = new EditorDocumentTab(firstDocument, firstEditor);
 
@@ -95,13 +96,13 @@ internal static class DocumentTabScaffoldRegression
             "A chart cannot be added twice by document identity.");
 
         var duplicateDocument = LevelDocument.CreateSynthetic(2);
-        duplicateDocument.SourcePath = firstDocument.SourcePath.ToUpperInvariant();
+        duplicateDocument.SourcePath = firstPath.ToUpperInvariant();
         var duplicate = new EditorDocumentTab(
             duplicateDocument, new EditorSession(duplicateDocument));
         Require(!tabs.Add(duplicate) && tabs.Tabs.Count == 2,
             "A different editor cannot open the same path in a second tab.");
-        Require(tabs.FindByPath(firstDocument.SourcePath) == first &&
-                tabs.FindByPath(firstDocument.SourcePath.ToUpperInvariant()) == first,
+        Require(tabs.FindByPath(firstPath) == first &&
+                tabs.FindByPath(firstPath.ToUpperInvariant()) == first,
             "Existing tabs are found by case-insensitive normalized path.");
 
         firstEditor.InsertAngle(0, 90.0);
