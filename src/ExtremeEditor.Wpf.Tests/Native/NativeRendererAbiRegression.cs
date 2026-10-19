@@ -15,9 +15,19 @@ internal static class NativeRendererAbiRegression
             BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
+        Type sessionType = assembly.GetType("ExtremeEditor.Wpf.Native.NativeRendererSession")
+            ?? throw new InvalidOperationException("NativeRendererSession is missing.");
+        FieldInfo expectedVersionField = sessionType.GetField(
+            "ExpectedApiVersion",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("NativeRendererSession.ExpectedApiVersion is missing.");
+        if (expectedVersionField.GetRawConstantValue() is not uint expectedVersion)
+            throw new InvalidOperationException("Native renderer expected API version is invalid.");
+
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 22u)
-            throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
+        if (version != expectedVersion)
+            throw new InvalidOperationException(
+                $"Native renderer API version mismatch: expected {expectedVersion}, got {version}.");
 
         Type trackAnimationSegment = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackAnimationSegment")
             ?? throw new InvalidOperationException("NativeTrackAnimationSegment is missing.");
