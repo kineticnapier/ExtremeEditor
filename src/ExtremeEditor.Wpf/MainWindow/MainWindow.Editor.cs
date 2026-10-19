@@ -143,7 +143,13 @@ public partial class MainWindow
         if (_editor is not null && ReferenceEquals(_editor.Document, _level))
             return _editor;
 
+        if (_editor is not null)
+            _editor.Changed -= ActiveEditorSessionChanged;
+
         _editor = new EditorSession(_level);
+        _activeDocumentTab = new EditorDocumentTab(_level, _editor);
+        _editor.Changed += ActiveEditorSessionChanged;
+        RefreshActiveDocumentTab();
         CommandManager.InvalidateRequerySuggested();
         return _editor;
     }
@@ -249,6 +255,7 @@ public partial class MainWindow
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Saving…";
             await editor.SaveAsync(path!);
+            RefreshActiveDocumentTab();
             Title = $"ExtremeEditor {EditorVersion.Current} — WPF — {Path.GetFileName(path)}";
             StatusText.Text = $"Saved {Path.GetFileName(path)}";
             CommandManager.InvalidateRequerySuggested();
