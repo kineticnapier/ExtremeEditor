@@ -339,6 +339,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CLOSE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabCloseRegression.Run();
+                Console.WriteLine("PASS: safe per-document tab closing.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_DOCUMENT_TAB_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -807,6 +817,7 @@ internal static class Program
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
+            DocumentTabCloseRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
             FloorRendererThreadingRegression.Run();
