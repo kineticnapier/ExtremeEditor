@@ -55,19 +55,20 @@ internal static class DocumentTabScaffoldRegression
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         XElement? tabStrip = xaml.Descendants(ns + "Border")
             .FirstOrDefault(e => (string?)e.Attribute(x + "Name") == "DocumentTabStrip");
-        XElement? title = xaml.Descendants(ns + "TextBlock")
-            .FirstOrDefault(e => (string?)e.Attribute(x + "Name") == "ActiveDocumentTabTitle");
-        Require(tabStrip is not null && title is not null &&
+        XElement? tabsHost = xaml.Descendants(ns + "StackPanel")
+            .FirstOrDefault(e => (string?)e.Attribute(x + "Name") == "DocumentTabsHost");
+        Require(tabStrip is not null && tabsHost is not null &&
                 (string?)tabStrip.Attribute("Visibility") ==
                     "{Binding Visibility, ElementName=ToolbarHost}",
             "Tab strip is visible during editing and hidden during Clean Play.");
         Require(markup.IndexOf("DocumentTabStrip", StringComparison.Ordinal) <
                 markup.IndexOf("EditorShellGrid", StringComparison.Ordinal),
             "Document tabs must be displayed above the editor viewport.");
-        Require(markup.Contains("x:Name=\"OtherDocumentTabsHost\"", StringComparison.Ordinal) &&
+        Require(markup.Contains("x:Name=\"DocumentTabsHost\"", StringComparison.Ordinal) &&
+                !markup.Contains("x:Name=\"ActiveDocumentTab\"", StringComparison.Ordinal) &&
                 markup.Contains("x:Name=\"AddDocumentTabButton\"", StringComparison.Ordinal) &&
                 markup.Contains("Click=\"NewDocumentTabClick\"", StringComparison.Ordinal),
-            "A plus button and inactive-tab host allow the next chart to be opened.");
+            "A single ordered tab host and plus button can show every chart tab.");
 
 
         string source = File.ReadAllText(Path.Combine(
@@ -87,6 +88,11 @@ internal static class DocumentTabScaffoldRegression
                 controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
                 controller.Contains("_editor?.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
             "Switching tabs preserves the previous audio, selection and editor session.");
+        Require(controller.Contains("foreach (EditorDocumentTab tab in _documentTabs.Tabs)", StringComparison.Ordinal) &&
+                controller.Contains("bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab)", StringComparison.Ordinal) &&
+                controller.Contains("DocumentTabsHost.Children.Add(button)", StringComparison.Ordinal) &&
+                !controller.Contains("if (ReferenceEquals(tab, active))", StringComparison.Ordinal),
+            "The active tab is rendered in its original position alongside every other tab.");
         string keyboard = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.AdoFaiKeybinds.cs"));
         Require(keyboard.Contains("key == Key.N", StringComparison.Ordinal) &&
@@ -157,6 +163,14 @@ internal static class DocumentTabScaffoldRegression
             "Adding a tab preserves ordering and may select it.");
         Require(tabs.Activate(second) && tabs.ActiveTab == second,
             "An existing tab can become active without recreating it.");
+        Require(tabs.Tabs.SequenceEqual([first, second, third]),
+            "Selecting a middle tab does not reorder the collection.");
+        Require(tabs.Activate(first) && tabs.Tabs.SequenceEqual([first, second, third]),
+            "Selecting the first tab leaves the original order intact.");
+        Require(tabs.Activate(third) && tabs.Tabs.SequenceEqual([first, second, third]),
+            "Selecting the final tab leaves the original order intact.");
+        Require(tabs.Activate(second) && tabs.Tabs.SequenceEqual([first, second, third]),
+            "Repeated switching preserves tab order.");
         Require(!tabs.Activate(duplicate) && tabs.ActiveTab == second,
             "An unregistered tab cannot be activated.");
         Require(tabs.Remove(second) && tabs.ActiveTab == third,

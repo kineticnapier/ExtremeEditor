@@ -148,40 +148,40 @@ public partial class MainWindow
 
     private void RefreshActiveDocumentTab()
     {
-        EditorDocumentTab? active = _documentTabs.ActiveTab;
-        if (active is null)
-        {
-            ActiveDocumentTabTitle.Text = "Untitled.adofai";
-            ActiveDocumentTab.ToolTip = null;
-        }
-        else
-        {
-            ActiveDocumentTabTitle.Text = active.Header;
-            string? path = active.Document.SourcePath;
-            ActiveDocumentTab.ToolTip = path is null or "<synthetic>" ? null : path;
-        }
-
-        OtherDocumentTabsHost.Children.Clear();
+        // The visual order follows the document collection, not the selected tab.
+        DocumentTabsHost.Children.Clear();
         foreach (EditorDocumentTab tab in _documentTabs.Tabs)
         {
-            if (ReferenceEquals(tab, active))
-                continue;
-
+            bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab);
             var button = new Button
             {
-                Content = tab.Header,
-                ToolTip = tab.Document.SourcePath is "<synthetic>" ? null : tab.Document.SourcePath,
+                Content = new TextBlock
+                {
+                    Text = tab.Header,
+                    FontSize = 12,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                },
+                ToolTip = tab.Document.SourcePath is null or "<synthetic>" ? null : tab.Document.SourcePath,
                 Tag = tab,
                 MaxWidth = 290,
-                MinWidth = 100,
-                Margin = new Thickness(4, 0, 0, 3),
+                MinWidth = 110,
+                Margin = new Thickness(4, 0, 0, isActive ? 0 : 3),
                 Padding = new Thickness(12, 2, 12, 2),
-                Background = new SolidColorBrush(Color.FromRgb(34, 38, 45)),
-                Foreground = new SolidColorBrush(Color.FromRgb(192, 199, 209)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(62, 69, 79))
+                Background = new SolidColorBrush(isActive
+                    ? Color.FromRgb(41, 46, 55)
+                    : Color.FromRgb(34, 38, 45)),
+                Foreground = isActive
+                    ? (Brush)FindResource("TextBrush")
+                    : new SolidColorBrush(Color.FromRgb(192, 199, 209)),
+                BorderBrush = new SolidColorBrush(isActive
+                    ? Color.FromRgb(70, 79, 93)
+                    : Color.FromRgb(62, 69, 79)),
+                BorderThickness = isActive
+                    ? new Thickness(1, 1, 1, 0)
+                    : new Thickness(1)
             };
             button.Click += (_, _) => ActivateDocumentTab(tab);
-            OtherDocumentTabsHost.Children.Add(button);
+            DocumentTabsHost.Children.Add(button);
         }
     }
 }

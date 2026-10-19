@@ -244,7 +244,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Single-document tab strip: first step towards multiple independent editor workspaces.
+        <!-- Tabs remain in document creation order; selection changes appearance only.
              It shares the toolbar's visibility so Clean Play continues to be chrome-free. -->
         <Border x:Name="DocumentTabStrip"
                 DockPanel.Dock="Top"
@@ -254,21 +254,7 @@
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding Visibility, ElementName=ToolbarHost}">
             <StackPanel Orientation="Horizontal" Margin="7,3,7,0">
-                <Border x:Name="ActiveDocumentTab"
-                        Background="#292E37"
-                        BorderBrush="#464F5D"
-                        BorderThickness="1,1,1,0"
-                        CornerRadius="5,5,0,0"
-                        Padding="13,4"
-                        MinWidth="110"
-                        MaxWidth="290">
-                    <TextBlock x:Name="ActiveDocumentTabTitle"
-                               Text="Untitled.adofai"
-                               FontSize="12"
-                               Foreground="{StaticResource TextBrush}"
-                               TextTrimming="CharacterEllipsis" />
-                </Border>
-                <StackPanel x:Name="OtherDocumentTabsHost"
+                <StackPanel x:Name="DocumentTabsHost"
                             Orientation="Horizontal" />
                 <Button x:Name="AddDocumentTabButton"
                         Content="+"
