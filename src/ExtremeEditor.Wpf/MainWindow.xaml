@@ -89,6 +89,7 @@
 
         <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem x:Name="FileMenu" Header="_File">
+                <MenuItem Header="_New Tab" Click="NewDocumentTabClick" InputGestureText="Ctrl+N" />
                 <MenuItem Header="_Open"
                           Command="{x:Static local:EditorCommands.Open}"
                           InputGestureText="Ctrl+O" />
@@ -267,6 +268,16 @@
                                Foreground="{StaticResource TextBrush}"
                                TextTrimming="CharacterEllipsis" />
                 </Border>
+                <StackPanel x:Name="OtherDocumentTabsHost"
+                            Orientation="Horizontal" />
+                <Button x:Name="AddDocumentTabButton"
+                        Content="+"
+                        Click="NewDocumentTabClick"
+                        Margin="6,0,0,3"
+                        Padding="10,0"
+                        MinWidth="30"
+                        FontSize="15"
+                        ToolTip="New chart tab (Ctrl+N)" />
             </StackPanel>
         </Border>
 
