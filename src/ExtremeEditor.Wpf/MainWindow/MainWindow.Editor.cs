@@ -35,6 +35,27 @@ public partial class MainWindow
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
+            // The current one-tab close dialog only saves the active editor.
+            // Other tabs must never be discarded implicitly when closing.
+            if (!_allowClose && !_saveBeforeCloseInProgress &&
+                _documentTabs.Tabs.Any(tab =>
+                    !ReferenceEquals(tab, _documentTabs.ActiveTab) && tab.IsDirty))
+            {
+                MessageBoxResult backgroundResult = MessageBox.Show(
+                    this,
+                    "Other chart tabs have unsaved changes.\n\n" +
+                    "Yes: close and discard their changes.\n" +
+                    "No: cancel and save each chart tab first.",
+                    "Unsaved chart tabs",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (backgroundResult != MessageBoxResult.Yes)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+
             if (_allowClose || _editor is null || !_editor.IsDirty)
             {
                 base.OnClosing(e);
