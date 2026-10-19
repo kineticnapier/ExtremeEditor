@@ -43,6 +43,17 @@ public partial class MainWindow
             return;
         }
 
+        // Create a second, independent chart tab while the HWND editor has
+        // focus too (normal WPF input bindings do not reach its child HWND).
+        if (control && !shift && !alt && !windows && key == Key.N &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+                CreateNewDocumentTab();
+            e.Handled = true;
+            return;
+        }
+
         if (control && !shift && !alt && !windows && key == Key.G)
         {
             if (!e.IsRepeat)
