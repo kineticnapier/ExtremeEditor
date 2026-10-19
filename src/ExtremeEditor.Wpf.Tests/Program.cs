@@ -329,6 +329,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_DOCUMENT_TAB_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabScaffoldRegression.Run();
+                Console.WriteLine("PASS: initial document-tab scaffold and dirty-state regression.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_OPERATIONS_ONLY"),
                 "1",
                 StringComparison.Ordinal))
