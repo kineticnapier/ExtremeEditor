@@ -329,6 +329,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MULTI_TAB_OPEN_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                OpenDirtyDocumentRegression.Run();
+                Console.WriteLine("PASS: opening ADOFAI files preserves existing tabs and edits.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_DOCUMENT_TAB_ONLY"),
                 "1",
                 StringComparison.Ordinal))
