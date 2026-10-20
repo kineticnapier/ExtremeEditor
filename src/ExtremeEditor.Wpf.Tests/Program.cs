@@ -349,6 +349,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CYCLE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabNavigationRegression.Run();
+                Console.WriteLine("PASS: cycling document tabs with Ctrl+Tab and Ctrl+Shift+Tab.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CLOSE_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -828,6 +838,7 @@ internal static class Program
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
             DocumentTabCloseRegression.Run();
+            DocumentTabNavigationRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
