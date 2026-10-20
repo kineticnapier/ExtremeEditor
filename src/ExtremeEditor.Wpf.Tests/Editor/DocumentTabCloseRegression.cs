@@ -31,6 +31,25 @@ internal static class DocumentTabCloseRegression
                 refresh.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal) &&
                 refresh.Contains("button.Click += (_, _) => ActivateDocumentTab(tab)", StringComparison.Ordinal),
             "Close and activate must be separate clickable controls.");
+
+        string keybinds = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.AdoFaiKeybinds.cs"));
+        string keyHandler = ExtractMethodBody(keybinds, "private void AdoFaiPreviewKeyDown(");
+        int closeShortcut = keyHandler.IndexOf("key == Key.W", StringComparison.Ordinal);
+        int floorInput = keyHandler.IndexOf("GetAdoFaiDirectionForKey(key, backQuote: false)", StringComparison.Ordinal);
+        Require(closeShortcut >= 0 && floorInput > closeShortcut &&
+                keyHandler.Contains("control && !shift && !alt && !windows && key == Key.W", StringComparison.Ordinal) &&
+                keyHandler.Contains("CloseDocumentTab(activeTab)", StringComparison.Ordinal) &&
+                keyHandler.Contains("_documentTabs.ActiveTab is EditorDocumentTab activeTab", StringComparison.Ordinal),
+            "Ctrl+W must close only the current document before the W floor-input binding.");
+        Require(keyHandler.Contains("if (!e.IsRepeat)", StringComparison.Ordinal) &&
+                keyHandler.Contains("e.Handled = true;", StringComparison.Ordinal),
+            "Ctrl+W must be edge-triggered and handled by the shared WPF/native keyboard path.");
+
+        string bridge = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs"));
+        Require(bridge.Contains("AdoFaiPreviewKeyDown(this, args)", StringComparison.Ordinal),
+            "The HWND keyboard bridge must forward Ctrl+W to the shared shortcut handler.");
     }
 
     private static void Require(bool condition, string message)
