@@ -54,6 +54,17 @@ public partial class MainWindow
             return;
         }
 
+        // Close only the active document tab, using the same unsaved-change
+        // confirmation as its × button. This must work in the child HWND too.
+        if (control && !shift && !alt && !windows && key == Key.W &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat && _documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                CloseDocumentTab(activeTab);
+            e.Handled = true;
+            return;
+        }
+
         if (control && !shift && !alt && !windows && key == Key.G)
         {
             if (!e.IsRepeat)
