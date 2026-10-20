@@ -1426,8 +1426,14 @@ void Renderer::RenderLoop() noexcept
     ShutdownD2DDiagnosticsActive = true;
     backend.Shutdown();
     ShutdownD2DDiagnosticsActive = false;
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RenderLoopCoUninitializeEntry,
+        "RenderLoop.coUninitialize.begin");
     if (com_initialized)
         CoUninitialize();
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RenderLoopCoUninitializeExit,
+        "RenderLoop.coUninitialize.end");
 }
 
 void Renderer::StopRenderThread(bool shutdown_diagnostic) noexcept
