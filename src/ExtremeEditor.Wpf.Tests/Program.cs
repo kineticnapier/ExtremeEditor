@@ -339,6 +339,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SHUTDOWN_DIAGNOSTICS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                RenderThreadShutdownDiagnosticsRegression.Run();
+                Console.WriteLine("PASS: post-D2D render thread shutdown phases are observable.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CLOSE_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -818,6 +828,7 @@ internal static class Program
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
             DocumentTabCloseRegression.Run();
+            RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
             FloorRendererThreadingRegression.Run();
