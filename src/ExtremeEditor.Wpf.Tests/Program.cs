@@ -364,7 +364,8 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 DocumentTabCloseRegression.Run();
-                Console.WriteLine("PASS: safe per-document tab closing.");
+                DocumentTabSwitchCacheRegression.Run();
+                Console.WriteLine("PASS: safe per-document tab closing and cached tab switching.");
                 return 0;
             }
 
@@ -838,6 +839,7 @@ internal static class Program
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
             DocumentTabCloseRegression.Run();
+            DocumentTabSwitchCacheRegression.Run();
             DocumentTabNavigationRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
