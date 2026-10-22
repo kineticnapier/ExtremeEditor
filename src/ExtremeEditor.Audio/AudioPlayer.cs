@@ -31,6 +31,7 @@ public sealed class AudioPlayer : IDisposable
 
     private readonly HitSoundLibrary _hitSoundLibrary = new();
     private readonly AudioPcmPrerenderLifecycle _hitSoundPrerender = new();
+    private IDisposable? _realtimeDiagnosticsHeartbeat;
     private WaveOutEvent? _output;
     private WaveStream? _reader;
     private UnifiedAudioSampleProvider? _graph;
@@ -277,12 +278,14 @@ public sealed class AudioPlayer : IDisposable
             Seek(TimeSpan.Zero);
 
         _output.Play();
+        StartRealtimeDiagnostics();
     }
 
     public void Pause()
     {
         if (_output?.PlaybackState == PlaybackState.Playing)
             _output.Pause();
+        StopRealtimeDiagnostics();
     }
 
     public void Stop()
@@ -290,6 +293,7 @@ public sealed class AudioPlayer : IDisposable
         if (_output is null || _graph is null)
             return;
 
+        StopRealtimeDiagnostics();
         _output.Stop();
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.Zero;
@@ -307,6 +311,7 @@ public sealed class AudioPlayer : IDisposable
 
         double seconds = Math.Clamp(position.TotalSeconds, 0, _transportDurationSeconds);
         PlaybackState previousState = _output.PlaybackState;
+        StopRealtimeDiagnostics();
         _output.Stop();
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
@@ -318,7 +323,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(seconds);
 
         if (previousState == PlaybackState.Playing)
+        {
             _output.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (previousState == PlaybackState.Paused)
         {
             _output.Play();
@@ -454,6 +462,7 @@ public sealed class AudioPlayer : IDisposable
 
         TimeSpan position = Position;
         PlaybackState state = _output?.PlaybackState ?? PlaybackState.Stopped;
+        StopRealtimeDiagnostics();
         CancelHitSoundPrerender();
         _hitSoundProvider = null;
         _output?.Stop();
@@ -477,7 +486,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
+        {
             _output!.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (state == PlaybackState.Paused)
         {
             _output!.Play();
@@ -496,6 +508,51 @@ public sealed class AudioPlayer : IDisposable
     private void CancelHitSoundPrerender()
     {
         _hitSoundPrerender.Cancel();
+    }
+
+    private void StartRealtimeDiagnostics()
+    {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        if (log is null || _realtimeDiagnosticsHeartbeat is not null || _graph is null)
+            return;
+
+        // No log I/O or string formatting occurs in an audio callback.
+        UnifiedAudioSampleProvider graph = _graph;
+        SampleAccurateHitSoundProvider? pcm = _hitSoundProvider;
+        AudioGraphRealtimeDiagnostics previousGraph = graph.GetRealtimeDiagnostics();
+        HitSoundRealtimeDiagnostics previousPcm = pcm?.GetRealtimeDiagnostics() ?? default;
+
+        _realtimeDiagnosticsHeartbeat = log.StartHeartbeat(
+            "audio_player.realtime", TimeSpan.FromSeconds(1), () =>
+            {
+                AudioGraphRealtimeDiagnostics currentGraph = graph.GetRealtimeDiagnostics();
+                HitSoundRealtimeDiagnostics currentPcm = pcm?.GetRealtimeDiagnostics() ?? default;
+                long calls = currentGraph.ReadCalls - previousGraph.ReadCalls;
+                long readTicks = currentGraph.ReadTicks - previousGraph.ReadTicks;
+                long songTicks = currentGraph.SongReadTicks - previousGraph.SongReadTicks;
+                long hitTicks = currentGraph.HitSoundReadTicks - previousGraph.HitSoundReadTicks;
+                long limiterTicks = currentGraph.LimiterTicks - previousGraph.LimiterTicks;
+                long misses = currentPcm.ForegroundChunkRenders - previousPcm.ForegroundChunkRenders;
+                long missTicks = currentPcm.ForegroundRenderTicks - previousPcm.ForegroundRenderTicks;
+                long slowReads = currentGraph.OverBudgetReadCalls - previousGraph.OverBudgetReadCalls;
+                previousGraph = currentGraph;
+                previousPcm = currentPcm;
+                return $"calls={calls} readMs={TimeSpan.FromTicks(readTicks).TotalMilliseconds:F1} " +
+                       $"maxReadMs={TimeSpan.FromTicks(currentGraph.MaxReadTicks).TotalMilliseconds:F2} " +
+                       $"songMs={TimeSpan.FromTicks(songTicks).TotalMilliseconds:F1} " +
+                       $"hitsMs={TimeSpan.FromTicks(hitTicks).TotalMilliseconds:F1} " +
+                       $"limiterMs={TimeSpan.FromTicks(limiterTicks).TotalMilliseconds:F1} " +
+                       $"foregroundPcmMisses={misses} " +
+                       $"foregroundPcmMs={TimeSpan.FromTicks(missTicks).TotalMilliseconds:F1} " +
+                       $"peakForegroundPcmMs={TimeSpan.FromTicks(currentPcm.MaxForegroundRenderTicks).TotalMilliseconds:F2} " +
+                       $"overBudgetReads={slowReads} worstMasterGain={currentGraph.MinimumMasterGain:F6}";
+            });
+    }
+
+    private void StopRealtimeDiagnostics()
+    {
+        _realtimeDiagnosticsHeartbeat?.Dispose();
+        _realtimeDiagnosticsHeartbeat = null;
     }
 
     private void ResetClock(double audioSeconds)
@@ -522,6 +579,7 @@ public sealed class AudioPlayer : IDisposable
     {
         double sourceSeconds = Position.TotalSeconds;
         PlaybackState previousState = _output!.PlaybackState;
+        StopRealtimeDiagnostics();
         _output.Stop();
 
         _playbackSpeed = normalized;
@@ -542,7 +600,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(sourceSeconds);
 
         if (previousState == PlaybackState.Playing)
+        {
             _output.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (previousState == PlaybackState.Paused)
         {
             _output.Play();
@@ -553,6 +614,7 @@ public sealed class AudioPlayer : IDisposable
     private void DisposePlayback()
     {
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        StopRealtimeDiagnostics();
         CancelHitSoundPrerender();
         _hitSoundProvider = null;
         using (log?.Measure("audio_player.output_stop", $"has_output={_output is not null}"))

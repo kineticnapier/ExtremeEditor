@@ -12,6 +12,11 @@ internal readonly record struct HitSoundRenderMetrics(
     int ScheduledHitCount,
     int RenderedChunkCount);
 
+internal readonly record struct HitSoundRealtimeDiagnostics(
+    long ForegroundChunkRenders,
+    long ForegroundRenderTicks,
+    long MaxForegroundRenderTicks);
+
 /// <summary>
 /// Serves a sample-accurate hit-sound PCM layer on the same absolute sample clock
 /// as the song. Construction precomputes only the compact hit schedule; PCM chunks
@@ -31,6 +36,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private long _renderChunksElapsedTicks;
+    private long _foregroundChunkRenders;
+    private long _foregroundRenderTicks;
+    private long _maxForegroundRenderTicks;
     private long _cachedPcmBytes;
     private long _cacheBudgetBytes = long.MaxValue;
     private long _positionFrames;
@@ -98,6 +106,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             }
         }
     }
+
+    internal HitSoundRealtimeDiagnostics GetRealtimeDiagnostics() => new(
+        Interlocked.Read(ref _foregroundChunkRenders),
+        Interlocked.Read(ref _foregroundRenderTicks),
+        Interlocked.Read(ref _maxForegroundRenderTicks));
 
     public int Read(float[] buffer, int offset, int count)
     {
@@ -279,7 +292,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         clips.TryGetValue(name, out clip);
     }
 
-    private float[] EnsureChunk(long chunkIndex)
+    private float[] EnsureChunk(long chunkIndex, bool realtime = false)
     {
         lock (_cacheLock)
         {
@@ -290,7 +303,23 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             }
         }
 
+        long started = realtime ? Stopwatch.GetTimestamp() : 0;
         float[] rendered = RenderChunkMeasured(chunkIndex);
+        if (realtime)
+        {
+            long ticks = Stopwatch.GetElapsedTime(started).Ticks;
+            Interlocked.Increment(ref _foregroundChunkRenders);
+            Interlocked.Add(ref _foregroundRenderTicks, ticks);
+            long peak = Interlocked.Read(ref _maxForegroundRenderTicks);
+            while (ticks > peak)
+            {
+                long observed = Interlocked.CompareExchange(
+                    ref _maxForegroundRenderTicks, ticks, peak);
+                if (observed == peak)
+                    break;
+                peak = observed;
+            }
+        }
         long renderedBytes = GetPcmBytes(rendered);
 
         lock (_cacheLock)
@@ -490,7 +519,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             int framesToCopy = Math.Min(framesRemaining, ChunkFrames - frameInChunk);
             int samplesToCopy = framesToCopy * 2;
 
-            float[] chunk = frame < _totalFrames ? EnsureChunk(chunkIndex) : [];
+            float[] chunk = frame < _totalFrames ? EnsureChunk(chunkIndex, realtime: true) : [];
             if (chunk.Length > 0)
             {
                 Array.Copy(
