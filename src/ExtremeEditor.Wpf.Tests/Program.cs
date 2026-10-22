@@ -365,7 +365,8 @@ internal static class Program
             {
                 DocumentTabCloseRegression.Run();
                 DocumentTabSwitchCacheRegression.Run();
-                Console.WriteLine("PASS: safe per-document tab closing and cached tab switching.");
+                NativeSceneReuseRegression.Run();
+                Console.WriteLine("PASS: safe tab closing and cached managed/native scene switching.");
                 return 0;
             }
 
@@ -840,6 +841,7 @@ internal static class Program
             OpenDirtyDocumentRegression.Run();
             DocumentTabCloseRegression.Run();
             DocumentTabSwitchCacheRegression.Run();
+            NativeSceneReuseRegression.Run();
             DocumentTabNavigationRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
