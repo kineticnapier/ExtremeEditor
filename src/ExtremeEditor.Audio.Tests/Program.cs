@@ -8,7 +8,8 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_
     "1", StringComparison.Ordinal))
 {
     DenseAudioRuntimeDiagnosticsRegression.Run();
-    Console.WriteLine("PASS: dense audio realtime diagnostics.");
+    DenseTransportBlockMixRegression.Run();
+    Console.WriteLine("PASS: dense audio diagnostics and transport block mixing.");
     return 0;
 }
 
@@ -21,6 +22,7 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ON
 }
 
 DenseAudioRuntimeDiagnosticsRegression.Run();
+DenseTransportBlockMixRegression.Run();
 TogetherAudioCutRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
