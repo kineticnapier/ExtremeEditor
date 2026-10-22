@@ -4,6 +4,14 @@ using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
+if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    DenseAudioRuntimeDiagnosticsRegression.Run();
+    Console.WriteLine("PASS: dense audio realtime diagnostics.");
+    return 0;
+}
+
 if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY"),
     "1", StringComparison.Ordinal))
 {
@@ -12,6 +20,7 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ON
     return 0;
 }
 
+DenseAudioRuntimeDiagnosticsRegression.Run();
 TogetherAudioCutRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
