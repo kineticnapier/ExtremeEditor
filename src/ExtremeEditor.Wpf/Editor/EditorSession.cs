@@ -477,6 +477,8 @@ internal sealed partial class EditorSession
         Document.SourcePath = path;
         _savedHistoryPosition = _historyPosition;
         RebaseSource(path);
+        // Save As can relocate relative decoration/background asset paths.
+        NativeLoadPreparationCache.InvalidateLevel(Document);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -965,6 +967,9 @@ internal sealed partial class EditorSession
 
     private void OnChanged()
     {
+        // All edit commands and Undo/Redo modify the same LevelDocument object.
+        // Its existing prepared native snapshot is no longer safe to reuse.
+        NativeLoadPreparationCache.InvalidateLevel(Document);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -128,14 +129,42 @@ public partial class MainWindow
             tab.HitSoundTimeline = _hitSoundTimeline;
         }
 
-        // NativeLevelViewport remains a single HWND for this iteration.
-        // Rebuild only the visible chart; inactive charts do not render.
-        if (preparedLevel is Native.PreparedNativeLevel nativeLevel)
+        // NativeLevelViewport remains a single HWND. Restore the immutable
+        // prepared snapshot for this document instead of rebuilding the entire
+        // chart whenever the user returns to its tab.
+        var preparationWatch = Stopwatch.StartNew();
+        Native.PreparedNativeLevel nativeLevel = preparedLevel ??
+            NativeLoadPreparationCache.StartLevel(tab.Document).GetAwaiter().GetResult();
+        double levelWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
+
+        var uploadWatch = Stopwatch.StartNew();
+        NativeLevelLoadMetrics levelMetrics =
             NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
-        else
-            NativeViewport.SetLevel(tab.Document);
+        double levelUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+
+        double playbackWaitMs = 0.0;
+        double playbackUploadMs = 0.0;
         if (!deferPlaybackTimeline)
-            NativeViewport.SetPlaybackTimeline(_timingMap);
+        {
+            if (_timingMap is null)
+                throw new InvalidOperationException("Active tab has no playback timing map.");
+
+            preparationWatch.Restart();
+            Native.PreparedNativePlayback playback =
+                NativeLoadPreparationCache.StartPlayback(tab.Document, _timingMap)
+                    .GetAwaiter().GetResult();
+            playbackWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
+
+            uploadWatch.Restart();
+            NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
+            playbackUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+        }
+
+        Console.WriteLine(
+            $"[tab-switch] chart={tab.DisplayName} " +
+            $"levelWait={levelWaitMs:F1}ms levelUpload={levelUploadMs:F1}ms " +
+            $"playbackWait={playbackWaitMs:F1}ms playbackUpload={playbackUploadMs:F1}ms " +
+            $"snapshotBuild={levelMetrics.SnapshotBuild.TotalMilliseconds:F1}ms");
         _selection.SetFloorCount(tab.Document.FloorCount);
         _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);

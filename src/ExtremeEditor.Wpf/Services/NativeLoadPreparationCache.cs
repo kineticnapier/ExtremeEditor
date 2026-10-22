@@ -45,6 +45,17 @@ internal static class NativeLoadPreparationCache
         }
     }
 
+    // EditorSession mutates LevelDocument in place. A snapshot created before an
+    // edit must never be restored when that tab is activated again. A running
+    // preparation may still finish, but after removal it cannot be retrieved.
+    internal static void InvalidateLevel(LevelDocument level)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+
+        lock (Gate)
+            ByLevel.Remove(level);
+    }
+
     // Compatibility helper for callers that intentionally want both phases at once.
     internal static void Start(LevelDocument level, TimingMap timingMap)
     {
