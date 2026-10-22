@@ -25,7 +25,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    internal const uint ExpectedApiVersion = 24;
+    internal const uint ExpectedApiVersion = 25;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -154,7 +154,7 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.Resize(_renderer, Math.Max(1u, width), Math.Max(1u, height));
     }
 
-    internal void SetLevel(NativeLevelSnapshot snapshot)
+    internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (_renderer == nint.Zero)
@@ -164,6 +164,16 @@ internal sealed class NativeRendererSession : IDisposable
 
         var totalWatch = Stopwatch.StartNew();
         var phaseWatch = Stopwatch.StartNew();
+        bool cacheHit = useCache &&
+            NativeRendererNative.TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey) != 0;
+        if (!cacheHit && !useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, 0u);
+
+        if (NativeUploadDiagnostics.Enabled)
+            Console.WriteLine($"[native-upload] scene-cache {(cacheHit ? "hit" : "miss")} key={snapshot.SceneCacheKey}");
+
+        if (!cacheHit)
+        {
         GCHandle floorsHandle = default;
         GCHandle geometriesHandle = default;
         GCHandle pointsHandle = default;
@@ -186,6 +196,9 @@ internal sealed class NativeRendererSession : IDisposable
             if (pointsHandle.IsAllocated) pointsHandle.Free();
             if (geometriesHandle.IsAllocated) geometriesHandle.Free();
             if (floorsHandle.IsAllocated) floorsHandle.Free();
+        }
+        if (useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         }
 
         phaseWatch.Stop();

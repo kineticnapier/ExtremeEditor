@@ -124,7 +124,7 @@ public sealed partial class NativeLevelViewport
         var uploadWatch = Stopwatch.StartNew();
         if (_session is not null)
         {
-            _session.SetLevel(_snapshot);
+            _session.SetLevel(_snapshot, useCache: true);
             _session.SetSelection(_selectedFloors, _primarySelection);
         }
         uploadWatch.Stop();

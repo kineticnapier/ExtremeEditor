@@ -49,6 +49,8 @@ public:
     void SetShowFloorNumbers(bool enabled) noexcept;
     void SetEditorHudDeleteButton(int button_index) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
+    bool TryActivateCachedLevel(std::uint64_t scene_key) noexcept;
+    void RememberCurrentLevel(std::uint64_t scene_key) noexcept;
     bool UpdateFloorIcons(
         std::uint32_t start_floor,
         const EeFloorIconState* states,
@@ -123,6 +125,10 @@ private:
 
     mutable std::mutex scene_mutex_;
     std::shared_ptr<LevelScene> scene_;
+    // Bounded scene cache: current + one inactive, never an unbounded map.
+    std::shared_ptr<LevelScene> cached_scene_;
+    std::uint64_t current_scene_cache_key_ = 0u;
+    std::uint64_t cached_scene_key_ = 0u;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
     std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
         std::make_shared<std::vector<EeStaticDecoration>>();

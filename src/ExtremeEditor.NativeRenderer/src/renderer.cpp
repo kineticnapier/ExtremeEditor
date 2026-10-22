@@ -133,6 +133,12 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
 
     std::lock_guard lock(scene_mutex_);
     const bool had_scene = static_cast<bool>(scene_);
+    // Every scene created by a full upload may replace the inactive cache.
+    // Keep the previous scene only when it was registered from a prepared
+    // managed snapshot. Untracked edits explicitly clear that registration.
+    cached_scene_ = current_scene_cache_key_ == 0u ? nullptr : std::move(scene_);
+    cached_scene_key_ = cached_scene_ ? current_scene_cache_key_ : 0u;
+    current_scene_cache_key_ = 0u;
     scene_ = std::move(scene);
     pending_icon_states_.clear();
     delete_hud_button_ = -1; // WPF will refresh this after updating the selected floor.
@@ -149,6 +155,53 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     playback_active_ = false;
     ++scene_version_;
     return true;
+}
+
+bool Renderer::TryActivateCachedLevel(std::uint64_t scene_key) noexcept
+{
+    if (scene_key == 0u)
+        return false;
+
+    std::lock_guard lock(scene_mutex_);
+    if (!cached_scene_ || cached_scene_key_ != scene_key)
+        return false;
+
+    const bool had_scene = static_cast<bool>(scene_);
+    std::shared_ptr<LevelScene> previous = std::move(scene_);
+    const std::uint64_t previous_key = current_scene_cache_key_;
+    scene_ = std::move(cached_scene_);
+    current_scene_cache_key_ = scene_key;
+    cached_scene_ = previous_key == 0u ? nullptr : std::move(previous);
+    cached_scene_key_ = cached_scene_ ? previous_key : 0u;
+
+    // Match SetLevel's activation contract; tab-specific selections, assets
+    // and playback timelines are restored by WPF after scene activation.
+    pending_icon_states_.clear();
+    delete_hud_button_ = -1;
+    if (!had_scene)
+    {
+        camera_x_ = scene_->floors.front().x;
+        camera_y_ = scene_->floors.front().y;
+        zoom_ = 28.0f;
+    }
+    if (selected_floor_ < 0 || static_cast<std::size_t>(selected_floor_) >= scene_->floors.size())
+        selected_floor_ = -1;
+    playback_active_ = false;
+    ++scene_version_;
+    return true;
+}
+
+void Renderer::RememberCurrentLevel(std::uint64_t scene_key) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    current_scene_cache_key_ = scene_key != 0u && scene_ ? scene_key : 0u;
+    if (current_scene_cache_key_ == 0u)
+    {
+        // A full unprepared upload (typically an edit) cannot reuse an
+        // inactive scene whose snapshots may be obsolete.
+        cached_scene_.reset();
+        cached_scene_key_ = 0u;
+    }
 }
 
 bool Renderer::UpdateFloorIcons(

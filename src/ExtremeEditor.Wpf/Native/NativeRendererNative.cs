@@ -69,6 +69,12 @@ internal static class NativeRendererNative
         nint renderer, nint floors, uint floorCount, nint geometries, uint geometryCount,
         nint points, uint pointCount, float boundsLeft, float boundsTop, float boundsRight, float boundsBottom);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_try_activate_cached_level", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int TryActivateCachedLevel(nint renderer, ulong sceneKey);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_remember_current_level", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void RememberCurrentLevel(nint renderer, ulong sceneKey);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_update_floor_icons", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int UpdateFloorIcons(nint renderer, uint startFloor, nint states, uint stateCount);
 

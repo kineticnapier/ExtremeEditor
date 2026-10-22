@@ -154,6 +154,19 @@ EeResult ee_renderer_set_level(
     }
 }
 
+int32_t ee_renderer_try_activate_cached_level(EeRendererHandle renderer, uint64_t scene_key)
+{
+    if (renderer == nullptr || scene_key == 0u)
+        return 0;
+    return static_cast<ee::Renderer*>(renderer)->TryActivateCachedLevel(scene_key) ? 1 : 0;
+}
+
+void ee_renderer_remember_current_level(EeRendererHandle renderer, uint64_t scene_key)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->RememberCurrentLevel(scene_key);
+}
+
 EeResult ee_renderer_set_static_decorations(
     EeRendererHandle renderer,
     const EeStaticDecoration* decorations,

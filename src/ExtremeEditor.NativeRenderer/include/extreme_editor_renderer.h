@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 24u
+#define EE_RENDERER_API_VERSION 25u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -490,6 +490,10 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_top,
     float bounds_right,
     float bounds_bottom);
+// A cache key belongs to one immutable managed level snapshot. Zero clears
+// the active key and releases the single inactive cached scene.
+EE_RENDERER_API int32_t ee_renderer_try_activate_cached_level(EeRendererHandle renderer, uint64_t scene_key);
+EE_RENDERER_API void ee_renderer_remember_current_level(EeRendererHandle renderer, uint64_t scene_key);
 EE_RENDERER_API EeResult ee_renderer_update_floor_icons(EeRendererHandle renderer, uint32_t start_floor, const EeFloorIconState* states, uint32_t state_count);
 EE_RENDERER_API EeResult ee_renderer_set_static_decorations(EeRendererHandle renderer, const EeStaticDecoration* decorations, uint32_t decoration_count);
 EE_RENDERER_API void ee_renderer_clear_decoration_assets(EeRendererHandle renderer);
