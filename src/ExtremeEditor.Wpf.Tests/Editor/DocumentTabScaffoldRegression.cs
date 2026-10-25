@@ -108,14 +108,6 @@ internal static class DocumentTabScaffoldRegression
             "Closing the window protects modified inactive charts.");
         Require(source.Contains("_documentTabs.FindByPath(path!)", StringComparison.Ordinal),
             "Save As must not overwrite a different open tab.");
-        string together = File.ReadAllText(Path.Combine(
-            root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.Together.cs"));
-        Require(together.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal) &&
-                together.Contains("_documentTabs.ResetToSingle(", StringComparison.Ordinal),
-            "Together cannot replace multi-tab state without confirmation.");
-
-
-
     }
 
     private static void VerifyTabCollection()

@@ -482,17 +482,6 @@ internal sealed partial class EditorSession
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Acknowledges successful Together staging without performing the normal
-    /// .adofai save or destroying Undo/Redo history. The selected Segment is
-    /// already persisted in the isolated collaboration workspace.
-    /// </summary>
-    internal void MarkTogetherStageSaved()
-    {
-        _savedHistoryPosition = _historyPosition;
-        OnChanged();
-    }
-
     internal JsonObject GetSourceRootForSave() => (JsonObject)EnsureSourceRoot().DeepClone();
 
     internal void ApplyLevelSettingsRaw(LevelSettingsSnapshot settings)

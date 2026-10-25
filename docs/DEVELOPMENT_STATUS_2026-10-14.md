@@ -40,13 +40,6 @@
 - Native/WPFの既存機能群について、統合を機に網羅的なfresh build / 全回帰テストを実施したという記録はない。
 - 巨大譜面やパフォーマンスを含め、実環境での確認を引き続き行う。
 
-## 将来の計画: ExtremeEditor Together
-- 本家ADOFAI用 `kineticnapier/Editor-Together` の `prototype/v0.0.1-full-snapshot` を調査済み。
-- WebSocket、部屋管理、revision / operation batch、再同期、SHA-256アセット転送は再利用候補。
-- `scnEditor` / Harmony Patchに依存する編集適用・Undo/RedoはExtremeEditor用に作り直す。
-- **安全要件**: ExtremeEditor同士のみ接続。ADOFAI版とプロトコル・サーバーを分離し、巨大な操作・スナップショット・アセットをサーバー側で検証／制限する。
-- 初期目標: EE間2クライアントでのタイル追加・削除の同期。現時点では設計調査のみで未着手。
-
 ## ブランチ統合・運用
 - この文書を追加した `feature/video-export-foundation` を fast-forward で `main` に反映する。
 - `feature/wpf-migration` と既存の `fix/*` ブランチは2026-10-14時点でmainに対してahead=0の旧ブランチ。**この統合作業では削除しない。**

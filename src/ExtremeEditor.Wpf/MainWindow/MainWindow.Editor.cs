@@ -241,18 +241,6 @@ public partial class MainWindow
 
     private async Task<bool> SaveCurrentAsync(bool saveAs)
     {
-        if (_togetherModeActive)
-        {
-            MessageBox.Show(
-                this,
-                "This is a Together chart. Use Together → Stage selected Segment, then Commit. " +
-                "Normal Save/Save As is disabled here to protect the original .adofai file.",
-                "ExtremeEditor Together",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return false;
-        }
-
         EditorSession? editor = EnsureEditorSession();
         if (editor is null)
             return false;

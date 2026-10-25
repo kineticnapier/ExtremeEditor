@@ -15,51 +15,6 @@ internal static class Program
         try
         {
             if (string.Equals(
-                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_SIMPLE_UI_ONLY"),
-                "1", StringComparison.Ordinal))
-            {
-                TogetherSimpleWorkflowRegression.Run();
-                Console.WriteLine("PASS: simplified administrator and participant Together workflow.");
-                return 0;
-            }
-
-            if (string.Equals(
-                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIME_E2E_ONLY"),
-                "1", StringComparison.Ordinal))
-            {
-                TogetherTimeFirstEndToEndUiRegression.Run();
-                Console.WriteLine("PASS: time-first Together UI F/G/H integration contract.");
-                return 0;
-            }
-
-            if (string.Equals(
-                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_TIMELINE_ONLY"),
-                "1", StringComparison.Ordinal))
-            {
-                TogetherMusicTimelineRegression.Run();
-                Console.WriteLine("PASS: WPF Together music timeline regression.");
-                return 0;
-            }
-
-            if (string.Equals(
-                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_JA_UI_ONLY"),
-                "1", StringComparison.Ordinal))
-            {
-                TogetherJapaneseUiRegression.Run();
-                Console.WriteLine("PASS: Together日本語UIと初心者向け導線の構造検証。");
-                return 0;
-            }
-
-            if (string.Equals(
-                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TOGETHER_WPF_ONLY"),
-                "1", StringComparison.Ordinal))
-            {
-                TogetherWorkspaceUiRegression.Run();
-                Console.WriteLine("PASS: WPF Together workspace editor/Git/export boundary regression.");
-                return 0;
-            }
-
-            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLANET_RADIUS_POSITION_TRACK_ONLY"),
                 "1", StringComparison.Ordinal))
             {

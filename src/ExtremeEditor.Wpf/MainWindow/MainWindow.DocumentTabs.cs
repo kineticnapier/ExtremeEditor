@@ -69,17 +69,6 @@ public partial class MainWindow
             _tabCloseSavePending || IsCleanPlay)
             return false;
 
-        if (_togetherModeActive)
-        {
-            MessageBox.Show(
-                this,
-                "Multi-tab editing is not available in a Together workspace yet.",
-                "ExtremeEditor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return false;
-        }
-
         return true;
     }
 

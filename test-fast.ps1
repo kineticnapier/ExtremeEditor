@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Quick", "Full", "Packages", "AudioCut")]
+    [ValidateSet("Quick", "Full")]
     [string]$Mode = "Quick",
     [ValidateRange(1, 64)]
     [int]$Jobs = 6,
@@ -11,8 +11,8 @@ param(
 $ErrorActionPreference = "Stop"
 $watch = [System.Diagnostics.Stopwatch]::StartNew()
 $tests = @()
-if ($Mode -in @("Quick", "Full", "Packages")) { $tests += "Core" }
-if ($Mode -in @("Quick", "Full", "AudioCut")) { $tests += "Audio" }
+$tests += "Core"
+$tests += "Audio"
 
 $projects = @{
     Core = Join-Path $PSScriptRoot "src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj"
@@ -59,13 +59,13 @@ try {
         $info.RedirectStandardError = $true
 
         # Do not mutate the invoking PowerShell session's environment.
-        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY")
-        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_AUDIO_CUT_ONLY")
+        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_COLLABORATION_REMOVAL_ONLY")
+        $info.EnvironmentVariables.Remove("EXTREMEEDITOR_AUDIO_DENSE_ONLY")
         if ($name -eq "Core" -and $Mode -ne "Full") {
-            $info.EnvironmentVariables["EXTREMEEDITOR_TOGETHER_PACKAGES_ONLY"] = "1"
+            $info.EnvironmentVariables["EXTREMEEDITOR_COLLABORATION_REMOVAL_ONLY"] = "1"
         }
         if ($name -eq "Audio" -and $Mode -ne "Full") {
-            $info.EnvironmentVariables["EXTREMEEDITOR_AUDIO_CUT_ONLY"] = "1"
+            $info.EnvironmentVariables["EXTREMEEDITOR_AUDIO_DENSE_ONLY"] = "1"
         }
 
         $process = [System.Diagnostics.Process]::new()

@@ -13,17 +13,8 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_
     return 0;
 }
 
-if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_CUT_ONLY"),
-    "1", StringComparison.Ordinal))
-{
-    TogetherAudioCutRegression.Run();
-    Console.WriteLine("PASS: sample-exact Together audio clipping regression.");
-    return 0;
-}
-
 DenseAudioRuntimeDiagnosticsRegression.Run();
 DenseTransportBlockMixRegression.Run();
-TogetherAudioCutRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();

@@ -19,6 +19,7 @@ dist/
 *_wpftmp.csproj
 
 # Local Wrangler development secrets
+cloudflare/together-bundle/
 .dev.vars
 .dev.vars.*
 
