@@ -6,6 +6,9 @@ namespace ExtremeEditor.Wpf;
 
 internal static class AdoFaiEditorSaveService
 {
+    private static long _structureTransformCount;
+    internal static long StructureTransformCount => Interlocked.Read(ref _structureTransformCount);
+    internal static void ResetStructureTransformCount() => Interlocked.Exchange(ref _structureTransformCount, 0);
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         WriteIndented = true
@@ -212,61 +215,57 @@ internal static class AdoFaiEditorSaveService
     private static void ReplaceActions(JsonObject root, EditorSession session)
     {
         JsonArray source = root["actions"] as JsonArray ?? new JsonArray();
-        var transformedSource = new Dictionary<int, JsonObject>();
-        for (int i = 0; i < source.Count; i++)
-        {
-            if (source[i] is not JsonObject original)
-                continue;
-
-            JsonObject clone = (JsonObject)original.DeepClone();
-            bool alive = true;
-            foreach (FloorStructureEdit edit in session.StructureEdits)
-            {
-                if (!TransformObject(clone, edit, removeWhenDeleted: true))
-                {
-                    alive = false;
-                    break;
-                }
-            }
-            if (alive)
-                transformedSource[i] = clone;
-        }
-
         var output = new JsonArray();
         foreach (LevelAction action in session.Document.ActionStore.Actions)
         {
             JsonObject obj;
+            int revision;
             if (action.PropertyOverrides is not null)
             {
                 obj = (JsonObject)action.PropertyOverrides.DeepClone();
-                int revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
-                for (int i = revision; i < session.StructureEdits.Count; i++)
-                    TransformObject(obj, session.StructureEdits[i], removeWhenDeleted: false);
+                revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
             }
             else if (session.ActionSourceTemplates.TryGetValue(action.SourceIndex, out JsonObject? stableTemplate))
             {
                 obj = (JsonObject)stableTemplate.DeepClone();
-                foreach (FloorStructureEdit edit in session.StructureEdits)
-                    TransformObject(obj, edit, removeWhenDeleted: false);
+                revision = 0;
             }
-            else if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
+            else if (action.SourceIndex >= 0 && action.SourceIndex < source.Count &&
+                     source[action.SourceIndex] is JsonObject original)
             {
                 obj = (JsonObject)original.DeepClone();
+                revision = 0;
             }
             else if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
             {
                 obj = (JsonObject)template.DeepClone();
+                revision = session.StructureEdits.Count;
             }
             else
             {
                 obj = new JsonObject();
+                revision = session.StructureEdits.Count;
             }
 
+            ApplyStructureEditsToReferences(obj, session.StructureEdits, revision);
             UpdateKnownActionProperties(obj, action);
             output.Add(obj);
         }
 
         root["actions"] = output;
+    }
+
+    private static void ApplyStructureEditsToReferences(
+        JsonObject obj,
+        IReadOnlyList<FloorStructureEdit> edits,
+        int revision)
+    {
+        // floor itself is replaced from the live LevelAction below. Only tile
+        // references require replaying structural history; most events have none.
+        if (!obj.ContainsKey("startTile") && !obj.ContainsKey("endTile"))
+            return;
+        for (int i = Math.Clamp(revision, 0, edits.Count); i < edits.Count; i++)
+            TransformObject(obj, edits[i], removeWhenDeleted: false);
     }
 
     private static void ReplaceDecorations(
@@ -331,6 +330,7 @@ internal static class AdoFaiEditorSaveService
 
     internal static bool TransformObject(JsonObject obj, FloorStructureEdit edit, bool removeWhenDeleted)
     {
+        Interlocked.Increment(ref _structureTransformCount);
         if (!EditorSession.TryGetInt(obj["floor"], out int oldFloor))
             return true;
 
