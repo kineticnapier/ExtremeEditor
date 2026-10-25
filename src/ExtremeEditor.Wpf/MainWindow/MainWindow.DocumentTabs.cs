@@ -63,10 +63,11 @@ public partial class MainWindow
         ActivateDocumentTab(tab);
     }
 
-    private bool CanSwitchDocumentTabs()
+    private bool CanSwitchDocumentTabs(bool allowDuringWindowClose = false)
     {
         if (_isClosed || _isLoading || _playbackPreparationPending ||
-            _tabCloseSavePending || IsCleanPlay)
+            _tabCloseSavePending || IsCleanPlay ||
+            (_windowCloseConfirmationPending && !allowDuringWindowClose))
             return false;
 
         return true;
@@ -75,9 +76,10 @@ public partial class MainWindow
     private void ActivateDocumentTab(
         EditorDocumentTab tab,
         Native.PreparedNativeLevel? preparedLevel = null,
-        bool deferPlaybackTimeline = false)
+        bool deferPlaybackTimeline = false,
+        bool allowDuringWindowClose = false)
     {
-        if (!CanSwitchDocumentTabs() ||
+        if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
             !_documentTabs.Tabs.Contains(tab) ||
             ReferenceEquals(_documentTabs.ActiveTab, tab))
             return;
@@ -173,6 +175,38 @@ public partial class MainWindow
     }
 
     private bool _tabCloseSavePending;
+
+    private Task<bool> ConfirmUnsavedTabsBeforeCloseAsync() =>
+        UnsavedDocumentCloseCoordinator.ConfirmAsync(
+            _documentTabs.Tabs,
+            PromptUnsavedDocumentForWindowClose,
+            SaveDocumentForWindowCloseAsync);
+
+    private UnsavedDocumentCloseChoice PromptUnsavedDocumentForWindowClose(EditorDocumentTab tab)
+    {
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            $"Save changes to {tab.DisplayName} before closing ExtremeEditor?",
+            "Unsaved chart",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Warning);
+        return answer switch
+        {
+            MessageBoxResult.Yes => UnsavedDocumentCloseChoice.Save,
+            MessageBoxResult.No => UnsavedDocumentCloseChoice.Discard,
+            _ => UnsavedDocumentCloseChoice.Cancel
+        };
+    }
+
+    private async Task<bool> SaveDocumentForWindowCloseAsync(EditorDocumentTab tab)
+    {
+        if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
+            ActivateDocumentTab(tab, allowDuringWindowClose: true);
+        if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
+            return false;
+
+        return await SaveCurrentAsync(saveAs: false);
+    }
 
     private void CloseDocumentTab(EditorDocumentTab tab)
     {

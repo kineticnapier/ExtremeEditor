@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     private bool _isLoading;
     private bool _playbackPreparationPending;
     private bool _isClosed;
+    private bool _windowCloseApproved;
+    private bool _windowCloseConfirmationPending;
     private int _loadGeneration;
 
     // ADOFAI's editor can preview a chart even before a song file is assigned.
@@ -126,6 +128,34 @@ public partial class MainWindow : Window
         base.OnClosed(e);
         ShutdownDiagnostics.Complete("MainWindow.BaseOnClosed");
         ShutdownDiagnostics.Complete("MainWindow.OnClosed");
+    }
+
+    private async Task ConfirmWindowCloseAsync()
+    {
+        bool confirmed = false;
+        try
+        {
+            confirmed = await ConfirmUnsavedTabsBeforeCloseAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                ex.ToString(),
+                "Unable to close ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            _windowCloseConfirmationPending = false;
+        }
+
+        if (confirmed && !_isClosed)
+        {
+            _windowCloseApproved = true;
+            Close();
+        }
     }
 
     private void ExitClick(object sender, RoutedEventArgs e)

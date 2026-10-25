@@ -14,8 +14,6 @@ public partial class MainWindow
 {
     private EditorSession? _editor;
     private bool _editorFeaturesInitialized;
-    private bool _allowClose;
-    private bool _saveBeforeCloseInProgress;
 
     protected override void OnContentRendered(EventArgs e)
     {
@@ -35,28 +33,7 @@ public partial class MainWindow
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
-            // The current one-tab close dialog only saves the active editor.
-            // Other tabs must never be discarded implicitly when closing.
-            if (!_allowClose && !_saveBeforeCloseInProgress &&
-                _documentTabs.Tabs.Any(tab =>
-                    !ReferenceEquals(tab, _documentTabs.ActiveTab) && tab.IsDirty))
-            {
-                MessageBoxResult backgroundResult = MessageBox.Show(
-                    this,
-                    "Other chart tabs have unsaved changes.\n\n" +
-                    "Yes: close and discard their changes.\n" +
-                    "No: cancel and save each chart tab first.",
-                    "Unsaved chart tabs",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-                if (backgroundResult != MessageBoxResult.Yes)
-                {
-                    e.Cancel = true;
-                    return;
-                }
-            }
-
-            if (_allowClose || _editor is null || !_editor.IsDirty)
+            if (_windowCloseApproved || !_documentTabs.Tabs.Any(static tab => tab.IsDirty))
             {
                 base.OnClosing(e);
                 if (!e.Cancel)
@@ -64,62 +41,19 @@ public partial class MainWindow
                 return;
             }
 
-            if (_saveBeforeCloseInProgress)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            ShutdownDiagnostics.Begin("MainWindow.SaveDiscardConfirmation");
-            MessageBoxResult result = MessageBox.Show(
-                this,
-                "Save changes before closing?",
-                "ExtremeEditor",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
-            ShutdownDiagnostics.Complete(
-                "MainWindow.SaveDiscardConfirmation",
-                $"result={result}");
-
-            if (result == MessageBoxResult.Cancel)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            if (result == MessageBoxResult.Yes)
-            {
-                e.Cancel = true;
-                _saveBeforeCloseInProgress = true;
-                _ = SaveAndCloseAsync();
-                return;
-            }
-
-            _allowClose = true;
+            e.Cancel = true;
             base.OnClosing(e);
-            if (!e.Cancel)
-                ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
+            if (!_windowCloseConfirmationPending)
+            {
+                _windowCloseConfirmationPending = true;
+                _ = ConfirmWindowCloseAsync();
+            }
         }
         finally
         {
             ShutdownDiagnostics.Complete(
                 "MainWindow.OnClosing",
                 $"cancel={e.Cancel}");
-        }
-    }
-
-    private async Task SaveAndCloseAsync()
-    {
-        try
-        {
-            if (!await SaveCurrentAsync(saveAs: false))
-                return;
-            _allowClose = true;
-            Close();
-        }
-        finally
-        {
-            _saveBeforeCloseInProgress = false;
         }
     }
 

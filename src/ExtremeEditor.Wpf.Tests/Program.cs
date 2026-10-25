@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_WINDOW_CLOSE_UNSAVED_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                WindowCloseUnsavedTabsRegression.Run();
+                Console.WriteLine("PASS: window-close unsaved-tabs regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_ASYNC_SAVE_GENERATION_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -811,6 +820,7 @@ internal static class Program
             SaveSourceIdentityRegression.Run();
             SaveAsAssetReferenceRegression.Run();
             AsyncSaveGenerationRegression.Run();
+            WindowCloseUnsavedTabsRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
