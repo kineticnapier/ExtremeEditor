@@ -29,7 +29,7 @@ public sealed class AudioPlayer : IDisposable
     private const double HitSoundOnlyMinimumSeconds = 0.25;
     private const double HitSoundOnlyEndPaddingSeconds = 0.05;
 
-    private readonly HitSoundLibrary _hitSoundLibrary = new();
+    private readonly HitSoundLibrary _hitSoundLibrary;
     private readonly AudioPcmPrerenderLifecycle _hitSoundPrerender = new();
     private IDisposable? _realtimeDiagnosticsHeartbeat;
     private WaveOutEvent? _output;
@@ -60,8 +60,9 @@ public sealed class AudioPlayer : IDisposable
     {
         using IDisposable? measurement = AudioDiagnosticLog.Shared?.Measure("audio_player.construct");
         _hitSoundsEnabled = loadHitSoundAssets;
-        if (loadHitSoundAssets)
-            _hitSoundLibrary.ReloadAssets();
+        _hitSoundLibrary = loadHitSoundAssets
+            ? SharedHitSoundLibrary.Instance
+            : new HitSoundLibrary();
     }
 
     /// <summary>True when either a song graph or a hit-sound-only graph is ready.</summary>

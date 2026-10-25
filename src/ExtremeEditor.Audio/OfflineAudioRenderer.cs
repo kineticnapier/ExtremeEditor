@@ -45,12 +45,7 @@ public readonly record struct OfflineAudioFormat(
 
 public sealed class OfflineAudioRenderer
 {
-    private readonly HitSoundLibrary _hitSoundLibrary = new();
-
-    public OfflineAudioRenderer()
-    {
-        _hitSoundLibrary.ReloadAssets();
-    }
+    private readonly HitSoundLibrary _hitSoundLibrary = SharedHitSoundLibrary.Instance;
 
     public OfflineAudioFormat ProbeFormat(string? songPath)
     {

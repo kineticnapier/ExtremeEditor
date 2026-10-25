@@ -338,8 +338,7 @@ public partial class MainWindow : Window
             NativePlaybackLoadMetrics nativePlaybackMetrics =
                 NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
 
-            preparedAudio.Player.HitSoundsEnabled = HitSoundsToggle.IsChecked == true;
-            preparedAudio.Player.PlaybackSpeed = _playbackSpeed;
+            ApplySharedPlaybackPreferences(preparedAudio.Player);
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
             tab.Audio = _audio;

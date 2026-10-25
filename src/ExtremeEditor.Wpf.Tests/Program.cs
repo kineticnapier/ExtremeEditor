@@ -19,6 +19,7 @@ internal static class Program
                 "1", StringComparison.Ordinal))
             {
                 EditorUiStateIssueRegression.Run();
+                TabPlaybackPreferenceRegression.Run();
                 ManagedGeometryEditRegression.Run();
                 Console.WriteLine("PASS: editor UI state and managed geometry issue regressions are valid.");
                 return 0;
@@ -853,6 +854,7 @@ internal static class Program
             WindowCloseUnsavedTabsRegression.Run();
             OpenIssueDataIntegrityRegression.Run();
             EditorUiStateIssueRegression.Run();
+            TabPlaybackPreferenceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();

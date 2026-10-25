@@ -52,6 +52,7 @@ public partial class MainWindow
             if (result.ExitCode == 0 && result.CacheStatus.IsReady)
             {
                 NativeViewport.ReloadAssets();
+                _audio.ReloadHitSoundAssets();
                 StatusText.Text = $"Assets ready | ADOFAI {result.CacheStatus.GameVersion}";
             }
             else

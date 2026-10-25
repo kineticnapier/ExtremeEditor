@@ -215,7 +215,15 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 
         long remainingFrames = _totalSourceFrames - _sourcePcm.PositionFrames;
         if (remainingFrames <= 0)
-            return 0;
+        {
+            // The prerendered identity bus is bounded by the song duration.
+            // Hand off only the post-song portion to the block voice mixer so a
+            // hit that began before EOF can finish without being triggered twice.
+            _identitySourcePcmFastPath = false;
+            _nextHitIndex = UpperBound(_totalSourceFrames);
+            RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
+            return Read(buffer, offset, requestedFrames * WaveFormat.Channels);
+        }
 
         int framesToRead = (int)Math.Min(requestedFrames, remainingFrames);
         int sampleCount = checked(framesToRead * WaveFormat.Channels);

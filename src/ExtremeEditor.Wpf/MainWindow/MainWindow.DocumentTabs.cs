@@ -111,6 +111,7 @@ public partial class MainWindow
         _level = tab.Document;
         _editor = tab.Editor;
         _audio = tab.Audio ??= new AudioPlayer();
+        ApplySharedPlaybackPreferences(_audio);
         _timingMap = tab.TimingMap;
         _hitSoundTimeline = tab.HitSoundTimeline;
         if (_timingMap is null)
@@ -181,6 +182,12 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void ApplySharedPlaybackPreferences(AudioPlayer player)
+    {
+        player.PlaybackSpeed = _playbackSpeed;
+        player.HitSoundsEnabled = HitSoundsToggle.IsChecked == true;
     }
 
     private bool _tabCloseSavePending;
