@@ -722,8 +722,10 @@ internal sealed partial class EditorSession
         int index = FindActionIndex(oldAction);
         if (index >= 0)
             _actions[index] = newAction;
-        RebuildDocument(
-            rebuildGeometry: !IsSetHitsoundGeometryIndependentReplacement(oldAction, newAction));
+        // Replacing an action never changes angleData, which is the sole input to
+        // the managed base path positions/bounds. Event-specific native timelines
+        // are refreshed by the window after the command commits.
+        RebuildDocument(rebuildGeometry: false);
     }
 
     private void Execute(IEditorCommand command)

@@ -97,6 +97,8 @@ public partial class MainWindow
             previous.HitSoundTimeline = _hitSoundTimeline;
             previous.SelectedFloors = _selection.SelectedFloors.ToArray();
             previous.PrimaryFloor = _selection.PrimaryFloor;
+            previous.SelectedEventSourceIndex =
+                (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
         }
 
         _editorPlaybackRefreshTimer?.Stop();
@@ -162,7 +164,14 @@ public partial class MainWindow
         NativeViewport.ClearPlayback();
 
         _editor.Changed += ActiveEditorSessionChanged;
+        int? selectedEventSource = tab.SelectedEventSourceIndex;
+        EventList.SelectedItem = null;
         RefreshInspector();
+        if (selectedEventSource is int sourceIndex)
+        {
+            EventList.SelectedItem = EventList.Items.Cast<EventListItem>()
+                .FirstOrDefault(item => item.Action.SourceIndex == sourceIndex);
+        }
         RefreshMiscSettings();
         RefreshCameraSettings();
         RefreshTrackSettings();

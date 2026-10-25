@@ -453,6 +453,11 @@ public partial class MainWindow
 
     private void EventListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+        {
+            activeTab.SelectedEventSourceIndex =
+                (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
+        }
         if (EventList.SelectedItem is EventListItem item && EnsureEditorSession() is EditorSession editor)
         {
             JsonObject obj = AdoFaiEditorSaveService.BuildEditableActionJson(editor, item.Action);

@@ -392,8 +392,7 @@ public partial class MainWindow : Window
             if (generation == _loadGeneration && !_isClosed)
             {
                 _isLoading = false;
-                if (!editorReady)
-                    _playbackPreparationPending = false;
+                _playbackPreparationPending = false;
                 Mouse.OverrideCursor = null;
                 CommandManager.InvalidateRequerySuggested();
             }

@@ -31,6 +31,7 @@ internal sealed class EditorDocumentTab
     internal HitSoundTimeline? HitSoundTimeline { get; set; }
     internal int[] SelectedFloors { get; set; } = [0];
     internal int PrimaryFloor { get; set; } = 0;
+    internal int? SelectedEventSourceIndex { get; set; }
 
     internal bool IsDirty => Editor.IsDirty;
 

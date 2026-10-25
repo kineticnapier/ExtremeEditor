@@ -27,6 +27,48 @@ internal static class ManagedGeometryEditRegression
             throw new InvalidOperationException($"SetHitsound undo triggered managed geometry rebuild. rebuilds={setHitsound.Undo}.");
         if (setHitsound.Redo != 0)
             throw new InvalidOperationException($"SetHitsound redo triggered managed geometry rebuild. rebuilds={setHitsound.Redo}.");
+
+        VerifyVisualEventDoesNotRebuildManagedGeometry();
+    }
+
+    private static void VerifyVisualEventDoesNotRebuildManagedGeometry()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(1000);
+        var before = new LevelAction(3, "Flash", true, null, null, null, null)
+        {
+            SourceIndex = 0,
+            PropertyOverrides = new JsonObject
+            {
+                ["floor"] = 3,
+                ["eventType"] = "Flash",
+                ["startOpacity"] = 100
+            }
+        };
+        level.ReplaceActions([before]);
+        var editor = new EditorSession(level);
+        editor.CopyFloors([before.Floor]);
+        LevelGeometryDiagnostics.EnableAndReset();
+        try
+        {
+            LevelAction after = before with
+            {
+                PropertyOverrides = new JsonObject
+                {
+                    ["floor"] = 3,
+                    ["eventType"] = "Flash",
+                    ["startOpacity"] = 50
+                }
+            };
+            editor.ReplaceAction(before, after);
+            editor.Undo();
+            editor.Redo();
+            if (LevelGeometryDiagnostics.ReadRebuildCount() != 0)
+                throw new InvalidOperationException("#32: visual event edit/undo/redo rebuilt the managed path geometry.");
+        }
+        finally
+        {
+            LevelGeometryDiagnostics.Disable();
+        }
     }
 
     private static long MeasureGeometryChangingEdit()

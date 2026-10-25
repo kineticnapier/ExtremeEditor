@@ -9,6 +9,7 @@ internal static class NativeLoadPreparationCache
     private static readonly object Gate = new();
     private static readonly ConditionalWeakTable<LevelDocument, Task<PreparedNativeLevel>> ByLevel = new();
     private static readonly ConditionalWeakTable<TimingMap, Task<PreparedNativePlayback>> ByTimingMap = new();
+    private static readonly ConditionalWeakTable<LevelDocument, HashSet<TimingMap>> PlaybackMapsByLevel = new();
 
     internal static Task<PreparedNativeLevel> StartLevel(LevelDocument level)
         => StartLevel(level, NativeLevelViewportProfilingExtensions.PrepareLevelProfiled);
@@ -68,6 +69,7 @@ internal static class NativeLoadPreparationCache
 
             Task<PreparedNativePlayback> preparation = Task.Run(() => prepare(level, timingMap));
             ByTimingMap.Add(timingMap, preparation);
+            PlaybackMapsByLevel.GetOrCreateValue(level).Add(timingMap);
             _ = preparation.ContinueWith(
                 _ => RemoveFailedPlayback(timingMap, preparation),
                 CancellationToken.None,
@@ -85,7 +87,15 @@ internal static class NativeLoadPreparationCache
         ArgumentNullException.ThrowIfNull(level);
 
         lock (Gate)
+        {
             ByLevel.Remove(level);
+            if (PlaybackMapsByLevel.TryGetValue(level, out HashSet<TimingMap>? timingMaps))
+            {
+                foreach (TimingMap timingMap in timingMaps)
+                    ByTimingMap.Remove(timingMap);
+                PlaybackMapsByLevel.Remove(level);
+            }
+        }
     }
 
     // Compatibility helper for callers that intentionally want both phases at once.

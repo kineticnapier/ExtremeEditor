@@ -15,6 +15,16 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                EditorUiStateIssueRegression.Run();
+                ManagedGeometryEditRegression.Run();
+                Console.WriteLine("PASS: editor UI state and managed geometry issue regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_FAILURE_RECOVERY_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -842,6 +852,7 @@ internal static class Program
             AsyncSaveGenerationRegression.Run();
             WindowCloseUnsavedTabsRegression.Run();
             OpenIssueDataIntegrityRegression.Run();
+            EditorUiStateIssueRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();

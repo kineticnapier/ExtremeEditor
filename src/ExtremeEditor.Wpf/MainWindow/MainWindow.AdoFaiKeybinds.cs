@@ -220,19 +220,13 @@ public partial class MainWindow
 
                 case Key.Z:
                     if (editor.CanUndo)
-                    {
-                        editor.Undo();
-                        RefreshAfterAdoFaiMutation(primary);
-                    }
+                        ExecuteRouted(EditorCommands.Undo);
                     e.Handled = true;
                     return;
 
                 case Key.Y:
                     if (editor.CanRedo)
-                    {
-                        editor.Redo();
-                        RefreshAfterAdoFaiMutation(primary);
-                    }
+                        ExecuteRouted(EditorCommands.Redo);
                     e.Handled = true;
                     return;
             }
@@ -241,10 +235,7 @@ public partial class MainWindow
         if (!alt && !windows && control && shift && key == Key.Z)
         {
             if (editor.CanRedo)
-            {
-                editor.Redo();
-                RefreshAfterAdoFaiMutation(primary);
-            }
+                ExecuteRouted(EditorCommands.Redo);
             e.Handled = true;
             return;
         }

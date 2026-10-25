@@ -84,6 +84,7 @@ public partial class MainWindow
     private StackPanel? _eventPropertyPanel;
     private Expander? _eventRawJsonExpander;
     private JsonObject? _eventPropertyDraft;
+    private JsonObject? _eventPropertyDraftBaseline;
 
     private void InitializeEventPropertyEditor()
     {
@@ -144,6 +145,7 @@ public partial class MainWindow
         if (EventList.SelectedItem is not EventListItem item)
         {
             _eventPropertyDraft = null;
+            _eventPropertyDraftBaseline = null;
             return;
         }
 
@@ -160,6 +162,7 @@ public partial class MainWindow
         string eventType = item.Action.EventType;
         ApplyMissingEventDefaults(eventType, draft);
         _eventPropertyDraft = draft;
+        _eventPropertyDraftBaseline = (JsonObject)draft.DeepClone();
         SyncEventDraftToRawJson();
 
         _eventPropertyPanel.Children.Add(CreateEventPropertyHeader(eventType));
