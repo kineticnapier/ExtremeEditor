@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_SOURCE_IDENTITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SaveSourceIdentityRegression.Run();
+                Console.WriteLine("PASS: save source identity regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLANET_RADIUS_POSITION_TRACK_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -781,6 +790,7 @@ internal static class Program
             EventAvailabilityRegression.Run();
             LegacyEventRoundTripRegression.Run();
             SaveNodeOwnershipRegression.Run();
+            SaveSourceIdentityRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();

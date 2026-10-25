@@ -30,6 +30,7 @@ internal sealed partial class EditorSession
     private readonly Stack<IEditorCommand> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
     private readonly Dictionary<int, JsonObject> _newActionTemplates = new();
+    private readonly Dictionary<int, JsonObject> _actionSourceTemplates = new();
     private readonly List<LevelDecoration> _decorations;
 
     private EditorClipboard? _clipboard;
@@ -58,6 +59,7 @@ internal sealed partial class EditorSession
     public string? RedoName => _redo.TryPeek(out IEditorCommand? command) ? command.Name : null;
     public IReadOnlyList<FloorStructureEdit> StructureEdits => _structureEdits;
     public IReadOnlyDictionary<int, JsonObject> NewActionTemplates => _newActionTemplates;
+    internal IReadOnlyDictionary<int, JsonObject> ActionSourceTemplates => _actionSourceTemplates;
 
     public event EventHandler? Changed;
 
@@ -928,20 +930,41 @@ internal sealed partial class EditorSession
                 _actions[i] = action with { SourceIndex = NextNewSourceIndex() };
         }
 
+        foreach (LevelAction action in _actions)
+        {
+            if (action.SourceIndex >= 0 &&
+                !_actionSourceTemplates.ContainsKey(action.SourceIndex) &&
+                GetSourceActionTemplate(root, action.SourceIndex) is JsonObject template)
+            {
+                _actionSourceTemplates[action.SourceIndex] = template;
+            }
+        }
+
         _sourceMappingInitialized = true;
         RebuildDocument();
     }
 
     private void RebaseSource(string path)
     {
-        _sourceRoot = null;
-        _sourceMappingInitialized = false;
+        _sourceRoot = LooseAdoFaiJson.ParseObject(path);
+        if (_sourceRoot["actions"] is JsonArray savedActions)
+        {
+            for (int i = 0; i < _actions.Count && i < savedActions.Count; i++)
+            {
+                if (savedActions[i] is JsonObject savedAction)
+                {
+                    _actionSourceTemplates[_actions[i].SourceIndex] =
+                        (JsonObject)savedAction.DeepClone();
+                }
+            }
+        }
+
+        _sourceMappingInitialized = true;
         _structureEdits.Clear();
         _newActionTemplates.Clear();
-        _nextNewSourceIndex = -2;
         for (int i = 0; i < _decorations.Count; i++)
             _decorations[i] = _decorations[i] with { SourceIndex = i };
-        EnsureSourceMapping();
+        RebuildDocument();
     }
 
     private static JsonObject? GetSourceActionTemplate(JsonObject root, int sourceIndex)

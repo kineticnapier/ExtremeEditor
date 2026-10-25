@@ -85,6 +85,9 @@ internal static class AdoFaiEditorSaveService
 
     private static JsonObject GetBaseActionObject(EditorSession session, LevelAction action)
     {
+        if (session.ActionSourceTemplates.TryGetValue(action.SourceIndex, out JsonObject? stableTemplate))
+            return (JsonObject)stableTemplate.DeepClone();
+
         JsonObject root = session.GetSourceRootForSave();
         if (action.SourceIndex >= 0 &&
             root["actions"] is JsonArray actions &&
@@ -142,6 +145,12 @@ internal static class AdoFaiEditorSaveService
                 int revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
                 for (int i = revision; i < session.StructureEdits.Count; i++)
                     TransformObject(obj, session.StructureEdits[i], removeWhenDeleted: false);
+            }
+            else if (session.ActionSourceTemplates.TryGetValue(action.SourceIndex, out JsonObject? stableTemplate))
+            {
+                obj = (JsonObject)stableTemplate.DeepClone();
+                foreach (FloorStructureEdit edit in session.StructureEdits)
+                    TransformObject(obj, edit, removeWhenDeleted: false);
             }
             else if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
             {
