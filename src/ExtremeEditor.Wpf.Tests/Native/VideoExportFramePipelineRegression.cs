@@ -85,8 +85,10 @@ internal static class VideoExportFramePipelineRegression
         string source = File.ReadAllText(path);
         var failures = new List<string>();
 
-        if (!source.Contains("VideoExportTimeline.Build", StringComparison.Ordinal))
-            failures.Add("pipeline must consume the deterministic VE1 timeline");
+        if (!source.Contains("VideoExportTimeline.Enumerate", StringComparison.Ordinal))
+            failures.Add("pipeline must lazily consume the deterministic VE1 timeline");
+        if (source.Contains("VideoExportTimeline.Build", StringComparison.Ordinal))
+            failures.Add("pipeline must not allocate a complete frame list");
         if (!source.Contains(".ChartTimeSeconds", StringComparison.Ordinal) ||
             !source.Contains(".VisualTimeSeconds", StringComparison.Ordinal))
         {
@@ -101,6 +103,16 @@ internal static class VideoExportFramePipelineRegression
             failures.Add(
                 "pipeline must not accumulate all rendered RGB frames in memory");
         }
+
+        string timeline = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "Export", "VideoExportTimeline.cs"));
+        string service = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "Export", "VideoExportService.cs"));
+        if (!timeline.Contains("CountFrames", StringComparison.Ordinal) ||
+            !timeline.Contains("IEnumerable<VideoExportFrame>", StringComparison.Ordinal))
+            failures.Add("timeline must expose allocation-free counting and lazy enumeration");
+        if (service.Contains("VideoExportTimeline.Build", StringComparison.Ordinal))
+            failures.Add("progress counting must not build every frame object");
 
         if (failures.Count != 0)
         {

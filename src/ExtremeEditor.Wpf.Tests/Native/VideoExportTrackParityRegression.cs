@@ -110,14 +110,8 @@ internal static class VideoExportTrackParityRegression
         if (!renderer.Contains("Load(LevelDocument level, TimingMap timingMap)", StringComparison.Ordinal))
             failures.Add("NativeChartFrameRenderer must expose a prepared-document load path");
 
-        if (!ui.Contains("new VideoExportSource(", StringComparison.Ordinal))
-            failures.Add("MainWindow must package the currently loaded editor document/timelines into VideoExportSource");
-        if (!ui.Contains("_level", StringComparison.Ordinal) ||
-            !ui.Contains("_timingMap", StringComparison.Ordinal) ||
-            !ui.Contains("_hitSoundTimeline", StringComparison.Ordinal))
-        {
-            failures.Add("MainWindow export must reuse the current editor level, timing map, and hitsound timeline");
-        }
+        if (!ui.Contains("CreateVideoExportSnapshot", StringComparison.Ordinal))
+            failures.Add("MainWindow must freeze an independent chart snapshot before asynchronous export");
 
         if (failures.Count != 0)
         {

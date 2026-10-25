@@ -20,7 +20,7 @@ internal sealed class VideoExportFramePipeline
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(consumer);
 
-        foreach (VideoExportFrame frame in VideoExportTimeline.Build(plan))
+        foreach (VideoExportFrame frame in VideoExportTimeline.Enumerate(plan))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

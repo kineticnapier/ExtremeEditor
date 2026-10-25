@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
 using Microsoft.Win32;
 
@@ -69,22 +70,18 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
-        var source = new VideoExportSource(
-            _level,
-            _timingMap,
-            _hitSoundTimeline,
-            _level.ResolveSongPath());
+        VideoExportSource source = await Task.Run(() => CreateVideoExportSnapshot(chartPath));
 
         var request = new VideoExportRequest(
             source,
             saveDialog.FileName,
             ffmpegPath,
             StartChartTimeSeconds: 0.0,
-            EndChartTimeSeconds: _timingMap.Duration,
+            EndChartTimeSeconds: source.TimingMap.Duration,
             FramesPerSecond: 60,
             Width: 1920,
             Height: 1080,
-            SongVolumePercent: _level.SongVolumePercent,
+            SongVolumePercent: source.Level.SongVolumePercent,
             HitSoundsEnabled: HitSoundsToggle.IsChecked == true);
 
         using var cancellation = new CancellationTokenSource();
@@ -137,6 +134,14 @@ public partial class MainWindow
             _videoExportInProgress = false;
             _videoExportCancellation = null;
         }
+    }
+
+    private static VideoExportSource CreateVideoExportSnapshot(string chartPath)
+    {
+        LevelDocument level = WpfLevelLoader.Load(chartPath).Document;
+        TimingMap timingMap = TimingMapBuilder.Build(level);
+        HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        return new VideoExportSource(level, timingMap, hitSoundTimeline, level.ResolveSongPath());
     }
 
     private static string? FindFfmpegPath()

@@ -9,6 +9,8 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
     private readonly string _ffmpegPath;
     private VideoEncoderStartInfo? _startInfo;
     private string? _audioTempPath;
+    private string? _videoTempPath;
+    private string? _finalOutputPath;
     private FileStream? _audioStream;
     private Process? _ffmpegProcess;
     private Stream? _videoInput;
@@ -49,6 +51,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
 
         string id = Guid.NewGuid().ToString("N");
         _audioTempPath = Path.Combine(tempDirectory, id + ".f32le");
+        _finalOutputPath = outputPath;
+        _videoTempPath = Path.Combine(
+            outputDirectory ?? Environment.CurrentDirectory,
+            $".{Path.GetFileName(outputPath)}.{id}.extremeeditor.tmp.mp4");
 
         try
         {
@@ -59,7 +65,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 FileShare.Read,
                 bufferSize: 1 << 20,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
-            _startInfo = startInfo with { OutputPath = outputPath };
+            _startInfo = startInfo with { OutputPath = _videoTempPath };
         }
         catch
         {
@@ -246,6 +252,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                     $"ffmpeg exited with code {process.ExitCode}: {stderr.Trim()}");
             }
 
+            CommitVideoOutput();
             _completed = true;
         }
         finally
@@ -327,6 +334,24 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
     {
         Delete(_audioTempPath);
         _audioTempPath = null;
+        Delete(_videoTempPath);
+        _videoTempPath = null;
+    }
+
+    private void CommitVideoOutput()
+    {
+        string temporary = _videoTempPath
+            ?? throw new InvalidOperationException("Video temporary path is unavailable.");
+        string destination = _finalOutputPath
+            ?? throw new InvalidOperationException("Final video output path is unavailable.");
+        if (!File.Exists(temporary))
+            throw new InvalidOperationException("ffmpeg completed without producing an output file.");
+
+        if (File.Exists(destination))
+            File.Replace(temporary, destination, destinationBackupFileName: null);
+        else
+            File.Move(temporary, destination);
+        _videoTempPath = null;
     }
 
     private static void Delete(string? path)
