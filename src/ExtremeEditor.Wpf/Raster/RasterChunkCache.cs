@@ -64,6 +64,13 @@ internal sealed class RasterChunkCache
         return true;
     }
 
+    public bool AbandonPending(RasterChunkKey key)
+    {
+        if (!IsCurrent(key))
+            return false;
+        return _pending.Remove(key);
+    }
+
     public bool TryGetReady(RasterChunkKey key, out RasterChunkResult? result)
     {
         if (!IsCurrent(key))

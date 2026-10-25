@@ -71,6 +71,8 @@ public sealed partial class LevelViewport
             StaticSceneRasterCacheBuildCount++;
             changed = true;
         }
+        while (_rasterWorker.TryDequeueFailed(out RasterChunkKey failedKey))
+            _rasterChunks.AbandonPending(failedKey);
 
         if (changed && rebuildVisuals)
             RebuildRasterChunkVisuals();

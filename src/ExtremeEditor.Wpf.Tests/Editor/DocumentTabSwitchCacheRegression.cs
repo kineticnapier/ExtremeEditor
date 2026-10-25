@@ -1,4 +1,7 @@
 using System.IO;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -22,11 +25,42 @@ internal static class DocumentTabSwitchCacheRegression
         Require(cache.Contains("InvalidateLevel(LevelDocument level)", StringComparison.Ordinal) &&
                 cache.Contains("ByLevel.Remove(level)", StringComparison.Ordinal),
             "Native prepared-level cache must support invalidation after document edits.");
+        Require(cache.Contains("RemoveFailedLevel", StringComparison.Ordinal) &&
+                cache.Contains("RemoveFailedPlayback", StringComparison.Ordinal),
+            "#47: failed or cancelled native preparation tasks must be evicted for retry.");
 
         string editor = ReadSource("src/ExtremeEditor.Wpf/Editor/EditorSession.cs");
         string changed = ExtractMethodBody(editor, "private void OnChanged()");
         Require(changed.Contains("NativeLoadPreparationCache.InvalidateLevel(Document)", StringComparison.Ordinal),
             "Edits, Undo and Redo must invalidate stale prepared native levels before future tab activation.");
+
+        VerifyFailedTasksAreRetried();
+    }
+
+    private static void VerifyFailedTasksAreRetried()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
+        TimingMap timing = TimingMapBuilder.Build(level);
+
+        Task<PreparedNativeLevel> failedLevel = NativeLoadPreparationCache.StartLevel(
+            level, static _ => throw new InvalidOperationException("injected level failure"));
+        try { _ = failedLevel.GetAwaiter().GetResult(); }
+        catch (InvalidOperationException ex) when (ex.Message == "injected level failure") { }
+        Task<PreparedNativeLevel> retriedLevel = NativeLoadPreparationCache.StartLevel(
+            level, static _ => default);
+        _ = retriedLevel.GetAwaiter().GetResult();
+        if (ReferenceEquals(failedLevel, retriedLevel))
+            throw new InvalidOperationException("#47: failed level preparation was reused instead of retried.");
+
+        Task<PreparedNativePlayback> failedPlayback = NativeLoadPreparationCache.StartPlayback(
+            level, timing, static (_, _) => throw new InvalidOperationException("injected playback failure"));
+        try { _ = failedPlayback.GetAwaiter().GetResult(); }
+        catch (InvalidOperationException ex) when (ex.Message == "injected playback failure") { }
+        Task<PreparedNativePlayback> retriedPlayback = NativeLoadPreparationCache.StartPlayback(
+            level, timing, static (_, _) => default);
+        _ = retriedPlayback.GetAwaiter().GetResult();
+        if (ReferenceEquals(failedPlayback, retriedPlayback))
+            throw new InvalidOperationException("#47: failed playback preparation was reused instead of retried.");
     }
 
     private static void Require(bool condition, string message)

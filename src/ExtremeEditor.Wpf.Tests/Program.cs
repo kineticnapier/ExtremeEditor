@@ -15,6 +15,17 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_FAILURE_RECOVERY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AssetSetupRegression.Run();
+                RasterChunkWorkerRegression.Run();
+                DocumentTabSwitchCacheRegression.Run();
+                Console.WriteLine("PASS: process, raster, and native preparation failure recovery regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_OPEN_ISSUE_DATA_INTEGRITY_ONLY"),
                 "1", StringComparison.Ordinal))
             {

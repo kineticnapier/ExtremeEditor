@@ -15,6 +15,7 @@ internal sealed class RasterChunkWorker : IDisposable
         new ConcurrentQueue<RasterChunkRequest>()
     ];
     private readonly ConcurrentQueue<RasterChunkResult> _completed = new();
+    private readonly ConcurrentQueue<RasterChunkKey> _failed = new();
     private readonly AutoResetEvent _signal = new(false);
     private readonly object _lifecycleGate = new();
     private readonly Thread _thread;
@@ -76,6 +77,8 @@ internal sealed class RasterChunkWorker : IDisposable
         return false;
     }
 
+    public bool TryDequeueFailed(out RasterChunkKey key) => _failed.TryDequeue(out key);
+
     public void Dispose()
     {
         lock (_lifecycleGate)
@@ -128,6 +131,7 @@ internal sealed class RasterChunkWorker : IDisposable
                 catch
                 {
                     // A single bad chunk must not kill the worker thread.
+                    _failed.Enqueue(request.Key);
                 }
             }
 

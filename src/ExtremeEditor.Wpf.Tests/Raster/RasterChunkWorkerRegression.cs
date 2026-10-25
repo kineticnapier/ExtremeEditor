@@ -14,6 +14,36 @@ internal static class RasterChunkWorkerRegression
         VerifyWorkerBuildsFrozenBitmapOffCallerThread();
         VerifyImmediateDisposeWithQueuedWorkTerminates();
         VerifyDisposeIsIdempotentWithQueuedWork();
+        VerifyFailedBuildIsReportedAndCanBeRetried();
+    }
+
+    private static void VerifyFailedBuildIsReportedAndCanBeRetried()
+    {
+        using var worker = new RasterChunkWorker();
+        var key = new RasterChunkKey(9, 9, 28, 1);
+        RasterChunkRequest request = CreateRequest(key) with { Positions = null! };
+        worker.Enqueue(request);
+        var timeout = Stopwatch.StartNew();
+        bool failed = false;
+        while (timeout.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            if (worker.TryDequeueFailed(out RasterChunkKey failedKey))
+            {
+                failed = failedKey == key;
+                break;
+            }
+            Thread.Sleep(5);
+        }
+        if (!failed)
+            throw new InvalidOperationException("#45: raster worker failure was swallowed without a completion signal.");
+
+        var cache = new RasterChunkCache();
+        cache.Reset(1, 28);
+        if (!cache.TryMarkQueued(key))
+            throw new InvalidOperationException("#45 fixture could not mark a chunk pending.");
+        cache.AbandonPending(key);
+        if (cache.PendingCount != 0 || !cache.TryMarkQueued(key))
+            throw new InvalidOperationException("#45: failed raster chunk remained permanently pending.");
     }
 
     private static void VerifyViewportExposesRasterWorkerShutdown()

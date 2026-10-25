@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private bool _isClosed;
     private bool _windowCloseApproved;
     private bool _windowCloseConfirmationPending;
+    private CancellationTokenSource? _assetSetupCancellation;
     private int _loadGeneration;
 
     // ADOFAI's editor can preview a chart even before a song file is assigned.
@@ -99,6 +100,7 @@ public partial class MainWindow : Window
         _editor?.Changed -= ActiveEditorSessionChanged;
         _loadGeneration++;
         _videoExportCancellation?.Cancel();
+        _assetSetupCancellation?.Cancel();
 
         ShutdownDiagnostics.Begin("PlaybackTimer.Stop");
         _playbackTimer.Stop();

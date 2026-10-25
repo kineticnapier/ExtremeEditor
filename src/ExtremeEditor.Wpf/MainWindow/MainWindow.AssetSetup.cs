@@ -38,13 +38,16 @@ public partial class MainWindow
         SetupAssetsMenuItem.IsEnabled = false;
         BrowseAdoFaiMenuItem.IsEnabled = false;
         StatusText.Text = "Extracting ADOFAI assets…";
+        using var cancellation = new CancellationTokenSource();
+        _assetSetupCancellation = cancellation;
 
         try
         {
             AssetSetupRunResult result = await AssetSetupService.RunExtractorAsync(
                 extractorPath,
                 AssetSetupService.DefaultCacheRoot,
-                _adoFaiGameRoot);
+                _adoFaiGameRoot,
+                cancellation.Token);
 
             if (result.ExitCode == 0 && result.CacheStatus.IsReady)
             {
@@ -60,6 +63,10 @@ public partial class MainWindow
                 StatusText.Text = $"Asset setup failed (exit {result.ExitCode}): {detail}";
             }
         }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "Asset setup cancelled";
+        }
         catch (Exception ex)
         {
             StatusText.Text = $"Asset setup failed: {ex.Message}";
@@ -67,6 +74,8 @@ public partial class MainWindow
         finally
         {
             _assetSetupRunning = false;
+            if (ReferenceEquals(_assetSetupCancellation, cancellation))
+                _assetSetupCancellation = null;
             RefreshAssetSetupUi();
         }
     }

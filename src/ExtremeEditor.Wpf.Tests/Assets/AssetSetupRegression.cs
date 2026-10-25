@@ -21,6 +21,16 @@ internal static class AssetSetupRegression
         Type serviceType = wpfAssembly.GetType("ExtremeEditor.Wpf.AssetSetupService")
             ?? throw new InvalidOperationException("AssetSetupService does not exist yet.");
 
+        string serviceSource = ReadSource("src/ExtremeEditor.Wpf/Services/AssetSetupService.cs");
+        string windowSource = ReadSource("src/ExtremeEditor.Wpf/MainWindow.xaml.cs");
+        if (!serviceSource.Contains("Kill(entireProcessTree: true)", StringComparison.Ordinal) ||
+            !serviceSource.Contains("WaitForExitAsync(CancellationToken.None)", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("#24: cancelling asset extraction must terminate and reap the child process tree.");
+        }
+        if (!windowSource.Contains("_assetSetupCancellation?.Cancel()", StringComparison.Ordinal))
+            throw new InvalidOperationException("#24: window shutdown must cancel active asset extraction.");
+
         MethodInfo inspectMethod = serviceType.GetMethod(
             "InspectCache",
             BindingFlags.Public | BindingFlags.Static,
@@ -96,6 +106,19 @@ internal static class AssetSetupRegression
                 }
             }
         }
+    }
+
+    private static string ReadSource(string relativePath)
+    {
+        DirectoryInfo? directory = new(Environment.CurrentDirectory);
+        while (directory is not null)
+        {
+            string path = Path.Combine(directory.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(path))
+                return File.ReadAllText(path);
+            directory = directory.Parent;
+        }
+        throw new InvalidOperationException($"Source file unavailable: {relativePath}");
     }
 
     private static void AssertReady(
