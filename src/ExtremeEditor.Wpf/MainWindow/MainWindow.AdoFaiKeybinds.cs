@@ -73,7 +73,8 @@ public partial class MainWindow
             return;
         }
 
-        if (!EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        if (!EditorClipboardShortcutRouting.ShouldRouteEditorKeys(
+                Keyboard.FocusedElement, NativeViewport))
             return;
 
         // EditorKeybind(..., true) is an edge-triggered action in ADOFAI. WPF emits

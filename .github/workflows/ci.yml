@@ -38,5 +38,14 @@ jobs:
       - name: WPF tests
         run: dotnet run -c Release --project src/ExtremeEditor.Wpf.Tests
 
+      - name: Configure native renderer tests
+        run: cmake -S src/ExtremeEditor.NativeRenderer -B artifacts/native-ci -A x64
+
+      - name: Build native renderer tests
+        run: cmake --build artifacts/native-ci --config Release --parallel
+
+      - name: Native renderer tests
+        run: ctest --test-dir artifacts/native-ci -C Release --output-on-failure
+
       - name: Build WPF app
         run: dotnet build src/ExtremeEditor.Wpf/ExtremeEditor.Wpf.csproj -c Release --nologo

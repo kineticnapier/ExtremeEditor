@@ -14,6 +14,7 @@ public partial class MainWindow
     // The active chart's native renderer is still shared. Only document,
     // editing/undo, playback model, audio and selection are per tab.
     private readonly EditorDocumentTabs _documentTabs = new();
+    private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
 
     private void ActiveEditorSessionChanged(object? sender, EventArgs e)
     {
@@ -301,72 +302,76 @@ public partial class MainWindow
 
     private void RefreshActiveDocumentTab()
     {
-        // Tab order is always document order. Activation and close are
-        // separate controls so clicking × cannot also activate the tab.
-        DocumentTabsHost.Children.Clear();
-        foreach (EditorDocumentTab tab in _documentTabs.Tabs)
+        foreach (EditorDocumentTab removed in _documentTabVisuals.Keys
+                     .Where(tab => !_documentTabs.Tabs.Contains(tab)).ToArray())
         {
+            DocumentTabsHost.Children.Remove(_documentTabVisuals[removed].Chrome);
+            _documentTabVisuals.Remove(removed);
+        }
+
+        for (int index = 0; index < _documentTabs.Tabs.Count; index++)
+        {
+            EditorDocumentTab tab = _documentTabs.Tabs[index];
+            if (!_documentTabVisuals.TryGetValue(tab, out DocumentTabVisual? visual))
+            {
+                visual = CreateDocumentTabVisual(tab);
+                _documentTabVisuals.Add(tab, visual);
+                DocumentTabsHost.Children.Insert(index, visual.Chrome);
+            }
+            else if (DocumentTabsHost.Children.IndexOf(visual.Chrome) != index)
+            {
+                DocumentTabsHost.Children.Remove(visual.Chrome);
+                DocumentTabsHost.Children.Insert(index, visual.Chrome);
+            }
+
             bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab);
-            var tabChrome = new Border
-            {
-                Margin = new Thickness(4, 0, 0, isActive ? 0 : 3),
-                MaxWidth = 316,
-                MinWidth = 110,
-                CornerRadius = new CornerRadius(5, 5, 0, 0),
-                Background = new SolidColorBrush(isActive
-                    ? Color.FromRgb(41, 46, 55)
-                    : Color.FromRgb(34, 38, 45)),
-                BorderBrush = new SolidColorBrush(isActive
-                    ? Color.FromRgb(70, 79, 93)
-                    : Color.FromRgb(62, 69, 79)),
-                BorderThickness = isActive
-                    ? new Thickness(1, 1, 1, 0)
-                    : new Thickness(1)
-            };
-            var controls = new DockPanel();
-
-            var closeButton = new Button
-            {
-                Content = "×",
-                ToolTip = $"Close {tab.DisplayName}",
-                FontSize = 14,
-                MinWidth = 25,
-                MinHeight = 26,
-                Padding = new Thickness(4, 0, 6, 0),
-                Margin = new Thickness(0),
-                Background = Brushes.Transparent,
-                Foreground = new SolidColorBrush(Color.FromRgb(192, 199, 209))
-            };
-            closeButton.Click += (_, _) => CloseDocumentTab(tab);
-            DockPanel.SetDock(closeButton, Dock.Right);
-            controls.Children.Add(closeButton);
-
-            var button = new Button
-            {
-                Content = new TextBlock
-                {
-                    Text = tab.Header,
-                    FontSize = 12,
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                },
-                ToolTip = tab.Document.SourcePath is null or "<synthetic>"
-                    ? null : tab.Document.SourcePath,
-                Tag = tab,
-                MaxWidth = 290,
-                MinWidth = 75,
-                Margin = new Thickness(0),
-                Padding = new Thickness(12, 2, 6, 2),
-                Background = Brushes.Transparent,
-                Foreground = isActive
-                    ? (Brush)FindResource("TextBrush")
-                    : new SolidColorBrush(Color.FromRgb(192, 199, 209))
-            };
-            button.Click += (_, _) => ActivateDocumentTab(tab);
-            controls.Children.Add(button);
-
-            tabChrome.Child = controls;
-            DocumentTabsHost.Children.Add(tabChrome);
+            visual.Chrome.Margin = new Thickness(4, 0, 0, isActive ? 0 : 3);
+            visual.Chrome.Background = new SolidColorBrush(isActive
+                ? Color.FromRgb(41, 46, 55) : Color.FromRgb(34, 38, 45));
+            visual.Chrome.BorderBrush = new SolidColorBrush(isActive
+                ? Color.FromRgb(70, 79, 93) : Color.FromRgb(62, 69, 79));
+            visual.Chrome.BorderThickness = isActive ? new Thickness(1, 1, 1, 0) : new Thickness(1);
+            visual.Header.Text = tab.Header;
+            visual.Activate.ToolTip = tab.Document.SourcePath is null or "<synthetic>"
+                ? null : tab.Document.SourcePath;
+            visual.Activate.Foreground = isActive
+                ? (Brush)FindResource("TextBrush")
+                : new SolidColorBrush(Color.FromRgb(192, 199, 209));
+            visual.Close.ToolTip = $"Close {tab.DisplayName}";
         }
     }
+
+    private DocumentTabVisual CreateDocumentTabVisual(EditorDocumentTab tab)
+    {
+        var header = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
+        var activate = new Button
+        {
+            Content = header, Tag = tab, MaxWidth = 290, MinWidth = 75,
+            Margin = new Thickness(0), Padding = new Thickness(12, 2, 6, 2),
+            Background = Brushes.Transparent
+        };
+        activate.Click += (_, _) => ActivateDocumentTab(tab);
+        var close = new Button
+        {
+            Content = "×", FontSize = 14, MinWidth = 25, MinHeight = 26,
+            Padding = new Thickness(4, 0, 6, 0), Margin = new Thickness(0),
+            Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(Color.FromRgb(192, 199, 209))
+        };
+        close.Click += (_, _) => CloseDocumentTab(tab);
+        DockPanel.SetDock(close, Dock.Right);
+        var controls = new DockPanel();
+        controls.Children.Add(close);
+        controls.Children.Add(activate);
+        var chrome = new Border
+        {
+            MaxWidth = 316, MinWidth = 110, CornerRadius = new CornerRadius(5, 5, 0, 0),
+            Child = controls
+        };
+        return new DocumentTabVisual(chrome, activate, close, header);
+    }
+
+    private sealed record DocumentTabVisual(
+        Border Chrome, Button Activate, Button Close, TextBlock Header);
 
 }

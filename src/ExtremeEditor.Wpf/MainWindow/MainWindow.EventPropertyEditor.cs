@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -282,6 +283,10 @@ public partial class MainWindow
             EventPropertyEditorKind.Number => CreateScalarEditor(property, value, integer: false),
             _ => CreateTextEditor(property, value)
         };
+        string accessibleName = string.IsNullOrWhiteSpace(property.Unit)
+            ? property.Name
+            : $"{property.Name} ({property.Unit})";
+        AutomationProperties.SetName(editor, accessibleName);
         Grid.SetColumn(editor, 1);
         row.Children.Add(editor);
 
@@ -381,6 +386,8 @@ public partial class MainWindow
 
         TextBox xBox = CreateEditorTextBox(x);
         TextBox yBox = CreateEditorTextBox(y);
+        AutomationProperties.SetName(xBox, $"{property.Name} X");
+        AutomationProperties.SetName(yBox, $"{property.Name} Y");
         Grid.SetColumn(xBox, 0);
         Grid.SetColumn(yBox, 2);
         grid.Children.Add(xBox);
