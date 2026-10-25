@@ -197,22 +197,7 @@ internal static class AdoFaiEditorSaveService
 
     private static JsonObject GetBaseActionObject(EditorSession session, LevelAction action)
     {
-        if (session.ActionSourceTemplates.TryGetValue(action.SourceIndex, out JsonObject? stableTemplate))
-            return (JsonObject)stableTemplate.DeepClone();
-
-        JsonObject root = session.GetSourceRootForSave();
-        if (action.SourceIndex >= 0 &&
-            root["actions"] is JsonArray actions &&
-            action.SourceIndex < actions.Count &&
-            actions[action.SourceIndex] is JsonObject source)
-        {
-            return (JsonObject)source.DeepClone();
-        }
-
-        if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
-            return (JsonObject)template.DeepClone();
-
-        return new JsonObject();
+        return session.GetActionSourceTemplate(action.SourceIndex) ?? new JsonObject();
     }
 
     private static void ReplaceAngles(JsonObject root, IReadOnlyList<double> angles)

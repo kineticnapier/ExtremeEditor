@@ -45,7 +45,7 @@ public partial class MainWindow
         EnsureEditorSession();
 
         LevelDocument document = LevelDocument.CreateSynthetic(2);
-        var editor = new EditorSession(document);
+        var editor = new EditorSession(document, clipboardStore: _editorClipboard);
         var tab = new EditorDocumentTab(document, editor)
         {
             Audio = new AudioPlayer(),

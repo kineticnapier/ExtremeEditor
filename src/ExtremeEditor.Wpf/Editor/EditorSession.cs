@@ -34,8 +34,8 @@ internal sealed partial class EditorSession
     private readonly List<LevelDecoration> _decorations;
     private readonly Func<JsonObject, string, CancellationToken, Task> _saveWriter;
     private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly EditorClipboardStore _clipboardStore;
 
-    private EditorClipboard? _clipboard;
     private JsonObject? _sourceRoot;
     private bool _sourceMappingInitialized;
     private int _nextNewSourceIndex = -2;
@@ -45,21 +45,23 @@ internal sealed partial class EditorSession
 
     public EditorSession(
         LevelDocument document,
-        Func<JsonObject, string, CancellationToken, Task>? saveWriter = null)
+        Func<JsonObject, string, CancellationToken, Task>? saveWriter = null,
+        EditorClipboardStore? clipboardStore = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
         _decorations = document.Decorations.Select(CloneDecoration).ToList();
         _saveWriter = saveWriter ?? AdoFaiEditorSaveService.WriteAsync;
+        _clipboardStore = clipboardStore ?? new EditorClipboardStore();
         Document.ReplaceDecorations(_decorations);
     }
 
     public LevelDocument Document { get; }
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
-    public bool HasClipboard => _clipboard is { Angles.Length: > 0 };
-    public int ClipboardFloorCount => _clipboard?.Angles.Length ?? 0;
+    public bool HasClipboard => _clipboardStore.Value is { Angles.Length: > 0 };
+    public int ClipboardFloorCount => _clipboardStore.Value?.Angles.Length ?? 0;
     public bool IsDirty => _currentRevision != _savedRevision;
     public string? UndoName => _undo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
     public string? RedoName => _redo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
@@ -161,7 +163,7 @@ internal sealed partial class EditorSession
         TransformSelectedAngles(selectedFloors, "Flip vertical", angle => NormalizeAngle(-angle));
     }
 
-    public void CopyFloors(IEnumerable<int> selectedFloors)
+    public bool CopyFloors(IEnumerable<int> selectedFloors)
     {
         int[] floors = selectedFloors
             .Where(floor => floor > 0 && floor < Document.FloorCount)
@@ -169,13 +171,7 @@ internal sealed partial class EditorSession
             .OrderBy(floor => floor)
             .ToArray();
         if (floors.Length == 0 || !IsContinuousFloorRange(floors))
-        {
-            bool hadClipboard = _clipboard is not null;
-            _clipboard = null;
-            if (hadClipboard)
-                Changed?.Invoke(this, EventArgs.Empty);
-            return;
-        }
+            return false;
 
         EnsureSourceMapping();
         JsonObject root = EnsureSourceRoot();
@@ -218,11 +214,12 @@ internal sealed partial class EditorSession
                 (JsonObject)decoration.Properties.DeepClone()));
         }
 
-        _clipboard = new EditorClipboard(angles, actions.ToArray(), decorations.ToArray());
+        _clipboardStore.Value = new EditorClipboard(angles, actions.ToArray(), decorations.ToArray());
         Changed?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
-    public void CutFloors(IEnumerable<int> selectedFloors)
+    public bool CutFloors(IEnumerable<int> selectedFloors)
     {
         int[] floors = selectedFloors
             .Where(floor => floor > 0 && floor < Document.FloorCount)
@@ -230,18 +227,16 @@ internal sealed partial class EditorSession
             .OrderBy(floor => floor)
             .ToArray();
         if (floors.Length == 0 || !IsContinuousFloorRange(floors))
-        {
-            _clipboard = null;
-            Changed?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-        CopyFloors(floors);
+            return false;
+        if (!CopyFloors(floors))
+            return false;
         DeleteFloors(floors);
+        return true;
     }
 
     public EditorPasteResult? PasteFloors(int startFloor)
     {
-        if (_clipboard is not { Angles.Length: > 0 } clipboard)
+        if (_clipboardStore.Value is not { Angles.Length: > 0 } clipboard)
             return null;
 
         EnsureSourceMapping();
@@ -391,11 +386,12 @@ internal sealed partial class EditorSession
 
         if (existing is not null)
         {
-            JsonObject overrides = existing.PropertyOverrides is null
+            JsonObject? properties = existing.PropertyOverrides ??
+                existing.SourceProperties ??
+                GetActionSourceTemplate(existing.SourceIndex);
+            JsonObject overrides = properties is null
                 ? new JsonObject()
-                : (JsonObject)existing.PropertyOverrides.DeepClone();
-
-            JsonObject? properties = existing.PropertyOverrides ?? existing.SourceProperties;
+                : (JsonObject)properties.DeepClone();
             (double currentX, double currentY) = ReadPositionOffset(properties);
 
             overrides["eventType"] = "PositionTrack";
@@ -577,8 +573,13 @@ internal sealed partial class EditorSession
         }
         else
         {
-            foreach (LevelAction created in createdActions)
+            for (int i = 0; i < createdActions.Count; i++)
+            {
+                LevelAction created = createdActions[i];
                 _actions.Add(created);
+                if (i < clipboardActions.Count && clipboardActions[i].Template is JsonObject template)
+                    _newActionTemplates[created.SourceIndex] = (JsonObject)template.DeepClone();
+            }
         }
 
         if (createdDecorations is null || createdDecorations.Count == 0)
@@ -766,7 +767,13 @@ internal sealed partial class EditorSession
             phaseWatch = Stopwatch.StartNew();
         }
 
-        _actions.Sort(static (a, b) => a.Floor.CompareTo(b.Floor));
+        if (!_actions.Select(action => action.Floor).SequenceEqual(
+                _actions.Select(action => action.Floor).OrderBy(floor => floor)))
+        {
+            LevelAction[] stableFloorOrder = _actions.OrderBy(action => action.Floor).ToArray();
+            _actions.Clear();
+            _actions.AddRange(stableFloorOrder);
+        }
         LogManagedMutationPhase("actionSort", phaseWatch);
 
         phaseWatch?.Restart();
@@ -1075,6 +1082,16 @@ internal sealed partial class EditorSession
         return actions[sourceIndex] is JsonObject obj ? (JsonObject)obj.DeepClone() : null;
     }
 
+    internal JsonObject? GetActionSourceTemplate(int sourceIndex)
+    {
+        EnsureSourceMapping();
+        if (_actionSourceTemplates.TryGetValue(sourceIndex, out JsonObject? source))
+            return (JsonObject)source.DeepClone();
+        if (_newActionTemplates.TryGetValue(sourceIndex, out JsonObject? created))
+            return (JsonObject)created.DeepClone();
+        return GetSourceActionTemplate(EnsureSourceRoot(), sourceIndex);
+    }
+
     private static LevelDecoration CloneDecoration(LevelDecoration decoration) =>
         decoration with { Properties = (JsonObject)decoration.Properties.DeepClone() };
 
@@ -1233,6 +1250,11 @@ internal sealed record EditorClipboard(
     double[] Angles,
     ClipboardAction[] Actions,
     ClipboardDecoration[] Decorations);
+
+internal sealed class EditorClipboardStore
+{
+    internal EditorClipboard? Value { get; set; }
+}
 
 internal sealed record ClipboardAction(int RelativeFloor, LevelAction Action, JsonObject? Template);
 internal sealed record ClipboardDecoration(int RelativeFloor, string EventType, JsonObject Properties);

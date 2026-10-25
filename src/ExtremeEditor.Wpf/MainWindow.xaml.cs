@@ -14,6 +14,7 @@ public partial class MainWindow : Window
 {
     private AudioPlayer _audio = new();
     private readonly DiscordPresenceService _discordPresence = new();
+    private readonly EditorClipboardStore _editorClipboard = new();
     private readonly DispatcherTimer _playbackTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(16)
@@ -249,7 +250,7 @@ public partial class MainWindow : Window
                 return;
 
             var tab = new EditorDocumentTab(
-                loaded.Document, new EditorSession(loaded.Document))
+                loaded.Document, new EditorSession(loaded.Document, clipboardStore: _editorClipboard))
             {
                 Audio = new AudioPlayer(),
                 TimingMap = playback.TimingMap,

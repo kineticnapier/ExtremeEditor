@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_OPEN_ISSUE_DATA_INTEGRITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                OpenIssueDataIntegrityRegression.Run();
+                Console.WriteLine("PASS: open-issue data-integrity regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_WINDOW_CLOSE_UNSAVED_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -821,6 +830,7 @@ internal static class Program
             SaveAsAssetReferenceRegression.Run();
             AsyncSaveGenerationRegression.Run();
             WindowCloseUnsavedTabsRegression.Run();
+            OpenIssueDataIntegrityRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();

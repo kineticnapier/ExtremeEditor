@@ -189,8 +189,10 @@ public partial class MainWindow
             switch (key)
             {
                 case Key.C:
-                    editor.CopyFloors(_selection.SelectedFloors);
-                    StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
+                    bool copied = editor.CopyFloors(_selection.SelectedFloors);
+                    StatusText.Text = copied
+                        ? $"Copied {_selection.SelectedFloors.Count:N0} floor(s)"
+                        : "Copy requires one continuous floor range";
                     CommandManager.InvalidateRequerySuggested();
                     e.Handled = true;
                     return;
@@ -198,8 +200,10 @@ public partial class MainWindow
                 case Key.X:
                 {
                     int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-                    editor.CutFloors(_selection.SelectedFloors);
-                    RefreshAfterAdoFaiMutation(target);
+                    if (editor.CutFloors(_selection.SelectedFloors))
+                        RefreshAfterAdoFaiMutation(target);
+                    else
+                        StatusText.Text = "Cut requires one continuous floor range";
                     e.Handled = true;
                     return;
                 }

@@ -101,7 +101,7 @@ public partial class MainWindow
         if (_editor is not null)
             _editor.Changed -= ActiveEditorSessionChanged;
 
-        _editor = new EditorSession(_level);
+        _editor = new EditorSession(_level, clipboardStore: _editorClipboard);
         _documentTabs.ResetToSingle(new EditorDocumentTab(_level, _editor));
         _editor.Changed += ActiveEditorSessionChanged;
         RefreshActiveDocumentTab();
@@ -278,8 +278,10 @@ public partial class MainWindow
     private void ExecuteCopy(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        editor?.CopyFloors(_selection.SelectedFloors);
-        StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
+        bool copied = editor?.CopyFloors(_selection.SelectedFloors) == true;
+        StatusText.Text = copied
+            ? $"Copied {_selection.SelectedFloors.Count:N0} floor(s)"
+            : "Copy requires one continuous floor range";
         CommandManager.InvalidateRequerySuggested();
         e.Handled = true;
     }
@@ -290,8 +292,10 @@ public partial class MainWindow
         if (editor is null)
             return;
         int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-        editor.CutFloors(_selection.SelectedFloors);
-        RefreshEditorAfterMutation(target);
+        if (editor.CutFloors(_selection.SelectedFloors))
+            RefreshEditorAfterMutation(target);
+        else
+            StatusText.Text = "Cut requires one continuous floor range";
         e.Handled = true;
     }
 
