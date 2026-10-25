@@ -26,26 +26,32 @@ internal sealed partial class EditorSession
 
     private readonly List<double> _angles;
     private readonly List<LevelAction> _actions;
-    private readonly Stack<IEditorCommand> _undo = new();
-    private readonly Stack<IEditorCommand> _redo = new();
+    private readonly Stack<EditorHistoryEntry> _undo = new();
+    private readonly Stack<EditorHistoryEntry> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
     private readonly Dictionary<int, JsonObject> _newActionTemplates = new();
     private readonly Dictionary<int, JsonObject> _actionSourceTemplates = new();
     private readonly List<LevelDecoration> _decorations;
+    private readonly Func<JsonObject, string, CancellationToken, Task> _saveWriter;
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
 
     private EditorClipboard? _clipboard;
     private JsonObject? _sourceRoot;
     private bool _sourceMappingInitialized;
     private int _nextNewSourceIndex = -2;
-    private int _historyPosition;
-    private int _savedHistoryPosition;
+    private long _nextRevision;
+    private long _currentRevision;
+    private long _savedRevision;
 
-    public EditorSession(LevelDocument document)
+    public EditorSession(
+        LevelDocument document,
+        Func<JsonObject, string, CancellationToken, Task>? saveWriter = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
         _decorations = document.Decorations.Select(CloneDecoration).ToList();
+        _saveWriter = saveWriter ?? AdoFaiEditorSaveService.WriteAsync;
         Document.ReplaceDecorations(_decorations);
     }
 
@@ -54,9 +60,9 @@ internal sealed partial class EditorSession
     public bool CanRedo => _redo.Count > 0;
     public bool HasClipboard => _clipboard is { Angles.Length: > 0 };
     public int ClipboardFloorCount => _clipboard?.Angles.Length ?? 0;
-    public bool IsDirty => _historyPosition != _savedHistoryPosition;
-    public string? UndoName => _undo.TryPeek(out IEditorCommand? command) ? command.Name : null;
-    public string? RedoName => _redo.TryPeek(out IEditorCommand? command) ? command.Name : null;
+    public bool IsDirty => _currentRevision != _savedRevision;
+    public string? UndoName => _undo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
+    public string? RedoName => _redo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
     public IReadOnlyList<FloorStructureEdit> StructureEdits => _structureEdits;
     public IReadOnlyDictionary<int, JsonObject> NewActionTemplates => _newActionTemplates;
     internal IReadOnlyDictionary<int, JsonObject> ActionSourceTemplates => _actionSourceTemplates;
@@ -454,34 +460,47 @@ internal sealed partial class EditorSession
 
     public void Undo()
     {
-        if (!_undo.TryPop(out IEditorCommand? command))
+        if (!_undo.TryPop(out EditorHistoryEntry? entry))
             return;
-        command.Undo(this);
-        _redo.Push(command);
-        _historyPosition--;
+        entry.Command.Undo(this);
+        _redo.Push(entry);
+        _currentRevision = entry.BeforeRevision;
         OnChanged();
     }
 
     public void Redo()
     {
-        if (!_redo.TryPop(out IEditorCommand? command))
+        if (!_redo.TryPop(out EditorHistoryEntry? entry))
             return;
-        command.Execute(this);
-        _undo.Push(command);
-        _historyPosition++;
+        entry.Command.Execute(this);
+        _undo.Push(entry);
+        _currentRevision = entry.AfterRevision;
         OnChanged();
     }
 
     public async Task SaveAsync(string path, CancellationToken cancellationToken = default)
     {
-        EnsureSourceMapping();
-        await AdoFaiEditorSaveService.SaveAsync(this, path, cancellationToken).ConfigureAwait(false);
-        Document.SourcePath = path;
-        _savedHistoryPosition = _historyPosition;
-        RebaseSource(path);
-        // Save As can relocate relative decoration/background asset paths.
-        NativeLoadPreparationCache.InvalidateLevel(Document);
-        Changed?.Invoke(this, EventArgs.Empty);
+        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureSourceMapping();
+            long savedRevision = _currentRevision;
+            string sourcePath = Document.SourcePath;
+            JsonObject root = AdoFaiEditorSaveService.BuildSaveRoot(this, path);
+            await _saveWriter(root, path, cancellationToken).ConfigureAwait(false);
+            Document.SourcePath = path;
+            _savedRevision = savedRevision;
+            if (_currentRevision == savedRevision)
+                RebaseSource(path);
+            else
+                RebaseLiveAssetReferences(sourcePath, path);
+            NativeLoadPreparationCache.InvalidateLevel(Document);
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
     }
 
     internal JsonObject GetSourceRootForSave() => (JsonObject)EnsureSourceRoot().DeepClone();
@@ -708,10 +727,12 @@ internal sealed partial class EditorSession
 
     private void Execute(IEditorCommand command)
     {
+        long beforeRevision = _currentRevision;
         command.Execute(this);
-        _undo.Push(command);
+        long afterRevision = ++_nextRevision;
+        _undo.Push(new EditorHistoryEntry(command, beforeRevision, afterRevision));
         _redo.Clear();
-        _historyPosition++;
+        _currentRevision = afterRevision;
         OnChanged();
     }
 
@@ -999,6 +1020,54 @@ internal sealed partial class EditorSession
         RebuildDocument();
     }
 
+    private void RebaseLiveAssetReferences(string sourcePath, string targetPath)
+    {
+        if (_sourceRoot is not null)
+        {
+            AdoFaiEditorSaveService.RebaseRelativeAssetReferences(
+                _sourceRoot,
+                sourcePath,
+                targetPath,
+                requireExisting: false);
+        }
+
+        Document.SongFilename = AdoFaiEditorSaveService.RebaseRelativeAssetReference(
+            Document.SongFilename,
+            sourcePath,
+            targetPath,
+            requireExisting: false);
+
+        foreach (LevelAction action in _actions)
+        {
+            RebaseLiveProperty(action.SourceProperties, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.SourceProperties, "decorationImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.PropertyOverrides, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.PropertyOverrides, "decorationImage", sourcePath, targetPath);
+        }
+
+        foreach (LevelDecoration decoration in _decorations)
+            RebaseLiveProperty(decoration.Properties, "decorationImage", sourcePath, targetPath);
+    }
+
+    private static void RebaseLiveProperty(
+        JsonObject? properties,
+        string property,
+        string sourcePath,
+        string targetPath)
+    {
+        if (properties?[property] is not JsonValue value ||
+            !value.TryGetValue(out string? reference))
+        {
+            return;
+        }
+
+        properties[property] = AdoFaiEditorSaveService.RebaseRelativeAssetReference(
+            reference,
+            sourcePath,
+            targetPath,
+            requireExisting: false);
+    }
+
     private static JsonObject? GetSourceActionTemplate(JsonObject root, int sourceIndex)
     {
         if (sourceIndex < 0 || root["actions"] is not JsonArray actions || sourceIndex >= actions.Count)
@@ -1042,6 +1111,11 @@ internal sealed partial class EditorSession
         void Execute(EditorSession session);
         void Undo(EditorSession session);
     }
+
+    private sealed record EditorHistoryEntry(
+        IEditorCommand Command,
+        long BeforeRevision,
+        long AfterRevision);
 
     private sealed class CompositeEditorCommand(string name, IReadOnlyList<IEditorCommand> commands) : IEditorCommand
     {

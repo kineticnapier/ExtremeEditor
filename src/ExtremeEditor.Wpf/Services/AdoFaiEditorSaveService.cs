@@ -19,38 +19,60 @@ internal static class AdoFaiEditorSaveService
         ArgumentNullException.ThrowIfNull(session);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
+        JsonObject root = BuildSaveRoot(session, path);
+        await WriteAsync(root, path, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static JsonObject BuildSaveRoot(EditorSession session, string path)
+    {
         JsonObject root = session.GetSourceRootForSave();
         ReplaceSettings(root, session.Document);
         ReplaceAngles(root, session.Document.Angles);
         ReplaceActions(root, session);
         ReplaceDecorations(root, session.Document.Decorations);
         RebaseRelativeAssetReferences(root, session.Document.SourcePath, path);
+        return root;
+    }
 
+    internal static async Task WriteAsync(
+        JsonObject root,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
         string fullPath = Path.GetFullPath(path);
         string? directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        string tempPath = fullPath + ".extremeeditor.tmp";
-        await using (var stream = new FileStream(
-                         tempPath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         1024 * 1024,
-                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        string tempPath = fullPath + $".{Guid.NewGuid():N}.extremeeditor.tmp";
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, root, WriteOptions, cancellationToken)
-                .ConfigureAwait(false);
-        }
+            await using (var stream = new FileStream(
+                             tempPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             1024 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await JsonSerializer.SerializeAsync(stream, root, WriteOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-        File.Move(tempPath, fullPath, overwrite: true);
+            File.Move(tempPath, fullPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
     }
 
-    private static void RebaseRelativeAssetReferences(
+    internal static void RebaseRelativeAssetReferences(
         JsonObject root,
         string sourcePath,
-        string targetPath)
+        string targetPath,
+        bool requireExisting = true)
     {
         if (string.IsNullOrWhiteSpace(sourcePath) || sourcePath == "<synthetic>")
             return;
@@ -65,48 +87,75 @@ internal static class AdoFaiEditorSaveService
             return;
         }
 
-        RebaseProperty(root["settings"] as JsonObject, "songFilename", sourceDirectory, targetDirectory);
-        RebaseProperty(root["settings"] as JsonObject, "bgImage", sourceDirectory, targetDirectory);
+        RebaseProperty(root["settings"] as JsonObject, "songFilename", sourcePath, targetPath, requireExisting);
+        RebaseProperty(root["settings"] as JsonObject, "bgImage", sourcePath, targetPath, requireExisting);
 
         if (root["actions"] is JsonArray actions)
         {
             foreach (JsonObject action in actions.OfType<JsonObject>())
             {
-                RebaseProperty(action, "bgImage", sourceDirectory, targetDirectory);
-                RebaseProperty(action, "decorationImage", sourceDirectory, targetDirectory);
+                RebaseProperty(action, "bgImage", sourcePath, targetPath, requireExisting);
+                RebaseProperty(action, "decorationImage", sourcePath, targetPath, requireExisting);
             }
         }
 
         if (root["decorations"] is JsonArray decorations)
         {
             foreach (JsonObject decoration in decorations.OfType<JsonObject>())
-                RebaseProperty(decoration, "decorationImage", sourceDirectory, targetDirectory);
+                RebaseProperty(decoration, "decorationImage", sourcePath, targetPath, requireExisting);
         }
     }
 
     private static void RebaseProperty(
         JsonObject? owner,
         string property,
-        string sourceDirectory,
-        string targetDirectory)
+        string sourcePath,
+        string targetPath,
+        bool requireExisting)
     {
         if (owner?[property] is not JsonValue value ||
             !value.TryGetValue(out string? reference) ||
-            string.IsNullOrWhiteSpace(reference) ||
-            Path.IsPathRooted(reference))
+            string.IsNullOrWhiteSpace(reference))
         {
             return;
         }
 
+        owner[property] = RebaseRelativeAssetReference(
+            reference,
+            sourcePath,
+            targetPath,
+            requireExisting);
+    }
+
+    internal static string? RebaseRelativeAssetReference(
+        string? reference,
+        string sourcePath,
+        string targetPath,
+        bool requireExisting)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || Path.IsPathRooted(reference) ||
+            string.IsNullOrWhiteSpace(sourcePath) || sourcePath == "<synthetic>")
+        {
+            return reference;
+        }
+
+        string? sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(sourcePath));
+        string? targetDirectory = Path.GetDirectoryName(Path.GetFullPath(targetPath));
+        if (sourceDirectory is null || targetDirectory is null ||
+            string.Equals(sourceDirectory, targetDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return reference;
+        }
+
         string sourceAsset = Path.GetFullPath(Path.Combine(sourceDirectory, reference));
-        if (!File.Exists(sourceAsset))
+        if (requireExisting && !File.Exists(sourceAsset))
         {
             throw new FileNotFoundException(
-                $"Cannot Save As because {property} does not resolve from the source chart.",
+                "Cannot Save As because an asset reference does not resolve from the source chart.",
                 sourceAsset);
         }
 
-        owner[property] = Path.GetRelativePath(targetDirectory, sourceAsset);
+        return Path.GetRelativePath(targetDirectory, sourceAsset);
     }
 
     private static void ReplaceSettings(JsonObject root, LevelDocument document)

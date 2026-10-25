@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ASYNC_SAVE_GENERATION_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AsyncSaveGenerationRegression.Run();
+                Console.WriteLine("PASS: async save generation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_AS_ASSETS_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -801,6 +810,7 @@ internal static class Program
             SaveNodeOwnershipRegression.Run();
             SaveSourceIdentityRegression.Run();
             SaveAsAssetReferenceRegression.Run();
+            AsyncSaveGenerationRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
