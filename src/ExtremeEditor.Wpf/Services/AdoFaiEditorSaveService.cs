@@ -24,6 +24,7 @@ internal static class AdoFaiEditorSaveService
         ReplaceAngles(root, session.Document.Angles);
         ReplaceActions(root, session);
         ReplaceDecorations(root, session.Document.Decorations);
+        RebaseRelativeAssetReferences(root, session.Document.SourcePath, path);
 
         string fullPath = Path.GetFullPath(path);
         string? directory = Path.GetDirectoryName(fullPath);
@@ -44,6 +45,68 @@ internal static class AdoFaiEditorSaveService
         }
 
         File.Move(tempPath, fullPath, overwrite: true);
+    }
+
+    private static void RebaseRelativeAssetReferences(
+        JsonObject root,
+        string sourcePath,
+        string targetPath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath) || sourcePath == "<synthetic>")
+            return;
+
+        string sourceFullPath = Path.GetFullPath(sourcePath);
+        string targetFullPath = Path.GetFullPath(targetPath);
+        string? sourceDirectory = Path.GetDirectoryName(sourceFullPath);
+        string? targetDirectory = Path.GetDirectoryName(targetFullPath);
+        if (sourceDirectory is null || targetDirectory is null ||
+            string.Equals(sourceDirectory, targetDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        RebaseProperty(root["settings"] as JsonObject, "songFilename", sourceDirectory, targetDirectory);
+        RebaseProperty(root["settings"] as JsonObject, "bgImage", sourceDirectory, targetDirectory);
+
+        if (root["actions"] is JsonArray actions)
+        {
+            foreach (JsonObject action in actions.OfType<JsonObject>())
+            {
+                RebaseProperty(action, "bgImage", sourceDirectory, targetDirectory);
+                RebaseProperty(action, "decorationImage", sourceDirectory, targetDirectory);
+            }
+        }
+
+        if (root["decorations"] is JsonArray decorations)
+        {
+            foreach (JsonObject decoration in decorations.OfType<JsonObject>())
+                RebaseProperty(decoration, "decorationImage", sourceDirectory, targetDirectory);
+        }
+    }
+
+    private static void RebaseProperty(
+        JsonObject? owner,
+        string property,
+        string sourceDirectory,
+        string targetDirectory)
+    {
+        if (owner?[property] is not JsonValue value ||
+            !value.TryGetValue(out string? reference) ||
+            string.IsNullOrWhiteSpace(reference) ||
+            Path.IsPathRooted(reference))
+        {
+            return;
+        }
+
+        string sourceAsset = Path.GetFullPath(Path.Combine(sourceDirectory, reference));
+        if (!File.Exists(sourceAsset))
+        {
+            throw new FileNotFoundException(
+                $"Cannot Save As because {property} does not resolve from the source chart.",
+                sourceAsset);
+        }
+
+        owner[property] = Path.GetRelativePath(targetDirectory, sourceAsset);
     }
 
     private static void ReplaceSettings(JsonObject root, LevelDocument document)

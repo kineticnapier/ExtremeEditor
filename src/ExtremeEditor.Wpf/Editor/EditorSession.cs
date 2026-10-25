@@ -947,6 +947,13 @@ internal sealed partial class EditorSession
     private void RebaseSource(string path)
     {
         _sourceRoot = LooseAdoFaiJson.ParseObject(path);
+        if (_sourceRoot["settings"] is JsonObject savedSettings &&
+            savedSettings["songFilename"] is JsonValue songValue &&
+            songValue.TryGetValue(out string? savedSongFilename))
+        {
+            Document.SongFilename = savedSongFilename;
+        }
+
         if (_sourceRoot["actions"] is JsonArray savedActions)
         {
             for (int i = 0; i < _actions.Count && i < savedActions.Count; i++)
@@ -955,6 +962,10 @@ internal sealed partial class EditorSession
                 {
                     _actionSourceTemplates[_actions[i].SourceIndex] =
                         (JsonObject)savedAction.DeepClone();
+                    if (_actions[i].SourceProperties is not null)
+                        _actions[i].SourceProperties = (JsonObject)savedAction.DeepClone();
+                    if (_actions[i].PropertyOverrides is not null)
+                        _actions[i].PropertyOverrides = (JsonObject)savedAction.DeepClone();
                 }
             }
         }
@@ -962,8 +973,29 @@ internal sealed partial class EditorSession
         _sourceMappingInitialized = true;
         _structureEdits.Clear();
         _newActionTemplates.Clear();
+        JsonArray? savedDecorations = _sourceRoot["decorations"] as JsonArray;
         for (int i = 0; i < _decorations.Count; i++)
-            _decorations[i] = _decorations[i] with { SourceIndex = i };
+        {
+            JsonObject properties = savedDecorations is not null &&
+                                    i < savedDecorations.Count &&
+                                    savedDecorations[i] is JsonObject savedDecoration
+                ? (JsonObject)savedDecoration.DeepClone()
+                : (JsonObject)_decorations[i].Properties.DeepClone();
+            int? floor = TryGetInt(properties["floor"], out int savedFloor)
+                ? savedFloor
+                : _decorations[i].Floor;
+            string eventType = properties["eventType"]?.GetValue<string>()
+                ?? _decorations[i].EventType;
+            properties.Remove("floor");
+            properties.Remove("eventType");
+            _decorations[i] = _decorations[i] with
+            {
+                Floor = floor,
+                EventType = eventType,
+                SourceIndex = i,
+                Properties = properties
+            };
+        }
         RebuildDocument();
     }
 

@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_AS_ASSETS_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SaveAsAssetReferenceRegression.Run();
+                Console.WriteLine("PASS: Save As asset reference regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_SOURCE_IDENTITY_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -791,6 +800,7 @@ internal static class Program
             LegacyEventRoundTripRegression.Run();
             SaveNodeOwnershipRegression.Run();
             SaveSourceIdentityRegression.Run();
+            SaveAsAssetReferenceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
