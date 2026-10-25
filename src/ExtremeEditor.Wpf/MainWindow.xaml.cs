@@ -196,7 +196,7 @@ public partial class MainWindow : Window
         {
             EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
             if (existing is not null)
-                ActivateDocumentTab(existing);
+                _ = ActivateDocumentTab(existing);
             else
                 await LoadLevelAsync(dialog.FileName);
         }
@@ -270,7 +270,7 @@ public partial class MainWindow : Window
             // editor/selection/audio remain owned by the preceding tab.
             _isLoading = false;
             var switchWatch = Stopwatch.StartNew();
-            ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            await ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
             TimeSpan tabSwitch = switchWatch.Elapsed;
             Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 

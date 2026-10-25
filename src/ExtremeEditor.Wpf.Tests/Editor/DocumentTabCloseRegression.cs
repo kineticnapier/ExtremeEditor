@@ -8,7 +8,7 @@ internal static class DocumentTabCloseRegression
     {
         string source = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
-        string close = ExtractMethodBody(source, "private void CloseDocumentTab(");
+        string close = ExtractMethodBody(source, "private async void CloseDocumentTab(");
         Require(close.Length > 0,
             "Each document tab needs a dedicated close operation.");
 
@@ -27,9 +27,9 @@ internal static class DocumentTabCloseRegression
             "Closing a tab must dispose its own audio player.");
 
         string refresh = ExtractMethodBody(source, "private void RefreshActiveDocumentTab(");
-        Require(refresh.Contains("closeButton.Click +=", StringComparison.Ordinal) &&
-                refresh.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal) &&
-                refresh.Contains("button.Click += (_, _) => ActivateDocumentTab(tab)", StringComparison.Ordinal),
+        Require(source.Contains("close.Click +=", StringComparison.Ordinal) &&
+                source.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal) &&
+                source.Contains("activate.Click += (_, _) => _ = ActivateDocumentTab(tab)", StringComparison.Ordinal),
             "Close and activate must be separate clickable controls.");
 
         string keybinds = File.ReadAllText(FindSourceFile(

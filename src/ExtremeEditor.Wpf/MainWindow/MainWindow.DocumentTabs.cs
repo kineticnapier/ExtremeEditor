@@ -15,6 +15,7 @@ public partial class MainWindow
     // editing/undo, playback model, audio and selection are per tab.
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
+    private int _tabActivationGeneration;
 
     private void ActiveEditorSessionChanged(object? sender, EventArgs e)
     {
@@ -61,7 +62,7 @@ public partial class MainWindow
             return;
         }
 
-        ActivateDocumentTab(tab);
+        _ = ActivateDocumentTab(tab);
     }
 
     private bool CanSwitchDocumentTabs(bool allowDuringWindowClose = false)
@@ -74,7 +75,7 @@ public partial class MainWindow
         return true;
     }
 
-    private void ActivateDocumentTab(
+    private async Task<bool> ActivateDocumentTab(
         EditorDocumentTab tab,
         Native.PreparedNativeLevel? preparedLevel = null,
         bool deferPlaybackTimeline = false,
@@ -83,7 +84,42 @@ public partial class MainWindow
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
             !_documentTabs.Tabs.Contains(tab) ||
             ReferenceEquals(_documentTabs.ActiveTab, tab))
-            return;
+            return ReferenceEquals(_documentTabs.ActiveTab, tab);
+
+        int activationGeneration = ++_tabActivationGeneration;
+        WpfPlaybackSetup? builtPlayback = null;
+        TimingMap targetTimingMap = tab.TimingMap ??
+            (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
+        HitSoundTimeline targetHitSoundTimeline = tab.HitSoundTimeline ??
+            builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
+
+        Task<Native.PreparedNativeLevel> levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
+            ? Task.FromResult(readyLevel)
+            : NativeLoadPreparationCache.StartLevel(tab.Document);
+        Task<Native.PreparedNativePlayback>? playbackPreparation = deferPlaybackTimeline
+            ? null
+            : NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap);
+        var preparationWatch = Stopwatch.StartNew();
+        try
+        {
+            if (playbackPreparation is null)
+                await levelPreparation;
+            else
+                await Task.WhenAll(levelPreparation, playbackPreparation);
+        }
+        catch (Exception ex)
+        {
+            if (activationGeneration == _tabActivationGeneration && !_isClosed)
+                StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+            return false;
+        }
+        double preparationWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
+        if (activationGeneration != _tabActivationGeneration || _isClosed ||
+            !_documentTabs.Tabs.Contains(tab))
+            return false;
+
+        tab.TimingMap = targetTimingMap;
+        tab.HitSoundTimeline = targetHitSoundTimeline;
 
         // Resolve a pending edit's playback timing before leaving the current
         // chart, so no deferred timer can update a different tab afterwards.
@@ -113,24 +149,14 @@ public partial class MainWindow
         _editor = tab.Editor;
         _audio = tab.Audio ??= new AudioPlayer();
         ApplySharedPlaybackPreferences(_audio);
-        _timingMap = tab.TimingMap;
-        _hitSoundTimeline = tab.HitSoundTimeline;
-        if (_timingMap is null)
-        {
-            WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(tab.Document);
-            _timingMap = playback.TimingMap;
-            _hitSoundTimeline = playback.HitSoundTimeline;
-            tab.TimingMap = _timingMap;
-            tab.HitSoundTimeline = _hitSoundTimeline;
-        }
+        _timingMap = targetTimingMap;
+        _hitSoundTimeline = targetHitSoundTimeline;
 
         // NativeLevelViewport remains a single HWND. Restore the immutable
         // prepared snapshot for this document instead of rebuilding the entire
         // chart whenever the user returns to its tab.
-        var preparationWatch = Stopwatch.StartNew();
-        Native.PreparedNativeLevel nativeLevel = preparedLevel ??
-            NativeLoadPreparationCache.StartLevel(tab.Document).GetAwaiter().GetResult();
-        double levelWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
+        Native.PreparedNativeLevel nativeLevel = await levelPreparation;
+        double levelWaitMs = preparationWaitMs;
 
         var uploadWatch = Stopwatch.StartNew();
         NativeLevelLoadMetrics levelMetrics =
@@ -144,11 +170,8 @@ public partial class MainWindow
             if (_timingMap is null)
                 throw new InvalidOperationException("Active tab has no playback timing map.");
 
-            preparationWatch.Restart();
-            Native.PreparedNativePlayback playback =
-                NativeLoadPreparationCache.StartPlayback(tab.Document, _timingMap)
-                    .GetAwaiter().GetResult();
-            playbackWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
+            Native.PreparedNativePlayback playback = await playbackPreparation!;
+            playbackWaitMs = preparationWaitMs;
 
             uploadWatch.Restart();
             NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
@@ -183,6 +206,7 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
+        return true;
     }
 
     private void ApplySharedPlaybackPreferences(AudioPlayer player)
@@ -218,14 +242,14 @@ public partial class MainWindow
     private async Task<bool> SaveDocumentForWindowCloseAsync(EditorDocumentTab tab)
     {
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
-            ActivateDocumentTab(tab, allowDuringWindowClose: true);
+            await ActivateDocumentTab(tab, allowDuringWindowClose: true);
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
             return false;
 
         return await SaveCurrentAsync(saveAs: false);
     }
 
-    private void CloseDocumentTab(EditorDocumentTab tab)
+    private async void CloseDocumentTab(EditorDocumentTab tab)
     {
         if (_tabCloseSavePending || !CanSwitchDocumentTabs() ||
             !_documentTabs.Tabs.Contains(tab))
@@ -262,7 +286,7 @@ public partial class MainWindow
             {
                 EditorDocumentTab next = _documentTabs.Tabs[
                     index + 1 < _documentTabs.Tabs.Count ? index + 1 : index - 1];
-                ActivateDocumentTab(next);
+                await ActivateDocumentTab(next);
             }
 
             if (ReferenceEquals(_documentTabs.ActiveTab, tab))
@@ -280,7 +304,7 @@ public partial class MainWindow
     {
         // SaveCurrentAsync saves only the active document.
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
-            ActivateDocumentTab(tab);
+            await ActivateDocumentTab(tab);
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
             return;
 
@@ -350,7 +374,7 @@ public partial class MainWindow
             Margin = new Thickness(0), Padding = new Thickness(12, 2, 6, 2),
             Background = Brushes.Transparent
         };
-        activate.Click += (_, _) => ActivateDocumentTab(tab);
+        activate.Click += (_, _) => _ = ActivateDocumentTab(tab);
         var close = new Button
         {
             Content = "×", FontSize = 14, MinWidth = 25, MinHeight = 26,
