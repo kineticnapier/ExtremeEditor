@@ -10,9 +10,12 @@
 
 int main()
 {
-    if (EE_RENDERER_API_VERSION != 24u)
+    // The reverse-direction HUD setter was added in v24. Later API versions
+    // are additive and must continue to satisfy this ABI regression.
+    constexpr uint32_t reverse_direction_hud_minimum_api_version = 24u;
+    if (EE_RENDERER_API_VERSION < reverse_direction_hud_minimum_api_version)
     {
-        std::cerr << "Reverse-direction HUD ABI requires API version 24.\n";
+        std::cerr << "Reverse-direction HUD ABI requires API version 24 or newer.\n";
         return 1;
     }
 

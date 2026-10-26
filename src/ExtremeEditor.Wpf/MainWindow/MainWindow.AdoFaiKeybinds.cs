@@ -26,6 +26,18 @@ public partial class MainWindow
         if (TryHandleCleanPlayShortcut(e, key, modifiers))
             return;
 
+        // Tab is also an editor mutation, so claim the document-navigation
+        // chord before the ordinary ADOFAI Tab binding below. Keep this global
+        // so it works consistently when either WPF or the native child HWND
+        // owns keyboard focus.
+        if (control && key == Key.Tab && !alt && !windows)
+        {
+            if (!e.IsRepeat)
+                CycleDocumentTab(backwards: shift);
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+F toggles all visible tile indices in the editor, not a selection badge.
         // Input is routed identically for WPF and the child HWND.
         if (control && !shift && !alt && !windows && key == Key.F &&

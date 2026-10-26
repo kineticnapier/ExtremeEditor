@@ -209,6 +209,24 @@ public partial class MainWindow
         return true;
     }
 
+    private void CycleDocumentTab(bool backwards)
+    {
+        if (!CanSwitchDocumentTabs() || _documentTabs.Tabs.Count <= 1)
+            return;
+
+        EditorDocumentTab? active = _documentTabs.ActiveTab;
+        int currentIndex = active is null
+            ? -1
+            : _documentTabs.Tabs.ToList().IndexOf(active);
+        if (currentIndex < 0)
+            return;
+
+        int offset = backwards ? -1 : 1;
+        int nextIndex = (currentIndex + offset + _documentTabs.Tabs.Count) %
+            _documentTabs.Tabs.Count;
+        _ = ActivateDocumentTab(_documentTabs.Tabs[nextIndex]);
+    }
+
     private void ApplySharedPlaybackPreferences(AudioPlayer player)
     {
         player.PlaybackSpeed = _playbackSpeed;
