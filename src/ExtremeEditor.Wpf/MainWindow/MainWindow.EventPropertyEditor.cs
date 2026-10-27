@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -86,6 +87,9 @@ public partial class MainWindow
     private Expander? _eventRawJsonExpander;
     private JsonObject? _eventPropertyDraft;
     private JsonObject? _eventPropertyDraftBaseline;
+    private bool _settingEventEditorText;
+    private int? _displayedRawEventSourceIndex;
+    private string _displayedRawEventBaseline = string.Empty;
 
     private void InitializeEventPropertyEditor()
     {
@@ -94,6 +98,7 @@ public partial class MainWindow
         _eventPropertyEditorInitialized = true;
 
         EventList.SelectionChanged += (_, _) => RefreshEventPropertyEditor();
+        EventEditorText.TextChanged += EventEditorTextChanged;
 
         if (EventEditorText.Parent is Grid editorGrid)
         {
@@ -150,17 +155,34 @@ public partial class MainWindow
             return;
         }
 
-        JsonObject draft;
+        JsonObject? draft;
         try
         {
-            draft = JsonNode.Parse(EventEditorText.Text) as JsonObject ?? new JsonObject();
+            draft = JsonNode.Parse(EventEditorText.Text) as JsonObject;
         }
         catch
         {
-            draft = new JsonObject();
+            draft = null;
         }
 
         string eventType = item.Action.EventType;
+        if (draft is null)
+        {
+            _eventPropertyDraft = null;
+            _eventPropertyDraftBaseline = null;
+            _eventPropertyPanel.Children.Add(CreateEventPropertyHeader(eventType));
+            _eventPropertyPanel.Children.Add(new TextBlock
+            {
+                Text = "Raw JSON draft is invalid. Correct it or select Apply Event for details.",
+                Foreground = EventEditorMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            if (rawExpander is not null)
+                _eventPropertyPanel.Children.Add(rawExpander);
+            return;
+        }
+
         ApplyMissingEventDefaults(eventType, draft);
         _eventPropertyDraft = draft;
         _eventPropertyDraftBaseline = (JsonObject)draft.DeepClone();
@@ -446,7 +468,46 @@ public partial class MainWindow
     {
         if (_eventPropertyDraft is null)
             return;
-        EventEditorText.Text = _eventPropertyDraft.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        SetEventEditorText(
+            _eventPropertyDraft.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private void EventEditorTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_settingEventEditorText ||
+            _displayedRawEventSourceIndex is not int sourceIndex ||
+            _documentTabs.ActiveTab is not EditorDocumentTab tab)
+            return;
+
+        if (string.Equals(EventEditorText.Text, _displayedRawEventBaseline, StringComparison.Ordinal))
+            tab.PendingRawEventJson.Remove(sourceIndex);
+        else
+            tab.PendingRawEventJson[sourceIndex] = EventEditorText.Text;
+
+        RefreshActiveDocumentTab();
+        UpdateEditorStatus();
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void SetEventEditorText(string text)
+    {
+        _settingEventEditorText = true;
+        try
+        {
+            EventEditorText.Text = text;
+        }
+        finally
+        {
+            _settingEventEditorText = false;
+        }
+    }
+
+    private void AcceptDisplayedRawEventDraft(EditorDocumentTab tab, int sourceIndex)
+    {
+        tab.PendingRawEventJson.Remove(sourceIndex);
+        if (_displayedRawEventSourceIndex == sourceIndex)
+            _displayedRawEventBaseline = EventEditorText.Text;
+        RefreshActiveDocumentTab();
     }
 
     private static void ApplyMissingEventDefaults(string eventType, JsonObject draft)

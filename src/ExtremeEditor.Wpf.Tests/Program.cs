@@ -42,6 +42,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_RAW_EVENT_DRAFT_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                RawEventDraftSafetyRegression.Run();
+                Console.WriteLine("PASS: raw event JSON drafts survive navigation and participate in Save.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -888,6 +897,7 @@ internal static class Program
             NumericInputSafetyRegression.Run();
             SavePathReservationRegression.Run();
             StructureReferenceGenerationRegression.Run();
+            RawEventDraftSafetyRegression.Run();
             SaveStructureTransformPerformanceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();

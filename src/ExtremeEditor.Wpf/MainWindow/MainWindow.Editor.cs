@@ -195,6 +195,9 @@ public partial class MainWindow
             path = dialog.FileName;
         }
 
+        if (!TryCommitPendingRawEventDrafts(saveTab))
+            return false;
+
         IDisposable? saveReservation = _documentTabs.TryReserveSavePath(saveTab, path!);
         if (saveReservation is null)
         {
@@ -452,6 +455,8 @@ public partial class MainWindow
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             int[] selection = _selection.SelectedFloors.ToArray();
             editor.ReplaceAction(item.Action, updated);
+            if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                AcceptDisplayedRawEventDraft(activeTab, item.Action.SourceIndex);
             RefreshEditorAfterMutation(updated.Floor, selection, item.Action, updated);
         }
         catch (Exception ex)
@@ -471,11 +476,18 @@ public partial class MainWindow
         if (EventList.SelectedItem is EventListItem item && EnsureEditorSession() is EditorSession editor)
         {
             JsonObject obj = AdoFaiEditorSaveService.BuildEditableActionJson(editor, item.Action);
-            EventEditorText.Text = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            string baseline = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            _displayedRawEventSourceIndex = item.Action.SourceIndex;
+            _displayedRawEventBaseline = baseline;
+            string text = _documentTabs.ActiveTab?.PendingRawEventJson
+                .GetValueOrDefault(item.Action.SourceIndex) ?? baseline;
+            SetEventEditorText(text);
         }
         else
         {
-            EventEditorText.Clear();
+            _displayedRawEventSourceIndex = null;
+            _displayedRawEventBaseline = string.Empty;
+            SetEventEditorText(string.Empty);
         }
         CommandManager.InvalidateRequerySuggested();
     }
@@ -537,16 +549,65 @@ public partial class MainWindow
                 .FirstOrDefault(item => item.Action.SourceIndex == source);
         }
         if (EventList.SelectedItem is null)
-            EventEditorText.Clear();
+        {
+            _displayedRawEventSourceIndex = null;
+            _displayedRawEventBaseline = string.Empty;
+            SetEventEditorText(string.Empty);
+        }
     }
 
     private void UpdateEditorStatus()
     {
         if (_editor is null || _level is null)
             return;
-        string dirty = _editor.IsDirty ? "modified" : "saved";
+        bool isDirty = _documentTabs.ActiveTab?.IsDirty ?? _editor.IsDirty;
+        string dirty = isDirty ? "modified" : "saved";
         StatusText.Text = $"{Path.GetFileName(_level.SourcePath)} | floors {_level.FloorCount:N0} | actions {_level.ActionCount:N0} | {dirty}";
-        Title = $"ExtremeEditor {EditorVersion.Current} — WPF{(_editor.IsDirty ? " *" : string.Empty)}";
+        Title = $"ExtremeEditor {EditorVersion.Current} — WPF{(isDirty ? " *" : string.Empty)}";
+    }
+
+    private bool TryCommitPendingRawEventDrafts(EditorDocumentTab saveTab)
+    {
+        if (saveTab.PendingRawEventJson.Count == 0)
+            return true;
+
+        var updates = new List<(LevelAction Before, LevelAction After)>();
+        try
+        {
+            foreach ((int sourceIndex, string text) in saveTab.PendingRawEventJson)
+            {
+                JsonObject obj = JsonNode.Parse(text) as JsonObject
+                    ?? throw new JsonException($"Event {sourceIndex} expects a JSON object.");
+                LevelAction? before = saveTab.Document.ActionStore.Actions
+                    .FirstOrDefault(action => action.SourceIndex == sourceIndex);
+                if (before is null)
+                    continue;
+                LevelAction after = ParseEditedAction(obj, before);
+                after.PropertyOverrides = (JsonObject)obj.DeepClone();
+                after.PropertyOverridesStructureRevision = saveTab.Editor.StructureEdits.Count;
+                updates.Add((before, after));
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid event JSON", MessageBoxButton.OK, MessageBoxImage.Warning);
+            StatusText.Text = "Save canceled: a Raw JSON draft is invalid.";
+            return false;
+        }
+
+        saveTab.PendingRawEventJson.Clear();
+        foreach ((LevelAction before, LevelAction after) in updates)
+        {
+            saveTab.Editor.ReplaceAction(before, after);
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+                RefreshAfterEventPropertyCommit(before, after);
+        }
+        if (ReferenceEquals(_documentTabs.ActiveTab, saveTab) &&
+            _displayedRawEventSourceIndex is int displayed)
+        {
+            AcceptDisplayedRawEventDraft(saveTab, displayed);
+        }
+        return true;
     }
 
     private static LevelAction ParseEditedAction(JsonObject obj, LevelAction original)

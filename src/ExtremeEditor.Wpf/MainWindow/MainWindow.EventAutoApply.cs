@@ -123,6 +123,8 @@ public partial class MainWindow
             updated.PropertyOverrides = (JsonObject)draft.DeepClone();
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             editor.ReplaceAction(before, updated);
+            if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                AcceptDisplayedRawEventDraft(activeTab, before.SourceIndex);
             RefreshAfterEventPropertyCommit(before, updated);
             if (setSpeedDraftSynchronized)
                 RefreshEventPropertyEditor();
