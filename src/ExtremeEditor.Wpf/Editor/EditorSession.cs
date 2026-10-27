@@ -556,6 +556,7 @@ internal sealed partial class EditorSession
         if (createdActions is null || createdActions.Count == 0)
         {
             createdActions?.Clear();
+            int propertyRevision = _structureEdits.Count + (recordStructure ? 1 : 0);
             foreach (ClipboardAction item in clipboardActions)
             {
                 int sourceIndex = NextNewSourceIndex();
@@ -563,7 +564,8 @@ internal sealed partial class EditorSession
                 {
                     Floor = clampedAfter + 1 + item.RelativeFloor,
                     SourceIndex = sourceIndex,
-                    Kind = LevelActionKinds.FromEventType(item.Action.EventType)
+                    Kind = LevelActionKinds.FromEventType(item.Action.EventType),
+                    PropertyOverridesStructureRevision = propertyRevision
                 };
                 _actions.Add(created);
                 createdActions?.Add(created);
@@ -573,9 +575,11 @@ internal sealed partial class EditorSession
         }
         else
         {
+            int propertyRevision = _structureEdits.Count + (recordStructure ? 1 : 0);
             for (int i = 0; i < createdActions.Count; i++)
             {
                 LevelAction created = createdActions[i];
+                created.PropertyOverridesStructureRevision = propertyRevision;
                 _actions.Add(created);
                 if (i < clipboardActions.Count && clipboardActions[i].Template is JsonObject template)
                     _newActionTemplates[created.SourceIndex] = (JsonObject)template.DeepClone();
@@ -684,16 +688,39 @@ internal sealed partial class EditorSession
         foreach (DeletedDecoration removed in deleted.Decorations.OrderBy(item => item.Index))
             _decorations.Insert(Math.Min(removed.Index, _decorations.Count), removed.Decoration);
 
-        if (removeLastStructureEdit && _structureEdits.Count > 0)
-            _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        if (removeLastStructureEdit &&
+            !TryRemoveLastStructureEdit(FloorStructureEditKind.Delete, deleted.FirstFloor, count))
+            _structureEdits.Add(inverseEdit);
         RebuildDocument();
     }
 
     internal void RemoveInsertedRaw(int firstFloor, int count, bool removeLastStructureEdit)
     {
+        int beforeFloorCount = Document.FloorCount;
         DeleteRaw(firstFloor, firstFloor + count - 1, recordStructure: false);
-        if (removeLastStructureEdit && _structureEdits.Count > 0)
-            _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        if (removeLastStructureEdit &&
+            !TryRemoveLastStructureEdit(FloorStructureEditKind.Insert, firstFloor - 1, count))
+        {
+            _structureEdits.Add(new FloorStructureEdit(
+                FloorStructureEditKind.Delete,
+                firstFloor,
+                count,
+                beforeFloorCount));
+        }
+    }
+
+    private bool TryRemoveLastStructureEdit(
+        FloorStructureEditKind kind,
+        int floor,
+        int count)
+    {
+        if (_structureEdits.Count == 0)
+            return false;
+        FloorStructureEdit last = _structureEdits[^1];
+        if (last.Kind != kind || last.Floor != floor || last.Count != count)
+            return false;
+        _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        return true;
     }
 
     internal void SetAngleValues(int[] angleIndices, double[] values)
@@ -1052,6 +1079,17 @@ internal sealed partial class EditorSession
             RebaseLiveProperty(action.SourceProperties, "decorationImage", sourcePath, targetPath);
             RebaseLiveProperty(action.PropertyOverrides, "bgImage", sourcePath, targetPath);
             RebaseLiveProperty(action.PropertyOverrides, "decorationImage", sourcePath, targetPath);
+        }
+
+        foreach (JsonObject template in _actionSourceTemplates.Values)
+        {
+            RebaseLiveProperty(template, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(template, "decorationImage", sourcePath, targetPath);
+        }
+        foreach (JsonObject template in _newActionTemplates.Values)
+        {
+            RebaseLiveProperty(template, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(template, "decorationImage", sourcePath, targetPath);
         }
 
         foreach (LevelDecoration decoration in _decorations)

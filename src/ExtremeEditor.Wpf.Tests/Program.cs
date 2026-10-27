@@ -33,6 +33,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_STRUCTURE_REFERENCE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                StructureReferenceGenerationRegression.Run();
+                Console.WriteLine("PASS: save/undo, clipboard and Save As reference generations are stable.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -878,6 +887,7 @@ internal static class Program
             UiSafetyIssueRegression.Run();
             NumericInputSafetyRegression.Run();
             SavePathReservationRegression.Run();
+            StructureReferenceGenerationRegression.Run();
             SaveStructureTransformPerformanceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
