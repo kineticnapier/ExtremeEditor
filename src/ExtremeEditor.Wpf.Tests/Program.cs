@@ -24,6 +24,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_RESERVATION_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SavePathReservationRegression.Run();
+                Console.WriteLine("PASS: cross-tab save destinations and async save UI ownership are safe.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -868,6 +877,7 @@ internal static class Program
             TabPlaybackPreferenceRegression.Run();
             UiSafetyIssueRegression.Run();
             NumericInputSafetyRegression.Run();
+            SavePathReservationRegression.Run();
             SaveStructureTransformPerformanceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();

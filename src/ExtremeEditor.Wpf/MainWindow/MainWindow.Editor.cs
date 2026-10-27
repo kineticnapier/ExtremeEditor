@@ -175,11 +175,13 @@ public partial class MainWindow
 
     private async Task<bool> SaveCurrentAsync(bool saveAs)
     {
-        EditorSession? editor = EnsureEditorSession();
-        if (editor is null)
+        EnsureEditorSession();
+        EditorDocumentTab? saveTab = _documentTabs.ActiveTab;
+        if (saveTab is null)
             return false;
+        EditorSession editor = saveTab.Editor;
 
-        string? path = _level?.SourcePath;
+        string? path = saveTab.Document.SourcePath;
         if (saveAs || string.IsNullOrWhiteSpace(path) || path == "<synthetic>")
         {
             var dialog = new SaveFileDialog
@@ -193,34 +195,42 @@ public partial class MainWindow
             path = dialog.FileName;
         }
 
-        EditorDocumentTab? fileOwner = _documentTabs.FindByPath(path!);
-        if (fileOwner is not null && !ReferenceEquals(fileOwner, _documentTabs.ActiveTab))
+        IDisposable? saveReservation = _documentTabs.TryReserveSavePath(saveTab, path!);
+        if (saveReservation is null)
         {
             MessageBox.Show(
                 this,
-                "That chart is already open in another tab. Select the existing tab " +
-                "or save with a different filename.",
+                "That chart is already open or being saved by another tab, or this tab " +
+                "already has a save in progress. Wait for it to finish or use a different filename.",
                 "ExtremeEditor",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return false;
         }
 
+        using (saveReservation)
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Saving…";
             await editor.SaveAsync(path!);
             RefreshActiveDocumentTab();
-            Title = $"ExtremeEditor {EditorVersion.Current} — WPF — {Path.GetFileName(path)}";
-            StatusText.Text = $"Saved {Path.GetFileName(path)}";
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+            {
+                string dirty = editor.IsDirty ? " *" : string.Empty;
+                Title = $"ExtremeEditor {EditorVersion.Current} — WPF — {Path.GetFileName(path)}{dirty}";
+                StatusText.Text = editor.IsDirty
+                    ? $"Saved {Path.GetFileName(path)}; newer edits remain modified"
+                    : $"Saved {Path.GetFileName(path)}";
+            }
             CommandManager.InvalidateRequerySuggested();
             return true;
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.ToString(), "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            StatusText.Text = "Save failed";
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+                StatusText.Text = "Save failed";
             return false;
         }
         finally

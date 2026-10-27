@@ -106,8 +106,8 @@ internal static class DocumentTabScaffoldRegression
             "Open reuses an existing chart tab instead of replacing other tabs.");
         Require(source.Contains("Other chart tabs have unsaved changes.", StringComparison.Ordinal),
             "Closing the window protects modified inactive charts.");
-        Require(source.Contains("_documentTabs.FindByPath(path!)", StringComparison.Ordinal),
-            "Save As must not overwrite a different open tab.");
+        Require(source.Contains("_documentTabs.TryReserveSavePath(saveTab, path!)", StringComparison.Ordinal),
+            "Save As must atomically reserve its destination before writing.");
     }
 
     private static void VerifyTabCollection()

@@ -11,6 +11,8 @@ internal sealed class EditorDocumentTabs
 {
     private readonly List<EditorDocumentTab> _tabs = [];
     private readonly ReadOnlyCollection<EditorDocumentTab> _readOnlyTabs;
+    private readonly Dictionary<string, EditorDocumentTab> _savePathReservations =
+        new(StringComparer.OrdinalIgnoreCase);
 
     internal EditorDocumentTabs()
     {
@@ -67,9 +69,33 @@ internal sealed class EditorDocumentTabs
             return null;
 
         string key = NormalizePath(path);
-        return _tabs.FirstOrDefault(tab =>
+        EditorDocumentTab? open = _tabs.FirstOrDefault(tab =>
             TryGetSourcePath(tab, out string? existing) &&
             StringComparer.OrdinalIgnoreCase.Equals(existing, key));
+        if (open is not null)
+            return open;
+        return _savePathReservations.TryGetValue(key, out EditorDocumentTab? reserved)
+            ? reserved
+            : null;
+    }
+
+    internal IDisposable? TryReserveSavePath(EditorDocumentTab tab, string path)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        if (!_tabs.Contains(tab) || string.IsNullOrWhiteSpace(path))
+            return null;
+
+        string key = NormalizePath(path);
+        if (_savePathReservations.ContainsKey(key) ||
+            _savePathReservations.Values.Any(owner => ReferenceEquals(owner, tab)))
+            return null;
+
+        EditorDocumentTab? existing = FindByPath(key);
+        if (existing is not null && !ReferenceEquals(existing, tab))
+            return null;
+
+        _savePathReservations.Add(key, tab);
+        return new SavePathReservation(this, key, tab);
     }
 
     // Compatibility bridge: the existing Open flow REPLACES its one chart.
@@ -107,4 +133,25 @@ internal sealed class EditorDocumentTabs
     }
 
     private static string NormalizePath(string path) => Path.GetFullPath(path);
+
+    private void ReleaseSavePath(string key, EditorDocumentTab tab)
+    {
+        if (_savePathReservations.TryGetValue(key, out EditorDocumentTab? owner) &&
+            ReferenceEquals(owner, tab))
+            _savePathReservations.Remove(key);
+    }
+
+    private sealed class SavePathReservation(
+        EditorDocumentTabs owner,
+        string key,
+        EditorDocumentTab tab) : IDisposable
+    {
+        private EditorDocumentTabs? _owner = owner;
+
+        public void Dispose()
+        {
+            EditorDocumentTabs? current = Interlocked.Exchange(ref _owner, null);
+            current?.ReleaseSavePath(key, tab);
+        }
+    }
 }
