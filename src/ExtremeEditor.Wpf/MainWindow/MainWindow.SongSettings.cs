@@ -167,5 +167,5 @@ public partial class MainWindow
         double.IsFinite(value);
 
     private static string FormatSetting(double value) =>
-        value.ToString("0.###", CultureInfo.CurrentCulture);
+        value.ToString("R", CultureInfo.CurrentCulture);
 }

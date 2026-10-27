@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NUMERIC_INPUT_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NumericInputSafetyRegression.Run();
+                Console.WriteLine("PASS: finite numeric input and settings precision regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -858,6 +867,7 @@ internal static class Program
             EditorUiStateIssueRegression.Run();
             TabPlaybackPreferenceRegression.Run();
             UiSafetyIssueRegression.Run();
+            NumericInputSafetyRegression.Run();
             SaveStructureTransformPerformanceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();

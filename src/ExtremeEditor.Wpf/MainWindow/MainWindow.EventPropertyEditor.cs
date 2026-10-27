@@ -360,14 +360,26 @@ public partial class MainWindow
         box.LostKeyboardFocus += (_, _) =>
         {
             string candidate = box.Text.Trim();
+            bool committed = false;
             if (integer)
             {
                 if (int.TryParse(candidate, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue))
+                {
                     SetEventDraftValue(property.Name, JsonValue.Create(intValue));
+                    committed = true;
+                }
             }
-            else if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue))
+            else if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue) &&
+                     double.IsFinite(doubleValue))
             {
                 SetEventDraftValue(property.Name, JsonValue.Create(doubleValue));
+                committed = true;
+            }
+
+            if (!committed)
+            {
+                box.Text = text;
+                StatusText.Text = $"{property.Name} requires a finite numeric value.";
             }
         };
         return box;
@@ -395,8 +407,14 @@ public partial class MainWindow
 
         void Commit()
         {
-            JsonNode? xNode = ParseVectorComponentNode(xBox.Text);
-            JsonNode? yNode = ParseVectorComponentNode(yBox.Text);
+            if (!TryParseVectorComponentNode(xBox.Text, out JsonNode? xNode) ||
+                !TryParseVectorComponentNode(yBox.Text, out JsonNode? yNode))
+            {
+                xBox.Text = x;
+                yBox.Text = y;
+                StatusText.Text = $"{property.Name} requires finite numeric components.";
+                return;
+            }
             SetEventDraftValue(property.Name, new JsonArray(xNode, yNode));
         }
 
@@ -471,14 +489,22 @@ public partial class MainWindow
         };
     }
 
-    private static JsonNode? ParseVectorComponentNode(string text)
+    private static bool TryParseVectorComponentNode(string text, out JsonNode? node)
     {
         string trimmed = text.Trim();
         if (trimmed.Length == 0)
-            return null;
-        return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            ? JsonValue.Create(value)
-            : JsonValue.Create(trimmed);
+        {
+            node = null;
+            return true;
+        }
+        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+            double.IsFinite(value))
+        {
+            node = JsonValue.Create(value);
+            return true;
+        }
+        node = null;
+        return false;
     }
 
     private static bool TryReadBool(JsonNode? node, out bool value)
