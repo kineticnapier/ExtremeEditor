@@ -17,6 +17,7 @@ internal static class EditorFloorClipboardRegression
         VerifyPasteAtEnd();
         VerifyProtectedFloorZeroSelection();
         VerifyShortcutRoutingContract();
+        VerifyNativeEventPaletteRouting();
     }
 
     private static void VerifySingleFloorBoundary()
@@ -240,6 +241,54 @@ internal static class EditorFloorClipboardRegression
             BindingFlags.Instance | BindingFlags.NonPublic);
         if (bridge is null)
             throw new InvalidOperationException("Native child HWND keyboard bridge is missing.");
+    }
+
+    private static void VerifyNativeEventPaletteRouting()
+    {
+        var viewport = new Grid();
+        var settingsInput = new TextBox();
+        var eventList = new ListBoxItem();
+
+        // A WPF input control must retain its number keys. A verified native HWND
+        // must receive the palette shortcuts even if WPF retains stale focus.
+        if (!MainWindow.ShouldHandlePaletteShortcut(false, false, null, viewport) ||
+            MainWindow.ShouldHandlePaletteShortcut(false, false, settingsInput, viewport) ||
+            MainWindow.ShouldHandlePaletteShortcut(false, false, eventList, viewport) ||
+            !MainWindow.ShouldHandlePaletteShortcut(true, false, settingsInput, viewport) ||
+            !MainWindow.ShouldHandlePaletteShortcut(true, false, eventList, viewport) ||
+            MainWindow.ShouldHandlePaletteShortcut(true, true, null, viewport) ||
+            MainWindow.ShouldHandlePaletteShortcut(false, true, null, viewport))
+        {
+            throw new InvalidOperationException(
+                "#73: native palette routing must preserve WPF focus safety and suppress repeats.");
+        }
+
+        // The real native message pump must enter the palette handler, which
+        // delegates unhandled keys to the existing ADOFAI editor bindings.
+        string native = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs");
+        string picker = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.EventQuickPicker.cs");
+        if (!native.Contains("HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true)", StringComparison.Ordinal) ||
+            !picker.Contains("HandleExtremeEditorPreviewKeyDown(sender, e, fromNativeChild: false)", StringComparison.Ordinal) ||
+            !picker.Contains("AdoFaiPreviewKeyDown(sender, e);", StringComparison.Ordinal) ||
+            !native.Contains("win32Repeat || !_nativeKeysDown.Add(key)", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "#73: native key messages must pass through the palette exactly once before ADOFAI bindings.");
+        }
+    }
+
+    private static string ReadSource(string relativePath)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            string path = Path.Combine(directory.FullName,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(path))
+                return File.ReadAllText(path);
+            directory = directory.Parent;
+        }
+        throw new InvalidOperationException("#73: source file not found: " + relativePath);
     }
 
     private static void AssertRoute(MethodInfo method, IInputElement? focus, bool expected, string label)
