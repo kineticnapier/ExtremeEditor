@@ -945,6 +945,17 @@ internal static class Program
             PauseTimingStockRegression.Run();
             InitialHitSoundRegression.Run();
             AssetExtractorPackagingRegression.Run();
+            // CI must exercise the focused video export and background suites too.
+            VideoExportFoundationRegression.Run();
+            VideoExportFramePipelineRegression.Run();
+            VideoExportOfflineAudioRegression.Run();
+            VideoExportEncoderRegression.Run();
+            VideoExportFfmpegEncoderRegression.Run();
+            VideoExportOrchestrationRegression.Run();
+            VideoExportStreamingEncoderRegression.Run();
+            VideoExportTrackParityRegression.Run();
+            HeadlessCameraFramingRegression.Run();
+            CustomBackgroundRenderingRegression.Run();
             TrackTransformScalingRegression.Run();
             VfxTimelineCoreRegression.Run();
             VfxTimelineExpansionRegression.Run();

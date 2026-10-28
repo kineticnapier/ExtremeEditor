@@ -13,4 +13,4 @@ This branch is the single working branch for accumulating verified fixes to open
 
 ## Implemented issues
 
-None yet. This file initializes the shared branch and pull request.
+- #111 — Standard WPF test entry now invokes 10 existing video export/background suites; corrected the streaming encoder contract to allow the required atomic MP4 temporary path. **Implemented, verification pending** (Windows .NET 8 and CI not run in this environment).
