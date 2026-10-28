@@ -348,20 +348,38 @@ public partial class MainWindow
         if (property.Options is not { Length: > 0 })
             return CreateTextEditor(property, value);
 
+        var resolved = ResolveEnumSelection(property.Options, current);
         var combo = new ComboBox
         {
-            ItemsSource = property.Options,
-            SelectedItem = current,
+            ItemsSource = resolved.Options,
+            SelectedItem = resolved.Selected,
             MinHeight = 24
         };
-        if (combo.SelectedIndex < 0 && property.Options.Length > 0)
-            combo.SelectedIndex = 0;
         combo.SelectionChanged += (_, _) =>
         {
-            if (combo.SelectedItem is string selected)
+            if (combo.SelectedItem is string selected &&
+                !(resolved.Unknown && string.Equals(selected, resolved.Selected, StringComparison.Ordinal)))
+            {
                 SetEventDraftValue(property.Name, JsonValue.Create(selected));
+            }
         };
         return combo;
+    }
+
+    // Preserve unknown values without silently displaying the first valid choice.
+    // A case-insensitive match is display-only: opening the editor never rewrites JSON.
+    internal static (string[] Options, string Selected, bool Unknown) ResolveEnumSelection(
+        string[] options, string current)
+    {
+        string? known = Array.Find(options,
+            option => string.Equals(option, current, StringComparison.OrdinalIgnoreCase));
+        if (known is not null)
+            return (options, known, false);
+
+        string placeholder = $"Unsupported: {current}";
+        while (Array.Exists(options, option => string.Equals(option, placeholder, StringComparison.Ordinal)))
+            placeholder = "!" + placeholder;
+        return ([..options, placeholder], placeholder, true);
     }
 
     private FrameworkElement CreateTextEditor(EventPropertyDefinition property, JsonNode? value)
