@@ -66,6 +66,7 @@ public partial class MainWindow
         AddBinding(EditorCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Paste, ExecutePaste, CanExecutePaste);
+        AddBinding(EditorCommands.PasteAtEnd, ExecutePasteAtEnd, CanExecutePasteAtEnd);
         AddBinding(ApplicationCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
         AddBinding(ApplicationCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
         AddBinding(ApplicationCommands.Paste, ExecutePaste, CanExecutePaste);
@@ -318,6 +319,17 @@ public partial class MainWindow
         if (editor is null || _selection.PrimaryFloor < 0)
             return;
         EditorPasteResult? pasted = editor.PasteFloors(_selection.PrimaryFloor);
+        if (pasted is EditorPasteResult result)
+            RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
+        e.Handled = true;
+    }
+
+    private void ExecutePasteAtEnd(object sender, ExecutedRoutedEventArgs e)
+    {
+        EditorSession? editor = EnsureEditorSession();
+        if (editor is null)
+            return;
+        EditorPasteResult? pasted = editor.PasteFloors(editor.Document.FloorCount, allowEnd: true);
         if (pasted is EditorPasteResult result)
             RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
         e.Handled = true;
@@ -713,6 +725,12 @@ public partial class MainWindow
     private void CanExecutePaste(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true && _selection.PrimaryFloor >= 0;
+        e.Handled = true;
+    }
+
+    private void CanExecutePasteAtEnd(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true;
         e.Handled = true;
     }
 
