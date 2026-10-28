@@ -11,7 +11,10 @@ internal static class GoToFloorRegression
 
         const int floorCount = 400_000;
         AssertResolved("1", floorCount, 0);
+        AssertResolved("2", floorCount, 1);
+        AssertResolved("11", floorCount, 10);
         AssertResolved("339933", floorCount, 339_932);
+        AssertResolved("400000", floorCount, 399_999);
         AssertResolved("0", floorCount, 0);
         AssertResolved("-42", floorCount, 0);
         AssertResolved("400001", floorCount, floorCount - 1);
