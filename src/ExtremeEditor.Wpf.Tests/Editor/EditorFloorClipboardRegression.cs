@@ -14,6 +14,7 @@ internal static class EditorFloorClipboardRegression
     {
         VerifySingleFloorBoundary();
         VerifyRangePasteAndDeepCopy();
+        VerifyProtectedFloorZeroSelection();
         VerifyShortcutRoutingContract();
     }
 
@@ -97,6 +98,42 @@ internal static class EditorFloorClipboardRegression
         }
         if (level.Decorations.Count(decoration => decoration.Floor is null) != 1)
             throw new InvalidOperationException("Global decoration was copied as though it belonged to a floor.");
+    }
+
+    private static void VerifyProtectedFloorZeroSelection()
+    {
+        // The HWND keyboard handler uses this policy for multi-selection deletion.
+        MethodInfo? filter = typeof(MainWindow).GetMethod(
+            "EditableMultiSelection",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        if (filter is null)
+            throw new InvalidOperationException("Floor-zero deletion policy is missing.");
+
+        int[] editable = filter.Invoke(null, [new[] { 0, 1, 3 }]) as int[]
+            ?? throw new InvalidOperationException("Deletion policy returned no floor list.");
+        if (!editable.SequenceEqual([1, 3]))
+            throw new InvalidOperationException("Floor zero blocked deletion of editable selected floors.");
+
+        int[] protectedOnly = filter.Invoke(null, [new[] { 0 }]) as int[]
+            ?? throw new InvalidOperationException("Deletion policy returned no floor list.");
+        if (protectedOnly.Length != 0)
+            throw new InvalidOperationException("Floor zero must never be deletable.");
+
+        LevelDocument level = LevelDocument.CreateSynthetic(5);
+        level.Angles = [0, 30, 60, 90];
+        level.RebuildGeometry();
+        var editor = new EditorSession(level);
+
+        if (!editor.CopyFloors([0, 1]) || editor.ClipboardFloorCount != 1)
+            throw new InvalidOperationException("Copying floors 0 and 1 must copy exactly one editable floor.");
+
+        editor.DeleteFloors(editable);
+        if (level.FloorCount != 3 || !level.Angles.SequenceEqual([30.0, 90.0]))
+            throw new InvalidOperationException("Multi-delete did not preserve floor zero and remove floors 1 and 3.");
+
+        editor.Undo();
+        if (level.FloorCount != 5 || !level.Angles.SequenceEqual([0.0, 30.0, 60.0, 90.0]))
+            throw new InvalidOperationException("Undo did not restore floor-zero multi-selection deletion.");
     }
 
     private static void VerifyShortcutRoutingContract()
