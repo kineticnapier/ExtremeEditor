@@ -253,7 +253,7 @@
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding Visibility, ElementName=ToolbarHost}">
             <StackPanel Orientation="Horizontal" Margin="7,3,7,0">
-                <Button Content="Welcome" Click="WelcomeTabClick"
+                <Button x:Name="WelcomeTabButton" Content="Welcome" Click="WelcomeTabClick"
                         Margin="0,0,8,3" Padding="11,0" ToolTip="Open welcome page"/>
                 <StackPanel x:Name="DocumentTabsHost"
                             Orientation="Horizontal" />
@@ -742,14 +742,22 @@
                             Margin="24,80,24,60">
                     <TextBlock Text="ExtremeEditor" FontSize="38" FontWeight="SemiBold"
                                Foreground="#F0F2F5"/>
-                    <TextBlock Text="Welcome" FontSize="16" Foreground="#9CA6B4"
+                    <TextBlock x:Name="WelcomeSubtitle" Text="Welcome" FontSize="16" Foreground="#9CA6B4"
                                Margin="0,2,0,30"/>
-                    <Button Content="New chart  (Ctrl+N)" Click="NewDocumentTabClick"
+                    <Button x:Name="WelcomeNewButton" Content="New chart  (Ctrl+N)" Click="NewDocumentTabClick"
                             Height="52" Margin="0,0,0,12"/>
-                    <Button Content="Open chart  (Ctrl+O)" Click="WelcomeOpenClick"
+                    <Button x:Name="WelcomeOpenButton" Content="Open chart  (Ctrl+O)" Click="WelcomeOpenClick"
                             Height="52" Margin="0,0,0,28"/>
-                    <TextBlock Text="Recent charts" FontSize="18" FontWeight="SemiBold"
+                    <TextBlock x:Name="WelcomeRecentTitle" Text="Recent charts" FontSize="18" FontWeight="SemiBold"
                                Foreground="#F0F2F5" Margin="0,0,0,12"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                        <TextBlock x:Name="WelcomeLanguageLabel" Text="Language" Foreground="#9CA6B4" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <ComboBox x:Name="WelcomeLanguageSelector" Width="175" SelectionChanged="WelcomeLanguageChanged">
+                            <ComboBoxItem Content="System" Tag="system"/>
+                            <ComboBoxItem Content="English" Tag="en"/>
+                            <ComboBoxItem Content="日本語" Tag="ja"/>
+                        </ComboBox>
+                    </StackPanel>
                     <StackPanel x:Name="WelcomeRecentFilesHost"/>
                     <TextBlock x:Name="WelcomeRecentEmpty" Text="No recent charts yet."
                                Foreground="#9CA6B4"/>

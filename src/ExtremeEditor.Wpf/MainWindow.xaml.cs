@@ -80,6 +80,8 @@ public partial class MainWindow : Window
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
+        InitializeWelcomeLocalization();
+
         // No implicit unsaved chart on startup.
         ShowWelcomePage();
         StatusText.Text = $"ExtremeEditor {EditorVersion.Current} | Welcome";
