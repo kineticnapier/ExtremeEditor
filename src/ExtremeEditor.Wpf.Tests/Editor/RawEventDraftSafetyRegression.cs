@@ -18,6 +18,37 @@ internal static class RawEventDraftSafetyRegression
 
         LevelDocument document = LevelDocument.CreateSynthetic(2);
         var tab = new EditorDocumentTab(document, new EditorSession(document));
+        // Video export must use the tab-level dirty flag, which also covers
+        // Raw JSON edits that have not yet been applied to EditorSession.
+        document.SourcePath = Path.Combine(
+            Path.GetTempPath(), "extremeeditor-video-export-draft-test.adofai");
+        Require(!MainWindow.RequiresSaveBeforeVideoExport(tab),
+            "clean saved chart unexpectedly requires pre-export Save.");
+
+        tab.PendingRawEventJson[7] =
+            "{\"floor\":1,\"eventType\":\"Flash\",\"startOpacity\":42}";
+        Require(!tab.Editor.IsDirty,
+            "test setup: Raw JSON draft should not dirty EditorSession before Apply.");
+        Require(MainWindow.RequiresSaveBeforeVideoExport(tab),
+            "video export skips an unapplied Raw JSON draft.");
+        tab.PendingRawEventJson.Clear();
+
+        document.SourcePath = "<synthetic>";
+        Require(MainWindow.RequiresSaveBeforeVideoExport(tab),
+            "video export skips Save As for an untitled chart.");
+        document.SourcePath = " ";
+        Require(MainWindow.RequiresSaveBeforeVideoExport(tab),
+            "video export skips Save As for an empty chart path.");
+
+        LevelDocument editedDocument = LevelDocument.CreateSynthetic(4);
+        editedDocument.SourcePath = Path.Combine(
+            Path.GetTempPath(), "extremeeditor-video-export-dirty-test.adofai");
+        var editedSession = new EditorSession(editedDocument);
+        editedSession.AddAction(1, "SetSpeed");
+        var editedTab = new EditorDocumentTab(editedDocument, editedSession);
+        Require(MainWindow.RequiresSaveBeforeVideoExport(editedTab),
+            "video export skips a normal unsaved editor change.");
+
         object value = drafts.GetValue(tab)
             ?? throw new InvalidOperationException("RED: raw event draft storage is null.");
         MethodInfo add = value.GetType().GetMethod("Add", [typeof(int), typeof(string)])
@@ -35,6 +66,14 @@ internal static class RawEventDraftSafetyRegression
             "normal Save must validate and apply pending raw JSON before writing.");
         Require(editor.Contains("PendingRawEventJson", StringComparison.Ordinal),
             "event selection must restore a SourceIndex-specific raw JSON draft.");
+        string export = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.VideoExport.cs");
+        Require(export.Contains("if (RequiresSaveBeforeVideoExport(exportTab))", StringComparison.Ordinal),
+            "video export must check the tab-level dirty state before reading the file.");
+        Require(export.Contains("!ReferenceEquals(_documentTabs.ActiveTab, exportTab)", StringComparison.Ordinal),
+            "video export must abort if Save switched the active tab.");
+        Require(export.Contains("exportTab.IsDirty", StringComparison.Ordinal),
+            "video export must abort when Save leaves newer edits pending.");
+
 
         // A deleted event cannot contribute a draft to Save, even if malformed.
         LevelDocument deletionDocument = LevelDocument.CreateSynthetic(4);
