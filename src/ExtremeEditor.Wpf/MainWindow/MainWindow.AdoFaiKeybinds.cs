@@ -230,7 +230,7 @@ public partial class MainWindow
                 case Key.C:
                     bool copied = editor.CopyFloors(_selection.SelectedFloors);
                     StatusText.Text = copied
-                        ? $"Copied {_selection.SelectedFloors.Count:N0} floor(s)"
+                        ? $"Copied {editor.ClipboardFloorCount:N0} floor(s)"
                         : "Copy requires one continuous floor range";
                     CommandManager.InvalidateRequerySuggested();
                     e.Handled = true;
@@ -409,6 +409,11 @@ public partial class MainWindow
         return true;
     }
 
+    // Floor zero is a fixed anchor. A multi-selection may include it, but
+    // deletions must still process the remaining editable floors.
+    internal static int[] EditableMultiSelection(IEnumerable<int> selectedFloors) =>
+        selectedFloors.Where(floor => floor > 0).Distinct().OrderBy(floor => floor).ToArray();
+
     private bool TryHandleAdoFaiDelete(
         EditorSession editor,
         Key key,
@@ -465,15 +470,17 @@ public partial class MainWindow
             return true;
         }
 
-        // Multi-selection deletes the selected floors for both keys; only the
-        // resulting selection differs, exactly like DeleteMultiSelection(bool).
-        if (first == 0)
+        // Floor zero cannot be deleted, but it must not block deletion of
+        // other selected floors. Backspace/Delete retain their target rules.
+        int[] editable = EditableMultiSelection(selected);
+        if (editable.Length == 0)
             return true;
-        editor.DeleteFloors(selected);
+        int firstEditable = editable[0];
+        editor.DeleteFloors(editable);
         int afterDeleteCount = _level!.FloorCount;
         int target = key == Key.Back
-            ? first - 1
-            : first < afterDeleteCount ? first : Math.Max(0, first - 1);
+            ? firstEditable - 1
+            : firstEditable < afterDeleteCount ? firstEditable : Math.Max(0, firstEditable - 1);
         RefreshAfterAdoFaiMutation(target);
         return true;
     }
