@@ -56,7 +56,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitSongSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
