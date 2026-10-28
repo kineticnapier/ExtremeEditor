@@ -23,6 +23,8 @@ This branch is the single working branch for accumulating verified fixes to open
 
 - #56 — Full local managed regression runner now includes WPF tests alongside Core/Audio, while Quick stays Core/Audio only. CI now executes `./test-all.ps1` so omission of WPF or nonzero test exits fail the Windows job. **Implemented; Windows CI passed** for code HEAD `6726463` (run 40708224345). Manual PowerShell `-NoBuild` / `-Native` variations and a deliberately failing WPF test have not been exercised.
 
-- #92 — Removed unconditional Alt+Space/SC_KEYMENU interception from the native WPF keyboard bridge; added a default and UI-focused source-wiring regression. **Implemented; Windows CI and manual system-menu keyboard interaction pending**. Commits `3c8f3fe`, `8a9f442`, `efc9985`.
+- #92 — Removed unconditional Alt+Space/SC_KEYMENU interception from the native WPF keyboard bridge; added a default and UI-focused source-wiring regression. **Implemented; Windows CI passed (run 40717516564); manual system-menu keyboard interaction pending**. Commits `3c8f3fe`, `8a9f442`, `efc9985`.
 
-- #101 — SetSpeed and other enum editors now match known values case-insensitively and show unknown values without rewriting the JSON; added and registered unit regression cases. **Implemented; Windows CI and GUI/round-trip validation pending**. Commits `f5a27ad`, `559d329`, `778ca92`.
+- #101 — SetSpeed and other enum editors now match known values case-insensitively and show unknown values without rewriting the JSON; added and registered unit regression cases. **Implemented; Windows CI passed (run 40717516564); GUI/round-trip validation pending**. Commits `f5a27ad`, `559d329`, `778ca92`.
+
+- #76 — Aligned Ctrl+F native visible floor labels and WPF selection summaries to the existing one-based Ctrl+G floor numbering. Extended WPF GoToFloor boundary tests and native source parity contract. **Implemented; CI and real GUI verification pending**. Commits `f63c231`, `33dacd2`, `90659b0`, `071f7de`.
