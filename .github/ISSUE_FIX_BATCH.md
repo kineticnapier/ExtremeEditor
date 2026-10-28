@@ -18,3 +18,5 @@ This branch is the single working branch for accumulating verified fixes to open
 - #113 — Reload the native level image table when an active CustomBackground bgImage changes, then re-upload the playback timeline. Added resolver and source-wiring regressions. **Implemented; Windows CI passed (run 40689134587); visual GUI verification pending**.
 
 - #110 — Replaced the first-two-channel-only extraction with a layout-unknown fold-down that retains channels 3+ in stereo, plus 3ch/6ch/mono/stereo regression tests in the default Audio suite. **Implemented; Windows CI pending** (run 40697798623). Speaker-layout-aware 5.1 positioning, real audio checks, and listening tests remain unverified; this is an interim fallback, not a fully validated surround downmix.
+
+- #109 — Headless video renderer now uploads background image assets and CustomBackground timeline just like the interactive viewport. Added a source-wiring regression to the existing default WPF CustomBackground suite. **Implemented; Windows CI and video pixel comparison pending**. No claim of real MP4 rendering parity yet.
