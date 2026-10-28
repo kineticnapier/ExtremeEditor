@@ -293,7 +293,7 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         bool copied = editor?.CopyFloors(_selection.SelectedFloors) == true;
         StatusText.Text = copied
-            ? $"Copied {_selection.SelectedFloors.Count:N0} floor(s)"
+            ? $"Copied {editor!.ClipboardFloorCount:N0} floor(s)"
             : "Copy requires one continuous floor range";
         CommandManager.InvalidateRequerySuggested();
         e.Handled = true;
