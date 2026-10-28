@@ -14,6 +14,12 @@ public partial class MainWindow
     // and the QWE/ASD/etc. keys create floors directly.
     private bool _showAllFloorNumbers;
 
+    // History commands are independent of the current floor selection.
+    internal static bool IsAdoFaiHistoryShortcut(
+        Key key, bool control, bool shift, bool alt, bool windows) =>
+        control && !alt && !windows &&
+        ((!shift && key is Key.Z or Key.Y) || (shift && key == Key.Z));
+
     private void AdoFaiPreviewKeyDown(object sender, KeyEventArgs e)
     {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
@@ -185,6 +191,21 @@ public partial class MainWindow
             return;
         }
 
+        // Undo/Redo must still work after Esc clears the floor selection.
+        // The focus guard above keeps these commands away from text editors.
+        if (IsAdoFaiHistoryShortcut(key, control, shift, alt, windows))
+        {
+            EditorSession? historyEditor = EnsureEditorSession();
+            bool undo = key == Key.Z && !shift;
+            if (historyEditor is not null &&
+                (undo ? historyEditor.CanUndo : historyEditor.CanRedo))
+            {
+                ExecuteRouted(undo ? EditorCommands.Undo : EditorCommands.Redo);
+            }
+            e.Handled = true;
+            return;
+        }
+
         int primary = _selection.PrimaryFloor;
         if (primary < 0)
             return;
@@ -200,7 +221,7 @@ public partial class MainWindow
         if (editor is null)
             return;
 
-        // Clipboard and history. Event-only clipboard combinations (Ctrl+Shift+*) are
+        // Clipboard. Event-only clipboard combinations (Ctrl+Shift+*) are
         // intentionally left for the event editor instead of accidentally copying floors.
         if (!alt && !windows && control && !shift)
         {
@@ -236,26 +257,7 @@ public partial class MainWindow
                     e.Handled = true;
                     return;
 
-                case Key.Z:
-                    if (editor.CanUndo)
-                        ExecuteRouted(EditorCommands.Undo);
-                    e.Handled = true;
-                    return;
-
-                case Key.Y:
-                    if (editor.CanRedo)
-                        ExecuteRouted(EditorCommands.Redo);
-                    e.Handled = true;
-                    return;
             }
-        }
-
-        if (!alt && !windows && control && shift && key == Key.Z)
-        {
-            if (editor.CanRedo)
-                ExecuteRouted(EditorCommands.Redo);
-            e.Handled = true;
-            return;
         }
 
         // ADOFAI deletion semantics are deliberately asymmetric.
