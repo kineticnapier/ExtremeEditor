@@ -20,12 +20,16 @@ public partial class MainWindow
             _hitSoundTimeline is null)
             return;
 
-        if (_editor?.IsDirty == true ||
-            string.IsNullOrWhiteSpace(_level.SourcePath) ||
-            string.Equals(_level.SourcePath, "<synthetic>", StringComparison.Ordinal))
+        EditorDocumentTab? exportTab = _documentTabs.ActiveTab;
+        if (exportTab is null)
+            return;
+
+        if (RequiresSaveBeforeVideoExport(exportTab))
         {
             bool saved = await SaveCurrentAsync(saveAs: false);
             if (!saved ||
+                !ReferenceEquals(_documentTabs.ActiveTab, exportTab) ||
+                exportTab.IsDirty ||
                 _level is null ||
                 _timingMap is null ||
                 _hitSoundTimeline is null)
@@ -135,6 +139,11 @@ public partial class MainWindow
             _videoExportCancellation = null;
         }
     }
+
+    internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
+        tab.IsDirty ||
+        string.IsNullOrWhiteSpace(tab.Document.SourcePath) ||
+        string.Equals(tab.Document.SourcePath, "<synthetic>", StringComparison.Ordinal);
 
     private static VideoExportSource CreateVideoExportSnapshot(string chartPath)
     {

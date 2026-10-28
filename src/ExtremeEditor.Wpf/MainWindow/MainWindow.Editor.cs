@@ -576,16 +576,13 @@ public partial class MainWindow
         {
             foreach ((int sourceIndex, string text) in saveTab.PendingRawEventJson)
             {
-                JsonObject obj = JsonNode.Parse(text) as JsonObject
-                    ?? throw new JsonException($"Event {sourceIndex} expects a JSON object.");
-                LevelAction? before = saveTab.Document.ActionStore.Actions
-                    .FirstOrDefault(action => action.SourceIndex == sourceIndex);
-                if (before is null)
+                if (!TryResolveLiveRawEventDraft(
+                        saveTab, sourceIndex, text, out LevelAction? before, out JsonObject? obj))
                     continue;
-                LevelAction after = ParseEditedAction(obj, before);
-                after.PropertyOverrides = (JsonObject)obj.DeepClone();
+                LevelAction after = ParseEditedAction(obj!, before!);
+                after.PropertyOverrides = (JsonObject)obj!.DeepClone();
                 after.PropertyOverridesStructureRevision = saveTab.Editor.StructureEdits.Count;
-                updates.Add((before, after));
+                updates.Add((before!, after));
             }
         }
         catch (Exception ex)
@@ -607,6 +604,26 @@ public partial class MainWindow
         {
             AcceptDisplayedRawEventDraft(saveTab, displayed);
         }
+        return true;
+    }
+
+    internal static bool TryResolveLiveRawEventDraft(
+        EditorDocumentTab tab,
+        int sourceIndex,
+        string text,
+        out LevelAction? before,
+        out JsonObject? draft)
+    {
+        before = tab.Document.ActionStore.Actions
+            .FirstOrDefault(action => action.SourceIndex == sourceIndex);
+        if (before is null)
+        {
+            draft = null;
+            return false;
+        }
+
+        draft = JsonNode.Parse(text) as JsonObject
+            ?? throw new JsonException($"Event {sourceIndex} expects a JSON object.");
         return true;
     }
 

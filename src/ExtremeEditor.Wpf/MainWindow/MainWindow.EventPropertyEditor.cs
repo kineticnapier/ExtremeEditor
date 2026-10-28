@@ -458,9 +458,14 @@ public partial class MainWindow
 
     private void SetEventDraftValue(string propertyName, JsonNode? value)
     {
-        if (_eventPropertyDraft is null)
+        if (!TryUpdateRawEventDraftProperty(
+                EventEditorText.Text, propertyName, value, out JsonObject? latest))
+        {
+            _eventPropertyDraft = null;
+            StatusText.Text = "Raw JSON draft is invalid; correct it before editing property fields.";
             return;
-        _eventPropertyDraft[propertyName] = value;
+        }
+        _eventPropertyDraft = latest!;
         SyncEventDraftToRawJson();
     }
 
@@ -484,9 +489,42 @@ public partial class MainWindow
         else
             tab.PendingRawEventJson[sourceIndex] = EventEditorText.Text;
 
+        _eventPropertyDraft = TryParseRawEventDraftForPropertyEdit(
+            EventEditorText.Text, out JsonObject? latest)
+            ? latest
+            : null;
+
         RefreshActiveDocumentTab();
         UpdateEditorStatus();
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    internal static bool TryParseRawEventDraftForPropertyEdit(
+        string text,
+        out JsonObject? draft)
+    {
+        try
+        {
+            draft = JsonNode.Parse(text) as JsonObject;
+            return draft is not null;
+        }
+        catch (JsonException)
+        {
+            draft = null;
+            return false;
+        }
+    }
+
+    internal static bool TryUpdateRawEventDraftProperty(
+        string text,
+        string propertyName,
+        JsonNode? value,
+        out JsonObject? draft)
+    {
+        if (!TryParseRawEventDraftForPropertyEdit(text, out draft))
+            return false;
+        draft![propertyName] = value;
+        return true;
     }
 
     private void SetEventEditorText(string text)
