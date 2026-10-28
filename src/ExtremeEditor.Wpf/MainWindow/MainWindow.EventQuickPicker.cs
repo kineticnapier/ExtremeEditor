@@ -279,7 +279,11 @@ public partial class MainWindow
             return;
         }
 
-        if (Keyboard.FocusedElement is not TextBox and not PasswordBox && !e.IsRepeat)
+        // Palette keyboard shortcuts are editor-only. Buttons, event lists and settings
+        // controls must never mutate the chart while they own WPF focus.
+        // A null WPF focus represents the native child HWND.
+        if (EditorClipboardShortcutRouting.ShouldRouteEditorKeys(
+                Keyboard.FocusedElement, NativeViewport) && !e.IsRepeat)
         {
             if (!shift && !alt && !windows && TryGetTopRowDigit(key, out int digit))
             {
