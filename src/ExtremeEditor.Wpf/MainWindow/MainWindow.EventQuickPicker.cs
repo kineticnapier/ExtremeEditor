@@ -262,6 +262,15 @@ public partial class MainWindow
 
     private void ExtremeEditorPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        HandleExtremeEditorPreviewKeyDown(sender, e, fromNativeChild: false);
+    }
+
+    // Native HWND messages do not always update WPF's FocusedElement. The native
+    // bridge has already checked the originating window class, so it can opt in
+    // explicitly without allowing shortcuts in unrelated WPF controls.
+    private void HandleExtremeEditorPreviewKeyDown(
+        object sender, KeyEventArgs e, bool fromNativeChild)
+    {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         ModifierKeys modifiers = Keyboard.Modifiers;
         bool control = (modifiers & ModifierKeys.Control) != 0;
@@ -282,8 +291,8 @@ public partial class MainWindow
         // Palette keyboard shortcuts are editor-only. Buttons, event lists and settings
         // controls must never mutate the chart while they own WPF focus.
         // A null WPF focus represents the native child HWND.
-        if (EditorClipboardShortcutRouting.ShouldRouteEditorKeys(
-                Keyboard.FocusedElement, NativeViewport) && !e.IsRepeat)
+        if (ShouldHandlePaletteShortcut(
+                fromNativeChild, e.IsRepeat, Keyboard.FocusedElement, NativeViewport))
         {
             if (!shift && !alt && !windows && TryGetTopRowDigit(key, out int digit))
             {
@@ -316,6 +325,12 @@ public partial class MainWindow
 
         AdoFaiPreviewKeyDown(sender, e);
     }
+
+    internal static bool ShouldHandlePaletteShortcut(
+        bool fromNativeChild, bool isRepeat, IInputElement? focusedElement,
+        DependencyObject nativeViewport) =>
+        !isRepeat && (fromNativeChild ||
+            EditorClipboardShortcutRouting.ShouldRouteEditorKeys(focusedElement, nativeViewport));
 
     private bool IsEditorPlaybackTransportActive() =>
         _silentPlaybackActive || (_audio.IsLoaded && !_audio.IsStopped);
