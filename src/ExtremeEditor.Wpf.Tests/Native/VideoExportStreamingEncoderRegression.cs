@@ -20,12 +20,15 @@ internal static class VideoExportStreamingEncoderRegression
 
         var failures = new List<string>();
 
+        // The MP4 temporary output path is intentional: it is atomically
+        // committed after ffmpeg succeeds. Only raw RGB staging is forbidden.
         if (encoder.Contains(".rgb24", StringComparison.Ordinal) ||
-            encoder.Contains("_videoTempPath", StringComparison.Ordinal) ||
             encoder.Contains("_videoStream", StringComparison.Ordinal))
         {
             failures.Add("video export must not write raw RGB frames to a temporary file");
         }
+        if (!encoder.Contains("_videoTempPath", StringComparison.Ordinal))
+            failures.Add("ffmpeg must retain the temporary MP4 path for atomic output commit");
 
         if (!encoder.Contains("RedirectStandardInput = true", StringComparison.Ordinal))
             failures.Add("ffmpeg must receive video frames through redirected stdin");
