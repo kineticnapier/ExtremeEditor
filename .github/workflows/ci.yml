@@ -29,14 +29,11 @@ jobs:
       - name: .NET info
         run: dotnet --info
 
-      - name: Core tests
-        run: dotnet run -c Release --project src/ExtremeEditor.Core.Tests
-
-      - name: Audio tests
-        run: dotnet run -c Release --project src/ExtremeEditor.Audio.Tests
-
-      - name: WPF tests
-        run: dotnet run -c Release --project src/ExtremeEditor.Wpf.Tests
+      # Exercise the same Full test entry used by local developers.
+      # It must include Core, Audio, and WPF; a WPF failure must fail CI.
+      - name: Full managed regression tests (Core, Audio, WPF)
+        shell: pwsh
+        run: ./test-all.ps1
 
       - name: Configure native renderer tests
         run: cmake -S src/ExtremeEditor.NativeRenderer -B artifacts/native-ci -A x64
