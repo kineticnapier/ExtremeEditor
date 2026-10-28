@@ -15,4 +15,6 @@ This branch is the single working branch for accumulating verified fixes to open
 
 - #111 — Standard WPF test entry now invokes 10 existing video export/background suites; corrected the streaming encoder contract to allow the required atomic MP4 temporary path. **Implemented; CI verified** (GitHub Actions run 40680819674: WPF/Core/Audio/native tests all passed on Windows). Focused-only environment-variable run not separately executed.
 
-- #113 — Reload the native level image table when an active CustomBackground bgImage changes, then re-upload the playback timeline. Added resolver and source-wiring regressions. **Implemented; CI pending; visual GUI verification pending**.
+- #113 — Reload the native level image table when an active CustomBackground bgImage changes, then re-upload the playback timeline. Added resolver and source-wiring regressions. **Implemented; Windows CI passed (run 40689134587); visual GUI verification pending**.
+
+- #110 — Replaced the first-two-channel-only extraction with a layout-unknown fold-down that retains channels 3+ in stereo, plus 3ch/6ch/mono/stereo regression tests in the default Audio suite. **Implemented; Windows CI pending** (run 40697798623). Speaker-layout-aware 5.1 positioning, real audio checks, and listening tests remain unverified; this is an interim fallback, not a fully validated surround downmix.
