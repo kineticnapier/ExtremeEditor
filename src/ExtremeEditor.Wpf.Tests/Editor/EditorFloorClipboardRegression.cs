@@ -14,6 +14,7 @@ internal static class EditorFloorClipboardRegression
     {
         VerifySingleFloorBoundary();
         VerifyRangePasteAndDeepCopy();
+        VerifyPasteAtEnd();
         VerifyProtectedFloorZeroSelection();
         VerifyShortcutRoutingContract();
     }
@@ -98,6 +99,71 @@ internal static class EditorFloorClipboardRegression
         }
         if (level.Decorations.Count(decoration => decoration.Floor is null) != 1)
             throw new InvalidOperationException("Global decoration was copied as though it belonged to a floor.");
+    }
+
+
+    private static void VerifyPasteAtEnd()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
+        level.Angles = [0, 30, 60];
+        level.RebuildGeometry();
+        level.ReplaceActions(
+        [
+            new LevelAction(2, "Twirl", true, null, null, null, null)
+            {
+                SourceIndex = -2,
+                PropertyOverrides = new JsonObject
+                {
+                    ["floor"] = 2,
+                    ["eventType"] = "Twirl",
+                    ["marker"] = "tail"
+                }
+            }
+        ]);
+        level.ReplaceDecorations(
+        [
+            new LevelDecoration(3, "AddDecoration")
+            {
+                SourceIndex = -3,
+                Properties = new JsonObject { ["floor"] = 3, ["tag"] = "tail" }
+            }
+        ]);
+        var editor = new EditorSession(level);
+        if (!editor.CopyFloors([2, 3]))
+            throw new InvalidOperationException("Unable to copy the trailing floor range.");
+
+        // Ctrl+V keeps its existing before-last-floor semantics.
+        EditorPasteResult existingPaste = editor.PasteFloors(level.FloorCount)
+            ?? throw new InvalidOperationException("Existing paste failed.");
+        if (existingPaste.FirstFloor != 3)
+            throw new InvalidOperationException("Normal paste unexpectedly changed its insertion position.");
+        editor.Undo();
+
+        // The explicit menu command may insert after the final floor.
+        EditorPasteResult appended = editor.PasteFloors(level.FloorCount, allowEnd: true)
+            ?? throw new InvalidOperationException("Paste at end returned no result.");
+        if (appended.FirstFloor != 4 || !appended.Floors.SequenceEqual([4, 5]))
+            throw new InvalidOperationException("Paste at end returned the wrong inserted range.");
+        if (level.FloorCount != 6 || !level.Angles.SequenceEqual([0.0, 30.0, 60.0, 30.0, 60.0]))
+            throw new InvalidOperationException("Paste at end inserted before the last floor.");
+        if (!level.ActionStore.Actions.Any(action =>
+                action.Floor == 4 && action.EventType == "Twirl" &&
+                action.PropertyOverrides?["marker"]?.GetValue<string>() == "tail"))
+            throw new InvalidOperationException("Pasted event was not appended with its attributes.");
+        if (!level.Decorations.Any(decoration =>
+                decoration.Floor == 5 && decoration.Properties["tag"]?.GetValue<string>() == "tail"))
+            throw new InvalidOperationException("Pasted decoration was not appended.");
+
+        editor.Undo();
+        if (level.FloorCount != 4 || !level.Angles.SequenceEqual([0.0, 30.0, 60.0]))
+            throw new InvalidOperationException("Undo did not restore the original final floor.");
+        editor.Redo();
+        if (level.FloorCount != 6 || !level.Angles.SequenceEqual([0.0, 30.0, 60.0, 30.0, 60.0]))
+            throw new InvalidOperationException("Redo did not append the copied range again.");
+
+        if (typeof(MainWindow).GetMethod("ExecutePasteAtEnd",
+                BindingFlags.Instance | BindingFlags.NonPublic) is null)
+            throw new InvalidOperationException("Paste at end menu handler is missing.");
     }
 
     private static void VerifyProtectedFloorZeroSelection()
