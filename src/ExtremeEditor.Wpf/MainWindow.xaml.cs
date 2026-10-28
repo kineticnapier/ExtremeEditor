@@ -269,6 +269,7 @@ public partial class MainWindow : Window
 
             TimeSpan editorReadyTime = totalWatch.Elapsed;
             editorReady = true;
+            RememberRecentFile(path);
             _playbackPreparationPending = true;
             Mouse.OverrideCursor = null;
             CommandManager.InvalidateRequerySuggested();
