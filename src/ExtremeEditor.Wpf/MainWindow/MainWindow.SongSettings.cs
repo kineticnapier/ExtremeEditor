@@ -128,10 +128,8 @@ public partial class MainWindow
         if (_level is null)
             return;
 
-        StopPlayback();
+        bool volumeOnly = IsSongVolumeOnlyChange(before, after);
         _audio.SongVolumePercent = after.SongVolumePercent;
-
-        bool volumeOnly = (before with { SongVolumePercent = after.SongVolumePercent }) == after;
         if (volumeOnly)
         {
             UpdateEditorStatus();
@@ -139,6 +137,7 @@ public partial class MainWindow
             return;
         }
 
+        StopPlayback();
         bool songChanged = !string.Equals(before.SongFilename, after.SongFilename, StringComparison.Ordinal);
         bool nativeDependent = before.InitialBpm != after.InitialBpm || before.PitchPercent != after.PitchPercent;
         if (nativeDependent)
@@ -160,6 +159,11 @@ public partial class MainWindow
         UpdateEditorStatus();
         CommandManager.InvalidateRequerySuggested();
     }
+
+    internal static bool IsSongVolumeOnlyChange(
+        LevelSettingsSnapshot before,
+        LevelSettingsSnapshot after) =>
+        (before with { SongVolumePercent = after.SongVolumePercent }) == after;
 
     private static bool TryReadSetting(string text, out double value) =>
         (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value) ||
