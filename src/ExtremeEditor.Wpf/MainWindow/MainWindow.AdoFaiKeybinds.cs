@@ -195,7 +195,12 @@ public partial class MainWindow
             if (historyEditor is not null &&
                 (undo ? historyEditor.CanUndo : historyEditor.CanRedo))
             {
-                ExecuteRouted(undo ? EditorCommands.Undo : EditorCommands.Redo);
+                // Route both history actions through the shared WPF commands so
+                // song settings, playback state and inspector refresh together.
+                if (undo)
+                    ExecuteRouted(EditorCommands.Undo);
+                else
+                    ExecuteRouted(EditorCommands.Redo);
             }
             e.Handled = true;
             return;
