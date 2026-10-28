@@ -259,6 +259,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOAD_COMPATIBILITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                LoadCompatibilityRegression.Run();
+                Console.WriteLine("PASS: load compatibility regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_RENDERING_ONLY"),
                 "1",
                 StringComparison.Ordinal))

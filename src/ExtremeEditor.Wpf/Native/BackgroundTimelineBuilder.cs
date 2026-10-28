@@ -49,9 +49,8 @@ internal static class BackgroundSourceReader
         if (string.IsNullOrWhiteSpace(level.SourcePath) || !File.Exists(level.SourcePath))
             return ReadRoot(null);
 
-        using var stream = File.OpenRead(level.SourcePath);
-        JsonNode? root = JsonNode.Parse(stream);
-        return ReadRoot(root?["settings"] as JsonObject);
+        JsonObject root = ExtremeEditor.Wpf.LooseAdoFaiJson.ParseObject(level.SourcePath);
+        return ReadRoot(root["settings"] as JsonObject);
     }
 
     internal static BackgroundSourceState ReadRoot(JsonObject? settings) => new(

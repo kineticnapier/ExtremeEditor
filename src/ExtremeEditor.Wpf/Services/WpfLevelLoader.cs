@@ -28,52 +28,44 @@ internal static class WpfLevelLoader
         ScaleRadiusSourceData scaleRadius;
         CameraSourceData cameraSource;
         CameraSourceData cameraEvents;
+        string loadPath = path;
+        string? normalizedPath = null;
+        if (LooseAdoFaiJson.HasUtf16Bom(path))
+        {
+            normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+            loadPath = normalizedPath;
+        }
+
         try
         {
-            loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
-                .ConfigureAwait(false);
-
-            // The flat core loader intentionally keeps only timing/gameplay fields.
-            // Read renderer-specific visual metadata in narrow streaming passes so
-            // pathological charts never need a full actions DOM during load.
-            trackVisuals = TrackVisualSourceReader.Load(path, cancellationToken);
-            trackTransforms = TrackTransformSourceReader.Load(path, cancellationToken);
-            scaleRadius = ScaleRadiusSourceReader.Load(path, cancellationToken);
-            cameraSource = CameraSourceReader.Load(path, cancellationToken);
-            cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(cameraSource);
-        }
-        catch (JsonException)
-        {
-            // Some ADOFAI charts contain literal CR/LF/TAB bytes inside JSON strings.
-            // The game accepts those loose files, while System.Text.Json correctly
-            // rejects them. Keep the fast streaming path for normal charts and only
-            // normalize the exceptional file into a temporary copy.
-            string normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
             try
             {
-                loaded = await AdoFaiLoader.LoadFlatAsync(normalizedPath, cancellationToken)
-                    .ConfigureAwait(false);
-                loaded.Document.SourcePath = path;
-                trackVisuals = TrackVisualSourceReader.Load(normalizedPath, cancellationToken);
-                trackTransforms = TrackTransformSourceReader.Load(normalizedPath, cancellationToken);
-                scaleRadius = ScaleRadiusSourceReader.Load(normalizedPath, cancellationToken);
-                cameraSource = CameraSourceReader.Load(normalizedPath, cancellationToken);
-                cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(cameraSource);
+                (loaded, trackVisuals, trackTransforms, scaleRadius, cameraSource) =
+                    await LoadPassesAsync(loadPath, cancellationToken).ConfigureAwait(false);
             }
-            finally
+            catch (JsonException) when (normalizedPath is null)
             {
-                try
-                {
-                    File.Delete(normalizedPath);
-                }
-                catch (IOException)
-                {
-                }
-                catch (UnauthorizedAccessException)
-                {
-                }
+                // The game accepts literal control bytes inside strings. Normalize
+                // the exceptional file once so every dedicated reader sees the same
+                // UTF-8 representation as the core loader.
+                normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+                loadPath = normalizedPath;
+                (loaded, trackVisuals, trackTransforms, scaleRadius, cameraSource) =
+                    await LoadPassesAsync(loadPath, cancellationToken).ConfigureAwait(false);
+            }
+            cameraEvents = AdoFaiCameraCompatibility.ToWorldUnits(cameraSource);
+        }
+        finally
+        {
+            if (normalizedPath is not null)
+            {
+                try { File.Delete(normalizedPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
+
+        loaded.Document.SourcePath = path;
 
         loaded.Document.CameraSettings = new LevelCameraSettings(
             cameraSource.InitialRelativeTo,
@@ -106,5 +98,21 @@ internal static class WpfLevelLoader
             index,
             loaded.Metrics,
             indexWatch.Elapsed);
+    }
+
+    private static async Task<(LoadResult Loaded, TrackVisualSourceBundle Visuals,
+        TrackTransformSourceData Transforms, ScaleRadiusSourceData ScaleRadius,
+        CameraSourceData Camera)> LoadPassesAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
+            .ConfigureAwait(false);
+        return (
+            loaded,
+            TrackVisualSourceReader.Load(path, cancellationToken),
+            TrackTransformSourceReader.Load(path, cancellationToken),
+            ScaleRadiusSourceReader.Load(path, cancellationToken),
+            CameraSourceReader.Load(path, cancellationToken));
     }
 }

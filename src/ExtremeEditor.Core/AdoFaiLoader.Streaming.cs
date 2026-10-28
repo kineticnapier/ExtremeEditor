@@ -212,6 +212,7 @@ public static partial class AdoFaiLoader
         private ActionBuilder _action;
         private int _skipDepth;
         private bool _sawAngleData;
+        private string? _pathData;
         private int _actionCount;
         private int _decorationSourceIndex;
         private JsonObjectTokenBuilder? _decorationBuilder;
@@ -267,8 +268,9 @@ public static partial class AdoFaiLoader
         {
             if (!_sawAngleData)
             {
-                throw new InvalidDataException(
-                    "This prototype currently requires angleData. Legacy pathData is not implemented.");
+                if (_pathData is null)
+                    throw new InvalidDataException("ADOFAI document requires angleData or legacy pathData.");
+                _angles.AddRange(ConvertLegacyPathData(_pathData));
             }
 
             ComputeStreamingSpeedRatios();
@@ -306,6 +308,12 @@ public static partial class AdoFaiLoader
             {
                 _sawAngleData = true;
                 _mode = ParserMode.Angles;
+                return;
+            }
+
+            if (field == RootField.PathData && reader.TokenType == JsonTokenType.String)
+            {
+                _pathData = reader.GetString() ?? string.Empty;
                 return;
             }
 
@@ -676,6 +684,7 @@ public static partial class AdoFaiLoader
         private static RootField MatchRootField(ref Utf8JsonReader reader)
         {
             if (reader.ValueTextEquals("angleData"u8)) return RootField.AngleData;
+            if (reader.ValueTextEquals("pathData"u8)) return RootField.PathData;
             if (reader.ValueTextEquals("settings"u8)) return RootField.Settings;
             if (reader.ValueTextEquals("actions"u8)) return RootField.Actions;
             if (reader.ValueTextEquals("decorations"u8)) return RootField.Decorations;
@@ -784,6 +793,7 @@ public static partial class AdoFaiLoader
             None,
             Unknown,
             AngleData,
+            PathData,
             Settings,
             Actions,
             Decorations
