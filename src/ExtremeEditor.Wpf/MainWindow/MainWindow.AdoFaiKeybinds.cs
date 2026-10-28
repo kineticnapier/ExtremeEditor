@@ -85,6 +85,23 @@ public partial class MainWindow
             return;
         }
 
+        // Transport is a window-level action, unlike floor mutation shortcuts.
+        // Keep text editing and the ADOFAI backquote modifier exclusive.
+        // The native HWND bridge dispatches to this same handler.
+        if (!alt && !windows && !shift &&
+            (key == Key.P || key == Key.Space) &&
+            !Keyboard.IsKeyDown(Key.Oem3) &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+            {
+                FlushEditorPlaybackRefresh();
+                TogglePlayback();
+            }
+            e.Handled = true;
+            return;
+        }
+
         if (!EditorClipboardShortcutRouting.ShouldRouteEditorKeys(
                 Keyboard.FocusedElement, NativeViewport))
             return;
@@ -154,18 +171,6 @@ public partial class MainWindow
                 e.Handled = true;
                 return;
             }
-        }
-
-        // P / Space = play. Ctrl+P / Ctrl+Space is ADOFAI's "play with speed".
-        // ExtremeEditor does not have a separate editor-speed selector yet, so both
-        // currently use the same transport while keeping the game's exact key slots.
-        if (!alt && !windows && !shift &&
-            (key == Key.P || key == Key.Space))
-        {
-            FlushEditorPlaybackRefresh();
-            TogglePlayback();
-            e.Handled = true;
-            return;
         }
 
         if (_level is null)
