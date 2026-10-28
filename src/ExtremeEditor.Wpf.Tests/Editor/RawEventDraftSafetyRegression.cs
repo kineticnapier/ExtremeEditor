@@ -1,5 +1,7 @@
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -33,6 +35,46 @@ internal static class RawEventDraftSafetyRegression
             "normal Save must validate and apply pending raw JSON before writing.");
         Require(editor.Contains("PendingRawEventJson", StringComparison.Ordinal),
             "event selection must restore a SourceIndex-specific raw JSON draft.");
+
+        // A deleted event cannot contribute a draft to Save, even if malformed.
+        LevelDocument deletionDocument = LevelDocument.CreateSynthetic(4);
+        var deletionEditor = new EditorSession(deletionDocument);
+        deletionEditor.AddAction(1, "SetSpeed");
+        LevelAction action = deletionEditor.GetActionsAtFloor(1).Single();
+        var deletionTab = new EditorDocumentTab(deletionDocument, deletionEditor);
+        int sourceIndex = action.SourceIndex;
+        deletionTab.PendingRawEventJson[sourceIndex] = "{invalid-json";
+        deletionEditor.DeleteAction(action);
+
+        bool orphanIsLive = MainWindow.TryResolveLiveRawEventDraft(
+            deletionTab, sourceIndex, deletionTab.PendingRawEventJson[sourceIndex],
+            out _, out _);
+        Require(!orphanIsLive, "deleted event's invalid draft still blocks Save.");
+
+        // Undo-before-save restores the event, so invalid JSON must still fail.
+        deletionEditor.Undo();
+        bool invalidLiveDraftRejected = false;
+        try
+        {
+            MainWindow.TryResolveLiveRawEventDraft(
+                deletionTab, sourceIndex, deletionTab.PendingRawEventJson[sourceIndex],
+                out _, out _);
+        }
+        catch (JsonException)
+        {
+            invalidLiveDraftRejected = true;
+        }
+        Require(invalidLiveDraftRejected, "restored event's invalid draft must block Save.");
+
+        // The restored action must still accept a valid draft.
+        bool resolved = MainWindow.TryResolveLiveRawEventDraft(
+            deletionTab, sourceIndex,
+            "{\"floor\":1,\"eventType\":\"SetSpeed\"}",
+            out LevelAction? original, out JsonObject? json);
+        Require(resolved && original?.SourceIndex == sourceIndex &&
+                json?["eventType"]?.GetValue<string>() == "SetSpeed",
+            "restored event's valid draft must resolve.");
+
     }
 
     private static string ReadSource(string relativePath)
