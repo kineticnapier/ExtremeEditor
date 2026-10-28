@@ -30,7 +30,7 @@ public partial class MainWindow
 
     private void WelcomeOpenClick(object sender, RoutedEventArgs e)
     {
-        System.Windows.Input.ApplicationCommands.Open.Execute(null, this);
+        EditorCommands.Open.Execute(null, this);
     }
 
     private IReadOnlyList<string> LoadRecentFiles()
