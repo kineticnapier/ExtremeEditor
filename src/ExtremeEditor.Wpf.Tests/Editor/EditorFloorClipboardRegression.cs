@@ -215,6 +215,26 @@ internal static class EditorFloorClipboardRegression
         AssertRoute(shouldRoute, new TextBox(), expected: false, "TextBox focus");
         AssertRoute(shouldRoute, new PasswordBox(), expected: false, "PasswordBox focus");
 
+        // Event palette shortcuts must use the stricter editor-surface policy.
+        // In particular, the event list and settings controls must not add events
+        // when their keyboard navigation keys happen to be digits.
+        MethodInfo? shouldRouteEditorKeys = routing?.GetMethod(
+            "ShouldRouteEditorKeys",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        if (shouldRouteEditorKeys is null)
+            throw new InvalidOperationException("Editor-surface focus routing is unavailable.");
+
+        var surface = new Grid();
+        var editorChild = new Button();
+        surface.Children.Add(editorChild);
+        AssertEditorRoute(shouldRouteEditorKeys, null, surface, true, "native child HWND");
+        AssertEditorRoute(shouldRouteEditorKeys, surface, surface, true, "editor viewport");
+        AssertEditorRoute(shouldRouteEditorKeys, editorChild, surface, true, "editor descendant");
+        AssertEditorRoute(shouldRouteEditorKeys, new ListBoxItem(), surface, false, "event list");
+        AssertEditorRoute(shouldRouteEditorKeys, new ComboBox(), surface, false, "settings ComboBox");
+        AssertEditorRoute(shouldRouteEditorKeys, new Button(), surface, false, "settings button");
+        AssertEditorRoute(shouldRouteEditorKeys, new TextBox(), surface, false, "text editor");
+
         MethodInfo? bridge = typeof(MainWindow).GetMethod(
             "NativeThreadPreprocessMessage",
             BindingFlags.Instance | BindingFlags.NonPublic);
@@ -227,6 +247,16 @@ internal static class EditorFloorClipboardRegression
         bool actual = (bool)(method.Invoke(null, [focus]) ?? false);
         if (actual != expected)
             throw new InvalidOperationException($"Clipboard routing mismatch for {label}: expected={expected}, actual={actual}.");
+    }
+
+    private static void AssertEditorRoute(
+        MethodInfo method, IInputElement? focus, DependencyObject editorSurface,
+        bool expected, string label)
+    {
+        bool actual = (bool)(method.Invoke(null, [focus, editorSurface]) ?? false);
+        if (actual != expected)
+            throw new InvalidOperationException(
+                $"Editor palette focus routing mismatch for {label}: expected={expected}, actual={actual}.");
     }
 
     private static void AssertNear(double expected, double actual, string label)
