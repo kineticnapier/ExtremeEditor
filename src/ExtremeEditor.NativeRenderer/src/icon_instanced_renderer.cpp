@@ -455,7 +455,7 @@ bool IconInstancedRenderer::Draw(
         return false;
     }
 
-    if (zoom < 12.0f || assets_.empty() || batches_.empty() || visible_floors.empty())
+    if (assets_.empty() || batches_.empty() || visible_floors.empty())
         return true;
 
     for (Batch& batch : batches_)
@@ -484,7 +484,9 @@ bool IconInstancedRenderer::Draw(
         const AssetEntry& asset = found->second;
         const bool is_floor_icon = (floor.icon_flags & EE_ICON_FLAG_FLOOR) != 0;
         const bool flipped = (floor.icon_flags & EE_ICON_FLAG_FLIPPED) != 0;
-        const float base_requested = zoom * (is_floor_icon ? 0.78f : 0.62f);
+        // Keep event icons visible even when zoomed far out, rather than culling all
+        // icons below a fixed zoom threshold. Limit their minimum screen size.
+        const float base_requested = std::max(8.0f, zoom * (is_floor_icon ? 0.78f : 0.62f));
         const float floor_depth = std::clamp(
             (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) * depth_step,
             0.0f,
