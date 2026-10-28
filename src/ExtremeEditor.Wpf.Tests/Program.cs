@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SETTINGS_FOCUS_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NativeSettingsFocusRegression.Run();
+                Console.WriteLine("PASS: settings Enter returns focus to native editor HWND.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_ADOFAI_HISTORY_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -66,6 +75,7 @@ internal static class Program
                 EditorUiStateIssueRegression.Run();
                 TabPlaybackPreferenceRegression.Run();
                 UiSafetyIssueRegression.Run();
+                NativeSettingsFocusRegression.Run();
             NativeSystemMenuRegression.Run();
             SetSpeedEditorConversionRegression.Run();
                 NativeSystemMenuRegression.Run();
@@ -814,6 +824,7 @@ internal static class Program
                 EventDeleteUiRegression.Run();
                 PlaybackDiagnosticsLayoutRegression.Run();
                 NativeOnlyViewportRegression.Run();
+            NativeSettingsFocusRegression.Run();
                 Console.WriteLine("PASS: UI cleanup regressions are valid.");
                 return 0;
             }
