@@ -165,6 +165,30 @@ internal static class BackgroundNativeEncoding
 
 internal static class BackgroundAssetResolver
 {
+    // The native image table is built when SetLevel is called. Updating only
+    // the playback timeline can otherwise reference a stale background image ID.
+    internal static bool RequiresReload(LevelAction before, LevelAction after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+
+        static string? ActiveImage(LevelAction action)
+        {
+            if (!action.Active ||
+                !string.Equals(action.EventType, "CustomBackground", StringComparison.Ordinal))
+                return null;
+
+            JsonObject? properties = MoveDecorationsTargeting.GetProperties(action);
+            string? image = properties?["bgImage"] is JsonValue value &&
+                            value.TryGetValue(out string? path) ? path : null;
+            return string.IsNullOrWhiteSpace(image) ? null : image;
+        }
+
+        // Build() keys image paths case-insensitively on Windows.
+        return !StringComparer.OrdinalIgnoreCase.Equals(
+            ActiveImage(before), ActiveImage(after));
+    }
+
     internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(LevelDocument level)
     {
         var ids = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);

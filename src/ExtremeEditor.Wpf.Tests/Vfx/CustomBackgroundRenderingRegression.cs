@@ -1,6 +1,9 @@
 using System.IO;
 using System.Reflection;
+using System.Text.Json.Nodes;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -59,6 +62,74 @@ internal static class CustomBackgroundRenderingRegression
             string body = backend.Substring(start, end - start);
             Require(body.Contains("DrawBitmap(", StringComparison.Ordinal),
                 "DrawBackground only clears the color; no image is composited.");
+        });
+
+
+        Check(failures, "CustomBackground image edits reload native assets", () =>
+        {
+            var before = new LevelAction(1, "CustomBackground", true, null, null, null, null)
+            {
+                SourceProperties = new JsonObject { ["bgImage"] = "first.png" }
+            };
+            var changed = before with
+            {
+                PropertyOverrides = new JsonObject { ["bgImage"] = "second.png" }
+            };
+            Require(BackgroundAssetResolver.RequiresReload(before, changed),
+                "changing bgImage must rebuild the native background asset table.");
+
+            var colorOnly = before with
+            {
+                PropertyOverrides = new JsonObject
+                {
+                    ["bgImage"] = "first.png",
+                    ["color"] = "abcdef"
+                }
+            };
+            Require(!BackgroundAssetResolver.RequiresReload(before, colorOnly),
+                "color-only changes must not trigger a full level rebuild.");
+
+            var caseOnly = before with
+            {
+                PropertyOverrides = new JsonObject { ["bgImage"] = "FIRST.PNG" }
+            };
+            Require(!BackgroundAssetResolver.RequiresReload(before, caseOnly),
+                "image lookup must match the case-insensitive asset key.");
+
+            var inactive = before with { Active = false };
+            Require(BackgroundAssetResolver.RequiresReload(before, inactive),
+                "disabling an image-bearing background must refresh native assets.");
+            Require(BackgroundAssetResolver.RequiresReload(inactive, before),
+                "reenabling an image-bearing background must refresh native assets.");
+
+            var removed = before with
+            {
+                PropertyOverrides = new JsonObject { ["bgImage"] = "" }
+            };
+            Require(BackgroundAssetResolver.RequiresReload(before, removed),
+                "removing bgImage must refresh native assets.");
+
+            var unrelated = before with { EventType = "Flash" };
+            Require(BackgroundAssetResolver.RequiresReload(before, unrelated),
+                "changing an image-bearing background into a different event must refresh assets.");
+
+            string editorSource = File.ReadAllText(Path.Combine(root,
+                "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.EventAutoApply.cs"));
+            int start = editorSource.IndexOf(
+                "private void RefreshAfterEventPropertyCommit(", StringComparison.Ordinal);
+            Require(start >= 0, "event refresh method is missing.");
+            int end = editorSource.IndexOf(
+                "private void RecomputeSpeedRatios()", start, StringComparison.Ordinal);
+            Require(end > start, "event refresh method boundary is missing.");
+            string refresh = editorSource[start..end];
+            Require(refresh.Contains(
+                "BackgroundAssetResolver.RequiresReload(before, after)", StringComparison.Ordinal),
+                "event edits must check whether background assets changed.");
+            Require(refresh.Contains(
+                "scaleRadiusChanged || backgroundAssetChanged)", StringComparison.Ordinal) &&
+                refresh.Contains("NativeViewport.SetLevel(_level)", StringComparison.Ordinal) &&
+                refresh.Contains("NativeViewport.SetPlaybackTimeline(_timingMap)", StringComparison.Ordinal),
+                "background image changes must rebuild assets and reupload the timeline.");
         });
 
         if (failures.Count != 0)
