@@ -18,7 +18,7 @@ public partial class MainWindow
     internal static bool IsAdoFaiHistoryShortcut(
         Key key, bool control, bool shift, bool alt, bool windows) =>
         control && !alt && !windows &&
-        ((!shift && key is Key.Z or Key.Y) || (shift && key == Key.Z));
+        ((!shift && (key == Key.Z || key == Key.Y)) || (shift && key == Key.Z));
 
     private void AdoFaiPreviewKeyDown(object sender, KeyEventArgs e)
     {
