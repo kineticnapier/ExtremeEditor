@@ -19,6 +19,7 @@ internal static class SongSettingsSliceRegression
         Check(failures, "typed settings edit/save/undo", VerifySettingsEditSaveAndUndo);
         Check(failures, "BPM SetSpeed reevaluation", VerifyInitialBpmReevaluatesSetSpeed);
         Check(failures, "song volume isolation", VerifySongVolumeContract);
+        Check(failures, "song volume playback preservation", VerifySongVolumePlaybackPreservation);
         Check(failures, "offset/pitch refresh data", VerifyOffsetAndPitchUpdate);
         Check(failures, "song filename relative path", VerifySongFilenameRelativePath);
         Check(failures, "default hitsound refresh", VerifyDefaultHitSoundUpdate);
@@ -176,6 +177,46 @@ internal static class SongSettingsSliceRegression
         {
             player.Dispose();
         }
+    }
+
+    private static void VerifySongVolumePlaybackPreservation()
+    {
+        SettingsContract contract = SettingsContract.Discover();
+        MethodInfo classify = typeof(MainWindow).GetMethod(
+            "IsSongVolumeOnlyChange",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Song-volume-only change classifier is missing.");
+
+        object before = contract.Create("song.ogg", 120.0, 100.0, 0.0, 100.0, "Kick", 100.0);
+        object volumeOnly = contract.Create("song.ogg", 120.0, 35.0, 0.0, 100.0, "Kick", 100.0);
+        object bpmChanged = contract.Create("song.ogg", 140.0, 35.0, 0.0, 100.0, "Kick", 100.0);
+        object songChanged = contract.Create("other.ogg", 120.0, 35.0, 0.0, 100.0, "Kick", 100.0);
+        object pitchChanged = contract.Create("song.ogg", 120.0, 35.0, 0.0, 110.0, "Kick", 100.0);
+        object offsetChanged = contract.Create("song.ogg", 120.0, 35.0, 10.0, 100.0, "Kick", 100.0);
+        object hitSoundChanged = contract.Create("song.ogg", 120.0, 35.0, 0.0, 100.0, "Kick", 70.0);
+
+        if (classify.Invoke(null, [before, volumeOnly]) is not true)
+            throw new InvalidOperationException("#86: changing only song volume must preserve playback.");
+        foreach (object changed in new[] { bpmChanged, songChanged, pitchChanged, offsetChanged, hitSoundChanged })
+        {
+            if (classify.Invoke(null, [before, changed]) is true)
+                throw new InvalidOperationException("#86: non-volume settings must still refresh playback.");
+        }
+
+        // The classifier alone is insufficient: the real call path must return
+        // before StopPlayback, after updating the live song gain.
+        string sourcePath = Path.Combine(
+            Environment.CurrentDirectory, "src", "ExtremeEditor.Wpf",
+            "MainWindow", "MainWindow.SongSettings.cs");
+        string source = File.ReadAllText(sourcePath);
+        int methodStart = source.IndexOf("private void RefreshAfterSongSettingsChange(", StringComparison.Ordinal);
+        if (methodStart < 0)
+            throw new InvalidOperationException("#86: song settings refresh method is missing.");
+        int gain = source.IndexOf("_audio.SongVolumePercent = after.SongVolumePercent;", methodStart, StringComparison.Ordinal);
+        int volumeGuard = source.IndexOf("if (volumeOnly)", methodStart, StringComparison.Ordinal);
+        int stop = source.IndexOf("StopPlayback();", methodStart, StringComparison.Ordinal);
+        if (gain < 0 || volumeGuard <= gain || stop <= volumeGuard)
+            throw new InvalidOperationException("#86: playback stops before the volume-only fast path.");
     }
 
     private static void VerifyOffsetAndPitchUpdate()
