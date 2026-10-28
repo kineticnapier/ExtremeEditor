@@ -21,4 +21,8 @@ This branch is the single working branch for accumulating verified fixes to open
 
 - #109 — Headless video renderer now uploads background image assets and CustomBackground timeline just like the interactive viewport. Added a source-wiring regression to the existing default WPF CustomBackground suite. **Implemented; Windows CI passed** (final code HEAD `2313b336`, run 40698026422); **video pixel comparison pending**. No claim of real MP4 rendering parity yet.
 
-- #56 — Full local managed regression runner now includes WPF tests alongside Core/Audio, while Quick stays Core/Audio only. CI now executes `./test-all.ps1` so omission of WPF or nonzero test exits fail the Windows job. **Implemented; Windows CI pending** for current branch. Manual PowerShell `-NoBuild` / `-Native` variations and a deliberately failing WPF test have not been exercised.
+- #56 — Full local managed regression runner now includes WPF tests alongside Core/Audio, while Quick stays Core/Audio only. CI now executes `./test-all.ps1` so omission of WPF or nonzero test exits fail the Windows job. **Implemented; Windows CI passed** for code HEAD `6726463` (run 40708224345). Manual PowerShell `-NoBuild` / `-Native` variations and a deliberately failing WPF test have not been exercised.
+
+- #92 — Removed unconditional Alt+Space/SC_KEYMENU interception from the native WPF keyboard bridge; added a default and UI-focused source-wiring regression. **Implemented; Windows CI and manual system-menu keyboard interaction pending**. Commits `3c8f3fe`, `8a9f442`, `efc9985`.
+
+- #101 — SetSpeed and other enum editors now match known values case-insensitively and show unknown values without rewriting the JSON; added and registered unit regression cases. **Implemented; Windows CI and GUI/round-trip validation pending**. Commits `f5a27ad`, `559d329`, `778ca92`.
