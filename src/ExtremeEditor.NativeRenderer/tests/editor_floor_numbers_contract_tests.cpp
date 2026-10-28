@@ -37,8 +37,12 @@ int main()
         "selected tile must not be covered by permanent green number panel");
     require(hud.find("for (const std::uint32_t index : visible_candidates_)") != std::string::npos,
         "number overlay must traverse only visible floor indices");
-    require(hud.find("std::to_wstring(index)") != std::string::npos,
-        "all floor numbers, not only selected index, are rendered");
+    require(hud.find("std::to_wstring(static_cast<std::uint64_t>(index) + 1u)") != std::string::npos,
+        "visible floor labels must use the same one-based numbering as Ctrl+G");
+    const std::string editor = Read(wpf / "MainWindow" / "MainWindow.Editor.cs");
+    require(editor.find("Floor {primary + 1:N0}") != std::string::npos &&
+            editor.find("primary {primary + 1:N0}") != std::string::npos,
+        "single and multiple floor selection summaries must use one-based numbers");
     require(hud.find("zoom < 16.0f") != std::string::npos,
         "tiny illegible labels should be suppressed when zoomed far out");
     require(renderer.find(
