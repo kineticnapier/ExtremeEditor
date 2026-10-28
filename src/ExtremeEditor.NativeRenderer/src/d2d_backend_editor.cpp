@@ -127,7 +127,7 @@ void D2DBackend::DrawFloorNumbers(
         d2d_context_->SetTransform(D2D1::Matrix3x2F::Scale(
             D2D1::SizeF(scale, scale), D2D1::Point2F(anchor_x, anchor_y)));
 
-        const std::wstring label = std::to_wstring(index);
+        const std::wstring label = std::to_wstring(static_cast<std::uint64_t>(index) + 1u);
         const D2D1_RECT_F text_rect = D2D1::RectF(
             anchor_x - 30.0f, anchor_y - 14.0f,
             anchor_x + 30.0f, anchor_y + 14.0f);
