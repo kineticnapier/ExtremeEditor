@@ -534,8 +534,8 @@ public partial class MainWindow
         SelectionSummaryText.Text = primary < 0
             ? "No floor selected"
             : count <= 1
-                ? $"Floor {primary:N0}"
-                : $"{count:N0} floors selected | primary {primary:N0}";
+                ? $"Floor {primary + 1:N0}"
+                : $"{count:N0} floors selected | primary {primary + 1:N0}";
 
         int? selectedSource = (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
         IReadOnlyList<LevelAction> actions = editor is null || primary < 0
