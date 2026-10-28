@@ -10,17 +10,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 $watch = [System.Diagnostics.Stopwatch]::StartNew()
-$tests = @()
-$tests += "Core"
-$tests += "Audio"
+$tests = @("Core", "Audio")
+if ($Mode -eq "Full") { $tests += "WPF" }
+Write-Host ("Selected {0} test suites: {1}" -f $Mode, ($tests -join ", "))
 
 $projects = @{
     Core = Join-Path $PSScriptRoot "src\ExtremeEditor.Core.Tests\ExtremeEditor.Core.Tests.csproj"
     Audio = Join-Path $PSScriptRoot "src\ExtremeEditor.Audio.Tests\ExtremeEditor.Audio.Tests.csproj"
+    WPF = Join-Path $PSScriptRoot "src\ExtremeEditor.Wpf.Tests\ExtremeEditor.Wpf.Tests.csproj"
 }
 $assemblies = @{
     Core = Join-Path $PSScriptRoot "src\ExtremeEditor.Core.Tests\bin\Release\net8.0\ExtremeEditor.Core.Tests.dll"
     Audio = Join-Path $PSScriptRoot "src\ExtremeEditor.Audio.Tests\bin\Release\net8.0-windows\ExtremeEditor.Audio.Tests.dll"
+    WPF = Join-Path $PSScriptRoot "src\ExtremeEditor.Wpf.Tests\bin\Release\net8.0-windows\ExtremeEditor.Wpf.Tests.dll"
 }
 
 # Sequential builds avoid competing writes to Core's shared bin/obj. Tests
