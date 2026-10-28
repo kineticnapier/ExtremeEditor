@@ -90,7 +90,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitCameraSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
