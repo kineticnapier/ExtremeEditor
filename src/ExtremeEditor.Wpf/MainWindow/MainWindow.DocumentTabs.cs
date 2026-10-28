@@ -283,8 +283,8 @@ public partial class MainWindow
         {
             MessageBoxResult answer = MessageBox.Show(
                 this,
-                $"Save changes to {tab.DisplayName} before closing?",
-                "Unsaved chart",
+                string.Format(WelcomeText("closequestion"), tab.DisplayName),
+                WelcomeText("unsaved"),
                 MessageBoxButton.YesNoCancel,
                 MessageBoxImage.Warning);
 

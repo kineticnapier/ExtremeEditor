@@ -89,65 +89,73 @@
 
         <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem x:Name="FileMenu" Header="_File">
-                <MenuItem Header="_New Tab" Click="NewDocumentTabClick" InputGestureText="Ctrl+N" />
-                <MenuItem Header="_Open"
+                <MenuItem x:Name="FileNewMenu" Header="_New Tab" Click="NewDocumentTabClick" InputGestureText="Ctrl+N" />
+                <MenuItem x:Name="FileOpenMenu" Header="_Open"
                           Command="{x:Static local:EditorCommands.Open}"
                           InputGestureText="Ctrl+O" />
-                <MenuItem Header="_Save"
+                <MenuItem x:Name="FileSaveMenu" Header="_Save"
                           Command="{x:Static local:EditorCommands.Save}"
                           InputGestureText="Ctrl+S" />
-                <MenuItem Header="Save _As"
+                <MenuItem x:Name="FileSaveAsMenu" Header="Save _As"
                           Command="{x:Static local:EditorCommands.SaveAs}"
                           InputGestureText="Ctrl+Shift+S" />
                 <MenuItem x:Name="ExportVideoMenuItem"
                           Header="Export _Video…"
                           Click="ExportVideoClick" />
                 <Separator />
+                <MenuItem x:Name="FileSettingsMenu" Header="_Settings">
+                    <MenuItem x:Name="FileLanguageMenu" Header="_Language">
+                        <MenuItem x:Name="LanguageSystemMenu" Header="System" Tag="system" Click="LanguageMenuClick" IsCheckable="True"/>
+                        <MenuItem x:Name="LanguageEnglishMenu" Header="English" Tag="en" Click="LanguageMenuClick" IsCheckable="True"/>
+                        <MenuItem x:Name="LanguageJapaneseMenu" Header="日本語" Tag="ja" Click="LanguageMenuClick" IsCheckable="True"/>
+                    </MenuItem>
+                </MenuItem>
+                <Separator />
                 <MenuItem x:Name="ExitMenuItem" Header="E_xit" Click="ExitClick" />
             </MenuItem>
             <MenuItem x:Name="EditMenu" Header="_Edit">
-                <MenuItem Header="_Undo"
+                <MenuItem x:Name="EditUndoMenu" Header="_Undo"
                           Command="{x:Static local:EditorCommands.Undo}"
                           InputGestureText="Ctrl+Z" />
-                <MenuItem Header="_Redo"
+                <MenuItem x:Name="EditRedoMenu" Header="_Redo"
                           Command="{x:Static local:EditorCommands.Redo}"
                           InputGestureText="Ctrl+Y" />
                 <Separator />
-                <MenuItem Header="Cu_t"
+                <MenuItem x:Name="EditCutMenu" Header="Cu_t"
                           Command="{x:Static local:EditorCommands.Cut}"
                           InputGestureText="Ctrl+X" />
-                <MenuItem Header="_Copy"
+                <MenuItem x:Name="EditCopyMenu" Header="_Copy"
                           Command="{x:Static local:EditorCommands.Copy}"
                           InputGestureText="Ctrl+C" />
-                <MenuItem Header="_Paste"
+                <MenuItem x:Name="EditPasteMenu" Header="_Paste"
                           Command="{x:Static local:EditorCommands.Paste}"
                           InputGestureText="Ctrl+V" />
                 <Separator />
-                <MenuItem Header="_Go to Floor…"
+                <MenuItem x:Name="EditGoToMenu" Header="_Go to Floor…"
                           InputGestureText="Ctrl+G"
                           Click="GoToFloorClick" />
                 <Separator />
                 <MenuItem x:Name="TransformMenu" Header="_Transform">
-                    <MenuItem Header="_Angle…"
+                    <MenuItem x:Name="EditAngleMenu" Header="_Angle…"
                               Command="{x:Static local:EditorCommands.InsertAngle}"
                               InputGestureText="Enter" />
-                    <MenuItem Header="Rotate -90°"
+                    <MenuItem x:Name="EditRotateLeftMenu" Header="Rotate -90°"
                               Command="{x:Static local:EditorCommands.RotateLeft}"
                               InputGestureText="Ctrl+." />
-                    <MenuItem Header="Rotate +90°"
+                    <MenuItem x:Name="EditRotateRightMenu" Header="Rotate +90°"
                               Command="{x:Static local:EditorCommands.RotateRight}"
                               InputGestureText="Ctrl+," />
                     <Separator />
-                    <MenuItem Header="Flip _Horizontal"
+                    <MenuItem x:Name="EditFlipHorizontalMenu" Header="Flip _Horizontal"
                               Command="{x:Static local:EditorCommands.FlipHorizontal}"
                               InputGestureText="Ctrl+L" />
-                    <MenuItem Header="Flip _Vertical"
+                    <MenuItem x:Name="EditFlipVerticalMenu" Header="Flip _Vertical"
                               Command="{x:Static local:EditorCommands.FlipVertical}"
                               InputGestureText="Ctrl+Shift+L" />
                 </MenuItem>
             </MenuItem>
             <MenuItem x:Name="ViewMenu" Header="_View">
-                <MenuItem Header="_Frame"
+                <MenuItem x:Name="ViewFrameMenu" Header="_Frame"
                           Command="{x:Static local:EditorCommands.Frame}" />
                 <MenuItem x:Name="ViewFollowPlayerMenuItem"
                           Header="Follow _Player"
@@ -188,16 +196,16 @@
                 Padding="3,2">
             <StackPanel x:Name="MainToolBar"
                         Orientation="Horizontal">
-                <Button Content="Open"
+                <Button x:Name="ToolbarOpenButton" Content="Open"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Open}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Save"
+                <Button x:Name="ToolbarSaveButton" Content="Save"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Save}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Border Width="1" Height="18" Margin="6,4" Background="{StaticResource SeparatorBrush}" />
-                <Button Content="Frame"
+                <Button x:Name="ToolbarFrameButton" Content="Frame"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Frame}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -207,11 +215,11 @@
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.PlayPause}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Stop"
+                <Button x:Name="ToolbarStopButton" Content="Stop"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Stop}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <TextBlock Text="Speed"
+                <TextBlock x:Name="ToolbarSpeedLabel" Text="Speed"
                            VerticalAlignment="Center"
                            Margin="8,0,4,0"
                            Foreground="#D9DCE3" />
@@ -750,15 +758,7 @@
                             Height="52" Margin="0,0,0,28"/>
                     <TextBlock x:Name="WelcomeRecentTitle" Text="Recent charts" FontSize="18" FontWeight="SemiBold"
                                Foreground="#F0F2F5" Margin="0,0,0,12"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                        <TextBlock x:Name="WelcomeLanguageLabel" Text="Language" Foreground="#9CA6B4" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <ComboBox x:Name="WelcomeLanguageSelector" Width="175" SelectionChanged="WelcomeLanguageChanged">
-                            <ComboBoxItem Content="System" Tag="system"/>
-                            <ComboBoxItem Content="English" Tag="en"/>
-                            <ComboBoxItem Content="日本語" Tag="ja"/>
-                        </ComboBox>
-                    </StackPanel>
-                    <StackPanel x:Name="WelcomeRecentFilesHost"/>
+                                        <StackPanel x:Name="WelcomeRecentFilesHost"/>
                     <TextBlock x:Name="WelcomeRecentEmpty" Text="No recent charts yet."
                                Foreground="#9CA6B4"/>
                 </StackPanel>
