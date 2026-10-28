@@ -20,6 +20,7 @@ RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunProviderChecks();
+MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
 RunProgressiveConstructionRegression();
