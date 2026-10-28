@@ -157,6 +157,7 @@ public partial class MainWindow
                                   IsScaleRadiusEvent(after.EventType);
         bool playbackVisualChanged = IsPlaybackVisualEvent(before.EventType) ||
                                      IsPlaybackVisualEvent(after.EventType);
+        bool backgroundAssetChanged = BackgroundAssetResolver.RequiresReload(before, after);
 
         if (speedVisualChanged)
             RecomputeSpeedRatios();
@@ -175,20 +176,21 @@ public partial class MainWindow
         // MoveTrack changes playback transforms. ScaleRadius changes the base
         // coordinates used by all of them, so every one of these paths needs the
         // native scene rebuilt when edited.
-        if (speedVisualChanged || trackVisualChanged || trackTransformChanged || scaleRadiusChanged)
+        if (speedVisualChanged || trackVisualChanged || trackTransformChanged ||
+            scaleRadiusChanged || backgroundAssetChanged)
             NativeViewport.SetLevel(_level);
 
         // SetLevel resets the native transform runtime. Re-upload after either a
         // track transform edit or a radius edit so MoveTrack and camera targets are
         // rebuilt from the new base floor coordinates and dimensions.
-        if (trackTransformChanged || scaleRadiusChanged)
+        if (trackTransformChanged || scaleRadiusChanged || backgroundAssetChanged)
         {
             _timingMap ??= FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
         }
 
         if (playbackVisualChanged && !timingChanged && !cameraChanged &&
-            !trackTransformChanged && !scaleRadiusChanged)
+            !trackTransformChanged && !scaleRadiusChanged && !backgroundAssetChanged)
         {
             _timingMap ??= FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
