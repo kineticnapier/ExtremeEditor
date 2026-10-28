@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ADOFAI_HISTORY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AdoFaiHistoryShortcutRegression.Run();
+                Console.WriteLine("PASS: native Undo/Redo works without floor selection.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NUMERIC_INPUT_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -893,6 +902,7 @@ internal static class Program
             TwirlToggleRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
+            AdoFaiHistoryShortcutRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
             EventPaletteIconRegression.Run();
