@@ -88,9 +88,8 @@ public partial class MainWindow
             return;
 
         // HwndHost owns a real child HWND, so WPF's routed PreviewKeyDown is not
-        // reliably generated while that HWND has keyboard focus. Re-enter the exact
-        // same ADOFAI key handler from the thread message pump instead of maintaining
-        // a second key map in C++.
+        // reliably generated while that HWND has keyboard focus. Use the same
+        // palette-then-ADOFAI handler as WPF, without maintaining a second key map.
         var args = new KeyEventArgs(
             Keyboard.PrimaryDevice,
             source,
@@ -100,7 +99,7 @@ public partial class MainWindow
             RoutedEvent = Keyboard.PreviewKeyDownEvent
         };
 
-        AdoFaiPreviewKeyDown(this, args);
+        HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true);
         handled = args.Handled;
     }
 
