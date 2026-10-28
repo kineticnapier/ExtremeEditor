@@ -906,6 +906,7 @@ internal static class Program
             OpenIssueDataIntegrityRegression.Run();
             EditorUiStateIssueRegression.Run();
             TabPlaybackPreferenceRegression.Run();
+            SongSettingsSliceRegression.Run();
             UiSafetyIssueRegression.Run();
             NumericInputSafetyRegression.Run();
             SavePathReservationRegression.Run();
