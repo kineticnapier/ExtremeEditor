@@ -27,4 +27,6 @@ This branch is the single working branch for accumulating verified fixes to open
 
 - #101 — SetSpeed and other enum editors now match known values case-insensitively and show unknown values without rewriting the JSON; added and registered unit regression cases. **Implemented; Windows CI passed (run 40717516564); GUI/round-trip validation pending**. Commits `f5a27ad`, `559d329`, `778ca92`.
 
-- #76 — Aligned Ctrl+F native visible floor labels and WPF selection summaries to the existing one-based Ctrl+G floor numbering. Extended WPF GoToFloor boundary tests and native source parity contract. **Implemented; CI and real GUI verification pending**. Commits `f63c231`, `33dacd2`, `90659b0`, `071f7de`.
+- #76 — Aligned Ctrl+F native visible floor labels and WPF selection summaries to the existing one-based Ctrl+G floor numbering. Extended WPF GoToFloor boundary tests and native source parity contract. **Implemented; Windows CI passed (run 40728741786); real GUI verification pending**. Commits `f63c231`, `33dacd2`, `90659b0`, `071f7de`.
+
+- #86 — Song Volume-only edits update the live audio gain without stopping or resetting playback. Other song settings retain their existing stop/rebuild behavior. Added classification and source-order regression to SongSettingsSliceRegression and registered it in the default WPF suite. **Implemented; Windows CI and actual audio/UI playback verification pending**. Commits `bb36e12`, `4e4687e`, `f458851`.
