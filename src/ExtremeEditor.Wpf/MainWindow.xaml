@@ -122,6 +122,8 @@
                 <MenuItem Header="_Paste"
                           Command="{x:Static local:EditorCommands.Paste}"
                           InputGestureText="Ctrl+V" />
+                <MenuItem Header="Paste at _End"
+                          Command="{x:Static local:EditorCommands.PasteAtEnd}" />
                 <Separator />
                 <MenuItem Header="_Go to Floor…"
                           InputGestureText="Ctrl+G"
