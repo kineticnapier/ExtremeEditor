@@ -305,6 +305,12 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session.SetShowFloorNumbers(_showFloorNumbers);
         LastLevelUploadMetrics = UploadPendingLevel();
 
+        // The Welcome screen starts without a chart. Native timeline setters
+        // require a level to have been uploaded, so defer them until the first
+        // chart is activated and its prepared timelines are applied.
+        if (_level is null)
+            return new HandleRef(this, _session.ChildHwnd);
+
         var watch = Stopwatch.StartNew();
         UploadPendingPlaybackTimeline();
         UploadPendingCameraTimeline();
