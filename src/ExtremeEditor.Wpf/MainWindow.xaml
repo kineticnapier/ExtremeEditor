@@ -253,6 +253,8 @@
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding Visibility, ElementName=ToolbarHost}">
             <StackPanel Orientation="Horizontal" Margin="7,3,7,0">
+                <Button Content="Welcome" Click="WelcomeTabClick"
+                        Margin="0,0,8,3" Padding="11,0" ToolTip="Open welcome page"/>
                 <StackPanel x:Name="DocumentTabsHost"
                             Orientation="Horizontal" />
                 <Button x:Name="AddDocumentTabButton"
@@ -266,6 +268,7 @@
             </StackPanel>
         </Border>
 
+        <Grid>
         <Grid x:Name="EditorShellGrid">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SettingsRailColumn" Width="40" />
@@ -732,6 +735,27 @@
                     </Grid>
                 </DockPanel>
             </Border>
+        </Grid>
+        <Grid x:Name="WelcomePage" Visibility="Collapsed" Background="#14161A">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Width="550" HorizontalAlignment="Center"
+                            Margin="24,80,24,60">
+                    <TextBlock Text="ExtremeEditor" FontSize="38" FontWeight="SemiBold"
+                               Foreground="#F0F2F5"/>
+                    <TextBlock Text="Welcome" FontSize="16" Foreground="#9CA6B4"
+                               Margin="0,2,0,30"/>
+                    <Button Content="New chart  (Ctrl+N)" Click="NewDocumentTabClick"
+                            Height="52" Margin="0,0,0,12"/>
+                    <Button Content="Open chart  (Ctrl+O)" Click="WelcomeOpenClick"
+                            Height="52" Margin="0,0,0,28"/>
+                    <TextBlock Text="Recent charts" FontSize="18" FontWeight="SemiBold"
+                               Foreground="#F0F2F5" Margin="0,0,0,12"/>
+                    <StackPanel x:Name="WelcomeRecentFilesHost"/>
+                    <TextBlock x:Name="WelcomeRecentEmpty" Text="No recent charts yet."
+                               Foreground="#9CA6B4"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
         </Grid>
     </DockPanel>
 </Window>

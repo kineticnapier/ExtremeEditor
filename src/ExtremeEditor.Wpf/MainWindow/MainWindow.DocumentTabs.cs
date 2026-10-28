@@ -82,9 +82,14 @@ public partial class MainWindow
         bool allowDuringWindowClose = false)
     {
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
-            !_documentTabs.Tabs.Contains(tab) ||
-            ReferenceEquals(_documentTabs.ActiveTab, tab))
-            return ReferenceEquals(_documentTabs.ActiveTab, tab);
+            !_documentTabs.Tabs.Contains(tab))
+            return false;
+        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+            ReferenceEquals(_level, tab.Document))
+        {
+            HideWelcomePage();
+            return true;
+        }
 
         int activationGeneration = ++_tabActivationGeneration;
         WpfPlaybackSetup? builtPlayback = null;
@@ -202,6 +207,7 @@ public partial class MainWindow
         RefreshTrackSettings();
         RefreshLevelMetadataSettings();
         RefreshActiveDocumentTab();
+        HideWelcomePage();
         UpdateEditorStatus();
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
@@ -298,7 +304,19 @@ public partial class MainWindow
             int index = _documentTabs.Tabs.ToList().IndexOf(tab);
             if (_documentTabs.Tabs.Count == 1)
             {
-                CreateNewDocumentTab();
+                StopPlayback();
+                _editor?.Changed -= ActiveEditorSessionChanged;
+                _editor = null;
+                _level = null;
+                _timingMap = null;
+                _hitSoundTimeline = null;
+                _documentTabs.Remove(tab);
+                tab.Audio?.Dispose();
+                _audio = new AudioPlayer();
+                ShowWelcomePage();
+                RefreshActiveDocumentTab();
+                CommandManager.InvalidateRequerySuggested();
+                return;
             }
             else
             {

@@ -80,16 +80,9 @@ public partial class MainWindow : Window
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
-        // Startup should behave like an editor, not a renderer stress test.
-        LevelDocument level = LevelDocument.CreateSynthetic(2);
-        _level = level;
-        NativeViewport.SetLevel(level);
-        NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
-        _selection.SetFloorCount(level.FloorCount);
-        _selection.SetSelection([0], 0);
-        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-
-        StatusText.Text = $"Native viewport | {EditorVersion.Current} | new 2-floor level";
+        // No implicit unsaved chart on startup.
+        ShowWelcomePage();
+        StatusText.Text = $"ExtremeEditor {EditorVersion.Current} | Welcome";
         UpdateDiagnosticsDisplay("A --:--.--- | C --");
     }
 
