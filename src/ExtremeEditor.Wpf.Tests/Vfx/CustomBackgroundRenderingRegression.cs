@@ -61,6 +61,24 @@ internal static class CustomBackgroundRenderingRegression
                 "DrawBackground only clears the color; no image is composited.");
         });
 
+        string headlessSource = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.Wpf", "Native", "NativeHeadlessRendererSession.cs"));
+        Check(failures, "headless video export background upload", () =>
+        {
+            Require(headlessSource.Contains(
+                "foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)",
+                StringComparison.Ordinal),
+                "headless renderer does not iterate background image assets.");
+            Require(headlessSource.Contains(
+                "NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath)",
+                StringComparison.Ordinal),
+                "headless renderer does not upload background images.");
+            Require(headlessSource.Contains(
+                "UploadArray(prepared.BackgroundTimeline, NativeRendererNative.SetBackgroundTimeline",
+                StringComparison.Ordinal),
+                "headless renderer does not upload background events.");
+        });
+
         if (failures.Count != 0)
             throw new InvalidOperationException("CustomBackground rendering RED:\n- " +
                 string.Join("\n- ", failures));
