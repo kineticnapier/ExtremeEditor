@@ -82,9 +82,32 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public NativeLevelViewport()
     {
-        Focusable = false;
+        // Allow keyboard navigation to reach the HwndHost. Enter commits also
+        // transfer focus explicitly to its native child HWND.
+        Focusable = true;
         SizeChanged += (_, _) => ResizeNativeChild();
     }
+
+    /// <summary>
+    /// Return keyboard input to the actual native editor window after a WPF
+    /// settings field commits. UIElement.Focus() alone is insufficient for a
+    /// child HWND, especially when the WPF focus element is stale.
+    /// </summary>
+    public bool FocusEditorSurface()
+    {
+        nint childHwnd = _session?.ChildHwnd ?? nint.Zero;
+        if (childHwnd == nint.Zero || !IsVisible || !IsEnabled)
+            return false;
+
+        SetFocus(childHwnd);
+        return GetFocus() == childHwnd;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint SetFocus(nint hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetFocus();
 
     public event Action<bool>? FollowPlayerChanged;
 
