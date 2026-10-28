@@ -234,13 +234,14 @@ internal sealed partial class EditorSession
         return true;
     }
 
-    public EditorPasteResult? PasteFloors(int startFloor)
+    // Existing paste positions remain unchanged; append is an explicit operation.
+    public EditorPasteResult? PasteFloors(int startFloor, bool allowEnd = false)
     {
         if (_clipboardStore.Value is not { Angles.Length: > 0 } clipboard)
             return null;
 
         EnsureSourceMapping();
-        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - 1));
+        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - (allowEnd ? 0 : 1)));
         if (AdoFaiPathDirection.PointsBackwards(
                 _angles,
                 firstFloor,
