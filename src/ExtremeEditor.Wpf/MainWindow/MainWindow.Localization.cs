@@ -59,6 +59,27 @@ public partial class MainWindow
             ["speed"] = ("Speed", "速度"),
             ["hitsounds"] = ("Hitsounds", "打鍵音"),
             ["pause"] = ("Pause", "一時停止"),
+            ["SongSettings"] = ("Song Settings", "曲の設定"),
+            ["SongFilename"] = ("Song filename", "音源ファイル"),
+            ["SongBpm"] = ("Initial BPM", "初期BPM"),
+            ["SongVolume"] = ("Song volume (%)", "曲の音量 (%)"),
+            ["SongOffset"] = ("Offset (ms)", "オフセット (ms)"),
+            ["SongPitch"] = ("Pitch (%)", "ピッチ (%)"),
+            ["SongHitSound"] = ("Hitsound", "打鍵音"),
+            ["SongHitSoundVolume"] = ("Hitsound volume (%)", "打鍵音の音量 (%)"),
+            ["CameraSettings"] = ("Camera Settings", "カメラ設定"),
+            ["CameraRelativeTo"] = ("Relative to", "基準"),
+            ["CameraPositionX"] = ("Position X", "位置 X"),
+            ["CameraPositionY"] = ("Position Y", "位置 Y"),
+            ["CameraRotation"] = ("Rotation (°)", "回転角度 (°)"),
+            ["CameraZoom"] = ("Zoom (%)", "ズーム (%)"),
+            ["TrackSettings"] = ("Track Settings", "トラック設定"),
+            ["TrackPrimaryColor"] = ("Primary color (hex)", "基本色 (hex)"),
+            ["TrackSecondaryColor"] = ("Secondary color (hex)", "補助色 (hex)"),
+            ["TrackColorType"] = ("Color type", "色の種類"),
+            ["TrackAnimationDuration"] = ("Animation duration", "アニメーション時間"),
+            ["TrackPulseLength"] = ("Pulse length", "パルスの長さ"),
+            ["TrackGlowIntensity"] = ("Glow intensity (%)", "発光強度 (%)"),
             ["unsaved"] = ("Unsaved chart", "未保存の譜面"),
             ["closequestion"] = ("Save changes to {0} before closing?", "{0} の変更を保存して閉じますか？")
         };
@@ -164,5 +185,28 @@ public partial class MainWindow
         ToolbarSpeedLabel.Text = WelcomeText("speed");
         FollowPlayerToggle.Content = WelcomeText("follow");
         HitSoundsToggle.Content = WelcomeText("hitsounds");
+        L10nSongSettings.Text = WelcomeText("SongSettings");
+        L10nSongFilename.Text = WelcomeText("SongFilename");
+        L10nSongBpm.Text = WelcomeText("SongBpm");
+        L10nSongVolume.Text = WelcomeText("SongVolume");
+        L10nSongOffset.Text = WelcomeText("SongOffset");
+        L10nSongPitch.Text = WelcomeText("SongPitch");
+        L10nSongHitSound.Text = WelcomeText("SongHitSound");
+        L10nSongHitSoundVolume.Text = WelcomeText("SongHitSoundVolume");
+        L10nCameraSettings.Text = WelcomeText("CameraSettings");
+        L10nCameraRelativeTo.Text = WelcomeText("CameraRelativeTo");
+        L10nCameraPositionX.Text = WelcomeText("CameraPositionX");
+        L10nCameraPositionY.Text = WelcomeText("CameraPositionY");
+        L10nCameraRotation.Text = WelcomeText("CameraRotation");
+        L10nCameraZoom.Text = WelcomeText("CameraZoom");
+        L10nTrackSettings.Text = WelcomeText("TrackSettings");
+        L10nTrackPrimaryColor.Text = WelcomeText("TrackPrimaryColor");
+        L10nTrackSecondaryColor.Text = WelcomeText("TrackSecondaryColor");
+        L10nTrackColorType.Text = WelcomeText("TrackColorType");
+        L10nTrackAnimationDuration.Text = WelcomeText("TrackAnimationDuration");
+        L10nTrackPulseLength.Text = WelcomeText("TrackPulseLength");
+        L10nTrackGlowIntensity.Text = WelcomeText("TrackGlowIntensity");
+        if (PlayButton.Content is string playText && playText is "Play" or "Pause" or "再生" or "一時停止")
+            PlayButton.Content = WelcomeText(playText is "Pause" or "一時停止" ? "pause" : "play");
     }
 }

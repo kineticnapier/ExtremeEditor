@@ -344,43 +344,43 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Song Settings"
+                            <TextBlock x:Name="L10nSongSettings" Text="Song Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Song filename" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongFilename" Text="Song filename" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongFilenameTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Initial BPM" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongBpm" Text="Initial BPM" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongBpmTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Song volume (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongVolume" Text="Song volume (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongVolumeTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Offset (ms)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongOffset" Text="Offset (ms)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongOffsetTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Pitch (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongPitch" Text="Pitch (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongPitchTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Hitsound" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongHitSound" Text="Hitsound" Foreground="#AEB4C0" />
                             <ComboBox x:Name="SongHitSoundComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="SongHitSoundSelectionChanged">
@@ -391,7 +391,7 @@
                                 <ComboBoxItem Content="Chuck" />
                             </ComboBox>
 
-                            <TextBlock Text="Hitsound volume (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongHitSoundVolume" Text="Hitsound volume (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongHitSoundVolumeTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
@@ -410,13 +410,13 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Camera Settings"
+                            <TextBlock x:Name="L10nCameraSettings" Text="Camera Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Relative to" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraRelativeTo" Text="Relative to" Foreground="#AEB4C0" />
                             <ComboBox x:Name="CameraRelativeToComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="CameraRelativeToSelectionChanged">
@@ -425,25 +425,25 @@
                                 <ComboBoxItem Content="Global" />
                             </ComboBox>
 
-                            <TextBlock Text="Position X" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraPositionX" Text="Position X" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraPositionXTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Position Y" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraPositionY" Text="Position Y" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraPositionYTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Rotation (°)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraRotation" Text="Rotation (°)" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraRotationTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Zoom (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraZoom" Text="Zoom (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraZoomTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
@@ -462,25 +462,25 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Track Settings"
+                            <TextBlock x:Name="L10nTrackSettings" Text="Track Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Primary color (hex)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackPrimaryColor" Text="Primary color (hex)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackPrimaryColorTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Secondary color (hex)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackSecondaryColor" Text="Secondary color (hex)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackSecondaryColorTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Color type" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackColorType" Text="Color type" Foreground="#AEB4C0" />
                             <ComboBox x:Name="TrackColorTypeComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="TrackSettingComboBoxSelectionChanged">
@@ -493,7 +493,7 @@
                                 <ComboBoxItem Content="Volume" />
                             </ComboBox>
 
-                            <TextBlock Text="Animation duration" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackAnimationDuration" Text="Animation duration" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackColorAnimDurationTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
@@ -508,7 +508,7 @@
                                 <ComboBoxItem Content="Backward" />
                             </ComboBox>
 
-                            <TextBlock Text="Pulse length" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackPulseLength" Text="Pulse length" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackPulseLengthTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
@@ -526,7 +526,7 @@
                                 <ComboBoxItem Content="Minimal" />
                             </ComboBox>
 
-                            <TextBlock Text="Glow intensity (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackGlowIntensity" Text="Glow intensity (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackGlowIntensityTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
