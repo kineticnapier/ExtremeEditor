@@ -19,10 +19,11 @@ internal static class DocumentTabCloseRegression
         Require(dirty >= 0 && confirm > dirty && cancel > confirm && remove > cancel,
             "Unsaved changes must be confirmed before removing a tab.");
         Require(close.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
-                close.IndexOf("ActivateDocumentTab(", StringComparison.Ordinal) < remove,
-            "Closing the active tab must switch to a neighbor before removal.");
-        Require(close.Contains("CreateNewDocumentTab()", StringComparison.Ordinal),
-            "Closing the final tab must leave a new editable document.");
+                close.Contains("_documentTabs.Tabs.Count == 1", StringComparison.Ordinal),
+            "Closing an active chart must activate another chart, or return to Welcome when last.");
+        Require(close.Contains("ShowWelcomePage()", StringComparison.Ordinal) &&
+                !close.Contains("CreateNewDocumentTab()", StringComparison.Ordinal),
+            "Closing the final tab must display Welcome without creating an unsaved document.");
         Require(close.Contains("tab.Audio?.Dispose()", StringComparison.Ordinal),
             "Closing a tab must dispose its own audio player.");
 
