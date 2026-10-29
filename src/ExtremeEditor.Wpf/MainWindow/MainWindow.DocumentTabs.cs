@@ -16,6 +16,7 @@ public partial class MainWindow
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
     private int _tabActivationGeneration;
+    private EditorDocumentTab? _pendingTabNavigationTarget;
     private EditorDocumentTab? _lastScrolledDocumentTab;
 
     private void ActiveEditorSessionChanged(object? sender, EventArgs e)
@@ -109,6 +110,14 @@ public partial class MainWindow
             return true;
         }
 
+        _pendingTabNavigationTarget = tab;
+        if (!TryCommitSettingsBeforeDocumentChange())
+        {
+            if (ReferenceEquals(_pendingTabNavigationTarget, tab))
+                _pendingTabNavigationTarget = null;
+            return false;
+        }
+
         int activationGeneration = ++_tabActivationGeneration;
         WpfPlaybackSetup? builtPlayback = null;
         TimingMap targetTimingMap = tab.TimingMap ??
@@ -133,7 +142,11 @@ public partial class MainWindow
         catch (Exception ex)
         {
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
+            {
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+                if (ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+            }
             return false;
         }
         double preparationWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
@@ -230,6 +243,9 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
+        if (activationGeneration == _tabActivationGeneration &&
+            ReferenceEquals(_pendingTabNavigationTarget, tab))
+            _pendingTabNavigationTarget = null;
         return true;
     }
 
@@ -238,17 +254,14 @@ public partial class MainWindow
         if (!CanSwitchDocumentTabs() || _documentTabs.Tabs.Count <= 1)
             return;
 
-        EditorDocumentTab? active = _documentTabs.ActiveTab;
-        int currentIndex = active is null
-            ? -1
-            : _documentTabs.Tabs.ToList().IndexOf(active);
-        if (currentIndex < 0)
+        EditorDocumentTab? target = _documentTabs.ResolveCycleTarget(
+            _pendingTabNavigationTarget,
+            backwards);
+        if (target is null)
             return;
 
-        int offset = backwards ? -1 : 1;
-        int nextIndex = (currentIndex + offset + _documentTabs.Tabs.Count) %
-            _documentTabs.Tabs.Count;
-        _ = ActivateDocumentTab(_documentTabs.Tabs[nextIndex]);
+        _pendingTabNavigationTarget = target;
+        _ = ActivateDocumentTab(target);
     }
 
     private void ApplySharedPlaybackPreferences(AudioPlayer player)
@@ -310,6 +323,10 @@ public partial class MainWindow
     {
         if (_tabCloseOperationPending || _tabCloseSavePending ||
             !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
+            return;
+
+        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+            !TryCommitSettingsBeforeDocumentChange())
             return;
 
         _tabCloseOperationPending = true;

@@ -83,11 +83,11 @@ public partial class MainWindow
         SettingsSidebarCollapseButton.ToolTip = _settingsPaneCollapsed ? "Expand settings" : "Collapse settings";
     }
 
-    private void CommitSongSettingsFromUi()
+    private bool CommitSongSettingsFromUi(bool preserveInvalidInput = false)
     {
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _refreshingSongSettings)
-            return;
+            return true;
 
         LevelSettingsSnapshot before = editor.GetLevelSettings();
         if (!TryReadSetting(SongBpmTextBox.Text, out double bpm) || bpm <= 0 ||
@@ -96,9 +96,10 @@ public partial class MainWindow
             !TryReadSetting(SongPitchTextBox.Text, out double pitch) || pitch <= 0 ||
             !TryReadSetting(SongHitSoundVolumeTextBox.Text, out double hitSoundVolume))
         {
-            RefreshSongSettings();
+            if (!preserveInvalidInput)
+                RefreshSongSettings();
             StatusText.Text = "Song Settings contain an invalid numeric value.";
-            return;
+            return false;
         }
 
         string hitSound = (SongHitSoundComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString()
@@ -116,10 +117,20 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         RefreshSongSettings();
         if (before == after)
-            return;
+            return true;
 
         RefreshAfterSongSettingsChange(before, after);
+        return true;
     }
+
+    private bool TryCommitSettingsBeforeDocumentChange() => _settingsCategory switch
+    {
+        SettingsCategory.Song => CommitSongSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Camera => CommitCameraSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Track => CommitTrackSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Level => CommitLevelMetadataSettingsFromUi(),
+        _ => true
+    };
 
     private void RefreshAfterSongSettingsChange(
         LevelSettingsSnapshot before,

@@ -25,10 +25,9 @@ internal static class DocumentTabNavigationRegression
         string cycle = ExtractMethodBody(source, "private void CycleDocumentTab(bool backwards)");
         Require(cycle.Length > 0 && cycle.Contains("CanSwitchDocumentTabs()", StringComparison.Ordinal),
             "Cycling must be disabled during blocked document switches.");
-        Require(cycle.Contains("_documentTabs.ActiveTab", StringComparison.Ordinal) &&
-                cycle.Contains("_documentTabs.Tabs", StringComparison.Ordinal) &&
-                cycle.Contains("backwards", StringComparison.Ordinal) &&
-                cycle.Contains("%", StringComparison.Ordinal),
+        Require(cycle.Contains("ResolveCycleTarget(", StringComparison.Ordinal) &&
+                cycle.Contains("_pendingTabNavigationTarget", StringComparison.Ordinal) &&
+                cycle.Contains("backwards", StringComparison.Ordinal),
             "Cycling must use creation order, move in either direction and wrap at both ends.");
         Require(cycle.Contains("ActivateDocumentTab(", StringComparison.Ordinal),
             "Cycling must use the existing workspace-switch path, preserving audio and undo.");

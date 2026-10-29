@@ -44,6 +44,24 @@ internal sealed class EditorDocumentTabs
         return true;
     }
 
+    internal EditorDocumentTab? ResolveCycleTarget(
+        EditorDocumentTab? requestedTarget,
+        bool backwards)
+    {
+        if (_tabs.Count <= 1)
+            return null;
+
+        EditorDocumentTab? basis = requestedTarget is not null && _tabs.Contains(requestedTarget)
+            ? requestedTarget
+            : ActiveTab;
+        int currentIndex = basis is null ? -1 : _tabs.IndexOf(basis);
+        if (currentIndex < 0)
+            return null;
+
+        int offset = backwards ? -1 : 1;
+        return _tabs[(currentIndex + offset + _tabs.Count) % _tabs.Count];
+    }
+
     internal bool Remove(EditorDocumentTab tab)
     {
         ArgumentNullException.ThrowIfNull(tab);
