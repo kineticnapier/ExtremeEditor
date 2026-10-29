@@ -441,11 +441,9 @@ public partial class MainWindow
 
                 if (answer == MessageBoxResult.Cancel)
                     return;
-                if (answer == MessageBoxResult.Yes)
-                {
-                    _ = SaveAndCloseDocumentTabAsync(tab);
+                if (answer == MessageBoxResult.Yes &&
+                    !await SaveAndCloseDocumentTabAsync(tab))
                     return;
-                }
             }
 
             // Switching is asynchronous: do not remove the final chart until
@@ -476,34 +474,40 @@ public partial class MainWindow
                 RefreshActiveDocumentTab();
             }
         }
+        catch (Exception ex)
+        {
+            // This is an async-void WPF event path: an uncaught exception
+            // would terminate the UI dispatcher rather than leave the tab open.
+            if (!_isClosed)
+                StatusText.Text = $"Could not close {tab.DisplayName}: {ex.Message}";
+        }
         finally
         {
             _tabCloseOperationPending = false;
         }
     }
 
-    private async Task SaveAndCloseDocumentTabAsync(EditorDocumentTab tab)
+    private async Task<bool> SaveAndCloseDocumentTabAsync(EditorDocumentTab tab)
     {
-        // SaveCurrentAsync saves only the active document.
+        // Keep the outer close-operation guard held throughout activation and
+        // Save As. A second Ctrl+W must not close a dirty tab mid-save.
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
             await ActivateDocumentTab(tab);
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
-            return;
+            return false;
 
-        bool saved = false;
         _tabCloseSavePending = true;
         try
         {
-            saved = await SaveCurrentAsync(saveAs: false);
+            bool saved = await SaveCurrentAsync(saveAs: false);
+            // Canceled Save As, save failure or a newly-dirty tab stays open.
+            return saved && !tab.IsDirty && !_isClosed &&
+                   _documentTabs.Tabs.Contains(tab);
         }
         finally
         {
             _tabCloseSavePending = false;
         }
-
-        // Canceled Save As, save failure or a newly-dirty tab stays open.
-        if (saved && !tab.IsDirty && !_isClosed && _documentTabs.Tabs.Contains(tab))
-            CloseDocumentTab(tab);
     }
 
     private void RefreshActiveDocumentTab()
