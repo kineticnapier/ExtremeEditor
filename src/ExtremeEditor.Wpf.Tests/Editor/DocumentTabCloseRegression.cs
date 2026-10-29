@@ -1,4 +1,6 @@
 using System.IO;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -19,11 +21,21 @@ internal static class DocumentTabCloseRegression
         Require(dirty >= 0 && confirm > dirty && cancel > confirm && remove > cancel,
             "Unsaved changes must be confirmed before removing a tab.");
         Require(close.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
-                close.Contains("_documentTabs.Tabs.Count == 1", StringComparison.Ordinal),
-            "Closing an active chart must activate another chart, or return to Welcome when last.");
-        Require(close.Contains("ShowWelcomePage()", StringComparison.Ordinal) &&
-                !close.Contains("CreateNewDocumentTab()", StringComparison.Ordinal),
-            "Closing the final tab must display Welcome without creating an unsaved document.");
+                close.IndexOf("ActivateDocumentTab(", StringComparison.Ordinal) < remove,
+            "Closing the active tab must switch to a neighbor before removal.");
+        Require(close.Contains("await TryActivateReplacementAsync(", StringComparison.Ordinal) &&
+                close.Contains("CreateNewDocumentTabAsync", StringComparison.Ordinal),
+            "Closing the final tab must await successful replacement activation.");
+        Require(close.Contains("_tabCloseOperationPending", StringComparison.Ordinal) &&
+                close.Contains("finally", StringComparison.Ordinal),
+            "Concurrent close requests must not create multiple replacement tabs.");
+        string create = ExtractMethodBody(source,
+            "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync(");
+        Require(create.Contains("await ActivateDocumentTab(tab)", StringComparison.Ordinal) &&
+                create.Contains("return null;", StringComparison.Ordinal) &&
+                create.Contains("_documentTabs.Remove(tab)", StringComparison.Ordinal),
+            "Failed or superseded new-tab activation must clean up its temporary tab.");
+        VerifyDelayedReplacement();
         Require(close.Contains("tab.Audio?.Dispose()", StringComparison.Ordinal),
             "Closing a tab must dispose its own audio player.");
 
@@ -51,6 +63,49 @@ internal static class DocumentTabCloseRegression
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs"));
         Require(bridge.Contains("AdoFaiPreviewKeyDown(this, args)", StringComparison.Ordinal),
             "The HWND keyboard bridge must forward Ctrl+W to the shared shortcut handler.");
+    }
+
+    private static void VerifyDelayedReplacement()
+    {
+        var tabs = new EditorDocumentTabs();
+        LevelDocument firstDocument = LevelDocument.CreateSynthetic(2);
+        var original = new EditorDocumentTab(
+            firstDocument, new EditorSession(firstDocument));
+        Require(tabs.Add(original), "initial chart must be registered");
+
+        var pending = new TaskCompletionSource<EditorDocumentTab?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<bool> replacementReady = MainWindow.TryActivateReplacementAsync(
+            tabs, original, () => pending.Task);
+        Require(!replacementReady.IsCompleted && tabs.Tabs.Count == 1,
+            "closing the last tab must wait while native preparation is pending");
+
+        LevelDocument secondDocument = LevelDocument.CreateSynthetic(2);
+        var replacement = new EditorDocumentTab(
+            secondDocument, new EditorSession(secondDocument));
+        Require(tabs.Add(replacement, activate: false) &&
+                ReferenceEquals(tabs.ActiveTab, original),
+            "registering the replacement alone must not close the original");
+        Require(!replacementReady.IsCompleted,
+            "replacement must not be considered ready before activation");
+
+        Require(tabs.Activate(replacement), "replacement can become active");
+        pending.SetResult(replacement);
+        Require(replacementReady.GetAwaiter().GetResult(),
+            "successful delayed activation must allow final-tab removal");
+        Require(tabs.Remove(original) && tabs.Tabs.Count == 1 &&
+                ReferenceEquals(tabs.ActiveTab, replacement),
+            "after activation only the replacement tab must remain");
+
+        var failed = new TaskCompletionSource<EditorDocumentTab?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<bool> failedActivation = MainWindow.TryActivateReplacementAsync(
+            tabs, replacement, () => failed.Task);
+        failed.SetResult(null);
+        Require(!failedActivation.GetAwaiter().GetResult() &&
+                tabs.Tabs.Count == 1 &&
+                ReferenceEquals(tabs.ActiveTab, replacement),
+            "failed activation must leave the existing tab intact");
     }
 
     private static void Require(bool condition, string message)
