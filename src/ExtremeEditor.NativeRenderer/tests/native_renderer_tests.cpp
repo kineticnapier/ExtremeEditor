@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -142,6 +144,25 @@ int main()
         ee_renderer_destroy(headless);
         headless = nullptr;
     };
+
+    const std::filesystem::path invalid_decoration =
+        std::filesystem::temp_directory_path() / "extreme-editor-invalid-decoration.png";
+    {
+        std::ofstream output(invalid_decoration, std::ios::binary | std::ios::trunc);
+        output << "not a png";
+    }
+    const EeResult invalid_decoration_result = ee_renderer_set_decoration_asset(
+        headless,
+        0xf00du,
+        invalid_decoration.c_str());
+    std::error_code remove_error;
+    std::filesystem::remove(invalid_decoration, remove_error);
+    if (invalid_decoration_result == EE_OK)
+    {
+        std::cerr << "Invalid decoration image was accepted as a loaded asset.\n";
+        destroy_headless();
+        return 1;
+    }
 
     const int32_t clean_view_selection[] = {1, 2};
     ee_renderer_set_selection(headless, clean_view_selection, 2u, 1);
