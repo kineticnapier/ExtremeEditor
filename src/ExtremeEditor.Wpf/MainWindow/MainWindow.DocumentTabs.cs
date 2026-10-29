@@ -16,6 +16,7 @@ public partial class MainWindow
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
     private int _tabActivationGeneration;
+    private EditorDocumentTab? _pendingTabNavigationTarget;
     private EditorDocumentTab? _lastScrolledDocumentTab;
 
     private void ActiveEditorSessionChanged(object? sender, EventArgs e)
@@ -97,12 +98,31 @@ public partial class MainWindow
         EditorDocumentTab tab,
         Native.PreparedNativeLevel? preparedLevel = null,
         bool deferPlaybackTimeline = false,
-        bool allowDuringWindowClose = false)
+        bool allowDuringWindowClose = false,
+        bool fromTabCycle = false)
     {
+        // A direct tab click cancels any still-preparing Ctrl+Tab request.
+        if (!fromTabCycle && _pendingTabNavigationTarget is not null)
+        {
+            _pendingTabNavigationTarget = null;
+            ++_tabActivationGeneration;
+        }
+
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
-            !_documentTabs.Tabs.Contains(tab) ||
-            ReferenceEquals(_documentTabs.ActiveTab, tab))
-            return ReferenceEquals(_documentTabs.ActiveTab, tab);
+            !_documentTabs.Tabs.Contains(tab))
+            return false;
+
+        if (ReferenceEquals(_documentTabs.ActiveTab, tab))
+        {
+            // With two tabs, Ctrl+Tab twice returns to the active tab.
+            // Invalidate the first in-flight activation rather than letting it win later.
+            if (fromTabCycle)
+            {
+                ++_tabActivationGeneration;
+                _pendingTabNavigationTarget = null;
+            }
+            return true;
+        }
 
         int activationGeneration = ++_tabActivationGeneration;
         WpfPlaybackSetup? builtPlayback = null;
@@ -127,14 +147,24 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            if (activationGeneration == _tabActivationGeneration && !_isClosed)
-                StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+            if (activationGeneration == _tabActivationGeneration)
+            {
+                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+                if (!_isClosed)
+                    StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+            }
             return false;
         }
         double preparationWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
         if (activationGeneration != _tabActivationGeneration || _isClosed ||
             !_documentTabs.Tabs.Contains(tab))
+        {
+            if (activationGeneration == _tabActivationGeneration &&
+                fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                _pendingTabNavigationTarget = null;
             return false;
+        }
 
         tab.TimingMap = targetTimingMap;
         tab.HitSoundTimeline = targetHitSoundTimeline;
@@ -224,7 +254,28 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
+        if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+            _pendingTabNavigationTarget = null;
         return true;
+    }
+
+    internal static EditorDocumentTab? SelectNextDocumentTab(
+        EditorDocumentTabs tabs, EditorDocumentTab? pendingTarget, bool backwards)
+    {
+        if (tabs.Tabs.Count <= 1)
+            return null;
+
+        // Count rapid key presses from the most recently requested destination,
+        // not the old active tab whose native preparation has yet to finish.
+        EditorDocumentTab? origin = pendingTarget is not null &&
+            tabs.Tabs.Contains(pendingTarget) ? pendingTarget : tabs.ActiveTab;
+        int currentIndex = origin is null ? -1 : tabs.Tabs.ToList().IndexOf(origin);
+        if (currentIndex < 0)
+            return null;
+
+        int offset = backwards ? -1 : 1;
+        int nextIndex = (currentIndex + offset + tabs.Tabs.Count) % tabs.Tabs.Count;
+        return tabs.Tabs[nextIndex];
     }
 
     private void CycleDocumentTab(bool backwards)
@@ -232,17 +283,13 @@ public partial class MainWindow
         if (!CanSwitchDocumentTabs() || _documentTabs.Tabs.Count <= 1)
             return;
 
-        EditorDocumentTab? active = _documentTabs.ActiveTab;
-        int currentIndex = active is null
-            ? -1
-            : _documentTabs.Tabs.ToList().IndexOf(active);
-        if (currentIndex < 0)
+        EditorDocumentTab? next = SelectNextDocumentTab(
+            _documentTabs, _pendingTabNavigationTarget, backwards);
+        if (next is null)
             return;
 
-        int offset = backwards ? -1 : 1;
-        int nextIndex = (currentIndex + offset + _documentTabs.Tabs.Count) %
-            _documentTabs.Tabs.Count;
-        _ = ActivateDocumentTab(_documentTabs.Tabs[nextIndex]);
+        _pendingTabNavigationTarget = next;
+        _ = ActivateDocumentTab(next, fromTabCycle: true);
     }
 
     private void ApplySharedPlaybackPreferences(AudioPlayer player)
