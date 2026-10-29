@@ -268,6 +268,7 @@ public partial class MainWindow
     {
         EditorDocumentTab? replacement = await activateReplacement();
         return replacement is not null &&
+               !ReferenceEquals(replacement, closing) &&
                tabs.Tabs.Contains(closing) &&
                ReferenceEquals(tabs.ActiveTab, replacement);
     }
