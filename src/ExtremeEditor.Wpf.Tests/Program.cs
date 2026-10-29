@@ -980,6 +980,7 @@ internal static class Program
             DocumentTabSwitchCacheRegression.Run();
             NativeSceneReuseRegression.Run();
             DocumentTabNavigationRegression.Run();
+            DocumentTabStateSafetyRegression.Run();
             DocumentTabOverflowRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
