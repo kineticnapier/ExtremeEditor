@@ -327,53 +327,91 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session?.CenterAt(target.X, target.Y);
     }
 
+    // HwndHost does not guarantee DestroyWindowCore after BuildWindowCore throws.
+    // Release a partially created renderer, preserving the original exception.
+    internal static T RunNativeHostInitialization<T>(Func<T> initialize, Action cleanup)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        ArgumentNullException.ThrowIfNull(cleanup);
+        try
+        {
+            return initialize();
+        }
+        catch
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception cleanupError)
+            {
+                Console.Error.WriteLine(
+                    $"[native-host] cleanup after initialization failure: {cleanupError}");
+            }
+            throw;
+        }
+    }
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        uint width = ToPixelExtent(ActualWidth);
-        uint height = ToPixelExtent(ActualHeight);
-        _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
-        _playbackAnchorGate.Invalidate();
-        _session.SelectionChanged += NativeSelectionChanged;
-        _session.FollowPlayerChanged += NativeFollowPlayerChanged;
-        _session.EditorActionRequested += NativeEditorActionRequested;
-        _session.SetFollowPlayer(_followPlayer);
-        _session.SetCleanView(_cleanView);
-        _session.SetShowFloorNumbers(_showFloorNumbers);
-        LastLevelUploadMetrics = UploadPendingLevel();
+        return RunNativeHostInitialization(
+            initialize: () =>
+            {
+                uint width = ToPixelExtent(ActualWidth);
+                uint height = ToPixelExtent(ActualHeight);
+                _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+                _playbackAnchorGate.Invalidate();
+                _session.SelectionChanged += NativeSelectionChanged;
+                _session.FollowPlayerChanged += NativeFollowPlayerChanged;
+                _session.EditorActionRequested += NativeEditorActionRequested;
+                _session.SetFollowPlayer(_followPlayer);
+                _session.SetCleanView(_cleanView);
+                _session.SetShowFloorNumbers(_showFloorNumbers);
+                LastLevelUploadMetrics = UploadPendingLevel();
 
-        var watch = Stopwatch.StartNew();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
-        watch.Stop();
-        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with { NativeUpload = watch.Elapsed };
+                var watch = Stopwatch.StartNew();
+                UploadPendingPlaybackTimeline();
+                UploadPendingCameraTimeline();
+                UploadPendingFlashTimeline();
+                UploadPendingBloomTimeline();
+                UploadPendingScreenTileTimeline();
+                UploadPendingFilterTimeline();
+                UploadPendingBackgroundTimeline();
+                UploadPendingTrackTransformTimeline();
+                UploadPendingTrackVisualTimeline();
+                UploadPendingTrackAnimationTimeline();
+                watch.Stop();
+                LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
+                {
+                    NativeUpload = watch.Elapsed
+                };
 
-        if (_frameAllPending)
-        {
-            _session.FrameAll();
-            _frameAllPending = false;
-        }
-        return new HandleRef(this, _session.ChildHwnd);
+                if (_frameAllPending)
+                {
+                    _session.FrameAll();
+                    _frameAllPending = false;
+                }
+                return new HandleRef(this, _session.ChildHwnd);
+            },
+            cleanup: () => DestroyWindowCore(default));
     }
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
-        if (_session is not null)
-        {
-            _session.SelectionChanged -= NativeSelectionChanged;
-            _session.FollowPlayerChanged -= NativeFollowPlayerChanged;
-            _session.EditorActionRequested -= NativeEditorActionRequested;
-        }
-        _session?.Dispose();
+        NativeRendererSession? session = _session;
         _session = null;
         _playbackAnchorGate.Invalidate();
+        _cameraUploadSession = null;
+        _cameraUploadedSource = null;
+        _cameraUploadedHeight = 0;
+
+        if (session is null)
+            return;
+
+        session.SelectionChanged -= NativeSelectionChanged;
+        session.FollowPlayerChanged -= NativeFollowPlayerChanged;
+        session.EditorActionRequested -= NativeEditorActionRequested;
+        session.Dispose();
     }
 
     private void NativeSelectionChanged(int floor, uint nativeModifiers)
