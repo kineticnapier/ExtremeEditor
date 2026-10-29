@@ -405,16 +405,7 @@ public partial class MainWindow : Window
         if (!File.Exists(songPath))
             return $"audio missing: {Path.GetFileName(songPath)}";
 
-        try
-        {
-            _audio.Load(songPath);
-            return $"audio {Path.GetFileName(songPath)}";
-        }
-        catch (Exception ex)
-        {
-            _audio.Unload();
-            return $"audio load failed: {ex.Message}";
-        }
+        return SongAudioFallback.Load(_audio, songPath);
     }
 
     private void ExecutePlayPause(object sender, ExecutedRoutedEventArgs e)
