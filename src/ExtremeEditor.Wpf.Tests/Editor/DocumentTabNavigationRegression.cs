@@ -76,6 +76,7 @@ internal static class DocumentTabNavigationRegression
         VerifyDirectPlaybackRefreshIsAtomic();
         VerifyNativeHostInitializationCleanup();
         VerifyNativeSessionConstructionCleanup();
+        VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
         VerifyActivationFailureObservation();
 
@@ -458,6 +459,76 @@ internal static class DocumentTabNavigationRegression
                 create.Contains("new NativeRendererSession(handle, childHwnd)", StringComparison.Ordinal) &&
                 create.Contains("NativeRendererNative.Destroy", StringComparison.Ordinal),
             "Session creation must guard child HWND lookup and callback registration with cleanup.");
+    }
+
+    private static void VerifyNativeSessionDisposalCleanup()
+    {
+        // Verify callback-detach failures still release the native renderer.
+        var steps = new List<string>();
+        NativeRendererSession.CompleteDisposal(
+            () => steps.Add("detach"),
+            () => steps.Add("destroy"));
+        Require(steps.SequenceEqual(new[] { "detach", "destroy" }),
+            "Normal disposal must detach callbacks before destroying the renderer.");
+
+        var detachFailure = new InvalidOperationException("injected callback detach failure");
+        var destroyFailure = new InvalidOperationException("injected native destroy failure");
+        Exception? observed = null;
+        steps.Clear();
+        try
+        {
+            NativeRendererSession.CompleteDisposal(
+                () => { steps.Add("detach"); throw detachFailure; },
+                () => steps.Add("destroy"));
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, detachFailure) &&
+                steps.SequenceEqual(new[] { "detach", "destroy" }),
+            "Callback detach failure must still destroy the renderer and preserve the error.");
+
+        observed = null;
+        steps.Clear();
+        try
+        {
+            NativeRendererSession.CompleteDisposal(
+                () => steps.Add("detach"),
+                () => { steps.Add("destroy"); throw destroyFailure; });
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, destroyFailure) &&
+                steps.SequenceEqual(new[] { "detach", "destroy" }),
+            "A native destroy failure must remain observable.");
+
+        observed = null;
+        steps.Clear();
+        try
+        {
+            NativeRendererSession.CompleteDisposal(
+                () => { steps.Add("detach"); throw detachFailure; },
+                () => { steps.Add("destroy"); throw destroyFailure; });
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, detachFailure) &&
+                steps.SequenceEqual(new[] { "detach", "destroy" }),
+            "A second cleanup failure must not replace the original callback failure.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs"));
+        string dispose = ExtractMethodBody(source, "public void Dispose()");
+        Require(dispose.Contains("CompleteDisposal(", StringComparison.Ordinal) &&
+                dispose.Contains("NativeRendererNative.Destroy(renderer)", StringComparison.Ordinal) &&
+                dispose.IndexOf("_renderer = nint.Zero;", StringComparison.Ordinal) <
+                dispose.IndexOf("CompleteDisposal(", StringComparison.Ordinal),
+            "The real Dispose path must invalidate its handle before failure-safe cleanup.");
     }
 
     private static void VerifyRapidNavigation()

@@ -550,6 +550,40 @@ internal sealed class NativeRendererSession : IDisposable
         double worldDy) =>
         EditorActionRequested?.Invoke(PositionTrackDragRequest(firstFloor, lastFloor, worldDx, worldDy));
 
+    // A failed native callback unregister must not prevent releasing the
+    // renderer. Preserve the original exception if destruction also fails.
+    // The delegates make the failure paths testable without a native HWND.
+    internal static void CompleteDisposal(Action unregisterCallbacks, Action destroy)
+    {
+        ArgumentNullException.ThrowIfNull(unregisterCallbacks);
+        ArgumentNullException.ThrowIfNull(destroy);
+
+        Exception? unregisterFailure = null;
+        try
+        {
+            unregisterCallbacks();
+        }
+        catch (Exception ex)
+        {
+            unregisterFailure = ex;
+        }
+
+        try
+        {
+            destroy();
+        }
+        catch (Exception destroyError)
+        {
+            if (unregisterFailure is null)
+                throw;
+            Console.Error.WriteLine(
+                $"[native-session] destroy after callback cleanup failure: {destroyError}");
+        }
+
+        if (unregisterFailure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(unregisterFailure).Throw();
+    }
+
     public void Dispose()
     {
         ShutdownDiagnostics.Begin("NativeRendererSession.Dispose");
@@ -560,14 +594,26 @@ internal sealed class NativeRendererSession : IDisposable
             return;
         }
 
-        NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetPositionTrackDragCallback(renderer, null, nint.Zero);
+        // Mark the session as closed before invoking native cleanup so a
+        // failed callback detach cannot expose a half-disposed renderer.
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
-        NativeRendererNative.Destroy(renderer);
-        GC.SuppressFinalize(this);
-        ShutdownDiagnostics.Complete("NativeRendererSession.Dispose");
+        try
+        {
+            CompleteDisposal(
+                unregisterCallbacks: () =>
+                {
+                    NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetPositionTrackDragCallback(renderer, null, nint.Zero);
+                },
+                destroy: () => NativeRendererNative.Destroy(renderer));
+        }
+        finally
+        {
+            GC.SuppressFinalize(this);
+            ShutdownDiagnostics.Complete("NativeRendererSession.Dispose");
+        }
     }
 }
