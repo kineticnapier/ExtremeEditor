@@ -441,6 +441,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_OVERFLOW_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabOverflowRegression.Run();
+                Console.WriteLine("PASS: tab strip overflow navigation contract.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CYCLE_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -951,6 +961,7 @@ internal static class Program
             DocumentTabSwitchCacheRegression.Run();
             NativeSceneReuseRegression.Run();
             DocumentTabNavigationRegression.Run();
+            DocumentTabOverflowRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
