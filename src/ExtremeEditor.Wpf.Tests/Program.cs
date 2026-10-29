@@ -1004,6 +1004,7 @@ internal static class Program
             TemporalPlaybackRetentionRegression.Run();
             NativeRendererAbiRegression.Run();
             NativeRendererHostRegression.Run();
+            NativeDecorationFailureRegression.Run();
             CameraRuntimeTileReferenceRegression.Run();
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
