@@ -29,6 +29,26 @@ internal static class DocumentTabCloseRegression
         Require(close.Contains("_tabCloseOperationPending", StringComparison.Ordinal) &&
                 close.Contains("finally", StringComparison.Ordinal),
             "Concurrent close requests must not create multiple replacement tabs.");
+        Require(close.Contains("!await SaveAndCloseDocumentTabAsync(tab)", StringComparison.Ordinal) &&
+                !close.Contains("_ = SaveAndCloseDocumentTabAsync(tab)", StringComparison.Ordinal),
+            "Saving a dirty tab must be awaited under the same close-operation guard.");
+        int closeGuardStart = close.IndexOf("_tabCloseOperationPending = true", StringComparison.Ordinal);
+        int awaitedSave = close.IndexOf("await SaveAndCloseDocumentTabAsync(tab)", StringComparison.Ordinal);
+        int closeGuardEnd = close.IndexOf("_tabCloseOperationPending = false", StringComparison.Ordinal);
+        Require(closeGuardStart >= 0 && closeGuardStart < awaitedSave &&
+                awaitedSave < closeGuardEnd,
+            "The close guard must remain held until Save As finishes.");
+        Require(close.Contains("catch (Exception ex)", StringComparison.Ordinal) &&
+                close.Contains("Could not close", StringComparison.Ordinal),
+            "An exception in async-void tab closing must be reported without crashing the dispatcher.");
+        string saveAndClose = ExtractMethodBody(source,
+            "private async Task<bool> SaveAndCloseDocumentTabAsync(");
+        Require(saveAndClose.Contains("await ActivateDocumentTab(tab)", StringComparison.Ordinal) &&
+                saveAndClose.Contains("await SaveCurrentAsync(saveAs: false)", StringComparison.Ordinal) &&
+                saveAndClose.Contains("return saved && !tab.IsDirty", StringComparison.Ordinal) &&
+                saveAndClose.Contains("_documentTabs.Tabs.Contains(tab)", StringComparison.Ordinal) &&
+                !saveAndClose.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal),
+            "A canceled or failed Save As must keep the tab open without recursively closing it.");
         string create = ExtractMethodBody(source,
             "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync(");
         Require(create.Contains("await ActivateDocumentTab(tab)", StringComparison.Ordinal) &&
