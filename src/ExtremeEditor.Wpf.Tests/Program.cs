@@ -94,8 +94,6 @@ internal static class Program
                 TabPlaybackPreferenceRegression.Run();
                 UiSafetyIssueRegression.Run();
                 NativeSettingsFocusRegression.Run();
-            NativeSystemMenuRegression.Run();
-            SetSpeedEditorConversionRegression.Run();
                 NativeSystemMenuRegression.Run();
                 SetSpeedEditorConversionRegression.Run();
                 ManagedGeometryEditRegression.Run();
