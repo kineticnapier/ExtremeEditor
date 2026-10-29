@@ -891,6 +891,18 @@ void Renderer::SnapshotPositionTrackDragBaseLocked(
     }
 }
 
+bool Renderer::IsContiguousFloorSelectionLocked() const noexcept
+{
+    if (!selected_floors_ || selected_floors_->empty())
+        return false;
+
+    return std::adjacent_find(
+        selected_floors_->begin(),
+        selected_floors_->end(),
+        [](std::int32_t left, std::int32_t right) { return right != left + 1; }) ==
+        selected_floors_->end();
+}
+
 void Renderer::CancelPositionTrackDrag(HWND hwnd) noexcept
 {
     if (!position_drag_.Active()) return;
@@ -1149,6 +1161,8 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
                 if (selected_floors_ &&
                     std::binary_search(selected_floors_->begin(), selected_floors_->end(), selected))
                 {
+                    if (!IsContiguousFloorSelectionLocked())
+                        return 0;
                     first_floor = selected_floors_->front();
                     last_floor = selected_floors_->back();
                 }

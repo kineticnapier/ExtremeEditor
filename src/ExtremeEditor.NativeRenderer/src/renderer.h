@@ -104,6 +104,7 @@ private:
     ViewportInputTransform InputTransformLocked() const noexcept;
     void CancelPositionTrackDrag(HWND hwnd) noexcept;
     void SnapshotPositionTrackDragBaseLocked(std::int32_t first_floor, std::int32_t last_floor) noexcept;
+    [[nodiscard]] bool IsContiguousFloorSelectionLocked() const noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;
     void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;

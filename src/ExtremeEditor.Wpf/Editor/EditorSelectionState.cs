@@ -139,6 +139,25 @@ public sealed class EditorSelectionState
         SelectFloor(floor, extend ? ModifierKeys.Shift : ModifierKeys.None);
     }
 
+    internal bool TryGetContiguousDragRange(int draggedFloor, out int firstFloor, out int lastFloor)
+    {
+        firstFloor = -1;
+        lastFloor = -1;
+        if (!_selectedFloors.Contains(draggedFloor) || _selectedFloors.Count == 0)
+            return false;
+
+        firstFloor = _selectedFloors.Min;
+        lastFloor = _selectedFloors.Max;
+        if (lastFloor - firstFloor + 1 != _selectedFloors.Count)
+        {
+            firstFloor = -1;
+            lastFloor = -1;
+            return false;
+        }
+
+        return true;
+    }
+
     private void RaiseChangedIfNeeded(int[] before, int beforePrimary, int beforeAnchor)
     {
         if (beforePrimary == _primaryFloor &&

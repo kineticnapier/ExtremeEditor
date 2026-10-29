@@ -58,10 +58,13 @@ public partial class MainWindow
         {
             case NativeEditorAction.PositionTrackDrag:
             {
-                int lastFloor = request.LastFloor >= primary
-                    ? Math.Min(request.LastFloor, _level.FloorCount - 1)
-                    : primary;
-                if (editor.AddPositionTrackRangeFromDrag(primary, lastFloor, request.Value, request.ValueY))
+                if (!_selection.TryGetContiguousDragRange(primary, out int firstFloor, out int lastFloor) ||
+                    request.Floor != firstFloor || request.LastFloor != lastFloor)
+                {
+                    break;
+                }
+
+                if (editor.AddPositionTrackRangeFromDrag(firstFloor, lastFloor, request.Value, request.ValueY))
                     RefreshEditorAfterMutation(primary, selection);
                 break;
             }
