@@ -41,8 +41,13 @@ public partial class MainWindow
 
     private void CreateNewDocumentTab()
     {
+        _ = CreateNewDocumentTabAsync();
+    }
+
+    private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()
+    {
         if (!CanSwitchDocumentTabs())
-            return;
+            return null;
 
         EnsureEditorSession();
 
@@ -59,10 +64,22 @@ public partial class MainWindow
         if (!_documentTabs.Add(tab, activate: false))
         {
             tab.Audio.Dispose();
-            return;
+            return null;
         }
 
-        _ = ActivateDocumentTab(tab);
+        bool activated = await ActivateDocumentTab(tab);
+        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+        {
+            // A failed or superseded activation must not leave an orphan tab.
+            if (_documentTabs.Remove(tab))
+            {
+                tab.Audio?.Dispose();
+                RefreshActiveDocumentTab();
+            }
+            return null;
+        }
+
+        return tab;
     }
 
     private bool CanSwitchDocumentTabs(bool allowDuringWindowClose = false)
@@ -240,6 +257,20 @@ public partial class MainWindow
     }
 
     private bool _tabCloseSavePending;
+    private bool _tabCloseOperationPending;
+
+    // Wait for the replacement to become active before removing the final tab.
+    // This is separate from native preparation so delayed activation can be tested.
+    internal static async Task<bool> TryActivateReplacementAsync(
+        EditorDocumentTabs tabs,
+        EditorDocumentTab closing,
+        Func<Task<EditorDocumentTab?>> activateReplacement)
+    {
+        EditorDocumentTab? replacement = await activateReplacement();
+        return replacement is not null &&
+               tabs.Tabs.Contains(closing) &&
+               ReferenceEquals(tabs.ActiveTab, replacement);
+    }
 
     private Task<bool> ConfirmUnsavedTabsBeforeCloseAsync() =>
         UnsavedDocumentCloseCoordinator.ConfirmAsync(
@@ -275,64 +306,62 @@ public partial class MainWindow
 
     private async void CloseDocumentTab(EditorDocumentTab tab)
     {
-        if (_tabCloseSavePending || !CanSwitchDocumentTabs() ||
-            !_documentTabs.Tabs.Contains(tab))
+        if (_tabCloseOperationPending || _tabCloseSavePending ||
+            !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
             return;
 
-        if (tab.IsDirty)
+        _tabCloseOperationPending = true;
+        try
         {
-            MessageBoxResult answer = MessageBox.Show(
-                this,
-                string.Format(WelcomeText("closequestion"), tab.DisplayName),
-                WelcomeText("unsaved"),
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Warning);
+            if (tab.IsDirty)
+            {
+                MessageBoxResult answer = MessageBox.Show(
+                    this,
+                    string.Format(WelcomeText("closequestion"), tab.DisplayName),
+                    WelcomeText("unsaved"),
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Warning);
 
-            if (answer == MessageBoxResult.Cancel)
-                return;
-            if (answer == MessageBoxResult.Yes)
-            {
-                _ = SaveAndCloseDocumentTabAsync(tab);
-                return;
-            }
-        }
-
-        // Select the surviving tab first; removing an active tab from the
-        // model without a workspace switch would desynchronize the viewport.
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab))
-        {
-            int index = _documentTabs.Tabs.ToList().IndexOf(tab);
-            if (_documentTabs.Tabs.Count == 1)
-            {
-                StopPlayback();
-                _editor?.Changed -= ActiveEditorSessionChanged;
-                _editor = null;
-                _level = null;
-                _timingMap = null;
-                _hitSoundTimeline = null;
-                _documentTabs.Remove(tab);
-                tab.Audio?.Dispose();
-                _audio = new AudioPlayer();
-                ShowWelcomePage();
-                RefreshActiveDocumentTab();
-                CommandManager.InvalidateRequerySuggested();
-                return;
-            }
-            else
-            {
-                EditorDocumentTab next = _documentTabs.Tabs[
-                    index + 1 < _documentTabs.Tabs.Count ? index + 1 : index - 1];
-                await ActivateDocumentTab(next);
+                if (answer == MessageBoxResult.Cancel)
+                    return;
+                if (answer == MessageBoxResult.Yes)
+                {
+                    _ = SaveAndCloseDocumentTabAsync(tab);
+                    return;
+                }
             }
 
+            // Switching is asynchronous: do not remove the final chart until
+            // the replacement has actually become the active workspace.
             if (ReferenceEquals(_documentTabs.ActiveTab, tab))
-                return;
-        }
+            {
+                int index = _documentTabs.Tabs.ToList().IndexOf(tab);
+                if (_documentTabs.Tabs.Count == 1)
+                {
+                    if (!await TryActivateReplacementAsync(
+                            _documentTabs, tab, CreateNewDocumentTabAsync))
+                        return;
+                }
+                else
+                {
+                    EditorDocumentTab next = _documentTabs.Tabs[
+                        index + 1 < _documentTabs.Tabs.Count ? index + 1 : index - 1];
+                    await ActivateDocumentTab(next);
+                }
 
-        if (_documentTabs.Remove(tab))
+                if (ReferenceEquals(_documentTabs.ActiveTab, tab))
+                    return;
+            }
+
+            if (_documentTabs.Remove(tab))
+            {
+                tab.Audio?.Dispose();
+                RefreshActiveDocumentTab();
+            }
+        }
+        finally
         {
-            tab.Audio?.Dispose();
-            RefreshActiveDocumentTab();
+            _tabCloseOperationPending = false;
         }
     }
 
