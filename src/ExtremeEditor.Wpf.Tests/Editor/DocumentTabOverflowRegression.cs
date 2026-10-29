@@ -28,6 +28,8 @@ internal static class DocumentTabOverflowRegression
 
         Require((string?)add.Attribute("DockPanel.Dock") == "Right",
             "New tab must stay visible independently of tab-list overflow.");
+        Require((string?)add.Attribute("AutomationProperties.Name") == "New chart tab",
+            "The fixed new-tab button must have an accessible name.");
         Require(ReferenceEquals(children[^1], scroll) &&
                 (string?)host.Attribute("Orientation") == "Horizontal",
             "The horizontal tab host must be the fill child of the DockPanel.");
@@ -41,12 +43,14 @@ internal static class DocumentTabOverflowRegression
                     "DocumentTabsScrollViewerSizeChanged",
             "Mouse wheel and window resize must keep overflow navigation working.");
 
-        foreach (string handler in new[] {
-            "ScrollDocumentTabsLeftClick", "ScrollDocumentTabsRightClick" })
+        foreach ((string handler, string name) in new[] {
+            ("ScrollDocumentTabsLeftClick", "Scroll chart tabs left"),
+            ("ScrollDocumentTabsRightClick", "Scroll chart tabs right") })
         {
             Require(children.Any(element => (string?)element.Attribute("Click") == handler &&
-                (string?)element.Attribute("DockPanel.Dock") == "Right"),
-                "Both scroll buttons must remain visible outside the scroll viewport.");
+                (string?)element.Attribute("DockPanel.Dock") == "Right" &&
+                (string?)element.Attribute("AutomationProperties.Name") == name),
+                "Both scroll buttons must remain visible and accessible outside the scroll viewport.");
         }
 
         string code = File.ReadAllText(FindSourceFile(
