@@ -218,6 +218,26 @@ int main()
         return 1;
     }
 
+    float camera_x = 0.0f;
+    float camera_y = 0.0f;
+    float camera_zoom = 0.0f;
+    if (ee_renderer_set_editor_camera(headless, 12.5f, -8.25f, 64.0f) != EE_OK ||
+        ee_renderer_get_editor_camera(headless, &camera_x, &camera_y, &camera_zoom) != EE_OK ||
+        std::abs(camera_x - 12.5f) > epsilon ||
+        std::abs(camera_y + 8.25f) > epsilon ||
+        std::abs(camera_zoom - 64.0f) > epsilon)
+    {
+        std::cerr << "Editor camera state did not round-trip through the additive ABI.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (ee_renderer_set_editor_camera(headless, 0.0f, 0.0f, 0.0f) == EE_OK)
+    {
+        std::cerr << "Editor camera accepted an invalid zoom.\n";
+        destroy_headless();
+        return 1;
+    }
+
     const std::filesystem::path invalid_decoration =
         std::filesystem::temp_directory_path() / "extreme-editor-invalid-decoration.png";
     {

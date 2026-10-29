@@ -1,6 +1,7 @@
 using System.IO;
 using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf;
 
@@ -32,6 +33,7 @@ internal sealed class EditorDocumentTab
     internal int[] SelectedFloors { get; set; } = [0];
     internal int PrimaryFloor { get; set; } = 0;
     internal int? SelectedEventSourceIndex { get; set; }
+    internal NativeEditorCameraState? EditorCamera { get; set; }
     internal Dictionary<int, string> PendingRawEventJson { get; } = [];
 
     internal bool IsDirty => Editor.IsDirty || PendingRawEventJson.Count > 0;

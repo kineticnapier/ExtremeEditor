@@ -492,6 +492,23 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.CenterAt(_renderer, worldX, worldY);
     }
 
+    internal bool TryGetEditorCamera(out NativeEditorCameraState state)
+    {
+        state = default;
+        if (_renderer == nint.Zero ||
+            NativeRendererNative.GetEditorCamera(_renderer, out float x, out float y, out float zoom) != 0)
+        {
+            return false;
+        }
+
+        state = new NativeEditorCameraState(x, y, zoom);
+        return true;
+    }
+
+    internal bool SetEditorCamera(NativeEditorCameraState state) =>
+        _renderer != nint.Zero &&
+        NativeRendererNative.SetEditorCamera(_renderer, state.X, state.Y, state.Zoom) == 0;
+
     private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers) =>
         SelectionChanged?.Invoke(floor, modifiers);
 

@@ -500,6 +500,10 @@ EE_RENDERER_API void ee_renderer_clear_decoration_assets(EeRendererHandle render
 EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_center_at(EeRendererHandle renderer, float world_x, float world_y);
+EE_RENDERER_API EeResult ee_renderer_get_editor_camera(
+    EeRendererHandle renderer, float* world_x, float* world_y, float* zoom);
+EE_RENDERER_API EeResult ee_renderer_set_editor_camera(
+    EeRendererHandle renderer, float world_x, float world_y, float zoom);
 EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
 EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     EeRendererHandle renderer,

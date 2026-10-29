@@ -93,6 +93,12 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_center_at", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CenterAt(nint renderer, float worldX, float worldY);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_get_editor_camera", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int GetEditorCamera(nint renderer, out float worldX, out float worldY, out float zoom);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_camera", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetEditorCamera(nint renderer, float worldX, float worldY, float zoom);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_clear_icon_assets", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ClearIconAssets(nint renderer);
 

@@ -172,6 +172,7 @@ public partial class MainWindow
             previous.PrimaryFloor = _selection.PrimaryFloor;
             previous.SelectedEventSourceIndex =
                 (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
+            previous.EditorCamera = NativeViewport.TryGetEditorCamera();
         }
 
         _editorPlaybackRefreshTimer?.Stop();
@@ -222,6 +223,10 @@ public partial class MainWindow
         _selection.SetFloorCount(tab.Document.FloorCount);
         _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
         NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+        if (tab.EditorCamera is Native.NativeEditorCameraState editorCamera)
+            NativeViewport.RestoreEditorCamera(editorCamera);
+        else
+            NativeViewport.CenterFloor(_selection.PrimaryFloor);
         NativeViewport.ClearPlayback();
 
         _editor.Changed += ActiveEditorSessionChanged;

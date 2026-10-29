@@ -261,6 +261,32 @@ void Renderer::CenterAt(float world_x, float world_y) noexcept
     camera_y_ = world_y;
 }
 
+bool Renderer::TryGetEditorCamera(float& world_x, float& world_y, float& zoom) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    if (!scene_ || !std::isfinite(camera_x_) || !std::isfinite(camera_y_) || !std::isfinite(zoom_))
+        return false;
+
+    world_x = camera_x_;
+    world_y = camera_y_;
+    zoom = zoom_;
+    return true;
+}
+
+bool Renderer::SetEditorCamera(float world_x, float world_y, float zoom) noexcept
+{
+    if (!std::isfinite(world_x) || !std::isfinite(world_y) || !std::isfinite(zoom) || zoom <= 0.0f)
+        return false;
+
+    std::lock_guard lock(scene_mutex_);
+    if (!scene_)
+        return false;
+    camera_x_ = world_x;
+    camera_y_ = world_y;
+    zoom_ = std::clamp(zoom, 0.05f, 400.0f);
+    return true;
+}
+
 void Renderer::ClearIconAssets() noexcept
 {
     std::lock_guard lock(scene_mutex_);

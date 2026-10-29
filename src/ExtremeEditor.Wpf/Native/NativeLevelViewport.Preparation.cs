@@ -344,6 +344,14 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session?.CenterAt(target.X, target.Y);
     }
 
+    internal NativeEditorCameraState? TryGetEditorCamera() =>
+        _session is not null && _session.TryGetEditorCamera(out NativeEditorCameraState state)
+            ? state
+            : null;
+
+    internal bool RestoreEditorCamera(NativeEditorCameraState state) =>
+        _session?.SetEditorCamera(state) == true;
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
         uint width = ToPixelExtent(ActualWidth);

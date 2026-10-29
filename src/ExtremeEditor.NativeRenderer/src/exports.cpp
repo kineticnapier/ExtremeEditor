@@ -242,6 +242,32 @@ void ee_renderer_frame_all(EeRendererHandle renderer)
         static_cast<ee::Renderer*>(renderer)->FrameAll();
 }
 
+EeResult ee_renderer_get_editor_camera(
+    EeRendererHandle renderer,
+    float* world_x,
+    float* world_y,
+    float* zoom)
+{
+    if (renderer == nullptr || world_x == nullptr || world_y == nullptr || zoom == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->TryGetEditorCamera(*world_x, *world_y, *zoom)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
+}
+
+EeResult ee_renderer_set_editor_camera(
+    EeRendererHandle renderer,
+    float world_x,
+    float world_y,
+    float zoom)
+{
+    if (renderer == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->SetEditorCamera(world_x, world_y, zoom)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
+}
+
 EeResult ee_renderer_update_floor_icons(
     EeRendererHandle renderer,
     uint32_t start_floor,

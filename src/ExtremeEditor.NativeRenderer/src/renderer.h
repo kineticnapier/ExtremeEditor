@@ -60,6 +60,8 @@ public:
     bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
     void FrameAll() noexcept;
     void CenterAt(float world_x, float world_y) noexcept;
+    bool TryGetEditorCamera(float& world_x, float& world_y, float& zoom) noexcept;
+    bool SetEditorCamera(float world_x, float world_y, float zoom) noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(
         std::uint32_t icon_id,
