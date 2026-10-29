@@ -30,7 +30,7 @@ internal static class DocumentTabNavigationRegression
             "Cycling must be disabled during blocked switches or with fewer than two tabs.");
         Require(cycle.Contains("SelectNextDocumentTab(", StringComparison.Ordinal) &&
                 cycle.Contains("_pendingTabNavigationTarget = next", StringComparison.Ordinal) &&
-                cycle.Contains("ActivateDocumentTab(next, fromTabCycle: true)", StringComparison.Ordinal),
+                cycle.Contains("RequestDocumentTabActivation(next, fromTabCycle: true)", StringComparison.Ordinal),
             "Repeated Ctrl+Tab must track its pending target and use the existing activation path.");
 
         string select = ExtractMethodBody(source, "internal static EditorDocumentTab? SelectNextDocumentTab(");
@@ -69,6 +69,7 @@ internal static class DocumentTabNavigationRegression
             "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
         VerifyNativeUploadRollback();
         VerifyRapidNavigation();
+        VerifyActivationFailureObservation();
 
         string bridge = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs"));
@@ -138,6 +139,45 @@ internal static class DocumentTabNavigationRegression
             out uploadError, out restoreError);
         Require(ok && steps.SequenceEqual(new[] { "level" }),
             "Deferred playback uploads must succeed without a playback timeline.");
+    }
+
+    private static void VerifyActivationFailureObservation()
+    {
+        Exception? observed = null;
+        int notifications = 0;
+        void Report(Exception ex)
+        {
+            observed = ex;
+            notifications++;
+        }
+
+        MainWindow.ObserveDocumentTabActivationAsync(
+            () => Task.FromResult(true), Report).GetAwaiter().GetResult();
+        MainWindow.ObserveDocumentTabActivationAsync(
+            () => Task.FromResult(false), Report).GetAwaiter().GetResult();
+        Require(observed is null && notifications == 0,
+            "Successful or canceled tab activation must not report an exception.");
+
+        var asyncFailure = new InvalidOperationException("injected asynchronous failure");
+        MainWindow.ObserveDocumentTabActivationAsync(
+            () => Task.FromException<bool>(asyncFailure), Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, asyncFailure) && notifications == 1,
+            "A faulted activation task must be observed exactly once.");
+
+        var syncFailure = new InvalidOperationException("injected synchronous failure");
+        MainWindow.ObserveDocumentTabActivationAsync(
+            () => throw syncFailure, Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, syncFailure) && notifications == 2,
+            "A synchronous activation failure must also be observed exactly once.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string observer = ExtractMethodBody(source,
+            "private async void RequestDocumentTabActivation(");
+        Require(observer.Contains("await ObserveDocumentTabActivationAsync(", StringComparison.Ordinal) &&
+                observer.Contains("Could not activate", StringComparison.Ordinal) &&
+                observer.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
+            "WPF tab activation must display failures and clear stale Ctrl+Tab targets.");
     }
 
     private static void VerifyRapidNavigation()

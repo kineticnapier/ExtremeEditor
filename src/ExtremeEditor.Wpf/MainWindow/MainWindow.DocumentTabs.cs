@@ -386,7 +386,40 @@ public partial class MainWindow
             return;
 
         _pendingTabNavigationTarget = next;
-        _ = ActivateDocumentTab(next, fromTabCycle: true);
+        RequestDocumentTabActivation(next, fromTabCycle: true);
+    }
+
+    // WPF tab clicks and Ctrl+Tab must observe exceptions that occur after
+    // preparation (for example, during audio or inspector refresh).
+    private async void RequestDocumentTabActivation(
+        EditorDocumentTab tab, bool fromTabCycle = false)
+    {
+        await ObserveDocumentTabActivationAsync(
+            () => ActivateDocumentTab(tab, fromTabCycle: fromTabCycle),
+            ex =>
+            {
+                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+                if (!_isClosed)
+                    StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+            });
+    }
+
+    // Separate the exception-observation boundary so it can be exercised
+    // without creating a WPF window or a native renderer.
+    internal static async Task ObserveDocumentTabActivationAsync(
+        Func<Task<bool>> activate, Action<Exception> reportFailure)
+    {
+        ArgumentNullException.ThrowIfNull(activate);
+        ArgumentNullException.ThrowIfNull(reportFailure);
+        try
+        {
+            await activate();
+        }
+        catch (Exception ex)
+        {
+            reportFailure(ex);
+        }
     }
 
     private void ApplySharedPlaybackPreferences(AudioPlayer player)
@@ -630,7 +663,7 @@ public partial class MainWindow
             Margin = new Thickness(0), Padding = new Thickness(12, 2, 6, 2),
             Background = Brushes.Transparent
         };
-        activate.Click += (_, _) => _ = ActivateDocumentTab(tab);
+        activate.Click += (_, _) => RequestDocumentTabActivation(tab);
         var close = new Button
         {
             Content = "×", FontSize = 14, MinWidth = 25, MinHeight = 26,
