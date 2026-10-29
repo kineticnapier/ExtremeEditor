@@ -87,6 +87,62 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         return framesToRead * channels;
     }
 
+    // Advance the transport clock without decoding PCM or mixing any voices.
+    // The final hit tail still determines the silent transport duration.
+    internal int AdvanceMuted(int requestedFrames)
+    {
+        if (requestedFrames <= 0)
+            return 0;
+
+        int frames = CalculateReadableFrames(requestedFrames);
+        _outputPositionFrames += frames;
+        _activeVoices.Clear();
+        _identitySourcePcmFastPath = false;
+        return frames;
+    }
+
+    // Called by the audio callback on the first audible block after muting.
+    // Rebuild only voices overlapping that block; never replay elapsed hits.
+    internal void ResumeAfterMute()
+    {
+        if (_sourcePcm is not null && _segments.Count == 1 &&
+            Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon)
+        {
+            long sourceFrame = Math.Clamp(
+                (long)Math.Round(OutputToSource(_outputPositionFrames),
+                    MidpointRounding.AwayFromZero), 0, _totalSourceFrames);
+            _sourcePcm.Seek(sourceFrame);
+            _identitySourcePcmFastPath = true;
+            _activeVoices.Clear();
+            _nextHitIndex = LowerBound(sourceFrame);
+            return;
+        }
+
+        _identitySourcePcmFastPath = false;
+        int low = 0;
+        int high = _hits.Count;
+        while (low < high)
+        {
+            int middle = low + ((high - low) >> 1);
+            if (SourceToOutput(_hits[middle].StartFrame) < _outputPositionFrames)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+
+        _nextHitIndex = low;
+        _activeVoices.Clear();
+        for (int index = low - 1; index >= 0; index--)
+        {
+            SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[index];
+            long start = SourceToOutput(hit.StartFrame);
+            if (_outputPositionFrames - start >= _maxClipFrames)
+                break;
+            if (EndOfVoice(start, hit.Clip.FrameCount) > _outputPositionFrames)
+                _activeVoices.Add(new ActiveVoice(hit, start));
+        }
+    }
+
     private int CalculateReadableFrames(int requestedFrames)
     {
         // Preserve the song's transport duration as well as all hit tails.
