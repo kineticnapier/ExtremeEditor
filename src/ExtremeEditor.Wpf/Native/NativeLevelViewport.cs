@@ -100,16 +100,44 @@ public sealed partial class NativeLevelViewport
 
     internal void SetPreparedLevel(LevelDocument level, PreparedNativeLevel prepared)
     {
+        SetPreparedLevelCore(level, prepared, (snapshot, selectedFloors, primaryFloor) =>
+        {
+            if (_session is not null)
+            {
+                _session.SetLevel(snapshot, useCache: true);
+                _session.SetSelection(selectedFloors, primaryFloor);
+            }
+        });
+    }
+
+    // A native upload may throw after changing part of the renderer. Do not
+    // commit the viewport's managed document/snapshot until both uploads pass:
+    // the caller can then attempt rollback using the previous managed scene.
+    // The upload delegate also permits fault injection without a native HWND.
+    internal void SetPreparedLevelCore(
+        LevelDocument level,
+        PreparedNativeLevel prepared,
+        Action<NativeLevelSnapshot, int[], int> upload)
+    {
         ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
 
         bool changedDocument = !ReferenceEquals(_level, level);
+        int[] selectedFloors = changedDocument ? [] : _selectedFloors;
+        int primaryFloor = changedDocument ? -1 : _primarySelection;
+
+        var uploadWatch = Stopwatch.StartNew();
+        upload(prepared.Snapshot, selectedFloors, primaryFloor);
+        uploadWatch.Stop();
+
+        // Only a successful upload may replace the active managed scene.
         _level = level;
         _snapshot = prepared.Snapshot;
         if (changedDocument)
         {
-            _selectedFloors = [];
-            _primarySelection = -1;
+            _selectedFloors = selectedFloors;
+            _primarySelection = primaryFloor;
             _cameraTimeline = [];
             _flashTimeline = [];
             _bloomTimeline = [];
@@ -121,14 +149,6 @@ public sealed partial class NativeLevelViewport
             _trackAnimationTimeline = [];
             _trackAnimationTimings = [];
         }
-
-        var uploadWatch = Stopwatch.StartNew();
-        if (_session is not null)
-        {
-            _session.SetLevel(_snapshot, useCache: true);
-            _session.SetSelection(_selectedFloors, _primarySelection);
-        }
-        uploadWatch.Stop();
 
         NativeLevelSnapshotBuildMetrics metrics = prepared.BuildMetrics;
         LastLevelUploadMetrics = new NativeLevelUploadMetrics(
