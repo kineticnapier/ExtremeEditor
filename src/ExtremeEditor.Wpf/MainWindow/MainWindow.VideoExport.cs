@@ -74,7 +74,7 @@ public partial class MainWindow
                 return;
         }
 
-        string chartPath = Path.GetFullPath(_level.SourcePath);
+        string chartPath = Path.GetFullPath(exportTab.Document.SourcePath);
         if (!File.Exists(chartPath))
         {
             MessageBox.Show(
