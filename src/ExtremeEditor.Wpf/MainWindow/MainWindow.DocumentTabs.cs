@@ -16,6 +16,7 @@ public partial class MainWindow
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
     private int _tabActivationGeneration;
+    private EditorDocumentTab? _lastScrolledDocumentTab;
 
     private void ActiveEditorSessionChanged(object? sender, EventArgs e)
     {
@@ -429,6 +430,53 @@ public partial class MainWindow
                 : new SolidColorBrush(Color.FromRgb(192, 199, 209));
             visual.Close.ToolTip = $"Close {tab.DisplayName}";
         }
+
+        EditorDocumentTab? active = _documentTabs.ActiveTab;
+        if (!ReferenceEquals(_lastScrolledDocumentTab, active))
+        {
+            _lastScrolledDocumentTab = active;
+            QueueActiveDocumentTabIntoView();
+        }
+    }
+
+    private void DocumentTabsScrollViewerSizeChanged(object sender, SizeChangedEventArgs e) =>
+        QueueActiveDocumentTabIntoView();
+
+    private void ScrollDocumentTabsLeftClick(object sender, RoutedEventArgs e) =>
+        ScrollDocumentTabsBy(-Math.Max(120.0, DocumentTabsScrollViewer.ViewportWidth * 0.65));
+
+    private void ScrollDocumentTabsRightClick(object sender, RoutedEventArgs e) =>
+        ScrollDocumentTabsBy(Math.Max(120.0, DocumentTabsScrollViewer.ViewportWidth * 0.65));
+
+    private void DocumentTabsScrollViewerPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (DocumentTabsScrollViewer.ScrollableWidth <= 0.0)
+            return;
+
+        ScrollDocumentTabsBy(-e.Delta);
+        e.Handled = true;
+    }
+
+    private void ScrollDocumentTabsBy(double delta)
+    {
+        double offset = Math.Clamp(
+            DocumentTabsScrollViewer.HorizontalOffset + delta,
+            0.0,
+            DocumentTabsScrollViewer.ScrollableWidth);
+        DocumentTabsScrollViewer.ScrollToHorizontalOffset(offset);
+    }
+
+    private void QueueActiveDocumentTabIntoView()
+    {
+        // Wait for layout after insertion, activation or a window-size change.
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (_isClosed)
+                return;
+            if (_documentTabs.ActiveTab is EditorDocumentTab tab &&
+                _documentTabVisuals.TryGetValue(tab, out DocumentTabVisual? visual))
+                visual.Chrome.BringIntoView();
+        }));
     }
 
     private DocumentTabVisual CreateDocumentTabVisual(EditorDocumentTab tab)
