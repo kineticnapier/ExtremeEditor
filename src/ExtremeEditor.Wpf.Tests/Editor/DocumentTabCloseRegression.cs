@@ -106,6 +106,11 @@ internal static class DocumentTabCloseRegression
                 tabs.Tabs.Count == 1 &&
                 ReferenceEquals(tabs.ActiveTab, replacement),
             "failed activation must leave the existing tab intact");
+
+        Task<bool> sameTab = MainWindow.TryActivateReplacementAsync(
+            tabs, replacement, () => Task.FromResult<EditorDocumentTab?>(replacement));
+        Require(!sameTab.GetAwaiter().GetResult(),
+            "the closing tab cannot count as its own replacement");
     }
 
     private static void Require(bool condition, string message)
