@@ -175,12 +175,71 @@ public partial class MainWindow
         tab.TimingMap = targetTimingMap;
         tab.HitSoundTimeline = targetHitSoundTimeline;
 
-        // Resolve a pending edit's playback timing before leaving the current
-        // chart, so no deferred timer can update a different tab afterwards.
+        // Finish any pending edits while the old tab is still active. The
+        // native upload must succeed before committing the managed tab switch.
         FlushEditorPlaybackRefresh();
-        StopPlayback();
-
         EditorDocumentTab? previous = _documentTabs.ActiveTab;
+        Native.PreparedNativeLevel nativeLevel = await levelPreparation;
+        Native.PreparedNativePlayback? nativePlayback = deferPlaybackTimeline
+            ? null : await playbackPreparation!;
+
+        NativeLevelLoadMetrics levelMetrics = default;
+        double levelWaitMs = preparationWaitMs;
+        double levelUploadMs = 0.0;
+        double playbackWaitMs = nativePlayback.HasValue ? preparationWaitMs : 0.0;
+        double playbackUploadMs = 0.0;
+        var uploadWatch = new Stopwatch();
+        Action? uploadPlayback = null;
+        if (nativePlayback is Native.PreparedNativePlayback playback)
+        {
+            uploadPlayback = () =>
+            {
+                uploadWatch.Restart();
+                NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
+                playbackUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+            };
+        }
+
+        bool uploaded = TryUploadDocumentTabScene(
+            uploadLevel: () =>
+            {
+                uploadWatch.Restart();
+                levelMetrics = NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
+                levelUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+            },
+            uploadPlayback: uploadPlayback,
+            restorePrevious: () =>
+            {
+                if (previous is null)
+                    return;
+
+                // The target may have changed the renderer before throwing.
+                // Reapply the old level, timelines and selection, even when
+                // only a later timeline upload failed.
+                NativeViewport.SetLevelProfiled(previous.Document);
+                if (_timingMap is TimingMap previousTiming)
+                    NativeViewport.SetPlaybackTimelineProfiled(previousTiming);
+                NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+            },
+            out Exception? uploadError,
+            out Exception? restoreError);
+        if (!uploaded)
+        {
+            if (activationGeneration == _tabActivationGeneration && !_isClosed)
+            {
+                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+                string recovery = restoreError is null
+                    ? string.Empty
+                    : $" Renderer recovery also failed: {restoreError.Message}";
+                StatusText.Text = $"Could not activate {tab.DisplayName}: {uploadError!.Message}.{recovery}";
+            }
+            return false;
+        }
+
+        // Native state is ready. Only now stop the old audio and commit the
+        // new editor, document, audio and selection state.
+        StopPlayback();
         if (previous is not null)
         {
             previous.Audio = _audio;
@@ -205,32 +264,6 @@ public partial class MainWindow
         ApplySharedPlaybackPreferences(_audio);
         _timingMap = targetTimingMap;
         _hitSoundTimeline = targetHitSoundTimeline;
-
-        // NativeLevelViewport remains a single HWND. Restore the immutable
-        // prepared snapshot for this document instead of rebuilding the entire
-        // chart whenever the user returns to its tab.
-        Native.PreparedNativeLevel nativeLevel = await levelPreparation;
-        double levelWaitMs = preparationWaitMs;
-
-        var uploadWatch = Stopwatch.StartNew();
-        NativeLevelLoadMetrics levelMetrics =
-            NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
-        double levelUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
-
-        double playbackWaitMs = 0.0;
-        double playbackUploadMs = 0.0;
-        if (!deferPlaybackTimeline)
-        {
-            if (_timingMap is null)
-                throw new InvalidOperationException("Active tab has no playback timing map.");
-
-            Native.PreparedNativePlayback playback = await playbackPreparation!;
-            playbackWaitMs = preparationWaitMs;
-
-            uploadWatch.Restart();
-            NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
-            playbackUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
-        }
 
         Console.WriteLine(
             $"[tab-switch] chart={tab.DisplayName} " +
@@ -263,6 +296,41 @@ public partial class MainWindow
         if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
             _pendingTabNavigationTarget = null;
         return true;
+    }
+
+    // The upload may fail after changing only part of the shared native scene.
+    // Keep the managed tab unchanged and attempt to restore the old scene.
+    // A failed recovery is reported separately rather than hiding the cause.
+    internal static bool TryUploadDocumentTabScene(
+        Action uploadLevel,
+        Action? uploadPlayback,
+        Action restorePrevious,
+        out Exception? uploadError,
+        out Exception? restoreError)
+    {
+        ArgumentNullException.ThrowIfNull(uploadLevel);
+        ArgumentNullException.ThrowIfNull(restorePrevious);
+        uploadError = null;
+        restoreError = null;
+        try
+        {
+            uploadLevel();
+            uploadPlayback?.Invoke();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            uploadError = ex;
+            try
+            {
+                restorePrevious();
+            }
+            catch (Exception recoveryException)
+            {
+                restoreError = recoveryException;
+            }
+            return false;
+        }
     }
 
     internal static EditorDocumentTab? SelectNextDocumentTab(
