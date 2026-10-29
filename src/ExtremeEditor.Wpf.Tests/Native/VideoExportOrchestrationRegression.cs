@@ -138,7 +138,7 @@ internal static class VideoExportOrchestrationRegression
         string core = source[coreStart..nextMember];
         int guard = handler.IndexOf("_videoExportInProgress = true;", StringComparison.Ordinal);
         int disable = handler.IndexOf("ExportVideoMenuItem.IsEnabled = false;", StringComparison.Ordinal);
-        int tryStart = handler.IndexOf("try\n", StringComparison.Ordinal);
+        int tryStart = handler.IndexOf("        try", StringComparison.Ordinal);
         int awaitCore = handler.IndexOf("await ExportVideoCoreAsync();", StringComparison.Ordinal);
         int catchFailure = handler.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
         int cleanup = handler.IndexOf("finally", StringComparison.Ordinal);
