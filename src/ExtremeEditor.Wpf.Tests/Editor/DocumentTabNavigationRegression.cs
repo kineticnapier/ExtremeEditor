@@ -37,7 +37,14 @@ internal static class DocumentTabNavigationRegression
 
         string bridge = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs"));
-        Require(bridge.Contains("AdoFaiPreviewKeyDown(this, args)", StringComparison.Ordinal),
+        // Native HWND input now passes through the shared event-palette dispatcher,
+        // which delegates non-palette chords such as Ctrl+Tab to ADOFAI bindings.
+        string palette = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.EventQuickPicker.cs"));
+        Require(bridge.Contains(
+                    "HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true)",
+                    StringComparison.Ordinal) &&
+                palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
     }
 
