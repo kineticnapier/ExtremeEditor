@@ -235,53 +235,29 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetPlaybackTimeline(TimingMap timingMap)
     {
         ArgumentNullException.ThrowIfNull(timingMap);
-        _playbackAnchorGate.Invalidate();
 
-        var watch = Stopwatch.StartNew();
-        _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
-        if (_level is null)
+        // Build every timeline before changing the active viewport state.
+        // A builder exception must not leave playback timing from one chart
+        // combined with camera, filter or decoration data from another.
+        PreparedNativePlayback prepared;
+        if (_level is LevelDocument level)
         {
-            _cameraTimeline = [];
-            _flashTimeline = [];
-            _bloomTimeline = [];
-            _screenTileTimeline = [];
-            _filterTimeline = [];
-            _backgroundTimeline = [];
-            _trackTransformTimeline = [];
-            _trackVisualTimeline = [];
-            _trackAnimationTimeline = [];
-            _trackAnimationTimings = [];
+            prepared = PreparePlayback(level, timingMap);
         }
         else
         {
-            _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
-            NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
-            _flashTimeline = FlashTimelineBuilder.Build(_level, timingMap);
-            _bloomTimeline = BloomTimelineBuilder.Build(_level, timingMap);
-            _screenTileTimeline = ScreenTileTimelineBuilder.Build(_level, timingMap);
-            _filterTimeline = FilterTimelineBuilder.Build(_level, timingMap);
-            _backgroundTimeline = BackgroundTimelineBuilder.Build(_level, timingMap);
-            StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
-            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(_level, timingMap, staticTransforms);
-            _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
-            (_trackAnimationTimeline, _trackAnimationTimings) = TrackAnimationTimelineBuilder.Build(_level, timingMap);
+            // Before a chart is loaded only the timing map is meaningful.
+            var watch = Stopwatch.StartNew();
+            NativePlaybackTiming[] playback = NativePlaybackTimelineBuilder.Build(timingMap);
+            watch.Stop();
+            prepared = new PreparedNativePlayback(
+                playback, [], [], [], [], [], [], [], [], [], [],
+                watch.Elapsed);
         }
-        watch.Stop();
-        TimeSpan buildTime = watch.Elapsed;
 
-        watch.Restart();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
-        watch.Stop();
-        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(buildTime, watch.Elapsed);
+        // The shared upload path restores all managed timelines and invalidates
+        // the camera cache if a native upload fails partway through.
+        SetPreparedPlayback(prepared);
     }
 
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
