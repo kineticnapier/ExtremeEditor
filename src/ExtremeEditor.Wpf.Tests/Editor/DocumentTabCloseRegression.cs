@@ -49,12 +49,27 @@ internal static class DocumentTabCloseRegression
                 saveAndClose.Contains("_documentTabs.Tabs.Contains(tab)", StringComparison.Ordinal) &&
                 !saveAndClose.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal),
             "A canceled or failed Save As must keep the tab open without recursively closing it.");
+        string createCommand = ExtractMethodBody(source,
+            "private async void CreateNewDocumentTab(");
+        Require(createCommand.Contains("await CreateNewDocumentTabAsync()", StringComparison.Ordinal) &&
+                createCommand.Contains("catch (Exception ex)", StringComparison.Ordinal) &&
+                createCommand.Contains("Could not create tab", StringComparison.Ordinal),
+            "New-tab commands must observe exceptions rather than discard a faulted task.");
         string create = ExtractMethodBody(source,
             "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync(");
         Require(create.Contains("await ActivateDocumentTab(tab)", StringComparison.Ordinal) &&
                 create.Contains("return null;", StringComparison.Ordinal) &&
                 create.Contains("_documentTabs.Remove(tab)", StringComparison.Ordinal),
             "Failed or superseded new-tab activation must clean up its temporary tab.");
+        int activateNewTab = create.IndexOf("await ActivateDocumentTab(tab)", StringComparison.Ordinal);
+        int catchNewTab = create.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        int cleanupNewTab = create.IndexOf("_documentTabs.Remove(tab)", activateNewTab, StringComparison.Ordinal);
+        Require(activateNewTab >= 0 && catchNewTab > activateNewTab &&
+                cleanupNewTab > catchNewTab &&
+                create.Contains("!ReferenceEquals(_documentTabs.ActiveTab, tab)", StringComparison.Ordinal) &&
+                create.Contains("tab.Audio?.Dispose()", StringComparison.Ordinal) &&
+                create.Contains("Could not activate new tab", StringComparison.Ordinal),
+            "A failed new-tab activation must report the error and remove only inactive temporary tabs.");
         VerifyDelayedReplacement();
         Require(close.Contains("tab.Audio?.Dispose()", StringComparison.Ordinal),
             "Closing a tab must dispose its own audio player.");
