@@ -24,6 +24,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SONG_AUDIO_FALLBACK_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SongAudioFallbackRegression.Run();
+                Console.WriteLine("PASS: song decoder failure falls back to hitsound-only playback.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SETTINGS_FOCUS_ONLY"),
                 "1", StringComparison.Ordinal))
             {
