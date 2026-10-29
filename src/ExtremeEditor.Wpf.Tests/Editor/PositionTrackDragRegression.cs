@@ -120,6 +120,25 @@ internal static class PositionTrackDragRegression
         if (rangeEditor.GetActionsAtFloor(5).Count(action => action.EventType == "PositionTrack") != 1)
             throw new InvalidOperationException("selected-range Alt-drag must create a compensating PositionTrack after the last floor.");
 
+        var selection = new EditorSelectionState(16);
+        selection.SetSelection([10, 12], 10);
+        if (selection.TryGetContiguousDragRange(10, out _, out _))
+            throw new InvalidOperationException("discontiguous selection must reject Alt-drag instead of moving gaps.");
+
+        selection.SetSelection([10, 11, 12], 11);
+        if (!selection.TryGetContiguousDragRange(11, out int firstFloor, out int lastFloor) ||
+            firstFloor != 10 || lastFloor != 12)
+        {
+            throw new InvalidOperationException("contiguous selection lost its frozen Alt-drag range.");
+        }
+
+        selection.SetSelection([7], 7);
+        if (!selection.TryGetContiguousDragRange(7, out firstFloor, out lastFloor) ||
+            firstFloor != 7 || lastFloor != 7)
+        {
+            throw new InvalidOperationException("single-floor selection must remain draggable.");
+        }
+
         string saved = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-PositionTrackDrag-{Guid.NewGuid():N}.adofai");
         try
         {
@@ -177,6 +196,11 @@ internal static class PositionTrackDragRegression
         {
             throw new InvalidOperationException(
                 "native renderer lacks transient selected-range PositionTrack drag preview.");
+        }
+        if (!viewportSource.Contains("IsContiguousFloorSelectionLocked", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "native Alt-drag does not reject a discontiguous selected-floor set before preview.");
         }
     }
 
