@@ -435,16 +435,19 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             var snapshotWatch = Stopwatch.StartNew();
             NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(_level);
-            _snapshot = result.Snapshot;
+            // Do not publish an incomplete snapshot if decoration or background
+            // preparation fails. A later retry must rebuild the entire scene.
+            NativeLevelSnapshot pendingSnapshot = result.Snapshot;
             StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(_level);
-            _snapshot.StaticDecorations = decorationData.Instances;
-            _snapshot.DecorationAssets = decorationData.Assets;
-            _snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
+            pendingSnapshot.StaticDecorations = decorationData.Instances;
+            pendingSnapshot.DecorationAssets = decorationData.Assets;
+            pendingSnapshot.DecorationPlayback = decorationData.PlaybackRuntime;
             var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(_level);
             BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(_level);
-            _snapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
+            pendingSnapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
                 backgroundIds.TryGetValue(initialBackground.Image, out uint imageId) ? imageId : 0u);
-            _snapshot.BackgroundAssets = backgroundAssets;
+            pendingSnapshot.BackgroundAssets = backgroundAssets;
+            _snapshot = pendingSnapshot;
             buildMetrics = result.Metrics;
             snapshotWatch.Stop();
             snapshotBuild = snapshotWatch.Elapsed;
