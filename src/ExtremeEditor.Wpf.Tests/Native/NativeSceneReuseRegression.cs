@@ -18,6 +18,29 @@ internal static class NativeSceneReuseRegression
                 preparation.Contains("_session.SetLevel(_snapshot);", StringComparison.Ordinal),
             "Only prepared level uploads should opt into native scene reuse; ordinary uploads must remain uncached.");
 
+        // An ordinary scene rebuild can fail while resolving decorations or
+        // background assets. Do not cache a partially populated snapshot:
+        // otherwise a retry skips the missing preparation steps.
+        int uploadStart = preparation.IndexOf(
+            "private NativeLevelUploadMetrics UploadPendingLevel()", StringComparison.Ordinal);
+        int uploadEnd = preparation.IndexOf(
+            "private void UpdateDecorationPlayback(", uploadStart, StringComparison.Ordinal);
+        Require(uploadStart >= 0 && uploadEnd > uploadStart,
+            "The ordinary scene upload path must remain available for regression checks.");
+        string upload = preparation[uploadStart..uploadEnd];
+        int candidate = upload.IndexOf("NativeLevelSnapshot pendingSnapshot = result.Snapshot;",
+            StringComparison.Ordinal);
+        int decorations = upload.IndexOf("pendingSnapshot.DecorationPlayback = decorationData.PlaybackRuntime;",
+            StringComparison.Ordinal);
+        int background = upload.IndexOf("pendingSnapshot.BackgroundAssets = backgroundAssets;",
+            StringComparison.Ordinal);
+        int commit = upload.IndexOf("_snapshot = pendingSnapshot;", StringComparison.Ordinal);
+        int nativeUpload = upload.IndexOf("_session.SetLevel(_snapshot);", StringComparison.Ordinal);
+        Require(candidate >= 0 && candidate < decorations && decorations < background &&
+                background < commit && commit < nativeUpload &&
+                !upload.Contains("_snapshot = result.Snapshot;", StringComparison.Ordinal),
+            "A rebuilt snapshot must be committed only after decorations and background assets are ready.");
+
         string bridge = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererNative.cs");
         Require(bridge.Contains("TryActivateCachedLevel", StringComparison.Ordinal) &&
                 bridge.Contains("RememberCurrentLevel", StringComparison.Ordinal),
