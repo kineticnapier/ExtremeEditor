@@ -37,6 +37,10 @@ internal static class DocumentTabScaffoldRegression
                 tab.TimingMap is not null,
             "Per-document tab retains its own selection and playback timing.");
 
+        tab.EditorCamera = new ExtremeEditor.Wpf.Native.NativeEditorCameraState(12.5f, -8.25f, 64.0f);
+        Require(tab.EditorCamera is { X: 12.5f, Y: -8.25f, Zoom: 64.0f },
+            "Per-document tab retains its own editor camera and zoom.");
+
         var other = new LevelDocumentTabFixture();
         Require(!ReferenceEquals(tab.Document, other.Document) &&
                 !ReferenceEquals(tab.Editor, other.Tab.Editor),
@@ -85,6 +89,8 @@ internal static class DocumentTabScaffoldRegression
         Require(controller.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
                 controller.Contains("previous.Audio = _audio", StringComparison.Ordinal) &&
                 controller.Contains("previous.SelectedFloors = _selection.SelectedFloors.ToArray()", StringComparison.Ordinal) &&
+                controller.Contains("previous.EditorCamera = NativeViewport.TryGetEditorCamera", StringComparison.Ordinal) &&
+                controller.Contains("NativeViewport.RestoreEditorCamera", StringComparison.Ordinal) &&
                 controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
                 controller.Contains("_editor?.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
             "Switching tabs preserves the previous audio, selection and editor session.");
