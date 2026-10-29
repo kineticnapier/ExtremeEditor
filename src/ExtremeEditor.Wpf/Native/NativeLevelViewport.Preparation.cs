@@ -62,6 +62,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         typeof(NativeLevelViewport));
 
     private NativeRendererSession? _session;
+    private readonly NativePlaybackAnchorDispatchGate _playbackAnchorGate = new();
     private LevelDocument? _level;
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
@@ -143,6 +144,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
+        _playbackAnchorGate.Invalidate();
         bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
         _snapshot = null;
@@ -189,6 +191,7 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public void ReloadAssets()
     {
+        _playbackAnchorGate.Invalidate();
         _snapshot = null;
         LastLevelUploadMetrics = UploadPendingLevel();
     }
@@ -228,6 +231,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetPlaybackTimeline(TimingMap timingMap)
     {
         ArgumentNullException.ThrowIfNull(timingMap);
+        _playbackAnchorGate.Invalidate();
 
         var watch = Stopwatch.StartNew();
         _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
@@ -279,13 +283,17 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
     {
         UpdateDecorationPlayback(chartTime);
-        _session?.SetPlaybackAnchor(chartTime, chartRate, active, playing);
+        if (_session is NativeRendererSession session &&
+            _playbackAnchorGate.ShouldSend(chartTime, chartRate, active, playing))
+            session.SetPlaybackAnchor(chartTime, chartRate, active, playing);
     }
 
     public void ClearPlayback()
     {
         UpdateDecorationPlayback(double.NegativeInfinity);
-        _session?.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
+        if (_session is NativeRendererSession session &&
+            _playbackAnchorGate.ShouldSend(0.0, 1.0, active: false, playing: false))
+            session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
@@ -320,6 +328,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         uint width = ToPixelExtent(ActualWidth);
         uint height = ToPixelExtent(ActualHeight);
         _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+        _playbackAnchorGate.Invalidate();
         _session.SelectionChanged += NativeSelectionChanged;
         _session.FollowPlayerChanged += NativeFollowPlayerChanged;
         _session.EditorActionRequested += NativeEditorActionRequested;
@@ -366,6 +375,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         }
         _session?.Dispose();
         _session = null;
+        _playbackAnchorGate.Invalidate();
     }
 
     private void NativeSelectionChanged(int floor, uint nativeModifiers)

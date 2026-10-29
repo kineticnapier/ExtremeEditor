@@ -18,6 +18,7 @@ public sealed partial class NativeLevelViewport
         session.FollowPlayerChanged -= NativeFollowPlayerChanged;
         session.EditorActionRequested -= NativeEditorActionRequested;
         _session = null;
+        _playbackAnchorGate.Invalidate();
         session.Dispose();
         ShutdownDiagnostics.Complete("NativeViewport.ShutdownRenderer");
     }
