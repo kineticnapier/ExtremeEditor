@@ -12,8 +12,11 @@ internal static class NativeSceneReuseRegression
             "Each rebuilt snapshot needs a new cache identity so an edited tab cannot restore a stale native scene.");
 
         string viewport = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.cs");
-        Require(viewport.Contains("SetLevel(_snapshot, useCache: true)", StringComparison.Ordinal),
-            "Only prepared level uploads should opt into native scene reuse.");
+        string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
+        Require(viewport.Contains("SetPreparedLevelCore(level, prepared,", StringComparison.Ordinal) &&
+                viewport.Contains("_session.SetLevel(snapshot, useCache: true)", StringComparison.Ordinal) &&
+                preparation.Contains("_session.SetLevel(_snapshot);", StringComparison.Ordinal),
+            "Only prepared level uploads should opt into native scene reuse; ordinary uploads must remain uncached.");
 
         string bridge = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererNative.cs");
         Require(bridge.Contains("TryActivateCachedLevel", StringComparison.Ordinal) &&
