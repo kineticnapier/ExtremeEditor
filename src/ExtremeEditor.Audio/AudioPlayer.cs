@@ -118,6 +118,24 @@ public sealed class AudioPlayer : IDisposable
             _hitSoundsEnabled = value;
             if (_graph is not null)
                 _graph.HitSoundsEnabled = value;
+
+            // Stop speculative PCM rendering when hitsounds are muted. The
+            // transport graph still advances its hit schedule so unmuting
+            // cannot replay earlier triggers.
+            if (!value)
+            {
+                CancelHitSoundPrerender();
+            }
+            else if (_hitSoundProvider is not null && _outputFormat is not null)
+            {
+                long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    Position.TotalSeconds, _outputFormat.SampleRate);
+                _hitSoundPrerender.Start(
+                    _hitSoundProvider,
+                    _outputFormat.SampleRate,
+                    frame,
+                    AudioPcmCachePolicy.GetAvailableMemoryBytes());
+            }
         }
     }
 
@@ -410,7 +428,7 @@ public sealed class AudioPlayer : IDisposable
         _hitSoundProvider = graphBuild.HitSoundProvider;
         HitSoundRenderMetrics renderMetrics = graphBuild.HitSoundMetrics;
 
-        if (_hitSoundProvider is not null)
+        if (_hitSoundsEnabled && _hitSoundProvider is not null)
         {
             long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
             using (log?.Measure(
@@ -500,7 +518,7 @@ public sealed class AudioPlayer : IDisposable
 
     private void RestartHitSoundPrerender(long startFrame)
     {
-        if (_hitSoundProvider is null)
+        if (!_hitSoundsEnabled || _hitSoundProvider is null)
             return;
 
         _hitSoundPrerender.Restart(startFrame);
