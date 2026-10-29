@@ -245,7 +245,8 @@ public partial class MainWindow
                 NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
             },
             out Exception? uploadError,
-            out Exception? restoreError);
+            out Exception? restoreError,
+            beforeCommit: StopPlayback);
         if (!uploaded)
         {
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
@@ -260,9 +261,8 @@ public partial class MainWindow
             return false;
         }
 
-        // Native state is ready. Only now stop the old audio and commit the
-        // new editor, document, audio and selection state.
-        StopPlayback();
+        // The old playback was stopped inside the guarded upload transaction.
+        // Only now commit the new editor, document, audio and selection state.
         if (previous is not null)
         {
             previous.Audio = _audio;
@@ -329,7 +329,8 @@ public partial class MainWindow
         Action? uploadPlayback,
         Action restorePrevious,
         out Exception? uploadError,
-        out Exception? restoreError)
+        out Exception? restoreError,
+        Action? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(uploadLevel);
         ArgumentNullException.ThrowIfNull(restorePrevious);
@@ -339,6 +340,9 @@ public partial class MainWindow
         {
             uploadLevel();
             uploadPlayback?.Invoke();
+            // StopPlayback can fail while clearing the shared native anchor.
+            // Treat that failure like an upload fault before changing ActiveTab.
+            beforeCommit?.Invoke();
             return true;
         }
         catch (Exception ex)
