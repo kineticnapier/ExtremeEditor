@@ -41,9 +41,19 @@ public partial class MainWindow
         CreateNewDocumentTab();
     }
 
-    private void CreateNewDocumentTab()
+    private async void CreateNewDocumentTab()
     {
-        _ = CreateNewDocumentTabAsync();
+        // This is a WPF command path. Observe failures instead of leaving
+        // an unhandled exception on a discarded task.
+        try
+        {
+            await CreateNewDocumentTabAsync();
+        }
+        catch (Exception ex)
+        {
+            if (!_isClosed)
+                StatusText.Text = $"Could not create tab: {ex.Message}";
+        }
     }
 
     private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()
@@ -69,11 +79,24 @@ public partial class MainWindow
             return null;
         }
 
-        bool activated = await ActivateDocumentTab(tab);
+        bool activated = false;
+        try
+        {
+            activated = await ActivateDocumentTab(tab);
+        }
+        catch (Exception ex)
+        {
+            // Preparation/upload errors are handled by ActivateDocumentTab,
+            // but later UI or audio failures can still escape that boundary.
+            if (!_isClosed)
+                StatusText.Text = $"Could not activate new tab: {ex.Message}";
+        }
         if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
         {
             // A failed or superseded activation must not leave an orphan tab.
-            if (_documentTabs.Remove(tab))
+            // Never dispose a tab that became active before a later UI failure.
+            if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                _documentTabs.Remove(tab))
             {
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
