@@ -126,6 +126,7 @@ public sealed partial class NativeLevelViewport
         if (_session is not null)
         {
             _session.SetLevel(_snapshot, useCache: true);
+            ReportDecorationAssetFailures();
             _session.SetSelection(_selectedFloors, _primarySelection);
         }
         uploadWatch.Stop();

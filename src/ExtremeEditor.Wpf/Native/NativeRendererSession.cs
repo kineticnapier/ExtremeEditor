@@ -48,6 +48,7 @@ internal sealed class NativeRendererSession : IDisposable
     }
 
     internal nint ChildHwnd { get; private set; }
+    internal IReadOnlyList<string> LastDecorationAssetFailures { get; private set; } = [];
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
     internal event Action<int, uint>? SelectionChanged;
     internal event Action<bool>? FollowPlayerChanged;
@@ -210,13 +211,14 @@ internal sealed class NativeRendererSession : IDisposable
 
         phaseWatch.Restart();
         NativeRendererNative.ClearDecorationAssets(_renderer);
+        var decorationAssetFailures = new List<string>();
         foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
         {
             int result = NativeRendererNative.SetDecorationAsset(_renderer, asset.Id, asset.ImagePath);
             if (result != 0)
-                throw new InvalidOperationException(
-                    $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
+                decorationAssetFailures.Add(asset.ImagePath);
         }
+        LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
         foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)

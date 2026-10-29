@@ -75,6 +75,7 @@ public partial class MainWindow : Window
         FollowPlayerToggle.Checked += FollowPlayerToggleChanged;
         FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
         NativeViewport.FollowPlayerChanged += NativeViewportFollowPlayerChanged;
+        NativeViewport.DecorationAssetLoadFailed += NativeViewportDecorationAssetLoadFailed;
         NativeViewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
 
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
@@ -110,6 +111,7 @@ public partial class MainWindow : Window
         ShutdownDiagnostics.Complete("CompositionTarget.Rendering.Unsubscribe");
 
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
+        NativeViewport.DecorationAssetLoadFailed -= NativeViewportDecorationAssetLoadFailed;
         _discordPresence.Dispose();
         foreach (EditorDocumentTab tab in _documentTabs.Tabs)
         {
@@ -640,5 +642,11 @@ public partial class MainWindow : Window
     private void NativeViewportFollowPlayerChanged(bool enabled)
     {
         FollowPlayerToggle.IsChecked = enabled;
+    }
+
+    private void NativeViewportDecorationAssetLoadFailed(IReadOnlyList<string> paths)
+    {
+        string names = string.Join(", ", paths.Select(Path.GetFileName));
+        StatusText.Text = $"Decoration images failed to load: {names}";
     }
 }

@@ -7,7 +7,7 @@ internal static class NativeDecorationFailureRegression
     internal static void Run()
     {
         string session = Read("src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs");
-        string viewport = Read("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.cs");
+        string viewport = Read("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
         string window = Read("src/ExtremeEditor.Wpf/MainWindow.xaml.cs");
 
         Require(session.Contains("LastDecorationAssetFailures", StringComparison.Ordinal) &&

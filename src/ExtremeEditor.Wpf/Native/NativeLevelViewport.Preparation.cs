@@ -112,6 +112,13 @@ public sealed partial class NativeLevelViewport : HwndHost
     private static extern nint GetFocus();
 
     public event Action<bool>? FollowPlayerChanged;
+    internal event Action<IReadOnlyList<string>>? DecorationAssetLoadFailed;
+
+    private void ReportDecorationAssetFailures()
+    {
+        if (_session?.LastDecorationAssetFailures is { Count: > 0 } failures)
+            DecorationAssetLoadFailed?.Invoke(failures);
+    }
     internal event Action? NativeFocusLost;
 
     protected override nint WndProc(
@@ -454,6 +461,7 @@ public sealed partial class NativeLevelViewport : HwndHost
 
         var uploadWatch = Stopwatch.StartNew();
         _session.SetLevel(_snapshot);
+        ReportDecorationAssetFailures();
         _session.SetSelection(_selectedFloors, _primarySelection);
         SyncBackwardHudButton();
         uploadWatch.Stop();

@@ -141,6 +141,8 @@ bool LevelScene::SetDecorationAsset(
     try
     {
         DecorationAsset asset = DecodeDecorationAsset(image_path);
+        if (!asset.pixels || asset.width == 0u || asset.height == 0u || asset.stride == 0u)
+            return false;
         std::lock_guard lock(decoration_mutex_);
         auto next = std::make_shared<DecorationAssetTable>(
             decoration_assets_ ? *decoration_assets_ : DecorationAssetTable{});
