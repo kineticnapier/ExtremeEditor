@@ -271,7 +271,7 @@ internal static class EditorFloorClipboardRegression
         if (!native.Contains("HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true)", StringComparison.Ordinal) ||
             !picker.Contains("HandleExtremeEditorPreviewKeyDown(sender, e, fromNativeChild: false)", StringComparison.Ordinal) ||
             !picker.Contains("AdoFaiPreviewKeyDown(sender, e);", StringComparison.Ordinal) ||
-            !native.Contains("win32Repeat || !_nativeKeysDown.Add(key)", StringComparison.Ordinal))
+            !native.Contains("_nativeKeysDown.TryPress(key, win32Repeat)", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 "#73: native key messages must pass through the palette exactly once before ADOFAI bindings.");

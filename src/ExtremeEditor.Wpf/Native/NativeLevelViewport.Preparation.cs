@@ -47,6 +47,7 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 
 public sealed partial class NativeLevelViewport : HwndHost
 {
+    private const int WmKillFocus = 0x0008;
     private const float PlaybackReferenceHeight = 560f;
 
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
@@ -111,6 +112,19 @@ public sealed partial class NativeLevelViewport : HwndHost
     private static extern nint GetFocus();
 
     public event Action<bool>? FollowPlayerChanged;
+    internal event Action? NativeFocusLost;
+
+    protected override nint WndProc(
+        nint hwnd,
+        int msg,
+        nint wParam,
+        nint lParam,
+        ref bool handled)
+    {
+        if (msg == WmKillFocus)
+            NativeFocusLost?.Invoke();
+        return base.WndProc(hwnd, msg, wParam, lParam, ref handled);
+    }
 
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
     internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }

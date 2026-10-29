@@ -6,6 +6,18 @@ using System.Windows.Interop;
 
 namespace ExtremeEditor.Wpf;
 
+internal sealed class NativeKeyDownTracker
+{
+    private readonly HashSet<Key> _keysDown = [];
+
+    internal bool TryPress(Key key, bool win32Repeat) =>
+        !win32Repeat && _keysDown.Add(key);
+
+    internal void Release(Key key) => _keysDown.Remove(key);
+
+    internal void FocusLost() => _keysDown.Clear();
+}
+
 public partial class MainWindow
 {
     private const int WmKillFocus = 0x0008;
@@ -17,13 +29,14 @@ public partial class MainWindow
     private const int MkControl = 0x0008;
     private const string NativeRendererWindowClass = "ExtremeEditor.NativeRenderer.Window";
 
-    private readonly HashSet<Key> _nativeKeysDown = [];
+    private readonly NativeKeyDownTracker _nativeKeysDown = new();
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         InitializeSharedSelectionState();
         ComponentDispatcher.ThreadPreprocessMessage += NativeThreadPreprocessMessage;
+        NativeViewport.NativeFocusLost += NativeViewportFocusLost;
         Closed += NativeKeyboardBridgeClosed;
     }
 
@@ -44,7 +57,7 @@ public partial class MainWindow
 
         if (msg.message == WmKillFocus)
         {
-            _nativeKeysDown.Clear();
+            _nativeKeysDown.FocusLost();
             return;
         }
 
@@ -52,7 +65,7 @@ public partial class MainWindow
         {
             Key released = KeyInterop.KeyFromVirtualKey(unchecked((int)msg.wParam));
             if (released != Key.None)
-                _nativeKeysDown.Remove(released);
+                _nativeKeysDown.Release(released);
             return;
         }
 
@@ -77,7 +90,7 @@ public partial class MainWindow
         // covers keyboard drivers/IME paths that synthesize repeated down messages.
         long keyFlags = msg.lParam.ToInt64();
         bool win32Repeat = (keyFlags & (1L << 30)) != 0;
-        if (win32Repeat || !_nativeKeysDown.Add(key))
+        if (!_nativeKeysDown.TryPress(key, win32Repeat))
         {
             handled = true;
             return;
@@ -106,8 +119,11 @@ public partial class MainWindow
     private void NativeKeyboardBridgeClosed(object? sender, EventArgs e)
     {
         ComponentDispatcher.ThreadPreprocessMessage -= NativeThreadPreprocessMessage;
+        NativeViewport.NativeFocusLost -= NativeViewportFocusLost;
         Closed -= NativeKeyboardBridgeClosed;
     }
+
+    private void NativeViewportFocusLost() => _nativeKeysDown.FocusLost();
 
     private static bool IsNativeRendererWindow(nint hwnd)
     {
