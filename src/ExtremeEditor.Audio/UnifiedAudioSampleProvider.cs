@@ -26,7 +26,8 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     private readonly bool _transportMode;
     private float[] _hitBuffer = [];
     private long _positionFrames;
-    private bool _hitSoundsEnabled = true;
+    private volatile bool _hitSoundsEnabled = true;
+    private bool _transportWasMuted;
     private float _limiterGain = 1.0f;
     private long _readCalls, _readTicks, _maxReadTicks, _songReadTicks,
         _hitSoundReadTicks, _limiterTicks, _overBudgetReadCalls;
@@ -168,13 +169,27 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         int hitRead = 0;
         if (_transportHitSounds is not null)
         {
-            if (_hitBuffer.Length < requestedSamples)
-                _hitBuffer = new float[requestedSamples];
-            long hitStarted = Stopwatch.GetTimestamp();
-            hitRead = _transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
-            Interlocked.Add(ref _hitSoundReadTicks, Stopwatch.GetElapsedTime(hitStarted).Ticks);
-            if (_hitSoundsEnabled)
+            if (!_hitSoundsEnabled)
             {
+                // Keep the silent transport duration and hit clock, but do
+                // not allocate a mix buffer or render muted hit samples.
+                hitRead = _transportHitSounds.AdvanceMuted(requestedSamples / channels) * channels;
+                _transportWasMuted = true;
+            }
+            else
+            {
+                // Rebuild voices on the audio callback, not on the UI thread,
+                // so a mute toggle cannot race with transport Read.
+                if (_transportWasMuted)
+                {
+                    _transportHitSounds.ResumeAfterMute();
+                    _transportWasMuted = false;
+                }
+                if (_hitBuffer.Length < requestedSamples)
+                    _hitBuffer = new float[requestedSamples];
+                long hitStarted = Stopwatch.GetTimestamp();
+                hitRead = _transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
+                Interlocked.Add(ref _hitSoundReadTicks, Stopwatch.GetElapsedTime(hitStarted).Ticks);
                 for (int i = 0; i < hitRead; i++)
                     buffer[offset + i] += _hitBuffer[i];
             }
