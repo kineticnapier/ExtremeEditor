@@ -61,11 +61,12 @@ internal static class DocumentTabNavigationRegression
             "Timing-map building and native preparation must share an exception boundary before activation.");
         int nativeUpload = activate.IndexOf("TryUploadDocumentTabScene(", StringComparison.Ordinal);
         int nativeCommit = activate.IndexOf("_documentTabs.Activate(tab)", StringComparison.Ordinal);
-        int stopAudio = activate.IndexOf("StopPlayback()", StringComparison.Ordinal);
+        int stopAudio = activate.IndexOf("beforeCommit: StopPlayback", StringComparison.Ordinal);
         Require(nativeUpload > setupCatch && nativeUpload < stopAudio &&
                 stopAudio < nativeCommit &&
                 activate.Contains("NativeViewport.SetLevelProfiled(previous.Document)", StringComparison.Ordinal) &&
-                activate.Contains("NativeViewport.SetPlaybackTimelineProfiled(previousTiming)", StringComparison.Ordinal),
+                activate.Contains("NativeViewport.SetPlaybackTimelineProfiled(previousTiming)", StringComparison.Ordinal) &&
+                !activate.Contains("        StopPlayback();", StringComparison.Ordinal),
             "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
         VerifyNativeUploadRollback();
         VerifyRapidNavigation();
@@ -92,10 +93,11 @@ internal static class DocumentTabNavigationRegression
             () => steps.Add("playback"),
             () => steps.Add("rollback"),
             out Exception? uploadError,
-            out Exception? restoreError);
+            out Exception? restoreError,
+            beforeCommit: () => steps.Add("stop"));
         Require(ok && uploadError is null && restoreError is null &&
-                steps.SequenceEqual(new[] { "level", "playback" }),
-            "Successful native uploads must not trigger rollback.");
+                steps.SequenceEqual(new[] { "level", "playback", "stop" }),
+            "Successful native uploads must stop playback before committing, without rollback.");
 
         steps.Clear();
         var levelFailure = new InvalidOperationException("injected level failure");
@@ -122,6 +124,19 @@ internal static class DocumentTabNavigationRegression
             "Playback upload failure must roll back even after the level upload succeeds.");
 
         steps.Clear();
+        var stopFailure = new InvalidOperationException("injected stop failure");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError,
+            beforeCommit: () => { steps.Add("stop"); throw stopFailure; });
+        Require(!ok && ReferenceEquals(uploadError, stopFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback", "stop", "rollback" }),
+            "Stopping playback after upload must roll back the old native scene on failure.");
+
+        steps.Clear();
         var recoveryFailure = new InvalidOperationException("injected recovery failure");
         ok = MainWindow.TryUploadDocumentTabScene(
             () => throw playbackFailure,
@@ -136,9 +151,10 @@ internal static class DocumentTabNavigationRegression
         ok = MainWindow.TryUploadDocumentTabScene(
             () => steps.Add("level"), null,
             () => steps.Add("rollback"),
-            out uploadError, out restoreError);
-        Require(ok && steps.SequenceEqual(new[] { "level" }),
-            "Deferred playback uploads must succeed without a playback timeline.");
+            out uploadError, out restoreError,
+            beforeCommit: () => steps.Add("stop"));
+        Require(ok && steps.SequenceEqual(new[] { "level", "stop" }),
+            "Deferred playback uploads must stop old playback before committing.");
     }
 
     private static void VerifyActivationFailureObservation()
