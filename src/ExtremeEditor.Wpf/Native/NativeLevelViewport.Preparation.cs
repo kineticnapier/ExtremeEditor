@@ -67,6 +67,10 @@ public sealed partial class NativeLevelViewport : HwndHost
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
     private NativeCameraEvent[] _cameraTimeline = [];
+    // Camera zoom conversion depends on viewport height, never width.
+    private NativeRendererSession? _cameraUploadSession;
+    private NativeCameraEvent[]? _cameraUploadedSource;
+    private uint _cameraUploadedHeight;
     private NativeFlashEvent[] _flashTimeline = [];
     private NativeBloomEvent[] _bloomTimeline = [];
     private NativeScreenTileEvent[] _screenTileTimeline = [];
@@ -469,21 +473,32 @@ public sealed partial class NativeLevelViewport : HwndHost
             return;
 
         uint viewportHeight = ToPixelExtent(ActualHeight);
+        if (ReferenceEquals(_cameraUploadSession, _session) &&
+            ReferenceEquals(_cameraUploadedSource, _cameraTimeline) &&
+            _cameraUploadedHeight == viewportHeight)
+            return;
+
         float zoomScale = PlaybackReferenceHeight / Math.Max(1f, viewportHeight);
         if (_cameraTimeline.Length == 0 || Math.Abs(zoomScale - 1f) < 0.000001f)
         {
             _session.SetCameraTimeline(_cameraTimeline);
-            return;
+        }
+        else
+        {
+            var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
+            for (int i = 0; i < _cameraTimeline.Length; i++)
+            {
+                adjusted[i] = _cameraTimeline[i];
+                adjusted[i].StartZoom *= zoomScale;
+                adjusted[i].TargetZoom *= zoomScale;
+            }
+            _session.SetCameraTimeline(adjusted);
         }
 
-        var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
-        for (int i = 0; i < _cameraTimeline.Length; i++)
-        {
-            adjusted[i] = _cameraTimeline[i];
-            adjusted[i].StartZoom *= zoomScale;
-            adjusted[i].TargetZoom *= zoomScale;
-        }
-        _session.SetCameraTimeline(adjusted);
+        // Update cache only after a successful native upload.
+        _cameraUploadSession = _session;
+        _cameraUploadedSource = _cameraTimeline;
+        _cameraUploadedHeight = viewportHeight;
     }
 
     private void UploadPendingFlashTimeline()
