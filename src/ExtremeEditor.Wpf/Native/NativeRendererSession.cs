@@ -138,14 +138,45 @@ internal sealed class NativeRendererSession : IDisposable
         if (result != 0 || renderer == nint.Zero)
             throw new InvalidOperationException($"Native renderer creation failed with result {result}.");
 
-        nint childHwnd = NativeRendererNative.GetChildHwnd(renderer);
-        if (childHwnd == nint.Zero)
-        {
-            NativeRendererNative.Destroy(renderer);
-            throw new InvalidOperationException("Native renderer did not create a child HWND.");
-        }
+        // The native handle already exists. Failure to query its child HWND
+        // or register callbacks in the constructor must release that handle.
+        return CompleteCreation(
+            renderer,
+            handle =>
+            {
+                nint childHwnd = NativeRendererNative.GetChildHwnd(handle);
+                if (childHwnd == nint.Zero)
+                    throw new InvalidOperationException("Native renderer did not create a child HWND.");
+                return new NativeRendererSession(handle, childHwnd);
+            },
+            NativeRendererNative.Destroy);
+    }
 
-        return new NativeRendererSession(renderer, childHwnd);
+    // The viewport's BuildWindowCore cleanup cannot help if Create throws
+    // before a NativeRendererSession can be assigned to the viewport.
+    // Keep the original initialization failure even if native cleanup fails.
+    internal static T CompleteCreation<T>(
+        nint renderer, Func<nint, T> initialize, Action<nint> destroy)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        ArgumentNullException.ThrowIfNull(destroy);
+        try
+        {
+            return initialize(renderer);
+        }
+        catch
+        {
+            try
+            {
+                destroy(renderer);
+            }
+            catch (Exception cleanupError)
+            {
+                Console.Error.WriteLine(
+                    $"[native-session] cleanup after creation failure: {cleanupError}");
+            }
+            throw;
+        }
     }
 
     internal void Resize(uint width, uint height)
