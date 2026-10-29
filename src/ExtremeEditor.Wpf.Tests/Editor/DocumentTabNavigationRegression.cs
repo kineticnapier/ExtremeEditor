@@ -73,6 +73,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeUploadRollback();
         VerifyPreparedLevelStateIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
+        VerifyDirectPlaybackRefreshIsAtomic();
         VerifyNativeHostInitializationCleanup();
         VerifyNativeSessionConstructionCleanup();
         VerifyRapidNavigation();
@@ -125,6 +126,26 @@ internal static class DocumentTabNavigationRegression
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
+    }
+
+    private static void VerifyDirectPlaybackRefreshIsAtomic()
+    {
+        // Regular editing and rollback can refresh timelines without going
+        // through document-tab activation. That path must use the same
+        // failure-safe preparation and upload as prepared tab switching.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs"));
+        string refresh = ExtractMethodBody(source,
+            "public void SetPlaybackTimeline(TimingMap timingMap)");
+        Require(refresh.Contains("PreparePlayback(level, timingMap)", StringComparison.Ordinal) &&
+                refresh.Contains("NativePlaybackTimelineBuilder.Build(timingMap)", StringComparison.Ordinal) &&
+                refresh.Contains("SetPreparedPlayback(prepared)", StringComparison.Ordinal) &&
+                !refresh.Contains("_playbackTimeline =", StringComparison.Ordinal) &&
+                !refresh.Contains("UploadPendingCameraTimeline()", StringComparison.Ordinal),
+            "Direct playback refresh must prepare all timelines before committing and use atomic upload.");
+
+        // VerifyPreparedPlaybackStateIsAtomic exercises the shared upload
+        // failure path, including restoration of all eleven managed arrays.
     }
 
     private static void VerifyPreparedPlaybackStateIsAtomic()
