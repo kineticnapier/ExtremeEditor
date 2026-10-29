@@ -44,8 +44,18 @@ internal static class SongAudioFallback
             }
             catch (Exception fallbackError)
             {
-                unload();
-                return $"audio load failed: {songError.Message}; hitsounds fallback failed: {fallbackError.Message}";
+                string status = $"audio load failed: {songError.Message}; hitsounds fallback failed: {fallbackError.Message}";
+                try
+                {
+                    unload();
+                }
+                catch (Exception cleanupError)
+                {
+                    // Preserve the decoder and fallback errors even if cleanup fails.
+                    status += $"; audio cleanup failed: {cleanupError.Message}";
+                }
+
+                return status;
             }
         }
     }
