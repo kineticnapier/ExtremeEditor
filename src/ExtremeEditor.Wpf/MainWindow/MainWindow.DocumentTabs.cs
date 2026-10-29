@@ -125,21 +125,27 @@ public partial class MainWindow
         }
 
         int activationGeneration = ++_tabActivationGeneration;
-        WpfPlaybackSetup? builtPlayback = null;
-        TimingMap targetTimingMap = tab.TimingMap ??
-            (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
-        HitSoundTimeline targetHitSoundTimeline = tab.HitSoundTimeline ??
-            builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
-
-        Task<Native.PreparedNativeLevel> levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
-            ? Task.FromResult(readyLevel)
-            : NativeLoadPreparationCache.StartLevel(tab.Document);
-        Task<Native.PreparedNativePlayback>? playbackPreparation = deferPlaybackTimeline
-            ? null
-            : NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap);
+        TimingMap targetTimingMap;
+        HitSoundTimeline targetHitSoundTimeline;
+        Task<Native.PreparedNativeLevel> levelPreparation;
+        Task<Native.PreparedNativePlayback>? playbackPreparation;
         var preparationWatch = Stopwatch.StartNew();
         try
         {
+            // Both synchronous setup and asynchronous preparation can fail.
+            // Keep every preparation step inside the same error boundary.
+            WpfPlaybackSetup? builtPlayback = null;
+            targetTimingMap = tab.TimingMap ??
+                (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
+            targetHitSoundTimeline = tab.HitSoundTimeline ??
+                builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
+
+            levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
+                ? Task.FromResult(readyLevel)
+                : NativeLoadPreparationCache.StartLevel(tab.Document);
+            playbackPreparation = deferPlaybackTimeline
+                ? null
+                : NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap);
             if (playbackPreparation is null)
                 await levelPreparation;
             else
