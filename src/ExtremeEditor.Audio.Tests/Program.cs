@@ -16,6 +16,7 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_
 DenseAudioRuntimeDiagnosticsRegression.Run();
 DenseTransportBlockMixRegression.Run();
 MutedPrerenderRegression.Run();
+MutedTransportRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
