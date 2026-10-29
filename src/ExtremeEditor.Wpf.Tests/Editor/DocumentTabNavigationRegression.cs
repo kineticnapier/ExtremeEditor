@@ -59,6 +59,15 @@ internal static class DocumentTabNavigationRegression
                 playbackStart < setupCatch && setupCatch < tabCommit &&
                 activate.Contains("return false;", StringComparison.Ordinal),
             "Timing-map building and native preparation must share an exception boundary before activation.");
+        int nativeUpload = activate.IndexOf("TryUploadDocumentTabScene(", StringComparison.Ordinal);
+        int nativeCommit = activate.IndexOf("_documentTabs.Activate(tab)", StringComparison.Ordinal);
+        int stopAudio = activate.IndexOf("StopPlayback()", StringComparison.Ordinal);
+        Require(nativeUpload > setupCatch && nativeUpload < stopAudio &&
+                stopAudio < nativeCommit &&
+                activate.Contains("NativeViewport.SetLevelProfiled(previous.Document)", StringComparison.Ordinal) &&
+                activate.Contains("NativeViewport.SetPlaybackTimelineProfiled(previousTiming)", StringComparison.Ordinal),
+            "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
+        VerifyNativeUploadRollback();
         VerifyRapidNavigation();
 
         string bridge = File.ReadAllText(FindSourceFile(
@@ -72,6 +81,63 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+    }
+
+    private static void VerifyNativeUploadRollback()
+    {
+        var steps = new List<string>();
+        bool ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out Exception? uploadError,
+            out Exception? restoreError);
+        Require(ok && uploadError is null && restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback" }),
+            "Successful native uploads must not trigger rollback.");
+
+        steps.Clear();
+        var levelFailure = new InvalidOperationException("injected level failure");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => { steps.Add("level"); throw levelFailure; },
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, levelFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "rollback" }),
+            "Level upload failure must restore the old scene without committing playback.");
+
+        steps.Clear();
+        var playbackFailure = new InvalidOperationException("injected playback failure");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => { steps.Add("playback"); throw playbackFailure; },
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback", "rollback" }),
+            "Playback upload failure must roll back even after the level upload succeeds.");
+
+        steps.Clear();
+        var recoveryFailure = new InvalidOperationException("injected recovery failure");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => throw playbackFailure,
+            null,
+            () => throw recoveryFailure,
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                ReferenceEquals(restoreError, recoveryFailure),
+            "A failed rollback must preserve both the original and recovery errors.");
+
+        steps.Clear();
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"), null,
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError);
+        Require(ok && steps.SequenceEqual(new[] { "level" }),
+            "Deferred playback uploads must succeed without a playback timeline.");
     }
 
     private static void VerifyRapidNavigation()
