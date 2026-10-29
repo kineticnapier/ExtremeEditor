@@ -102,6 +102,10 @@
                 <MenuItem x:Name="ExportVideoMenuItem"
                           Header="Export _Video…"
                           Click="ExportVideoClick" />
+                <MenuItem x:Name="CancelVideoExportMenuItem"
+                          Header="_Cancel Video Export"
+                          Click="CancelVideoExportClick"
+                          IsEnabled="False" />
                 <Separator />
                 <MenuItem x:Name="FileSettingsMenu" Header="_Settings">
                     <MenuItem x:Name="FileLanguageMenu" Header="_Language">

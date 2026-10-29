@@ -25,6 +25,7 @@ public partial class MainWindow
         // is still preparing its chart, and both can overwrite cancellation state.
         _videoExportInProgress = true;
         ExportVideoMenuItem.IsEnabled = false;
+        CancelVideoExportMenuItem.IsEnabled = false;
 
         try
         {
@@ -49,9 +50,20 @@ public partial class MainWindow
         {
             Mouse.OverrideCursor = null;
             ExportVideoMenuItem.IsEnabled = true;
+            CancelVideoExportMenuItem.IsEnabled = false;
             _videoExportInProgress = false;
             _videoExportCancellation = null;
         }
+    }
+
+    private void CancelVideoExportClick(object sender, RoutedEventArgs e)
+    {
+        if (_videoExportCancellation is null)
+            return;
+
+        CancelVideoExportMenuItem.IsEnabled = false;
+        StatusText.Text = "Video export — cancelling…";
+        _videoExportCancellation?.Cancel();
     }
 
     private async Task ExportVideoCoreAsync()
@@ -129,6 +141,7 @@ public partial class MainWindow
 
         using var cancellation = new CancellationTokenSource();
         _videoExportCancellation = cancellation;
+        CancelVideoExportMenuItem.IsEnabled = true;
 
         var progress = new Progress<VideoExportProgress>(value =>
         {

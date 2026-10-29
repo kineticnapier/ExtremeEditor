@@ -34,6 +34,7 @@ public partial class MainWindow
             ["save"] = ("_Save", "保存"),
             ["saveas"] = ("Save _As", "名前を付けて保存"),
             ["export"] = ("Export _Video…", "動画を書き出す…"),
+            ["cancelexport"] = ("_Cancel Video Export", "動画の書き出しをキャンセル"),
             ["exit"] = ("E_xit", "終了"),
             ["undo"] = ("_Undo", "元に戻す"),
             ["redo"] = ("_Redo", "やり直す"),
@@ -158,6 +159,7 @@ public partial class MainWindow
         FileSaveMenu.Header = WelcomeText("save");
         FileSaveAsMenu.Header = WelcomeText("saveas");
         ExportVideoMenuItem.Header = WelcomeText("export");
+        CancelVideoExportMenuItem.Header = WelcomeText("cancelexport");
         ExitMenuItem.Header = WelcomeText("exit");
         EditUndoMenu.Header = WelcomeText("undo");
         EditRedoMenu.Header = WelcomeText("redo");
