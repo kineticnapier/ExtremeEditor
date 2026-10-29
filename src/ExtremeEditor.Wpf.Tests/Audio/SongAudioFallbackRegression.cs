@@ -42,6 +42,18 @@ internal static class SongAudioFallbackRegression
             "both failures must remain visible");
         Require(songCalls == 3 && fallbackCalls == 2 && unloadCalls == 1,
             "fallback failure must release the partial playback graph");
+
+        // A failing cleanup must not replace the decoder/fallback diagnostics
+        // with an unhandled third exception.
+        string cleanupFailed = SongAudioFallback.Load(
+            "broken.ogg",
+            _ => throw new InvalidDataException("decoder failed"),
+            () => throw new InvalidOperationException("fallback failed"),
+            () => throw new IOException("cleanup failed"));
+        Require(cleanupFailed.Contains("decoder failed", StringComparison.Ordinal) &&
+                cleanupFailed.Contains("fallback failed", StringComparison.Ordinal) &&
+                cleanupFailed.Contains("cleanup failed", StringComparison.Ordinal),
+            "decoder, fallback and cleanup failures must all remain visible");
     }
 
     private static void Require(bool condition, string message)
