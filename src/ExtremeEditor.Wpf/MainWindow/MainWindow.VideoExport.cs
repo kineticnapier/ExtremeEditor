@@ -20,6 +20,42 @@ public partial class MainWindow
             _hitSoundTimeline is null)
             return;
 
+        // Claim the export before the first await (Save, snapshot preparation).
+        // Otherwise a second click can start a second export while the first
+        // is still preparing its chart, and both can overwrite cancellation state.
+        _videoExportInProgress = true;
+        ExportVideoMenuItem.IsEnabled = false;
+
+        try
+        {
+            await ExportVideoCoreAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "Video export cancelled";
+        }
+        catch (Exception ex)
+        {
+            // Snapshot creation and Save are covered as well as FFmpeg/export.
+            StatusText.Text = "Video export failed";
+            MessageBox.Show(
+                this,
+                ex.ToString(),
+                "Video export failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+            ExportVideoMenuItem.IsEnabled = true;
+            _videoExportInProgress = false;
+            _videoExportCancellation = null;
+        }
+    }
+
+    private async Task ExportVideoCoreAsync()
+    {
         // Raw JSON edits are staged on the document tab until Save. Checking
         // EditorSession.IsDirty alone would export the old file contents.
         EditorDocumentTab? exportTab = _documentTabs.ActiveTab;
@@ -76,6 +112,7 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        Mouse.OverrideCursor = Cursors.Wait;
         VideoExportSource source = await Task.Run(() => CreateVideoExportSnapshot(chartPath));
 
         var request = new VideoExportRequest(
@@ -92,9 +129,6 @@ public partial class MainWindow
 
         using var cancellation = new CancellationTokenSource();
         _videoExportCancellation = cancellation;
-        _videoExportInProgress = true;
-        ExportVideoMenuItem.IsEnabled = false;
-        Mouse.OverrideCursor = Cursors.Wait;
 
         var progress = new Progress<VideoExportProgress>(value =>
         {
@@ -106,40 +140,16 @@ public partial class MainWindow
             StatusText.Text = $"Export Video — {value.Stage}{suffix}";
         });
 
-        try
-        {
-            StatusText.Text = "Export Video — preparing…";
-            var service = new VideoExportService();
-            await service.ExportAsync(request, progress, cancellation.Token);
-            StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
-            MessageBox.Show(
-                this,
-                $"Video export completed.\n\n{saveDialog.FileName}",
-                "Export Video",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        catch (OperationCanceledException)
-        {
-            StatusText.Text = "Video export cancelled";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "Video export failed";
-            MessageBox.Show(
-                this,
-                ex.ToString(),
-                "Video export failed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        finally
-        {
-            Mouse.OverrideCursor = null;
-            ExportVideoMenuItem.IsEnabled = true;
-            _videoExportInProgress = false;
-            _videoExportCancellation = null;
-        }
+        StatusText.Text = "Export Video — preparing…";
+        var service = new VideoExportService();
+        await service.ExportAsync(request, progress, cancellation.Token);
+        StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
+        MessageBox.Show(
+            this,
+            $"Video export completed.\\n\\n{saveDialog.FileName}",
+            "Export Video",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     // The tab tracks pending Raw JSON drafts even before EditorSession changes.
