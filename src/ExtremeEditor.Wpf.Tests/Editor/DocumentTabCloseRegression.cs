@@ -61,8 +61,16 @@ internal static class DocumentTabCloseRegression
 
         string bridge = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.NativeKeyboardBridge.cs"));
-        Require(bridge.Contains("AdoFaiPreviewKeyDown(this, args)", StringComparison.Ordinal),
-            "The HWND keyboard bridge must forward Ctrl+W to the shared shortcut handler.");
+        // The native child now enters the common palette/keyboard dispatcher,
+        // which delegates unhandled chords (including Ctrl+W) to ADOFAI bindings.
+        // Checking only the former direct call rejects the correct routing path.
+        string palette = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.EventQuickPicker.cs"));
+        Require(bridge.Contains(
+                    "HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true)",
+                    StringComparison.Ordinal) &&
+                palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
+            "The HWND keyboard bridge must forward Ctrl+W through the shared shortcut handler.");
     }
 
     private static void VerifyDelayedReplacement()
