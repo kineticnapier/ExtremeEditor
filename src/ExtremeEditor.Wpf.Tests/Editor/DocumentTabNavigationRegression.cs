@@ -73,6 +73,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeUploadRollback();
         VerifyPreparedLevelStateIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
+        VerifyNativeHostInitializationCleanup();
         VerifyRapidNavigation();
         VerifyActivationFailureObservation();
 
@@ -310,6 +311,62 @@ internal static class DocumentTabNavigationRegression
                 observer.Contains("Could not activate", StringComparison.Ordinal) &&
                 observer.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
             "WPF tab activation must display failures and clear stale Ctrl+Tab targets.");
+    }
+
+    private static void VerifyNativeHostInitializationCleanup()
+    {
+        var steps = new List<string>();
+        int value = NativeLevelViewport.RunNativeHostInitialization(
+            () => { steps.Add("initialize"); return 7; },
+            () => steps.Add("cleanup"));
+        Require(value == 7 && steps.SequenceEqual(new[] { "initialize" }),
+            "Successful native host initialization must not dispose its renderer.");
+
+        steps.Clear();
+        var initializationFailure = new InvalidOperationException("injected native initialization failure");
+        Exception? observed = null;
+        try
+        {
+            NativeLevelViewport.RunNativeHostInitialization<int>(
+                () => { steps.Add("initialize"); throw initializationFailure; },
+                () => steps.Add("cleanup"));
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, initializationFailure) &&
+                steps.SequenceEqual(new[] { "initialize", "cleanup" }),
+            "A native initialization failure must dispose the partial renderer and rethrow.");
+
+        steps.Clear();
+        var cleanupFailure = new InvalidOperationException("injected native cleanup failure");
+        observed = null;
+        try
+        {
+            NativeLevelViewport.RunNativeHostInitialization<int>(
+                () => { steps.Add("initialize"); throw initializationFailure; },
+                () => { steps.Add("cleanup"); throw cleanupFailure; });
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, initializationFailure) &&
+                steps.SequenceEqual(new[] { "initialize", "cleanup" }),
+            "A cleanup failure must not hide the original native initialization error.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs"));
+        string build = ExtractMethodBody(source,
+            "protected override HandleRef BuildWindowCore(");
+        string destroy = ExtractMethodBody(source,
+            "protected override void DestroyWindowCore(");
+        Require(build.Contains("RunNativeHostInitialization(", StringComparison.Ordinal) &&
+                build.Contains("cleanup: () => DestroyWindowCore(default)", StringComparison.Ordinal) &&
+                destroy.Contains("session.Dispose()", StringComparison.Ordinal) &&
+                destroy.Contains("_cameraUploadSession = null", StringComparison.Ordinal),
+            "HwndHost creation must invoke native cleanup and invalidate camera cache on failure.");
     }
 
     private static void VerifyRapidNavigation()
