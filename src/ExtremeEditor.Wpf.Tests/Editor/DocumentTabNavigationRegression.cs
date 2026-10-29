@@ -74,6 +74,7 @@ internal static class DocumentTabNavigationRegression
         VerifyPreparedLevelStateIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
         VerifyNativeHostInitializationCleanup();
+        VerifyNativeSessionConstructionCleanup();
         VerifyRapidNavigation();
         VerifyActivationFailureObservation();
 
@@ -367,6 +368,75 @@ internal static class DocumentTabNavigationRegression
                 destroy.Contains("session.Dispose()", StringComparison.Ordinal) &&
                 destroy.Contains("_cameraUploadSession = null", StringComparison.Ordinal),
             "HwndHost creation must invoke native cleanup and invalidate camera cache on failure.");
+    }
+
+    private static void VerifyNativeSessionConstructionCleanup()
+    {
+        // No native DLL or HWND is needed: simulate failures after the native
+        // renderer has been created but before its managed session is returned.
+        nint handle = (nint)17;
+        var steps = new List<string>();
+        int value = NativeRendererSession.CompleteCreation(
+            handle,
+            renderer =>
+            {
+                Require(renderer == handle, "The created renderer must reach session initialization.");
+                steps.Add("initialize");
+                return 7;
+            },
+            renderer =>
+            {
+                Require(renderer == handle, "Cleanup must receive the created renderer.");
+                steps.Add("destroy");
+            });
+        Require(value == 7 && steps.SequenceEqual(new[] { "initialize" }),
+            "Successful native session construction must retain its renderer.");
+
+        steps.Clear();
+        var constructionFailure = new InvalidOperationException("injected callback registration failure");
+        Exception? observed = null;
+        try
+        {
+            NativeRendererSession.CompleteCreation<int>(
+                handle,
+                _ => { steps.Add("initialize"); throw constructionFailure; },
+                _ => steps.Add("destroy"));
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, constructionFailure) &&
+                steps.SequenceEqual(new[] { "initialize", "destroy" }),
+            "Failed native session construction must destroy the renderer exactly once.");
+
+        steps.Clear();
+        var cleanupFailure = new InvalidOperationException("injected native destroy failure");
+        observed = null;
+        try
+        {
+            NativeRendererSession.CompleteCreation<int>(
+                handle,
+                _ => { steps.Add("initialize"); throw constructionFailure; },
+                _ => { steps.Add("destroy"); throw cleanupFailure; });
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, constructionFailure) &&
+                steps.SequenceEqual(new[] { "initialize", "destroy" }),
+            "Failed renderer cleanup must not hide the original construction error.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs"));
+        string create = ExtractMethodBody(source,
+            "internal static NativeRendererSession Create(");
+        Require(create.Contains("return CompleteCreation(", StringComparison.Ordinal) &&
+                create.Contains("NativeRendererNative.GetChildHwnd(handle)", StringComparison.Ordinal) &&
+                create.Contains("new NativeRendererSession(handle, childHwnd)", StringComparison.Ordinal) &&
+                create.Contains("NativeRendererNative.Destroy", StringComparison.Ordinal),
+            "Session creation must guard child HWND lookup and callback registration with cleanup.");
     }
 
     private static void VerifyRapidNavigation()
