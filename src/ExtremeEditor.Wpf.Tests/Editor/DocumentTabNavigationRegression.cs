@@ -1,6 +1,7 @@
 using System.IO;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -69,6 +70,7 @@ internal static class DocumentTabNavigationRegression
                 !activate.Contains("        StopPlayback();", StringComparison.Ordinal),
             "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
         VerifyNativeUploadRollback();
+        VerifyPreparedLevelStateIsAtomic();
         VerifyRapidNavigation();
         VerifyActivationFailureObservation();
 
@@ -83,6 +85,42 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+    }
+
+    private static void VerifyPreparedLevelStateIsAtomic()
+    {
+        // No native HWND is created: the injected upload simulates success
+        // and a failure after the renderer has begun accepting the new scene.
+        LevelDocument original = LevelDocument.CreateSynthetic(2);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(3);
+        PreparedNativeLevel originalPrepared = NativeLevelViewport.PrepareLevel(original);
+        PreparedNativeLevel replacementPrepared = NativeLevelViewport.PrepareLevel(replacement);
+        var viewport = new NativeLevelViewport();
+
+        viewport.SetPreparedLevelCore(original, originalPrepared, (_, _, _) => { });
+        NativeLevelSnapshot? originalSnapshot = viewport.SnapshotForDiagnostics;
+        Require(ReferenceEquals(originalSnapshot, originalPrepared.Snapshot),
+            "The first successful upload must commit its managed snapshot.");
+
+        var failure = new InvalidOperationException("injected native selection failure");
+        Exception? caught = null;
+        try
+        {
+            viewport.SetPreparedLevelCore(replacement, replacementPrepared,
+                (_, _, _) => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(ReferenceEquals(caught, failure) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot),
+            "A failed prepared-level upload must preserve the previous managed snapshot.");
+
+        viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
+        Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
+            "A later successful retry must commit the replacement snapshot.");
     }
 
     private static void VerifyNativeUploadRollback()
