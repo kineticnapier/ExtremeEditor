@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using ExtremeEditor.Wpf;
 
 namespace ExtremeEditor.Wpf.Tests;
