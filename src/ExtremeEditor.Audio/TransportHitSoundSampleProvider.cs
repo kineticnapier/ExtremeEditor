@@ -106,7 +106,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     internal void ResumeAfterMute()
     {
         if (_sourcePcm is not null && _segments.Count == 1 &&
-            Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon)
+            Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon &&
+            OutputToSource(_outputPositionFrames) < _totalSourceFrames)
         {
             long sourceFrame = Math.Clamp(
                 (long)Math.Round(OutputToSource(_outputPositionFrames),
