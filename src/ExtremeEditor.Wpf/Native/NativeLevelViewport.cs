@@ -164,7 +164,42 @@ public sealed partial class NativeLevelViewport
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)
     {
+        SetPreparedPlaybackCore(prepared, () =>
+        {
+            UploadPendingPlaybackTimeline();
+            UploadPendingCameraTimeline();
+            UploadPendingFlashTimeline();
+            UploadPendingBloomTimeline();
+            UploadPendingScreenTileTimeline();
+            UploadPendingFilterTimeline();
+            UploadPendingBackgroundTimeline();
+            UploadPendingTrackTransformTimeline();
+            UploadPendingTrackVisualTimeline();
+            UploadPendingTrackAnimationTimeline();
+        });
+    }
+
+    // The native renderer can fail after a partial timeline upload. Preserve
+    // the previous managed timelines so the owning tab can retry/restore them.
+    // Invalidate the camera upload cache on failure: even the camera call may
+    // have partially written native state before throwing.
+    internal void SetPreparedPlaybackCore(PreparedNativePlayback prepared, Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
+
+        NativePlaybackTiming[] previousPlayback = _playbackTimeline;
+        NativeCameraEvent[] previousCamera = _cameraTimeline;
+        NativeFlashEvent[] previousFlash = _flashTimeline;
+        NativeBloomEvent[] previousBloom = _bloomTimeline;
+        NativeScreenTileEvent[] previousScreenTile = _screenTileTimeline;
+        NativeFilterEvent[] previousFilter = _filterTimeline;
+        NativeBackgroundEvent[] previousBackground = _backgroundTimeline;
+        NativeTrackTransformEvent[] previousTrackTransform = _trackTransformTimeline;
+        NativeTrackVisualEvent[] previousTrackVisual = _trackVisualTimeline;
+        NativeTrackAnimationSegment[] previousTrackAnimation = _trackAnimationTimeline;
+        NativeTrackAnimationTiming[] previousTrackTimings = _trackAnimationTimings;
+
         _playbackTimeline = prepared.PlaybackTimeline;
         _cameraTimeline = prepared.CameraTimeline;
         _flashTimeline = prepared.FlashTimeline;
@@ -178,16 +213,28 @@ public sealed partial class NativeLevelViewport
         _trackAnimationTimings = prepared.TrackAnimationTimings;
 
         var watch = Stopwatch.StartNew();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
+        try
+        {
+            upload();
+        }
+        catch
+        {
+            _playbackTimeline = previousPlayback;
+            _cameraTimeline = previousCamera;
+            _flashTimeline = previousFlash;
+            _bloomTimeline = previousBloom;
+            _screenTileTimeline = previousScreenTile;
+            _filterTimeline = previousFilter;
+            _backgroundTimeline = previousBackground;
+            _trackTransformTimeline = previousTrackTransform;
+            _trackVisualTimeline = previousTrackVisual;
+            _trackAnimationTimeline = previousTrackAnimation;
+            _trackAnimationTimings = previousTrackTimings;
+            _cameraUploadSession = null;
+            _cameraUploadedSource = null;
+            _cameraUploadedHeight = 0;
+            throw;
+        }
         watch.Stop();
 
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(
