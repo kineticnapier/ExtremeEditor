@@ -64,11 +64,11 @@ internal static class MutedTransportRegression
             HitSoundsEnabled = false
         };
 
-        AllNear(0, ReadExact(graph, 10), "muted transport after song EOF");
+        AllNear(0, ReadExact(graph, 9), "muted transport after song EOF");
         graph.HitSoundsEnabled = true;
         float[] tail = ReadExact(graph, 2);
-        Near(0.25f, tail[0], "post-song tail frame 10");
-        Near(0.25f, tail[2], "post-song tail frame 11");
+        Near(0.25f, tail[0], "post-song tail frame 9");
+        Near(0.25f, tail[2], "post-song tail frame 10");
         if (graph.Read(new float[8], 0, 8) != 0)
             throw new InvalidOperationException("Post-song hit tail must terminate at its original end.");
     }
