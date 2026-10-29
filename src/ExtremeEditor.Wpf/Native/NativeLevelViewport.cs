@@ -101,6 +101,7 @@ public sealed partial class NativeLevelViewport
     internal void SetPreparedLevel(LevelDocument level, PreparedNativeLevel prepared)
     {
         ArgumentNullException.ThrowIfNull(level);
+        _playbackAnchorGate.Invalidate();
 
         bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
@@ -143,6 +144,7 @@ public sealed partial class NativeLevelViewport
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)
     {
+        _playbackAnchorGate.Invalidate();
         _playbackTimeline = prepared.PlaybackTimeline;
         _cameraTimeline = prepared.CameraTimeline;
         _flashTimeline = prepared.FlashTimeline;

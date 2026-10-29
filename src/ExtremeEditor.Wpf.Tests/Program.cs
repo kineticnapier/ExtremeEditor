@@ -15,6 +15,15 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_IDLE_ANCHOR_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NativePlaybackAnchorDispatchRegression.Run();
+                Console.WriteLine("PASS: paused and idle native playback anchors are deduplicated.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_SONG_AUDIO_FALLBACK_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -955,6 +964,7 @@ internal static class Program
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
+            NativePlaybackAnchorDispatchRegression.Run();
             FloorRendererThreadingRegression.Run();
             RasterChunkWorkerRegression.Run();
             PerformanceRegression.Run();
