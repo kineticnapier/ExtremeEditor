@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
 using ExtremeEditor.Wpf.Native;
@@ -71,6 +72,7 @@ internal static class DocumentTabNavigationRegression
             "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
         VerifyNativeUploadRollback();
         VerifyPreparedLevelStateIsAtomic();
+        VerifyPreparedPlaybackStateIsAtomic();
         VerifyRapidNavigation();
         VerifyActivationFailureObservation();
 
@@ -122,6 +124,82 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
     }
+
+    private static void VerifyPreparedPlaybackStateIsAtomic()
+    {
+        // Simulate a native failure after any of the timeline uploads. The
+        // managed timeline set and upload metrics must remain on the old scene.
+        var viewport = new NativeLevelViewport();
+        PreparedNativePlayback original = CreatePreparedPlayback(1, TimeSpan.FromMilliseconds(3));
+        PreparedNativePlayback replacement = CreatePreparedPlayback(2, TimeSpan.FromMilliseconds(5));
+        string[] fields =
+        [
+            "_playbackTimeline", "_cameraTimeline", "_flashTimeline",
+            "_bloomTimeline", "_screenTileTimeline", "_filterTimeline",
+            "_backgroundTimeline", "_trackTransformTimeline", "_trackVisualTimeline",
+            "_trackAnimationTimeline", "_trackAnimationTimings"
+        ];
+
+        object ReadField(string name)
+        {
+            FieldInfo? field = typeof(NativeLevelViewport).GetField(
+                name, BindingFlags.Instance | BindingFlags.NonPublic);
+            return field?.GetValue(viewport) ??
+                throw new InvalidOperationException("RED: Missing timeline field " + name);
+        }
+
+        viewport.SetPreparedPlaybackCore(original, () => { });
+        object[] previousFields = fields.Select(ReadField).ToArray();
+        Require(viewport.LastPlaybackTimelineUploadMetrics.TimelineBuild == original.BuildTime,
+            "Initial prepared playback upload must record its build metrics.");
+
+        FieldInfo? cameraCache = typeof(NativeLevelViewport).GetField(
+            "_cameraUploadedSource", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(cameraCache is not null, "Camera upload cache field must exist.");
+        cameraCache!.SetValue(viewport, original.CameraTimeline);
+
+        var failure = new InvalidOperationException("injected partial playback upload");
+        Exception? caught = null;
+        try
+        {
+            viewport.SetPreparedPlaybackCore(replacement, () => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(ReferenceEquals(caught, failure),
+            "A partial native playback upload failure must reach the caller.");
+        for (int i = 0; i < fields.Length; ++i)
+            Require(ReferenceEquals(ReadField(fields[i]), previousFields[i]),
+                "Failed playback upload must preserve the previous " + fields[i] + ".");
+        Require(cameraCache.GetValue(viewport) is null,
+            "Failure must invalidate the camera upload cache to force native restoration.");
+        Require(viewport.LastPlaybackTimelineUploadMetrics.TimelineBuild == original.BuildTime,
+            "Failed playback upload must not overwrite successful upload metrics.");
+
+        viewport.SetPreparedPlaybackCore(replacement, () => { });
+        Require(ReferenceEquals(ReadField("_playbackTimeline"), replacement.PlaybackTimeline) &&
+                ReferenceEquals(ReadField("_cameraTimeline"), replacement.CameraTimeline) &&
+                viewport.LastPlaybackTimelineUploadMetrics.TimelineBuild == replacement.BuildTime,
+            "A retry after failure must commit the replacement playback timelines.");
+    }
+
+    private static PreparedNativePlayback CreatePreparedPlayback(int count, TimeSpan buildTime)
+        => new(
+            new NativePlaybackTiming[count],
+            new NativeCameraEvent[count],
+            new NativeFlashEvent[count],
+            new NativeBloomEvent[count],
+            new NativeScreenTileEvent[count],
+            new NativeFilterEvent[count],
+            new NativeBackgroundEvent[count],
+            new NativeTrackTransformEvent[count],
+            new NativeTrackVisualEvent[count],
+            new NativeTrackAnimationSegment[count],
+            new NativeTrackAnimationTiming[count],
+            buildTime);
 
     private static void VerifyNativeUploadRollback()
     {
