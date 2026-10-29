@@ -981,6 +981,7 @@ internal static class Program
             NativeSceneReuseRegression.Run();
             DocumentTabNavigationRegression.Run();
             DocumentTabStateSafetyRegression.Run();
+            NativeKeyboardFocusRegression.Run();
             DocumentTabOverflowRegression.Run();
             RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
