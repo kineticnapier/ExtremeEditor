@@ -146,7 +146,7 @@ public partial class MainWindow
         StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
         MessageBox.Show(
             this,
-            $"Video export completed.\\n\\n{saveDialog.FileName}",
+            $"Video export completed.\n\n{saveDialog.FileName}",
             "Export Video",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
