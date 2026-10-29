@@ -121,13 +121,15 @@ public sealed class OfflineAudioRenderer
                     plan.HitSoundTimeline,
                     out _);
 
-            long totalFrames = reader is not null
-                ? checked((long)Math.Ceiling(reader.TotalTime.TotalSeconds * sampleRate))
-                : AudioGraphFactory.CalculateHitSoundOnlyFrames(
-                    sampleRate,
-                    plan.Level,
-                    plan.TimingMap,
-                    clips);
+            long songFrames = reader is null
+                ? 0
+                : checked((long)Math.Ceiling(reader.TotalTime.TotalSeconds * sampleRate));
+            long totalFrames = AudioGraphFactory.CalculatePlaybackFrames(
+                songFrames,
+                sampleRate,
+                plan.Level,
+                plan.TimingMap,
+                clips);
 
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;

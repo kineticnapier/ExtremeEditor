@@ -397,13 +397,15 @@ public sealed class AudioPlayer : IDisposable
                 _hitSoundTimeline,
                 out TimeSpan renderAssets);
 
-        long totalFrames = _reader is not null
-            ? (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate)
-            : AudioGraphFactory.CalculateHitSoundOnlyFrames(
-                _outputFormat.SampleRate,
-                _level,
-                _timingMap,
-                clips);
+        long songFrames = _reader is null
+            ? 0
+            : (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
+        long totalFrames = AudioGraphFactory.CalculatePlaybackFrames(
+            songFrames,
+            _outputFormat.SampleRate,
+            _level,
+            _timingMap,
+            clips);
         _transportDurationSeconds = totalFrames <= 0
             ? 0.0
             : (double)totalFrames / _outputFormat.SampleRate;

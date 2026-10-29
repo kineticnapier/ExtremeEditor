@@ -83,6 +83,16 @@ internal static class AudioGraphFactory
         return checked((long)Math.Ceiling(totalSeconds * sampleRate));
     }
 
+    internal static long CalculatePlaybackFrames(
+        long songFrames,
+        int sampleRate,
+        LevelDocument? level,
+        TimingMap? timingMap,
+        IReadOnlyDictionary<string, RenderedHitSound>? clips) =>
+        Math.Max(
+            Math.Max(0, songFrames),
+            CalculateHitSoundOnlyFrames(sampleRate, level, timingMap, clips));
+
     internal static AudioGraphBuildResult Build(
         ISampleProvider song,
         LevelDocument? level,
