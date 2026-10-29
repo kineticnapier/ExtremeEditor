@@ -46,6 +46,19 @@ internal static class DocumentTabNavigationRegression
                 activate.Contains("++_tabActivationGeneration", StringComparison.Ordinal) &&
                 activate.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
             "Direct tab clicks, cancellation and completed switches must clear pending navigation.");
+        // A fault while constructing the timing map or starting the preparation
+        // task must be caught before changing the active document.
+        int setupGuard = activate.IndexOf("try", StringComparison.Ordinal);
+        int setupBuild = activate.IndexOf("WpfPlaybackSetupBuilder.Build(", StringComparison.Ordinal);
+        int levelStart = activate.IndexOf("NativeLoadPreparationCache.StartLevel(", StringComparison.Ordinal);
+        int playbackStart = activate.IndexOf("NativeLoadPreparationCache.StartPlayback(", StringComparison.Ordinal);
+        int setupCatch = activate.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        int tabCommit = activate.IndexOf("_documentTabs.Activate(tab)", StringComparison.Ordinal);
+        Require(setupGuard >= 0 && setupGuard < setupBuild &&
+                setupBuild < levelStart && levelStart < playbackStart &&
+                playbackStart < setupCatch && setupCatch < tabCommit &&
+                activate.Contains("return false;", StringComparison.Ordinal),
+            "Timing-map building and native preparation must share an exception boundary before activation.");
         VerifyRapidNavigation();
 
         string bridge = File.ReadAllText(FindSourceFile(
