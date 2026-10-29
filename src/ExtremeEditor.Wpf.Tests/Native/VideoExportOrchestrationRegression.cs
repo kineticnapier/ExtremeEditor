@@ -107,6 +107,9 @@ internal static class VideoExportOrchestrationRegression
         }
         if (!xaml.Contains("ExportVideoClick", StringComparison.Ordinal))
             failures.Add("Export Video menu item must be wired to ExportVideoClick");
+        if (!xaml.Contains("CancelVideoExportMenuItem", StringComparison.Ordinal) ||
+            !xaml.Contains("CancelVideoExportClick", StringComparison.Ordinal))
+            failures.Add("File menu must expose a keyboard-reachable cancel action during export");
         if (!File.Exists(codePath))
             failures.Add("MainWindow.VideoExport.cs is missing");
 
@@ -161,6 +164,15 @@ internal static class VideoExportOrchestrationRegression
         {
             throw new InvalidOperationException(
                 "Save, snapshot preparation, and encoding must all execute inside the guarded core.");
+        }
+
+        if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||
+            !source.Contains("_videoExportCancellation?.Cancel();", StringComparison.Ordinal) ||
+            !source.Contains("CancelVideoExportMenuItem.IsEnabled = false;", StringComparison.Ordinal) ||
+            !core.Contains("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Video export must expose cancellation only while a cancellable operation is active.");
         }
     }
 
