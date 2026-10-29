@@ -16,6 +16,7 @@ RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
 RunStockTimingProbeRegression();
 RunStockTimingProbeHighBpmRegression();
+ExtremeEditor.Core.Tests.FlatTimingMapParityRegression.Run();
 ExtremeEditor.Core.Tests.ScaleRadiusPlaybackPoseRegression.Run();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
