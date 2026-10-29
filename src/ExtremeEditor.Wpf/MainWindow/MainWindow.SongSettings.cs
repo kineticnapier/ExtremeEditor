@@ -151,12 +151,18 @@ public partial class MainWindow
         if (songChanged)
             _audio.Unload();
         _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
+        string? songLoadStatus = null;
         if (songChanged && playback.SongPath is string songPath && File.Exists(songPath))
-            _ = LoadSong(songPath);
+            songLoadStatus = LoadSong(songPath);
         _audio.SongVolumePercent = after.SongVolumePercent;
 
         RefreshInspector();
         UpdateEditorStatus();
+        if (songLoadStatus is not null &&
+            songLoadStatus.StartsWith("audio load failed:", StringComparison.Ordinal))
+        {
+            StatusText.Text = songLoadStatus;
+        }
         CommandManager.InvalidateRequerySuggested();
     }
 
