@@ -62,7 +62,10 @@ internal sealed class PreparedAudioLoad : IDisposable
             else
             {
                 watch.Restart();
-                state = SongAudioFallback.Load(player, songPath);
+                try
+                {
+                    state = SongAudioFallback.Load(player, songPath);
+                }
                 finally
                 {
                     watch.Stop();
