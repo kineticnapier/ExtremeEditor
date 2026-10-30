@@ -45,6 +45,10 @@ internal sealed class NativeDecorationPlaybackRuntime
         _lastTime = chartTime;
         return true;
     }
+
+    // A native upload can fail after Update has advanced the timestamp.
+    // Force the same paused frame to be evaluated and uploaded again on retry.
+    internal void InvalidateLastTime() => _lastTime = double.NaN;
 }
 
 internal readonly record struct AnimatedDecorationBinding(
