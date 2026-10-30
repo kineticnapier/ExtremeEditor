@@ -168,6 +168,9 @@ public sealed partial class NativeLevelViewport : HwndHost
             _trackAnimationTimings = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
+        // The host may have been created on the welcome screen, before a
+        // chart existed. Honor a FrameAll request once that first level arrives.
+        ApplyPendingFrameAll();
     }
 
     internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
@@ -286,11 +289,22 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public void FrameAll()
     {
-        if (_session is null)
+        if (_session is null || _level is null)
         {
             _frameAllPending = true;
             return;
         }
+        _session.FrameAll();
+        _frameAllPending = false;
+    }
+
+    private void ApplyPendingFrameAll()
+    {
+        if (!_frameAllPending || _session is null || _level is null)
+            return;
+
+        // Only consume the request after the native camera operation succeeds.
+        // A failed call must remain eligible for retry.
         _session.FrameAll();
         _frameAllPending = false;
     }
@@ -368,11 +382,7 @@ public sealed partial class NativeLevelViewport : HwndHost
                     NativeUpload = watch.Elapsed
                 };
 
-                if (_frameAllPending)
-                {
-                    _session.FrameAll();
-                    _frameAllPending = false;
-                }
+                ApplyPendingFrameAll();
                 return new HandleRef(this, _session.ChildHwnd);
             },
             cleanup: () => DestroyWindowCore(default));
