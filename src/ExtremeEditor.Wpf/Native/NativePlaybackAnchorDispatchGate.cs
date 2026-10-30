@@ -20,5 +20,29 @@ internal sealed class NativePlaybackAnchorDispatchGate
         return true;
     }
 
+    // The native renderer may throw after ShouldSend has already cached this
+    // anchor. Invalidate on failure so an unchanged paused/stopped frame retries.
+    internal void Dispatch(
+        double chartTime,
+        double chartRate,
+        bool active,
+        bool playing,
+        Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
+        if (!ShouldSend(chartTime, chartRate, active, playing))
+            return;
+
+        try
+        {
+            upload();
+        }
+        catch
+        {
+            Invalidate();
+            throw;
+        }
+    }
+
     internal void Invalidate() => _hasLast = false;
 }
