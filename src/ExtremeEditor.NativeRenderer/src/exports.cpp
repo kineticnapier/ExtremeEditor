@@ -99,6 +99,19 @@ void ee_renderer_set_clean_view(EeRendererHandle renderer, int32_t enabled)
         static_cast<ee::Renderer*>(renderer)->SetCleanView(enabled != 0);
 }
 
+void ee_renderer_set_show_floor_numbers(EeRendererHandle renderer, int32_t enabled)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetShowFloorNumbers(enabled != 0);
+}
+
+void ee_renderer_set_editor_hud_delete_button(
+    EeRendererHandle renderer, int32_t button_index)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->SetEditorHudDeleteButton(button_index);
+}
+
 EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,
@@ -139,6 +152,19 @@ EeResult ee_renderer_set_level(
     {
         return EE_ERROR_INITIALIZATION;
     }
+}
+
+int32_t ee_renderer_try_activate_cached_level(EeRendererHandle renderer, uint64_t scene_key)
+{
+    if (renderer == nullptr || scene_key == 0u)
+        return 0;
+    return static_cast<ee::Renderer*>(renderer)->TryActivateCachedLevel(scene_key) ? 1 : 0;
+}
+
+void ee_renderer_remember_current_level(EeRendererHandle renderer, uint64_t scene_key)
+{
+    if (renderer != nullptr)
+        static_cast<ee::Renderer*>(renderer)->RememberCurrentLevel(scene_key);
 }
 
 EeResult ee_renderer_set_static_decorations(
@@ -214,6 +240,32 @@ void ee_renderer_frame_all(EeRendererHandle renderer)
 {
     if (renderer != nullptr)
         static_cast<ee::Renderer*>(renderer)->FrameAll();
+}
+
+EeResult ee_renderer_get_editor_camera(
+    EeRendererHandle renderer,
+    float* world_x,
+    float* world_y,
+    float* zoom)
+{
+    if (renderer == nullptr || world_x == nullptr || world_y == nullptr || zoom == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->TryGetEditorCamera(*world_x, *world_y, *zoom)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
+}
+
+EeResult ee_renderer_set_editor_camera(
+    EeRendererHandle renderer,
+    float world_x,
+    float world_y,
+    float zoom)
+{
+    if (renderer == nullptr)
+        return EE_ERROR_INVALID_ARGUMENT;
+    return static_cast<ee::Renderer*>(renderer)->SetEditorCamera(world_x, world_y, zoom)
+        ? EE_OK
+        : EE_ERROR_INVALID_ARGUMENT;
 }
 
 EeResult ee_renderer_update_floor_icons(

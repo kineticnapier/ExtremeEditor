@@ -14,6 +14,7 @@ public partial class MainWindow : Window
 {
     private AudioPlayer _audio = new();
     private readonly DiscordPresenceService _discordPresence = new();
+    private readonly EditorClipboardStore _editorClipboard = new();
     private readonly DispatcherTimer _playbackTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(16)
@@ -25,6 +26,9 @@ public partial class MainWindow : Window
     private bool _isLoading;
     private bool _playbackPreparationPending;
     private bool _isClosed;
+    private bool _windowCloseApproved;
+    private bool _windowCloseConfirmationPending;
+    private CancellationTokenSource? _assetSetupCancellation;
     private int _loadGeneration;
 
     // ADOFAI's editor can preview a chart even before a song file is assigned.
@@ -71,21 +75,17 @@ public partial class MainWindow : Window
         FollowPlayerToggle.Checked += FollowPlayerToggleChanged;
         FollowPlayerToggle.Unchecked += FollowPlayerToggleChanged;
         NativeViewport.FollowPlayerChanged += NativeViewportFollowPlayerChanged;
+        NativeViewport.DecorationAssetLoadFailed += NativeViewportDecorationAssetLoadFailed;
         NativeViewport.FollowPlayer = FollowPlayerToggle.IsChecked == true;
 
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
-        // Startup should behave like an editor, not a renderer stress test.
-        LevelDocument level = LevelDocument.CreateSynthetic(2);
-        _level = level;
-        NativeViewport.SetLevel(level);
-        NativeViewport.SetPlaybackTimeline(TimingMapBuilder.Build(level));
-        _selection.SetFloorCount(level.FloorCount);
-        _selection.SetSelection([0], 0);
-        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+        InitializeWelcomeLocalization();
 
-        StatusText.Text = $"Native viewport | {EditorVersion.Current} | new 2-floor level";
+        // No implicit unsaved chart on startup.
+        ShowWelcomePage();
+        StatusText.Text = $"ExtremeEditor {EditorVersion.Current} | Welcome";
         UpdateDiagnosticsDisplay("A --:--.--- | C --");
     }
 
@@ -93,8 +93,10 @@ public partial class MainWindow : Window
     {
         ShutdownDiagnostics.Begin("MainWindow.OnClosed");
         _isClosed = true;
+        _editor?.Changed -= ActiveEditorSessionChanged;
         _loadGeneration++;
         _videoExportCancellation?.Cancel();
+        _assetSetupCancellation?.Cancel();
 
         ShutdownDiagnostics.Begin("PlaybackTimer.Stop");
         _playbackTimer.Stop();
@@ -109,7 +111,13 @@ public partial class MainWindow : Window
         ShutdownDiagnostics.Complete("CompositionTarget.Rendering.Unsubscribe");
 
         NativeViewport.FollowPlayerChanged -= NativeViewportFollowPlayerChanged;
+        NativeViewport.DecorationAssetLoadFailed -= NativeViewportDecorationAssetLoadFailed;
         _discordPresence.Dispose();
+        foreach (EditorDocumentTab tab in _documentTabs.Tabs)
+        {
+            if (tab.Audio is not null && !ReferenceEquals(tab.Audio, _audio))
+                tab.Audio.Dispose();
+        }
         _audio.Dispose();
 
         ShutdownDiagnostics.Begin("PlaybackDiagnosticLogger.Dispose");
@@ -120,6 +128,34 @@ public partial class MainWindow : Window
         base.OnClosed(e);
         ShutdownDiagnostics.Complete("MainWindow.BaseOnClosed");
         ShutdownDiagnostics.Complete("MainWindow.OnClosed");
+    }
+
+    private async Task ConfirmWindowCloseAsync()
+    {
+        bool confirmed = false;
+        try
+        {
+            confirmed = await ConfirmUnsavedTabsBeforeCloseAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                ex.ToString(),
+                "Unable to close ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            _windowCloseConfirmationPending = false;
+        }
+
+        if (confirmed && !_isClosed)
+        {
+            _windowCloseApproved = true;
+            Close();
+        }
     }
 
     private void ExitClick(object sender, RoutedEventArgs e)
@@ -139,11 +175,13 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
-        if (!ConfirmDiscardCurrentChanges())
+        if (!CanSwitchDocumentTabs())
         {
             e.Handled = true;
             return;
         }
+
+        EnsureEditorSession();
 
         var dialog = new OpenFileDialog
         {
@@ -152,14 +190,20 @@ public partial class MainWindow : Window
         };
 
         if (dialog.ShowDialog(this) == true)
-            await LoadLevelAsync(dialog.FileName);
+        {
+            EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
+            if (existing is not null)
+                _ = ActivateDocumentTab(existing);
+            else
+                await LoadLevelAsync(dialog.FileName);
+        }
 
         e.Handled = true;
     }
 
     private void CanExecuteOpen(object sender, CanExecuteRoutedEventArgs e)
     {
-        e.CanExecute = !_isLoading;
+        e.CanExecute = !_isClosed && !_isLoading && !_playbackPreparationPending && !IsCleanPlay;
         e.Handled = true;
     }
 
@@ -171,10 +215,7 @@ public partial class MainWindow : Window
         {
             _isLoading = true;
             _playbackPreparationPending = false;
-            _editorPlaybackRefreshTimer?.Stop();
-            _editorPlaybackRefreshPending = false;
-            _editorPlaybackRefreshDocument = null;
-            CommandManager.InvalidateRequerySuggested();
+             CommandManager.InvalidateRequerySuggested();
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Loading…";
 
@@ -195,15 +236,6 @@ public partial class MainWindow : Window
                 $"hitsounds={playback.HitSoundTime.TotalMilliseconds:N1}ms " +
                 $"resolveSong={playback.ResolveSongTime.TotalMilliseconds:N1}ms");
 
-            var phase = Stopwatch.StartNew();
-            StopPlayback();
-            _audio.Unload();
-            TimeSpan audioUnload = phase.Elapsed;
-
-            _level = loaded.Document;
-            _timingMap = playback.TimingMap;
-            _hitSoundTimeline = playback.HitSoundTimeline;
-
             Task<Native.PreparedNativeLevel> nativeLevelTask =
                 NativeLoadPreparationCache.TryGetLevel(
                     loaded.Document,
@@ -216,17 +248,32 @@ public partial class MainWindow : Window
             if (generation != _loadGeneration || _isClosed)
                 return;
 
-            NativeLevelLoadMetrics nativeMetrics =
-                NativeViewport.SetPreparedLevelProfiled(loaded.Document, preparedNativeLevel);
-            _selection.SetFloorCount(loaded.Document.FloorCount);
-            _selection.SetSelection([0], 0);
-            NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-            EnsureEditorSession();
-            RefreshInspector();
+            var tab = new EditorDocumentTab(
+                loaded.Document, new EditorSession(loaded.Document, clipboardStore: _editorClipboard))
+            {
+                Audio = new AudioPlayer(),
+                TimingMap = playback.TimingMap,
+                HitSoundTimeline = playback.HitSoundTimeline,
+                SelectedFloors = [0],
+                PrimaryFloor = 0
+            };
+            if (!_documentTabs.Add(tab, activate: false))
+            {
+                tab.Audio.Dispose();
+                throw new InvalidOperationException("This ADOFAI chart is already open in another tab.");
+            }
+
+            // Switch only after loading and preparing a valid chart. The old
+            // editor/selection/audio remain owned by the preceding tab.
+            _isLoading = false;
+            var switchWatch = Stopwatch.StartNew();
+            await ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            TimeSpan tabSwitch = switchWatch.Elapsed;
+            Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 
             TimeSpan editorReadyTime = totalWatch.Elapsed;
             editorReady = true;
-            _isLoading = false;
+            RememberRecentFile(path);
             _playbackPreparationPending = true;
             Mouse.OverrideCursor = null;
             CommandManager.InvalidateRequerySuggested();
@@ -235,7 +282,7 @@ public partial class MainWindow : Window
                 $"[load] editor-ready floors={loaded.Document.FloorCount:N0} " +
                 $"actions={loaded.Document.ActionCount:N0} " +
                 $"nativeSnapshot={nativeMetrics.SnapshotBuild.TotalMilliseconds:N1}ms " +
-                $"nativeUpload={nativeMetrics.Upload.TotalMilliseconds:N1}ms " +
+                $"nativeUpload={nativeMetrics.NativeUpload.TotalMilliseconds:N1}ms " +
                 $"total={editorReadyTime.TotalMilliseconds:N1}ms");
 
             StatusText.Text =
@@ -261,6 +308,8 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
+                if (audioPrepareTask.IsCompletedSuccessfully)
+                    audioPrepareTask.Result.Dispose();
                 if (generation == _loadGeneration && !_isClosed)
                 {
                     _playbackPreparationPending = false;
@@ -287,17 +336,17 @@ public partial class MainWindow : Window
             NativePlaybackLoadMetrics nativePlaybackMetrics =
                 NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
 
-            preparedAudio.Player.HitSoundsEnabled = HitSoundsToggle.IsChecked == true;
-            preparedAudio.Player.PlaybackSpeed = _playbackSpeed;
+            ApplySharedPlaybackPreferences(preparedAudio.Player);
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
+            tab.Audio = _audio;
             previousAudio.Dispose();
 
             _playbackPreparationPending = false;
             CommandManager.InvalidateRequerySuggested();
 
             Console.WriteLine(
-                $"[load] audio unload={audioUnload.TotalMilliseconds:N1}ms " +
+                $"[load] tabSwitch={tabSwitch.TotalMilliseconds:N1}ms " +
                 $"configure={preparedAudio.ConfigureTime.TotalMilliseconds:N1}ms " +
                 $"load={preparedAudio.LoadTime.TotalMilliseconds:N1}ms");
             if (_audio.IsLoaded)
@@ -340,8 +389,7 @@ public partial class MainWindow : Window
             if (generation == _loadGeneration && !_isClosed)
             {
                 _isLoading = false;
-                if (!editorReady)
-                    _playbackPreparationPending = false;
+                _playbackPreparationPending = false;
                 Mouse.OverrideCursor = null;
                 CommandManager.InvalidateRequerySuggested();
             }
@@ -355,16 +403,7 @@ public partial class MainWindow : Window
         if (!File.Exists(songPath))
             return $"audio missing: {Path.GetFileName(songPath)}";
 
-        try
-        {
-            _audio.Load(songPath);
-            return $"audio {Path.GetFileName(songPath)}";
-        }
-        catch (Exception ex)
-        {
-            _audio.Unload();
-            return $"audio load failed: {ex.Message}";
-        }
+        return SongAudioFallback.Load(_audio, songPath);
     }
 
     private void ExecutePlayPause(object sender, ExecutedRoutedEventArgs e)
@@ -495,9 +534,12 @@ public partial class MainWindow : Window
 
     private void StopPlayback()
     {
+        // Keep the previous audio/clock running if the native playback clear
+        // fails. Tab activation can then restore the old native scene without
+        // having already stopped the audio for the still-active document.
+        NativeViewport.ClearPlayback();
         _audio.Stop();
         ClearSilentPlaybackState();
-        NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
         UpdateDiagnosticsDisplay("A --:--.--- | C --");
         CommandManager.InvalidateRequerySuggested();
@@ -603,5 +645,11 @@ public partial class MainWindow : Window
     private void NativeViewportFollowPlayerChanged(bool enabled)
     {
         FollowPlayerToggle.IsChecked = enabled;
+    }
+
+    private void NativeViewportDecorationAssetLoadFailed(IReadOnlyList<string> paths)
+    {
+        string names = string.Join(", ", paths.Select(Path.GetFileName));
+        StatusText.Text = $"Decoration images failed to load: {names}";
     }
 }

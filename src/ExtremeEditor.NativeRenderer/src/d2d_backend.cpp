@@ -12,7 +12,13 @@ using Microsoft::WRL::ComPtr;
 
 D2DBackend::~D2DBackend()
 {
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::D2DBackendDestructorEntry,
+        "D2DBackend.destructor.begin");
     Shutdown();
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::D2DBackendDestructorExit,
+        "D2DBackend.destructor.end");
 }
 
 bool D2DBackend::Initialize(HWND hwnd, std::uint32_t width, std::uint32_t height) noexcept

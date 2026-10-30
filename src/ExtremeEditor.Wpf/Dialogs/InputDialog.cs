@@ -59,11 +59,23 @@ internal sealed class InputDialog : Window
 
     public static double? AskDouble(Window owner, string title, string prompt, double initialValue = 0.0)
     {
-        string? text = Ask(owner, title, prompt, initialValue.ToString("0.###", CultureInfo.InvariantCulture));
-        if (text is null)
-            return null;
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            ? value
-            : null;
+        string current = initialValue.ToString("R", CultureInfo.InvariantCulture);
+        while (true)
+        {
+            string? text = Ask(owner, title, prompt, current);
+            if (text is null)
+                return null;
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+                double.IsFinite(value))
+                return value;
+
+            MessageBox.Show(
+                owner,
+                "Enter a finite numeric value.",
+                title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            current = text;
+        }
     }
 }

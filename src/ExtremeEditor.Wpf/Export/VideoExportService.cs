@@ -152,7 +152,7 @@ internal sealed class VideoExportService
         {
             ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
         };
-        int totalVideoFrames = VideoExportTimeline.Build(videoPlan).Count;
+        int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
         int writtenVideoFrames = 0;
 
         var framePipeline = new VideoExportFramePipeline(frameRenderer);

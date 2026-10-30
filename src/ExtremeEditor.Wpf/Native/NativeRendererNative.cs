@@ -58,10 +58,22 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_set_clean_view", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void SetCleanView(nint renderer, int enabled);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_show_floor_numbers", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetShowFloorNumbers(nint renderer, int enabled);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_hud_delete_button", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void SetEditorHudDeleteButton(nint renderer, int buttonIndex);
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_level", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetLevel(
         nint renderer, nint floors, uint floorCount, nint geometries, uint geometryCount,
         nint points, uint pointCount, float boundsLeft, float boundsTop, float boundsRight, float boundsBottom);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_try_activate_cached_level", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int TryActivateCachedLevel(nint renderer, ulong sceneKey);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_remember_current_level", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void RememberCurrentLevel(nint renderer, ulong sceneKey);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_update_floor_icons", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int UpdateFloorIcons(nint renderer, uint startFloor, nint states, uint stateCount);
@@ -80,6 +92,12 @@ internal static class NativeRendererNative
 
     [DllImport(DllName, EntryPoint = "ee_renderer_center_at", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void CenterAt(nint renderer, float worldX, float worldY);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_get_editor_camera", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int GetEditorCamera(nint renderer, out float worldX, out float worldY, out float zoom);
+
+    [DllImport(DllName, EntryPoint = "ee_renderer_set_editor_camera", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int SetEditorCamera(nint renderer, float worldX, float worldY, float zoom);
 
     [DllImport(DllName, EntryPoint = "ee_renderer_clear_icon_assets", CallingConvention = CallingConvention.Cdecl)]
     internal static extern void ClearIconAssets(nint renderer);

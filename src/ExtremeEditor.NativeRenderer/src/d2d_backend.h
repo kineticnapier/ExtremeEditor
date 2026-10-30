@@ -114,6 +114,9 @@ public:
     void SetScreenTileState(const ScreenTileVisualState& state) noexcept { screen_tile_state_ = state; }
     void SetFilterState(const FilterVisualState& state) noexcept { filter_state_ = state; }
     void SetBackgroundState(const EeBackgroundState& state) noexcept { background_state_ = state; }
+    void SetShowFloorNumbers(bool enabled) noexcept { show_floor_numbers_ = enabled; }
+    void SetEditorHudHover(int hovered) noexcept { editor_hud_hover_ = hovered; }
+    void SetEditorHudDeleteButton(int button_index) noexcept { delete_hud_button_ = button_index; }
     void DrawBackground() noexcept;
     void SyncBackgroundAssets(
         const std::unordered_map<std::uint32_t, std::wstring>* paths,
@@ -244,6 +247,13 @@ private:
         float zoom,
         float camera_rotation,
         RenderFrameStats& stats) noexcept;
+    void DrawFloorNumbers(
+        const LevelScene& scene,
+        float camera_x,
+        float camera_y,
+        float zoom,
+        float camera_rotation,
+        RenderFrameStats& stats) noexcept;
     void DrawEditorHud(
         const LevelScene& scene,
         float camera_x,
@@ -308,8 +318,7 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_text_format_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_subtext_format_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_center_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> floor_numbers_text_format_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> grid_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border_brush_;
@@ -321,11 +330,17 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_blue_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> planet_outline_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_button_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_destructive_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_shadow_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_hover_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_delete_text_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_accent_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_text_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_subtext_brush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hud_center_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> floor_numbers_shadow_brush_;
+    bool show_floor_numbers_ = false;
+    int editor_hud_hover_ = -1;
+    int delete_hud_button_ = -1;
 
     FloorInstancedRenderer floor_renderer_;
     IconInstancedRenderer icon_renderer_;

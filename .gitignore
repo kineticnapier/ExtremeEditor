@@ -17,3 +17,12 @@ FloorMesh.cs
 
 dist/
 *_wpftmp.csproj
+
+# Local Wrangler development secrets
+cloudflare/together-bundle/
+.dev.vars
+.dev.vars.*
+
+# Local secrets for public relay E2E
+.env
+.env.*

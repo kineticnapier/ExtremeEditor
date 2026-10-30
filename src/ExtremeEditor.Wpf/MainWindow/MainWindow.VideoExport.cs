@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
 using Microsoft.Win32;
 
@@ -19,19 +20,73 @@ public partial class MainWindow
             _hitSoundTimeline is null)
             return;
 
-        if (_editor?.IsDirty == true ||
-            string.IsNullOrWhiteSpace(_level.SourcePath) ||
-            string.Equals(_level.SourcePath, "<synthetic>", StringComparison.Ordinal))
+        // Claim the export before the first await (Save, snapshot preparation).
+        // Otherwise a second click can start a second export while the first
+        // is still preparing its chart, and both can overwrite cancellation state.
+        _videoExportInProgress = true;
+        ExportVideoMenuItem.IsEnabled = false;
+        CancelVideoExportMenuItem.IsEnabled = false;
+
+        try
+        {
+            await ExportVideoCoreAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "Video export cancelled";
+        }
+        catch (Exception ex)
+        {
+            // Snapshot creation and Save are covered as well as FFmpeg/export.
+            StatusText.Text = "Video export failed";
+            MessageBox.Show(
+                this,
+                ex.ToString(),
+                "Video export failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+            ExportVideoMenuItem.IsEnabled = true;
+            CancelVideoExportMenuItem.IsEnabled = false;
+            _videoExportInProgress = false;
+            _videoExportCancellation = null;
+        }
+    }
+
+    private void CancelVideoExportClick(object sender, RoutedEventArgs e)
+    {
+        if (_videoExportCancellation is null)
+            return;
+
+        CancelVideoExportMenuItem.IsEnabled = false;
+        StatusText.Text = "Video export — cancelling…";
+        _videoExportCancellation?.Cancel();
+    }
+
+    private async Task ExportVideoCoreAsync()
+    {
+        // Raw JSON edits are staged on the document tab until Save. Checking
+        // EditorSession.IsDirty alone would export the old file contents.
+        EditorDocumentTab? exportTab = _documentTabs.ActiveTab;
+        if (exportTab is null)
+            return;
+
+        if (RequiresSaveBeforeVideoExport(exportTab))
         {
             bool saved = await SaveCurrentAsync(saveAs: false);
             if (!saved ||
+                !ReferenceEquals(_documentTabs.ActiveTab, exportTab) ||
+                exportTab.IsDirty ||
                 _level is null ||
                 _timingMap is null ||
                 _hitSoundTimeline is null)
                 return;
         }
 
-        string chartPath = Path.GetFullPath(_level.SourcePath);
+        string chartPath = Path.GetFullPath(exportTab.Document.SourcePath);
         if (!File.Exists(chartPath))
         {
             MessageBox.Show(
@@ -69,29 +124,24 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
-        var source = new VideoExportSource(
-            _level,
-            _timingMap,
-            _hitSoundTimeline,
-            _level.ResolveSongPath());
+        Mouse.OverrideCursor = Cursors.Wait;
+        VideoExportSource source = await Task.Run(() => CreateVideoExportSnapshot(chartPath));
 
         var request = new VideoExportRequest(
             source,
             saveDialog.FileName,
             ffmpegPath,
             StartChartTimeSeconds: 0.0,
-            EndChartTimeSeconds: _timingMap.Duration,
+            EndChartTimeSeconds: source.TimingMap.Duration,
             FramesPerSecond: 60,
             Width: 1920,
             Height: 1080,
-            SongVolumePercent: _level.SongVolumePercent,
+            SongVolumePercent: source.Level.SongVolumePercent,
             HitSoundsEnabled: HitSoundsToggle.IsChecked == true);
 
         using var cancellation = new CancellationTokenSource();
         _videoExportCancellation = cancellation;
-        _videoExportInProgress = true;
-        ExportVideoMenuItem.IsEnabled = false;
-        Mouse.OverrideCursor = Cursors.Wait;
+        CancelVideoExportMenuItem.IsEnabled = true;
 
         var progress = new Progress<VideoExportProgress>(value =>
         {
@@ -103,40 +153,29 @@ public partial class MainWindow
             StatusText.Text = $"Export Video — {value.Stage}{suffix}";
         });
 
-        try
-        {
-            StatusText.Text = "Export Video — preparing…";
-            var service = new VideoExportService();
-            await service.ExportAsync(request, progress, cancellation.Token);
-            StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
-            MessageBox.Show(
-                this,
-                $"Video export completed.\n\n{saveDialog.FileName}",
-                "Export Video",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        catch (OperationCanceledException)
-        {
-            StatusText.Text = "Video export cancelled";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "Video export failed";
-            MessageBox.Show(
-                this,
-                ex.ToString(),
-                "Video export failed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        finally
-        {
-            Mouse.OverrideCursor = null;
-            ExportVideoMenuItem.IsEnabled = true;
-            _videoExportInProgress = false;
-            _videoExportCancellation = null;
-        }
+        StatusText.Text = "Export Video — preparing…";
+        var service = new VideoExportService();
+        await service.ExportAsync(request, progress, cancellation.Token);
+        StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
+        MessageBox.Show(
+            this,
+            $"Video export completed.\n\n{saveDialog.FileName}",
+            "Export Video",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
+        tab.IsDirty ||
+        string.IsNullOrWhiteSpace(tab.Document.SourcePath) ||
+        string.Equals(tab.Document.SourcePath, "<synthetic>", StringComparison.Ordinal);
+
+    private static VideoExportSource CreateVideoExportSnapshot(string chartPath)
+    {
+        LevelDocument level = WpfLevelLoader.Load(chartPath).Document;
+        TimingMap timingMap = TimingMapBuilder.Build(level);
+        HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        return new VideoExportSource(level, timingMap, hitSoundTimeline, level.ResolveSongPath());
     }
 
     private static string? FindFfmpegPath()

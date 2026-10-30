@@ -116,7 +116,9 @@ HRESULT D2DBackend::RenderFrame(
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-    d2d_context_->Clear(D2D1::ColorF(0x14161A));
+    // Match the regular and offscreen renderer: draw the selected background
+    // before editor grid lines and instanced floors.
+    DrawBackground();
 
     constexpr float grid_step = 64.0f;
     for (float x = 0.0f; x <= static_cast<float>(width_); x += grid_step)
@@ -250,7 +252,11 @@ HRESULT D2DBackend::RenderFrame(
             stats);
 
         if (!playback.active)
+        {
+            if (show_floor_numbers_)
+                DrawFloorNumbers(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
             DrawEditorHud(*scene, camera_x, camera_y, zoom, selected_floor, stats);
+        }
 
         DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
         if (playback.active)

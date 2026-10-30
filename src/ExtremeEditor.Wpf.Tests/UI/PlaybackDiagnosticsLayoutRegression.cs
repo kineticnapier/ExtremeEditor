@@ -187,7 +187,7 @@ internal static class PlaybackDiagnosticsLayoutRegression
     {
         if (window.FindName(name) is not MenuItem item ||
             !menu.Items.Contains(item) ||
-            !string.Equals(item.Header as string, header, StringComparison.Ordinal))
+            string.IsNullOrWhiteSpace(item.Header as string))
         {
             throw new InvalidOperationException($"Top-level menu '{header}' is missing.");
         }

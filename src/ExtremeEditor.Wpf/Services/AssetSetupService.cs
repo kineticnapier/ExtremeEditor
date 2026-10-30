@@ -145,9 +145,31 @@ public static class AssetSetupService
         if (!process.Start())
             throw new InvalidOperationException("Failed to start ExtremeEditor.AssetExtractor.");
 
-        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // The extractor exited between the state check and Kill.
+            }
+            finally
+            {
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                _ = await stdoutTask.ConfigureAwait(false);
+                _ = await stderrTask.ConfigureAwait(false);
+            }
+            throw;
+        }
         string stdout = await stdoutTask.ConfigureAwait(false);
         string stderr = await stderrTask.ConfigureAwait(false);
         AssetCacheStatus status = InspectCache(cacheRoot);

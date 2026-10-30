@@ -12,6 +12,7 @@ public static class EditorCommands
     public static RoutedUICommand Copy { get; } = Create("Copy", "Copy");
     public static RoutedUICommand Cut { get; } = Create("Cut", "Cut");
     public static RoutedUICommand Paste { get; } = Create("Paste", "Paste");
+    public static RoutedUICommand PasteAtEnd { get; } = Create("Paste at End", "PasteAtEnd");
     public static RoutedUICommand Delete { get; } = Create("Delete", "Delete");
     public static RoutedUICommand InsertAngle { get; } = Create("Insert Angle", "InsertAngle");
     public static RoutedUICommand InsertMidspin { get; } = Create("Insert Midspin", "InsertMidspin");

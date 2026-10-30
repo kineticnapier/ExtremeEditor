@@ -89,64 +89,79 @@
 
         <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem x:Name="FileMenu" Header="_File">
-                <MenuItem Header="_Open"
+                <MenuItem x:Name="FileNewMenu" Header="_New Tab" Click="NewDocumentTabClick" InputGestureText="Ctrl+N" />
+                <MenuItem x:Name="FileOpenMenu" Header="_Open"
                           Command="{x:Static local:EditorCommands.Open}"
                           InputGestureText="Ctrl+O" />
-                <MenuItem Header="_Save"
+                <MenuItem x:Name="FileSaveMenu" Header="_Save"
                           Command="{x:Static local:EditorCommands.Save}"
                           InputGestureText="Ctrl+S" />
-                <MenuItem Header="Save _As"
+                <MenuItem x:Name="FileSaveAsMenu" Header="Save _As"
                           Command="{x:Static local:EditorCommands.SaveAs}"
                           InputGestureText="Ctrl+Shift+S" />
                 <MenuItem x:Name="ExportVideoMenuItem"
                           Header="Export _Video…"
                           Click="ExportVideoClick" />
+                <MenuItem x:Name="CancelVideoExportMenuItem"
+                          Header="_Cancel Video Export"
+                          Click="CancelVideoExportClick"
+                          IsEnabled="False" />
+                <Separator />
+                <MenuItem x:Name="FileSettingsMenu" Header="_Settings">
+                    <MenuItem x:Name="FileLanguageMenu" Header="_Language">
+                        <MenuItem x:Name="LanguageSystemMenu" Header="System" Tag="system" Click="LanguageMenuClick" IsCheckable="True"/>
+                        <MenuItem x:Name="LanguageEnglishMenu" Header="English" Tag="en" Click="LanguageMenuClick" IsCheckable="True"/>
+                        <MenuItem x:Name="LanguageJapaneseMenu" Header="日本語" Tag="ja" Click="LanguageMenuClick" IsCheckable="True"/>
+                    </MenuItem>
+                </MenuItem>
                 <Separator />
                 <MenuItem x:Name="ExitMenuItem" Header="E_xit" Click="ExitClick" />
             </MenuItem>
             <MenuItem x:Name="EditMenu" Header="_Edit">
-                <MenuItem Header="_Undo"
+                <MenuItem x:Name="EditUndoMenu" Header="_Undo"
                           Command="{x:Static local:EditorCommands.Undo}"
                           InputGestureText="Ctrl+Z" />
-                <MenuItem Header="_Redo"
+                <MenuItem x:Name="EditRedoMenu" Header="_Redo"
                           Command="{x:Static local:EditorCommands.Redo}"
                           InputGestureText="Ctrl+Y" />
                 <Separator />
-                <MenuItem Header="Cu_t"
+                <MenuItem x:Name="EditCutMenu" Header="Cu_t"
                           Command="{x:Static local:EditorCommands.Cut}"
                           InputGestureText="Ctrl+X" />
-                <MenuItem Header="_Copy"
+                <MenuItem x:Name="EditCopyMenu" Header="_Copy"
                           Command="{x:Static local:EditorCommands.Copy}"
                           InputGestureText="Ctrl+C" />
-                <MenuItem Header="_Paste"
+                <MenuItem x:Name="EditPasteMenu" Header="_Paste"
                           Command="{x:Static local:EditorCommands.Paste}"
                           InputGestureText="Ctrl+V" />
+                <MenuItem Header="Paste at _End"
+                          Command="{x:Static local:EditorCommands.PasteAtEnd}" />
                 <Separator />
-                <MenuItem Header="_Go to Floor…"
+                <MenuItem x:Name="EditGoToMenu" Header="_Go to Floor…"
                           InputGestureText="Ctrl+G"
                           Click="GoToFloorClick" />
                 <Separator />
                 <MenuItem x:Name="TransformMenu" Header="_Transform">
-                    <MenuItem Header="_Angle…"
+                    <MenuItem x:Name="EditAngleMenu" Header="_Angle…"
                               Command="{x:Static local:EditorCommands.InsertAngle}"
                               InputGestureText="Enter" />
-                    <MenuItem Header="Rotate -90°"
+                    <MenuItem x:Name="EditRotateLeftMenu" Header="Rotate -90°"
                               Command="{x:Static local:EditorCommands.RotateLeft}"
                               InputGestureText="Ctrl+." />
-                    <MenuItem Header="Rotate +90°"
+                    <MenuItem x:Name="EditRotateRightMenu" Header="Rotate +90°"
                               Command="{x:Static local:EditorCommands.RotateRight}"
                               InputGestureText="Ctrl+," />
                     <Separator />
-                    <MenuItem Header="Flip _Horizontal"
+                    <MenuItem x:Name="EditFlipHorizontalMenu" Header="Flip _Horizontal"
                               Command="{x:Static local:EditorCommands.FlipHorizontal}"
                               InputGestureText="Ctrl+L" />
-                    <MenuItem Header="Flip _Vertical"
+                    <MenuItem x:Name="EditFlipVerticalMenu" Header="Flip _Vertical"
                               Command="{x:Static local:EditorCommands.FlipVertical}"
                               InputGestureText="Ctrl+Shift+L" />
                 </MenuItem>
             </MenuItem>
             <MenuItem x:Name="ViewMenu" Header="_View">
-                <MenuItem Header="_Frame"
+                <MenuItem x:Name="ViewFrameMenu" Header="_Frame"
                           Command="{x:Static local:EditorCommands.Frame}" />
                 <MenuItem x:Name="ViewFollowPlayerMenuItem"
                           Header="Follow _Player"
@@ -187,16 +202,16 @@
                 Padding="3,2">
             <StackPanel x:Name="MainToolBar"
                         Orientation="Horizontal">
-                <Button Content="Open"
+                <Button x:Name="ToolbarOpenButton" Content="Open"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Open}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Save"
+                <Button x:Name="ToolbarSaveButton" Content="Save"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Save}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
                 <Border Width="1" Height="18" Margin="6,4" Background="{StaticResource SeparatorBrush}" />
-                <Button Content="Frame"
+                <Button x:Name="ToolbarFrameButton" Content="Frame"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Frame}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
@@ -206,11 +221,11 @@
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.PlayPause}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <Button Content="Stop"
+                <Button x:Name="ToolbarStopButton" Content="Stop"
                         Style="{StaticResource ToolbarButtonStyle}"
                         Command="{x:Static local:EditorCommands.Stop}"
                         CommandTarget="{Binding RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" />
-                <TextBlock Text="Speed"
+                <TextBlock x:Name="ToolbarSpeedLabel" Text="Speed"
                            VerticalAlignment="Center"
                            Margin="8,0,4,0"
                            Foreground="#D9DCE3" />
@@ -242,6 +257,63 @@
             </StackPanel>
         </Border>
 
+        <!-- Tabs remain in document creation order; selection changes appearance only.
+             It shares the toolbar's visibility so Clean Play continues to be chrome-free. -->
+        <Border x:Name="DocumentTabStrip"
+                DockPanel.Dock="Top"
+                Height="33"
+                Background="#1B1F25"
+                BorderBrush="{StaticResource SeparatorBrush}"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding Visibility, ElementName=ToolbarHost}">
+            <DockPanel Margin="7,3,7,0" LastChildFill="True">
+                <!-- Keep the new-tab button reachable even when the tab row overflows. -->
+                <Button x:Name="WelcomeTabButton"
+                        DockPanel.Dock="Left"
+                        Content="Welcome"
+                        Click="WelcomeTabClick"
+                        Margin="0,0,8,3"
+                        Padding="11,0"
+                        ToolTip="Open welcome page" />
+                <Button x:Name="AddDocumentTabButton"
+                        DockPanel.Dock="Right"
+                        Content="+"
+                        Click="NewDocumentTabClick"
+                        Margin="6,0,0,3"
+                        Padding="10,0"
+                        MinWidth="30"
+                        FontSize="15"
+                        ToolTip="New chart tab (Ctrl+N)"
+                        AutomationProperties.Name="New chart tab" />
+                <Button DockPanel.Dock="Right"
+                        Content="›"
+                        Click="ScrollDocumentTabsRightClick"
+                        Margin="2,0,0,3"
+                        Padding="5,0"
+                        MinWidth="24"
+                        ToolTip="Scroll chart tabs right"
+                        AutomationProperties.Name="Scroll chart tabs right" />
+                <Button DockPanel.Dock="Right"
+                        Content="‹"
+                        Click="ScrollDocumentTabsLeftClick"
+                        Margin="2,0,0,3"
+                        Padding="5,0"
+                        MinWidth="24"
+                        ToolTip="Scroll chart tabs left"
+                        AutomationProperties.Name="Scroll chart tabs left" />
+                <ScrollViewer x:Name="DocumentTabsScrollViewer"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Disabled"
+                              CanContentScroll="False"
+                              PreviewMouseWheel="DocumentTabsScrollViewerPreviewMouseWheel"
+                              SizeChanged="DocumentTabsScrollViewerSizeChanged">
+                    <StackPanel x:Name="DocumentTabsHost"
+                                Orientation="Horizontal" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <Grid>
         <Grid x:Name="EditorShellGrid">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SettingsRailColumn" Width="40" />
@@ -309,43 +381,43 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Song Settings"
+                            <TextBlock x:Name="L10nSongSettings" Text="Song Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Song filename" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongFilename" Text="Song filename" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongFilenameTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Initial BPM" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongBpm" Text="Initial BPM" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongBpmTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Song volume (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongVolume" Text="Song volume (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongVolumeTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Offset (ms)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongOffset" Text="Offset (ms)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongOffsetTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Pitch (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongPitch" Text="Pitch (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongPitchTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="SongSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Hitsound" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongHitSound" Text="Hitsound" Foreground="#AEB4C0" />
                             <ComboBox x:Name="SongHitSoundComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="SongHitSoundSelectionChanged">
@@ -356,7 +428,7 @@
                                 <ComboBoxItem Content="Chuck" />
                             </ComboBox>
 
-                            <TextBlock Text="Hitsound volume (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nSongHitSoundVolume" Text="Hitsound volume (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="SongHitSoundVolumeTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="SongSettingTextBoxPreviewKeyDown"
@@ -375,13 +447,13 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Camera Settings"
+                            <TextBlock x:Name="L10nCameraSettings" Text="Camera Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Relative to" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraRelativeTo" Text="Relative to" Foreground="#AEB4C0" />
                             <ComboBox x:Name="CameraRelativeToComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="CameraRelativeToSelectionChanged">
@@ -390,25 +462,25 @@
                                 <ComboBoxItem Content="Global" />
                             </ComboBox>
 
-                            <TextBlock Text="Position X" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraPositionX" Text="Position X" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraPositionXTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Position Y" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraPositionY" Text="Position Y" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraPositionYTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Rotation (°)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraRotation" Text="Rotation (°)" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraRotationTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="CameraSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Zoom (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nCameraZoom" Text="Zoom (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="CameraZoomTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="CameraSettingTextBoxPreviewKeyDown"
@@ -427,25 +499,25 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock Text="Track Settings"
+                            <TextBlock x:Name="L10nTrackSettings" Text="Track Settings"
                                        Foreground="#F0F0F4"
                                        FontWeight="SemiBold"
                                        FontSize="14"
                                        Margin="0,0,0,12" />
 
-                            <TextBlock Text="Primary color (hex)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackPrimaryColor" Text="Primary color (hex)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackPrimaryColorTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Secondary color (hex)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackSecondaryColor" Text="Secondary color (hex)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackSecondaryColorTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
                                      LostKeyboardFocus="TrackSettingTextBoxLostKeyboardFocus" />
 
-                            <TextBlock Text="Color type" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackColorType" Text="Color type" Foreground="#AEB4C0" />
                             <ComboBox x:Name="TrackColorTypeComboBox"
                                       Margin="0,3,0,10"
                                       SelectionChanged="TrackSettingComboBoxSelectionChanged">
@@ -458,7 +530,7 @@
                                 <ComboBoxItem Content="Volume" />
                             </ComboBox>
 
-                            <TextBlock Text="Animation duration" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackAnimationDuration" Text="Animation duration" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackColorAnimDurationTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
@@ -473,7 +545,7 @@
                                 <ComboBoxItem Content="Backward" />
                             </ComboBox>
 
-                            <TextBlock Text="Pulse length" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackPulseLength" Text="Pulse length" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackPulseLengthTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
@@ -491,7 +563,7 @@
                                 <ComboBoxItem Content="Minimal" />
                             </ComboBox>
 
-                            <TextBlock Text="Glow intensity (%)" Foreground="#AEB4C0" />
+                            <TextBlock x:Name="L10nTrackGlowIntensity" Text="Glow intensity (%)" Foreground="#AEB4C0" />
                             <TextBox x:Name="TrackGlowIntensityTextBox"
                                      Margin="0,3,0,10"
                                      PreviewKeyDown="TrackSettingTextBoxPreviewKeyDown"
@@ -708,6 +780,27 @@
                     </Grid>
                 </DockPanel>
             </Border>
+        </Grid>
+        <Grid x:Name="WelcomePage" Visibility="Collapsed" Background="#14161A">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Width="550" HorizontalAlignment="Center"
+                            Margin="24,80,24,60">
+                    <TextBlock Text="ExtremeEditor" FontSize="38" FontWeight="SemiBold"
+                               Foreground="#F0F2F5"/>
+                    <TextBlock x:Name="WelcomeSubtitle" Text="Welcome" FontSize="16" Foreground="#9CA6B4"
+                               Margin="0,2,0,30"/>
+                    <Button x:Name="WelcomeNewButton" Content="New chart  (Ctrl+N)" Click="NewDocumentTabClick"
+                            Height="52" Margin="0,0,0,12"/>
+                    <Button x:Name="WelcomeOpenButton" Content="Open chart  (Ctrl+O)" Click="WelcomeOpenClick"
+                            Height="52" Margin="0,0,0,28"/>
+                    <TextBlock x:Name="WelcomeRecentTitle" Text="Recent charts" FontSize="18" FontWeight="SemiBold"
+                               Foreground="#F0F2F5" Margin="0,0,0,12"/>
+                                        <StackPanel x:Name="WelcomeRecentFilesHost"/>
+                    <TextBlock x:Name="WelcomeRecentEmpty" Text="No recent charts yet."
+                               Foreground="#9CA6B4"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
         </Grid>
     </DockPanel>
 </Window>

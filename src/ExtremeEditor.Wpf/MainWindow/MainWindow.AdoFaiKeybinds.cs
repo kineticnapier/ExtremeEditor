@@ -12,6 +12,14 @@ public partial class MainWindow
     //   Backspace = delete selected floor(s)
     //   Delete    = delete the floor after a single selection
     // and the QWE/ASD/etc. keys create floors directly.
+    private bool _showAllFloorNumbers;
+
+    // History commands are independent of the current floor selection.
+    internal static bool IsAdoFaiHistoryShortcut(
+        Key key, bool control, bool shift, bool alt, bool windows) =>
+        control && !alt && !windows &&
+        ((!shift && (key == Key.Z || key == Key.Y)) || (shift && key == Key.Z));
+
     private void AdoFaiPreviewKeyDown(object sender, KeyEventArgs e)
     {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
@@ -24,6 +32,57 @@ public partial class MainWindow
         if (TryHandleCleanPlayShortcut(e, key, modifiers))
             return;
 
+        // Tab is also an editor mutation, so claim the document-navigation
+        // chord before the ordinary ADOFAI Tab binding below. Keep this global
+        // so it works consistently when either WPF or the native child HWND
+        // owns keyboard focus.
+        if (control && key == Key.Tab && !alt && !windows)
+        {
+            if (!e.IsRepeat)
+                CycleDocumentTab(backwards: shift);
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+F toggles all visible tile indices in the editor, not a selection badge.
+        // Input is routed identically for WPF and the child HWND.
+        if (control && !shift && !alt && !windows && key == Key.F &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+            {
+                _showAllFloorNumbers = !_showAllFloorNumbers;
+                NativeViewport.SetShowFloorNumbers(_showAllFloorNumbers);
+                StatusText.Text = _showAllFloorNumbers
+                    ? "Floor numbers visible (Ctrl+F)"
+                    : "Floor numbers hidden (Ctrl+F)";
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // Create a second, independent chart tab while the HWND editor has
+        // focus too (normal WPF input bindings do not reach its child HWND).
+        if (control && !shift && !alt && !windows && key == Key.N &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+                CreateNewDocumentTab();
+            e.Handled = true;
+            return;
+        }
+
+        // Close only the active document tab, using the same unsaved-change
+        // confirmation as its × button. This must work in the child HWND too.
+        if (control && !shift && !alt && !windows && key == Key.W &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat && _documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                CloseDocumentTab(activeTab);
+            e.Handled = true;
+            return;
+        }
+
         if (control && !shift && !alt && !windows && key == Key.G)
         {
             if (!e.IsRepeat)
@@ -32,7 +91,25 @@ public partial class MainWindow
             return;
         }
 
-        if (!EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        // Transport is a window-level action, unlike floor mutation shortcuts.
+        // Keep text editing and the ADOFAI backquote modifier exclusive.
+        // The native HWND bridge dispatches to this same handler.
+        if (!alt && !windows && !shift &&
+            (key == Key.P || key == Key.Space) &&
+            !Keyboard.IsKeyDown(Key.Oem3) &&
+            EditorClipboardShortcutRouting.ShouldRoute(Keyboard.FocusedElement))
+        {
+            if (!e.IsRepeat)
+            {
+                FlushEditorPlaybackRefresh();
+                TogglePlayback();
+            }
+            e.Handled = true;
+            return;
+        }
+
+        if (!EditorClipboardShortcutRouting.ShouldRouteEditorKeys(
+                Keyboard.FocusedElement, NativeViewport))
             return;
 
         // EditorKeybind(..., true) is an edge-triggered action in ADOFAI. WPF emits
@@ -102,18 +179,6 @@ public partial class MainWindow
             }
         }
 
-        // P / Space = play. Ctrl+P / Ctrl+Space is ADOFAI's "play with speed".
-        // ExtremeEditor does not have a separate editor-speed selector yet, so both
-        // currently use the same transport while keeping the game's exact key slots.
-        if (!alt && !windows && !shift &&
-            (key == Key.P || key == Key.Space))
-        {
-            FlushEditorPlaybackRefresh();
-            TogglePlayback();
-            e.Handled = true;
-            return;
-        }
-
         if (_level is null)
             return;
 
@@ -122,6 +187,26 @@ public partial class MainWindow
         if (!control && !shift && !alt && !windows && key == Key.Escape)
         {
             _selection.SetSelection([]);
+            e.Handled = true;
+            return;
+        }
+
+        // Undo/Redo must still work after Esc clears the floor selection.
+        // The focus guard above keeps these commands away from text editors.
+        if (IsAdoFaiHistoryShortcut(key, control, shift, alt, windows))
+        {
+            EditorSession? historyEditor = EnsureEditorSession();
+            bool undo = key == Key.Z && !shift;
+            if (historyEditor is not null &&
+                (undo ? historyEditor.CanUndo : historyEditor.CanRedo))
+            {
+                // Route both history actions through the shared WPF commands so
+                // song settings, playback state and inspector refresh together.
+                if (undo)
+                    ExecuteRouted(EditorCommands.Undo);
+                else
+                    ExecuteRouted(EditorCommands.Redo);
+            }
             e.Handled = true;
             return;
         }
@@ -141,15 +226,17 @@ public partial class MainWindow
         if (editor is null)
             return;
 
-        // Clipboard and history. Event-only clipboard combinations (Ctrl+Shift+*) are
+        // Clipboard. Event-only clipboard combinations (Ctrl+Shift+*) are
         // intentionally left for the event editor instead of accidentally copying floors.
         if (!alt && !windows && control && !shift)
         {
             switch (key)
             {
                 case Key.C:
-                    editor.CopyFloors(_selection.SelectedFloors);
-                    StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
+                    bool copied = editor.CopyFloors(_selection.SelectedFloors);
+                    StatusText.Text = copied
+                        ? $"Copied {editor.ClipboardFloorCount:N0} floor(s)"
+                        : "Copy requires one continuous floor range";
                     CommandManager.InvalidateRequerySuggested();
                     e.Handled = true;
                     return;
@@ -157,8 +244,10 @@ public partial class MainWindow
                 case Key.X:
                 {
                     int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-                    editor.CutFloors(_selection.SelectedFloors);
-                    RefreshAfterAdoFaiMutation(target);
+                    if (editor.CutFloors(_selection.SelectedFloors))
+                        RefreshAfterAdoFaiMutation(target);
+                    else
+                        StatusText.Text = "Cut requires one continuous floor range";
                     e.Handled = true;
                     return;
                 }
@@ -173,35 +262,7 @@ public partial class MainWindow
                     e.Handled = true;
                     return;
 
-                case Key.Z:
-                    if (editor.CanUndo)
-                    {
-                        editor.Undo();
-                        RefreshAfterAdoFaiMutation(primary);
-                    }
-                    e.Handled = true;
-                    return;
-
-                case Key.Y:
-                    if (editor.CanRedo)
-                    {
-                        editor.Redo();
-                        RefreshAfterAdoFaiMutation(primary);
-                    }
-                    e.Handled = true;
-                    return;
             }
-        }
-
-        if (!alt && !windows && control && shift && key == Key.Z)
-        {
-            if (editor.CanRedo)
-            {
-                editor.Redo();
-                RefreshAfterAdoFaiMutation(primary);
-            }
-            e.Handled = true;
-            return;
         }
 
         // ADOFAI deletion semantics are deliberately asymmetric.
@@ -353,6 +414,11 @@ public partial class MainWindow
         return true;
     }
 
+    // Floor zero is a fixed anchor. A multi-selection may include it, but
+    // deletions must still process the remaining editable floors.
+    internal static int[] EditableMultiSelection(IEnumerable<int> selectedFloors) =>
+        selectedFloors.Where(floor => floor > 0).Distinct().OrderBy(floor => floor).ToArray();
+
     private bool TryHandleAdoFaiDelete(
         EditorSession editor,
         Key key,
@@ -409,15 +475,17 @@ public partial class MainWindow
             return true;
         }
 
-        // Multi-selection deletes the selected floors for both keys; only the
-        // resulting selection differs, exactly like DeleteMultiSelection(bool).
-        if (first == 0)
+        // Floor zero cannot be deleted, but it must not block deletion of
+        // other selected floors. Backspace/Delete retain their target rules.
+        int[] editable = EditableMultiSelection(selected);
+        if (editable.Length == 0)
             return true;
-        editor.DeleteFloors(selected);
+        int firstEditable = editable[0];
+        editor.DeleteFloors(editable);
         int afterDeleteCount = _level!.FloorCount;
         int target = key == Key.Back
-            ? first - 1
-            : first < afterDeleteCount ? first : Math.Max(0, first - 1);
+            ? firstEditable - 1
+            : firstEditable < afterDeleteCount ? firstEditable : Math.Max(0, firstEditable - 1);
         RefreshAfterAdoFaiMutation(target);
         return true;
     }

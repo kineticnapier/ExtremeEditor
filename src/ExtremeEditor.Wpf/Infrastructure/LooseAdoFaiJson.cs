@@ -6,6 +6,14 @@ namespace ExtremeEditor.Wpf;
 
 internal static class LooseAdoFaiJson
 {
+    internal static bool HasUtf16Bom(string sourcePath)
+    {
+        using var stream = File.OpenRead(sourcePath);
+        int first = stream.ReadByte();
+        int second = stream.ReadByte();
+        return (first == 0xFF && second == 0xFE) || (first == 0xFE && second == 0xFF);
+    }
+
     internal static JsonObject ParseObject(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);

@@ -64,13 +64,7 @@ internal sealed class PreparedAudioLoad : IDisposable
                 watch.Restart();
                 try
                 {
-                    player.Load(songPath);
-                    state = $"audio {Path.GetFileName(songPath)}";
-                }
-                catch (Exception ex)
-                {
-                    player.Unload();
-                    state = $"audio load failed: {ex.Message}";
+                    state = SongAudioFallback.Load(player, songPath);
                 }
                 finally
                 {

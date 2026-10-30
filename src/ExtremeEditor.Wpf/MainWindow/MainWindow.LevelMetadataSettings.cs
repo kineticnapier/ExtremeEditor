@@ -54,7 +54,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitLevelMetadataSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
@@ -64,11 +64,11 @@ public partial class MainWindow
             CommitLevelMetadataSettingsFromUi();
     }
 
-    private void CommitLevelMetadataSettingsFromUi()
+    private bool CommitLevelMetadataSettingsFromUi()
     {
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _refreshingLevelMetadataSettings)
-            return;
+            return true;
 
         LevelMetadataSettingsSnapshot before = editor.GetLevelMetadataSettings();
         LevelMetadataSettingsSnapshot baseline = _displayedLevelMetadataSettings ?? before;
@@ -87,6 +87,7 @@ public partial class MainWindow
             UpdateEditorStatus();
             CommandManager.InvalidateRequerySuggested();
         }
+        return true;
     }
 
     private string? ReadLevelMetadataField(TextBox textBox, string? baseline) =>

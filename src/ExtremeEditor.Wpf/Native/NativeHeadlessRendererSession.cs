@@ -9,7 +9,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 {
     internal const int DefaultWidth = 320;
     internal const int DefaultHeight = 180;
-    private const uint ExpectedBaseApiVersion = 22;
+    private const uint ExpectedBaseApiVersion = NativeRendererSession.ExpectedApiVersion;
 
     private nint _renderer;
 
@@ -161,6 +161,15 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                     $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
         }
 
+        // Export must receive the same background image table as the live viewport.
+        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
+        {
+            int result = NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath);
+            if (result != 0)
+                throw new InvalidOperationException(
+                    $"Native background asset upload failed for {asset.ImagePath} with result {result}.");
+        }
+
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)
         {
@@ -187,6 +196,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         UploadArray(prepared.BloomTimeline, NativeRendererNative.SetBloomTimeline, "bloom");
         UploadArray(prepared.ScreenTileTimeline, NativeRendererNative.SetScreenTileTimeline, "screen-tile");
         UploadArray(prepared.FilterTimeline, NativeRendererNative.SetFilterTimeline, "filter");
+        UploadArray(prepared.BackgroundTimeline, NativeRendererNative.SetBackgroundTimeline, "background");
         UploadArray(prepared.TrackTransformTimeline, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
         UploadArray(prepared.TrackVisualTimeline, NativeRendererNative.SetTrackVisualTimeline, "track-visual");
         UploadTrackAnimation(prepared.TrackAnimationTimeline, prepared.TrackAnimationTimings);

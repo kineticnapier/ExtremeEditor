@@ -27,7 +27,7 @@ internal static class AudioGraphFactory
         if (song.WaveFormat.Channels == 1)
             song = new MonoToStereoSampleProvider(song);
         else if (song.WaveFormat.Channels > 2)
-            song = new FirstTwoChannelsSampleProvider(song);
+            song = new MultichannelFoldDownSampleProvider(song);
 
         return song;
     }
@@ -82,6 +82,16 @@ internal static class AudioGraphFactory
             Math.Max(0.0, chartEndAudio) + tailSeconds + HitSoundOnlyEndPaddingSeconds);
         return checked((long)Math.Ceiling(totalSeconds * sampleRate));
     }
+
+    internal static long CalculatePlaybackFrames(
+        long songFrames,
+        int sampleRate,
+        LevelDocument? level,
+        TimingMap? timingMap,
+        IReadOnlyDictionary<string, RenderedHitSound>? clips) =>
+        Math.Max(
+            Math.Max(0, songFrames),
+            CalculateHitSoundOnlyFrames(sampleRate, level, timingMap, clips));
 
     internal static AudioGraphBuildResult Build(
         ISampleProvider song,
@@ -160,14 +170,21 @@ internal static class AudioGraphFactory
             _positionFrames = Math.Clamp(frame, 0, TotalFrames);
     }
 
-    private sealed class FirstTwoChannelsSampleProvider : ISampleProvider
+    // Fallback for decoders that expose more than two channels without a
+    // reliable speaker layout. Preserve extra-channel audio instead of dropping
+    // it. This is not a speaker-mask-aware surround downmix.
+    private sealed class MultichannelFoldDownSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _source;
+        private readonly int _channels;
+        private readonly float _extraWeight;
         private float[] _sourceBuffer = [];
 
-        internal FirstTwoChannelsSampleProvider(ISampleProvider source)
+        internal MultichannelFoldDownSampleProvider(ISampleProvider source)
         {
             _source = source;
+            _channels = source.WaveFormat.Channels;
+            _extraWeight = 0.70710678f / (_channels - 2);
             WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(
                 source.WaveFormat.SampleRate,
                 2);
@@ -178,18 +195,23 @@ internal static class AudioGraphFactory
         public int Read(float[] buffer, int offset, int count)
         {
             int requestedFrames = count / 2;
-            int sourceSamples = requestedFrames * _source.WaveFormat.Channels;
+            int sourceSamples = requestedFrames * _channels;
             if (_sourceBuffer.Length < sourceSamples)
                 _sourceBuffer = new float[sourceSamples];
 
             int read = _source.Read(_sourceBuffer, 0, sourceSamples);
-            int framesRead = read / _source.WaveFormat.Channels;
+            int framesRead = read / _channels;
             for (int frame = 0; frame < framesRead; frame++)
             {
-                int sourceOffset = frame * _source.WaveFormat.Channels;
+                int sourceOffset = frame * _channels;
                 int destination = offset + frame * 2;
-                buffer[destination] = _sourceBuffer[sourceOffset];
-                buffer[destination + 1] = _sourceBuffer[sourceOffset + 1];
+                float extra = 0f;
+                for (int channel = 2; channel < _channels; channel++)
+                    extra += _sourceBuffer[sourceOffset + channel];
+
+                float shared = extra * _extraWeight;
+                buffer[destination] = _sourceBuffer[sourceOffset] + shared;
+                buffer[destination + 1] = _sourceBuffer[sourceOffset + 1] + shared;
             }
 
             return framesRead * 2;

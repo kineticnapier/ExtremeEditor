@@ -1,13 +1,24 @@
 using System.Reflection;
 using ExtremeEditor.Core;
 
+if (string.Equals(
+    Environment.GetEnvironmentVariable("EXTREMEEDITOR_COLLABORATION_REMOVAL_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    ExtremeEditor.Core.Tests.CollaborationRemovalRegression.Run();
+    Console.WriteLine("PASS: collaboration-only UI, implementation and scripts are absent.");
+    return 0;
+}
+
 RunMultiPlanetRegression();
 RunMultiPlanetAfterMidSpinRegression();
 RunTimingProbeMidFloorSetSpeedRegression();
 RunArcExcessProbeRegression();
 RunStockTimingProbeRegression();
 RunStockTimingProbeHighBpmRegression();
+ExtremeEditor.Core.Tests.FlatTimingMapParityRegression.Run();
 ExtremeEditor.Core.Tests.ScaleRadiusPlaybackPoseRegression.Run();
+ExtremeEditor.Core.Tests.LegacyPathDataRegression.Run();
 Console.WriteLine("Core timing regressions passed.");
 return 0;
 

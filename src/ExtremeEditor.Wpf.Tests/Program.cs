@@ -15,6 +15,152 @@ internal static class Program
         try
         {
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_IDLE_ANCHOR_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NativePlaybackAnchorDispatchRegression.Run();
+                Console.WriteLine("PASS: paused and idle native playback anchors are deduplicated.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SONG_AUDIO_FALLBACK_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SongAudioFallbackRegression.Run();
+                Console.WriteLine("PASS: song decoder failure falls back to hitsound-only playback.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SETTINGS_FOCUS_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NativeSettingsFocusRegression.Run();
+                Console.WriteLine("PASS: settings Enter returns focus to native editor HWND.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ADOFAI_HISTORY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AdoFaiHistoryShortcutRegression.Run();
+                Console.WriteLine("PASS: native Undo/Redo works without floor selection.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_NUMERIC_INPUT_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                NumericInputSafetyRegression.Run();
+                Console.WriteLine("PASS: finite numeric input and settings precision regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_RESERVATION_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SavePathReservationRegression.Run();
+                Console.WriteLine("PASS: cross-tab save destinations and async save UI ownership are safe.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_STRUCTURE_REFERENCE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                StructureReferenceGenerationRegression.Run();
+                Console.WriteLine("PASS: save/undo, clipboard and Save As reference generations are stable.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_RAW_EVENT_DRAFT_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                RawEventDraftSafetyRegression.Run();
+                Console.WriteLine("PASS: raw event JSON drafts survive navigation and participate in Save.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_EDITOR_UI_STATE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                EditorUiStateIssueRegression.Run();
+                TabPlaybackPreferenceRegression.Run();
+                UiSafetyIssueRegression.Run();
+                NativeSettingsFocusRegression.Run();
+            NativeSystemMenuRegression.Run();
+            SetSpeedEditorConversionRegression.Run();
+                NativeSystemMenuRegression.Run();
+                SetSpeedEditorConversionRegression.Run();
+                ManagedGeometryEditRegression.Run();
+                SaveStructureTransformPerformanceRegression.Run();
+                Console.WriteLine("PASS: editor UI state and managed geometry issue regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_FAILURE_RECOVERY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AssetSetupRegression.Run();
+                RasterChunkWorkerRegression.Run();
+                DocumentTabSwitchCacheRegression.Run();
+                Console.WriteLine("PASS: process, raster, and native preparation failure recovery regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_OPEN_ISSUE_DATA_INTEGRITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                OpenIssueDataIntegrityRegression.Run();
+                Console.WriteLine("PASS: open-issue data-integrity regressions are valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_WINDOW_CLOSE_UNSAVED_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                WindowCloseUnsavedTabsRegression.Run();
+                Console.WriteLine("PASS: window-close unsaved-tabs regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_ASYNC_SAVE_GENERATION_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                AsyncSaveGenerationRegression.Run();
+                Console.WriteLine("PASS: async save generation regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_AS_ASSETS_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SaveAsAssetReferenceRegression.Run();
+                Console.WriteLine("PASS: Save As asset reference regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SAVE_SOURCE_IDENTITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                SaveSourceIdentityRegression.Run();
+                Console.WriteLine("PASS: save source identity regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PLANET_RADIUS_POSITION_TRACK_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -154,6 +300,15 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOAD_COMPATIBILITY_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                LoadCompatibilityRegression.Run();
+                Console.WriteLine("PASS: load compatibility regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_CUSTOM_BACKGROUND_RENDERING_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -280,6 +435,68 @@ internal static class Program
             {
                 SongSettingsSliceRegression.Run();
                 Console.WriteLine("PASS: Song Settings slice regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MULTI_TAB_OPEN_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                OpenDirtyDocumentRegression.Run();
+                Console.WriteLine("PASS: opening ADOFAI files preserves existing tabs and edits.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_SHUTDOWN_DIAGNOSTICS_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                RenderThreadShutdownDiagnosticsRegression.Run();
+                Console.WriteLine("PASS: post-D2D render thread shutdown phases are observable.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_OVERFLOW_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabOverflowRegression.Run();
+                Console.WriteLine("PASS: tab strip overflow navigation contract.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CYCLE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabNavigationRegression.Run();
+                Console.WriteLine("PASS: cycling document tabs with Ctrl+Tab and Ctrl+Shift+Tab.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TAB_CLOSE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabCloseRegression.Run();
+                DocumentTabSwitchCacheRegression.Run();
+                NativeSceneReuseRegression.Run();
+                Console.WriteLine("PASS: safe tab closing and cached managed/native scene switching.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_DOCUMENT_TAB_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                DocumentTabScaffoldRegression.Run();
+                Console.WriteLine("PASS: initial document-tab scaffold and dirty-state regression.");
                 return 0;
             }
 
@@ -635,6 +852,7 @@ internal static class Program
                 EventDeleteUiRegression.Run();
                 PlaybackDiagnosticsLayoutRegression.Run();
                 NativeOnlyViewportRegression.Run();
+            NativeSettingsFocusRegression.Run();
                 Console.WriteLine("PASS: UI cleanup regressions are valid.");
                 return 0;
             }
@@ -644,7 +862,8 @@ internal static class Program
                 "1",
                 StringComparison.Ordinal))
             {
-                WinFormsHostRemovalRegression.Run();
+                VerifyFailureDiagnostics();
+            WinFormsHostRemovalRegression.Run();
                 Console.WriteLine("PASS: legacy WinForms host removal regression is valid.");
                 return 0;
             }
@@ -723,12 +942,28 @@ internal static class Program
             TwirlToggleRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
+            AdoFaiHistoryShortcutRegression.Run();
             NativeOnlyViewportRegression.Run();
             EventCategoryIconRegression.Run();
             EventPaletteIconRegression.Run();
             EventAvailabilityRegression.Run();
             LegacyEventRoundTripRegression.Run();
             SaveNodeOwnershipRegression.Run();
+            SaveSourceIdentityRegression.Run();
+            SaveAsAssetReferenceRegression.Run();
+            AsyncSaveGenerationRegression.Run();
+            WindowCloseUnsavedTabsRegression.Run();
+            OpenIssueDataIntegrityRegression.Run();
+            EditorUiStateIssueRegression.Run();
+            TabPlaybackPreferenceRegression.Run();
+            SongSettingsSliceRegression.Run();
+            SongAudioFallbackRegression.Run();
+            UiSafetyIssueRegression.Run();
+            NumericInputSafetyRegression.Run();
+            SavePathReservationRegression.Run();
+            StructureReferenceGenerationRegression.Run();
+            RawEventDraftSafetyRegression.Run();
+            SaveStructureTransformPerformanceRegression.Run();
             EditorSessionEventDeletionRegression.Run();
             EventDeleteUiRegression.Run();
             PlaybackDiagnosticsLayoutRegression.Run();
@@ -742,8 +977,17 @@ internal static class Program
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
+            DocumentTabCloseRegression.Run();
+            DocumentTabSwitchCacheRegression.Run();
+            NativeSceneReuseRegression.Run();
+            DocumentTabNavigationRegression.Run();
+            DocumentTabStateSafetyRegression.Run();
+            NativeKeyboardFocusRegression.Run();
+            DocumentTabOverflowRegression.Run();
+            RenderThreadShutdownDiagnosticsRegression.Run();
             PlaybackSetupRegression.Run();
             PlaybackViewportRegression.Run();
+            NativePlaybackAnchorDispatchRegression.Run();
             FloorRendererThreadingRegression.Run();
             RasterChunkWorkerRegression.Run();
             PerformanceRegression.Run();
@@ -761,6 +1005,7 @@ internal static class Program
             TemporalPlaybackRetentionRegression.Run();
             NativeRendererAbiRegression.Run();
             NativeRendererHostRegression.Run();
+            NativeDecorationFailureRegression.Run();
             CameraRuntimeTileReferenceRegression.Run();
             CameraTileMoveTrackFreezeRegression.Run();
             CameraPlayerDoubleRelativeRegression.Run();
@@ -770,6 +1015,17 @@ internal static class Program
             PauseTimingStockRegression.Run();
             InitialHitSoundRegression.Run();
             AssetExtractorPackagingRegression.Run();
+            // CI must exercise the focused video export and background suites too.
+            VideoExportFoundationRegression.Run();
+            VideoExportFramePipelineRegression.Run();
+            VideoExportOfflineAudioRegression.Run();
+            VideoExportEncoderRegression.Run();
+            VideoExportFfmpegEncoderRegression.Run();
+            VideoExportOrchestrationRegression.Run();
+            VideoExportStreamingEncoderRegression.Run();
+            VideoExportTrackParityRegression.Run();
+            HeadlessCameraFramingRegression.Run();
+            CustomBackgroundRenderingRegression.Run();
             TrackTransformScalingRegression.Run();
             VfxTimelineCoreRegression.Run();
             VfxTimelineExpansionRegression.Run();
@@ -785,9 +1041,35 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"FAIL: {ex.Message}");
+            Console.Error.WriteLine(FormatFailure(ex));
             return 1;
         }
+    }
+
+    // Include the exception type and call stack when a Windows CI regression fails.
+    // The message alone cannot identify which fixture or cleanup path held a file.
+    private static string FormatFailure(Exception exception) => $"FAIL: {exception}";
+
+    private static void VerifyFailureDiagnostics()
+    {
+        static void ThrowDiagnosticFailure() =>
+            throw new IOException("injected diagnostic failure");
+
+        try
+        {
+            ThrowDiagnosticFailure();
+        }
+        catch (IOException exception)
+        {
+            string diagnostic = FormatFailure(exception);
+            if (diagnostic.Contains("System.IO.IOException", StringComparison.Ordinal) &&
+                diagnostic.Contains("injected diagnostic failure", StringComparison.Ordinal) &&
+                diagnostic.Contains(nameof(ThrowDiagnosticFailure), StringComparison.Ordinal))
+                return;
+        }
+
+        throw new InvalidOperationException(
+            "WPF test failures must preserve exception type, message and call stack.");
     }
 
     private static void VerifyFloorGeometryIsCachedAndFrozen()

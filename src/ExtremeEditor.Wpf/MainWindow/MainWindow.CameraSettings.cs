@@ -90,7 +90,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitCameraSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
@@ -106,11 +106,11 @@ public partial class MainWindow
             CommitCameraSettingsFromUi();
     }
 
-    private void CommitCameraSettingsFromUi()
+    private bool CommitCameraSettingsFromUi(bool preserveInvalidInput = false)
     {
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _refreshingCameraSettings)
-            return;
+            return true;
 
         CameraSettingsSnapshot before = editor.GetCameraSettings();
         if (!TryReadSetting(CameraPositionXTextBox.Text, out double x) ||
@@ -118,9 +118,10 @@ public partial class MainWindow
             !TryReadSetting(CameraRotationTextBox.Text, out double rotation) ||
             !TryReadSetting(CameraZoomTextBox.Text, out double zoom) || zoom <= 0.0)
         {
-            RefreshCameraSettings();
+            if (!preserveInvalidInput)
+                RefreshCameraSettings();
             StatusText.Text = "Camera Settings contain an invalid numeric value.";
-            return;
+            return false;
         }
 
         string relativeTo = (CameraRelativeToComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString()
@@ -130,9 +131,10 @@ public partial class MainWindow
         CameraSettingsSnapshot after = editor.GetCameraSettings();
         RefreshCameraSettings();
         if (before == after)
-            return;
+            return true;
 
         RefreshAfterCameraSettingsCommit(before, after);
+        return true;
     }
 
     private void RefreshAfterCameraSettingsCommit(

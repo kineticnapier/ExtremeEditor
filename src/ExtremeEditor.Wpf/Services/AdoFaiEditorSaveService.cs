@@ -6,6 +6,9 @@ namespace ExtremeEditor.Wpf;
 
 internal static class AdoFaiEditorSaveService
 {
+    private static long _structureTransformCount;
+    internal static long StructureTransformCount => Interlocked.Read(ref _structureTransformCount);
+    internal static void ResetStructureTransformCount() => Interlocked.Exchange(ref _structureTransformCount, 0);
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         WriteIndented = true
@@ -19,31 +22,143 @@ internal static class AdoFaiEditorSaveService
         ArgumentNullException.ThrowIfNull(session);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
+        JsonObject root = BuildSaveRoot(session, path);
+        await WriteAsync(root, path, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static JsonObject BuildSaveRoot(EditorSession session, string path)
+    {
         JsonObject root = session.GetSourceRootForSave();
         ReplaceSettings(root, session.Document);
         ReplaceAngles(root, session.Document.Angles);
         ReplaceActions(root, session);
         ReplaceDecorations(root, session.Document.Decorations);
+        RebaseRelativeAssetReferences(root, session.Document.SourcePath, path);
+        return root;
+    }
 
+    internal static async Task WriteAsync(
+        JsonObject root,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
         string fullPath = Path.GetFullPath(path);
         string? directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        string tempPath = fullPath + ".extremeeditor.tmp";
-        await using (var stream = new FileStream(
-                         tempPath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         1024 * 1024,
-                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        string tempPath = fullPath + $".{Guid.NewGuid():N}.extremeeditor.tmp";
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, root, WriteOptions, cancellationToken)
-                .ConfigureAwait(false);
+            await using (var stream = new FileStream(
+                             tempPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             1024 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await JsonSerializer.SerializeAsync(stream, root, WriteOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            File.Move(tempPath, fullPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
+    internal static void RebaseRelativeAssetReferences(
+        JsonObject root,
+        string sourcePath,
+        string targetPath,
+        bool requireExisting = true)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath) || sourcePath == "<synthetic>")
+            return;
+
+        string sourceFullPath = Path.GetFullPath(sourcePath);
+        string targetFullPath = Path.GetFullPath(targetPath);
+        string? sourceDirectory = Path.GetDirectoryName(sourceFullPath);
+        string? targetDirectory = Path.GetDirectoryName(targetFullPath);
+        if (sourceDirectory is null || targetDirectory is null ||
+            string.Equals(sourceDirectory, targetDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
         }
 
-        File.Move(tempPath, fullPath, overwrite: true);
+        RebaseProperty(root["settings"] as JsonObject, "songFilename", sourcePath, targetPath, requireExisting);
+        RebaseProperty(root["settings"] as JsonObject, "bgImage", sourcePath, targetPath, requireExisting);
+
+        if (root["actions"] is JsonArray actions)
+        {
+            foreach (JsonObject action in actions.OfType<JsonObject>())
+            {
+                RebaseProperty(action, "bgImage", sourcePath, targetPath, requireExisting);
+                RebaseProperty(action, "decorationImage", sourcePath, targetPath, requireExisting);
+            }
+        }
+
+        if (root["decorations"] is JsonArray decorations)
+        {
+            foreach (JsonObject decoration in decorations.OfType<JsonObject>())
+                RebaseProperty(decoration, "decorationImage", sourcePath, targetPath, requireExisting);
+        }
+    }
+
+    private static void RebaseProperty(
+        JsonObject? owner,
+        string property,
+        string sourcePath,
+        string targetPath,
+        bool requireExisting)
+    {
+        if (owner?[property] is not JsonValue value ||
+            !value.TryGetValue(out string? reference) ||
+            string.IsNullOrWhiteSpace(reference))
+        {
+            return;
+        }
+
+        owner[property] = RebaseRelativeAssetReference(
+            reference,
+            sourcePath,
+            targetPath,
+            requireExisting);
+    }
+
+    internal static string? RebaseRelativeAssetReference(
+        string? reference,
+        string sourcePath,
+        string targetPath,
+        bool requireExisting)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || Path.IsPathRooted(reference) ||
+            string.IsNullOrWhiteSpace(sourcePath) || sourcePath == "<synthetic>")
+        {
+            return reference;
+        }
+
+        string? sourceDirectory = Path.GetDirectoryName(Path.GetFullPath(sourcePath));
+        string? targetDirectory = Path.GetDirectoryName(Path.GetFullPath(targetPath));
+        if (sourceDirectory is null || targetDirectory is null ||
+            string.Equals(sourceDirectory, targetDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return reference;
+        }
+
+        string sourceAsset = Path.GetFullPath(Path.Combine(sourceDirectory, reference));
+        if (requireExisting && !File.Exists(sourceAsset))
+        {
+            throw new FileNotFoundException(
+                "Cannot Save As because an asset reference does not resolve from the source chart.",
+                sourceAsset);
+        }
+
+        return Path.GetRelativePath(targetDirectory, sourceAsset);
     }
 
     private static void ReplaceSettings(JsonObject root, LevelDocument document)
@@ -85,19 +200,7 @@ internal static class AdoFaiEditorSaveService
 
     private static JsonObject GetBaseActionObject(EditorSession session, LevelAction action)
     {
-        JsonObject root = session.GetSourceRootForSave();
-        if (action.SourceIndex >= 0 &&
-            root["actions"] is JsonArray actions &&
-            action.SourceIndex < actions.Count &&
-            actions[action.SourceIndex] is JsonObject source)
-        {
-            return (JsonObject)source.DeepClone();
-        }
-
-        if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
-            return (JsonObject)template.DeepClone();
-
-        return new JsonObject();
+        return session.GetActionSourceTemplate(action.SourceIndex) ?? new JsonObject();
     }
 
     private static void ReplaceAngles(JsonObject root, IReadOnlyList<double> angles)
@@ -112,55 +215,57 @@ internal static class AdoFaiEditorSaveService
     private static void ReplaceActions(JsonObject root, EditorSession session)
     {
         JsonArray source = root["actions"] as JsonArray ?? new JsonArray();
-        var transformedSource = new Dictionary<int, JsonObject>();
-        for (int i = 0; i < source.Count; i++)
-        {
-            if (source[i] is not JsonObject original)
-                continue;
-
-            JsonObject clone = (JsonObject)original.DeepClone();
-            bool alive = true;
-            foreach (FloorStructureEdit edit in session.StructureEdits)
-            {
-                if (!TransformObject(clone, edit, removeWhenDeleted: true))
-                {
-                    alive = false;
-                    break;
-                }
-            }
-            if (alive)
-                transformedSource[i] = clone;
-        }
-
         var output = new JsonArray();
         foreach (LevelAction action in session.Document.ActionStore.Actions)
         {
             JsonObject obj;
+            int revision;
             if (action.PropertyOverrides is not null)
             {
                 obj = (JsonObject)action.PropertyOverrides.DeepClone();
-                int revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
-                for (int i = revision; i < session.StructureEdits.Count; i++)
-                    TransformObject(obj, session.StructureEdits[i], removeWhenDeleted: false);
+                revision = Math.Clamp(action.PropertyOverridesStructureRevision, 0, session.StructureEdits.Count);
             }
-            else if (action.SourceIndex >= 0 && transformedSource.TryGetValue(action.SourceIndex, out JsonObject? original))
+            else if (session.ActionSourceTemplates.TryGetValue(action.SourceIndex, out JsonObject? stableTemplate))
+            {
+                obj = (JsonObject)stableTemplate.DeepClone();
+                revision = 0;
+            }
+            else if (action.SourceIndex >= 0 && action.SourceIndex < source.Count &&
+                     source[action.SourceIndex] is JsonObject original)
             {
                 obj = (JsonObject)original.DeepClone();
+                revision = 0;
             }
             else if (session.NewActionTemplates.TryGetValue(action.SourceIndex, out JsonObject? template))
             {
                 obj = (JsonObject)template.DeepClone();
+                revision = session.StructureEdits.Count;
             }
             else
             {
                 obj = new JsonObject();
+                revision = session.StructureEdits.Count;
             }
 
+            ApplyStructureEditsToReferences(obj, session.StructureEdits, revision);
             UpdateKnownActionProperties(obj, action);
             output.Add(obj);
         }
 
         root["actions"] = output;
+    }
+
+    private static void ApplyStructureEditsToReferences(
+        JsonObject obj,
+        IReadOnlyList<FloorStructureEdit> edits,
+        int revision)
+    {
+        // floor itself is replaced from the live LevelAction below. Only tile
+        // references require replaying structural history; most events have none.
+        if (!obj.ContainsKey("startTile") && !obj.ContainsKey("endTile"))
+            return;
+        for (int i = Math.Clamp(revision, 0, edits.Count); i < edits.Count; i++)
+            TransformObject(obj, edits[i], removeWhenDeleted: false);
     }
 
     private static void ReplaceDecorations(
@@ -225,6 +330,7 @@ internal static class AdoFaiEditorSaveService
 
     internal static bool TransformObject(JsonObject obj, FloorStructureEdit edit, bool removeWhenDeleted)
     {
+        Interlocked.Increment(ref _structureTransformCount);
         if (!EditorSession.TryGetInt(obj["floor"], out int oldFloor))
             return true;
 

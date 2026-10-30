@@ -26,38 +26,48 @@ internal sealed partial class EditorSession
 
     private readonly List<double> _angles;
     private readonly List<LevelAction> _actions;
-    private readonly Stack<IEditorCommand> _undo = new();
-    private readonly Stack<IEditorCommand> _redo = new();
+    private readonly Stack<EditorHistoryEntry> _undo = new();
+    private readonly Stack<EditorHistoryEntry> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
     private readonly Dictionary<int, JsonObject> _newActionTemplates = new();
+    private readonly Dictionary<int, JsonObject> _actionSourceTemplates = new();
     private readonly List<LevelDecoration> _decorations;
+    private readonly Func<JsonObject, string, CancellationToken, Task> _saveWriter;
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly EditorClipboardStore _clipboardStore;
 
-    private EditorClipboard? _clipboard;
     private JsonObject? _sourceRoot;
     private bool _sourceMappingInitialized;
     private int _nextNewSourceIndex = -2;
-    private int _historyPosition;
-    private int _savedHistoryPosition;
+    private long _nextRevision;
+    private long _currentRevision;
+    private long _savedRevision;
 
-    public EditorSession(LevelDocument document)
+    public EditorSession(
+        LevelDocument document,
+        Func<JsonObject, string, CancellationToken, Task>? saveWriter = null,
+        EditorClipboardStore? clipboardStore = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
         _decorations = document.Decorations.Select(CloneDecoration).ToList();
+        _saveWriter = saveWriter ?? AdoFaiEditorSaveService.WriteAsync;
+        _clipboardStore = clipboardStore ?? new EditorClipboardStore();
         Document.ReplaceDecorations(_decorations);
     }
 
     public LevelDocument Document { get; }
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
-    public bool HasClipboard => _clipboard is { Angles.Length: > 0 };
-    public int ClipboardFloorCount => _clipboard?.Angles.Length ?? 0;
-    public bool IsDirty => _historyPosition != _savedHistoryPosition;
-    public string? UndoName => _undo.TryPeek(out IEditorCommand? command) ? command.Name : null;
-    public string? RedoName => _redo.TryPeek(out IEditorCommand? command) ? command.Name : null;
+    public bool HasClipboard => _clipboardStore.Value is { Angles.Length: > 0 };
+    public int ClipboardFloorCount => _clipboardStore.Value?.Angles.Length ?? 0;
+    public bool IsDirty => _currentRevision != _savedRevision;
+    public string? UndoName => _undo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
+    public string? RedoName => _redo.TryPeek(out EditorHistoryEntry? entry) ? entry.Command.Name : null;
     public IReadOnlyList<FloorStructureEdit> StructureEdits => _structureEdits;
     public IReadOnlyDictionary<int, JsonObject> NewActionTemplates => _newActionTemplates;
+    internal IReadOnlyDictionary<int, JsonObject> ActionSourceTemplates => _actionSourceTemplates;
 
     public event EventHandler? Changed;
 
@@ -153,7 +163,7 @@ internal sealed partial class EditorSession
         TransformSelectedAngles(selectedFloors, "Flip vertical", angle => NormalizeAngle(-angle));
     }
 
-    public void CopyFloors(IEnumerable<int> selectedFloors)
+    public bool CopyFloors(IEnumerable<int> selectedFloors)
     {
         int[] floors = selectedFloors
             .Where(floor => floor > 0 && floor < Document.FloorCount)
@@ -161,13 +171,7 @@ internal sealed partial class EditorSession
             .OrderBy(floor => floor)
             .ToArray();
         if (floors.Length == 0 || !IsContinuousFloorRange(floors))
-        {
-            bool hadClipboard = _clipboard is not null;
-            _clipboard = null;
-            if (hadClipboard)
-                Changed?.Invoke(this, EventArgs.Empty);
-            return;
-        }
+            return false;
 
         EnsureSourceMapping();
         JsonObject root = EnsureSourceRoot();
@@ -210,11 +214,12 @@ internal sealed partial class EditorSession
                 (JsonObject)decoration.Properties.DeepClone()));
         }
 
-        _clipboard = new EditorClipboard(angles, actions.ToArray(), decorations.ToArray());
+        _clipboardStore.Value = new EditorClipboard(angles, actions.ToArray(), decorations.ToArray());
         Changed?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
-    public void CutFloors(IEnumerable<int> selectedFloors)
+    public bool CutFloors(IEnumerable<int> selectedFloors)
     {
         int[] floors = selectedFloors
             .Where(floor => floor > 0 && floor < Document.FloorCount)
@@ -222,22 +227,21 @@ internal sealed partial class EditorSession
             .OrderBy(floor => floor)
             .ToArray();
         if (floors.Length == 0 || !IsContinuousFloorRange(floors))
-        {
-            _clipboard = null;
-            Changed?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-        CopyFloors(floors);
+            return false;
+        if (!CopyFloors(floors))
+            return false;
         DeleteFloors(floors);
+        return true;
     }
 
-    public EditorPasteResult? PasteFloors(int startFloor)
+    // Existing paste positions remain unchanged; append is an explicit operation.
+    public EditorPasteResult? PasteFloors(int startFloor, bool allowEnd = false)
     {
-        if (_clipboard is not { Angles.Length: > 0 } clipboard)
+        if (_clipboardStore.Value is not { Angles.Length: > 0 } clipboard)
             return null;
 
         EnsureSourceMapping();
-        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - 1));
+        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - (allowEnd ? 0 : 1)));
         if (AdoFaiPathDirection.PointsBackwards(
                 _angles,
                 firstFloor,
@@ -383,11 +387,12 @@ internal sealed partial class EditorSession
 
         if (existing is not null)
         {
-            JsonObject overrides = existing.PropertyOverrides is null
+            JsonObject? properties = existing.PropertyOverrides ??
+                existing.SourceProperties ??
+                GetActionSourceTemplate(existing.SourceIndex);
+            JsonObject overrides = properties is null
                 ? new JsonObject()
-                : (JsonObject)existing.PropertyOverrides.DeepClone();
-
-            JsonObject? properties = existing.PropertyOverrides ?? existing.SourceProperties;
+                : (JsonObject)properties.DeepClone();
             (double currentX, double currentY) = ReadPositionOffset(properties);
 
             overrides["eventType"] = "PositionTrack";
@@ -452,32 +457,47 @@ internal sealed partial class EditorSession
 
     public void Undo()
     {
-        if (!_undo.TryPop(out IEditorCommand? command))
+        if (!_undo.TryPop(out EditorHistoryEntry? entry))
             return;
-        command.Undo(this);
-        _redo.Push(command);
-        _historyPosition--;
+        entry.Command.Undo(this);
+        _redo.Push(entry);
+        _currentRevision = entry.BeforeRevision;
         OnChanged();
     }
 
     public void Redo()
     {
-        if (!_redo.TryPop(out IEditorCommand? command))
+        if (!_redo.TryPop(out EditorHistoryEntry? entry))
             return;
-        command.Execute(this);
-        _undo.Push(command);
-        _historyPosition++;
+        entry.Command.Execute(this);
+        _undo.Push(entry);
+        _currentRevision = entry.AfterRevision;
         OnChanged();
     }
 
     public async Task SaveAsync(string path, CancellationToken cancellationToken = default)
     {
-        EnsureSourceMapping();
-        await AdoFaiEditorSaveService.SaveAsync(this, path, cancellationToken).ConfigureAwait(false);
-        Document.SourcePath = path;
-        _savedHistoryPosition = _historyPosition;
-        RebaseSource(path);
-        Changed?.Invoke(this, EventArgs.Empty);
+        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureSourceMapping();
+            long savedRevision = _currentRevision;
+            string sourcePath = Document.SourcePath;
+            JsonObject root = AdoFaiEditorSaveService.BuildSaveRoot(this, path);
+            await _saveWriter(root, path, cancellationToken).ConfigureAwait(false);
+            Document.SourcePath = path;
+            _savedRevision = savedRevision;
+            if (_currentRevision == savedRevision)
+                RebaseSource(path);
+            else
+                RebaseLiveAssetReferences(sourcePath, path);
+            NativeLoadPreparationCache.InvalidateLevel(Document);
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
     }
 
     internal JsonObject GetSourceRootForSave() => (JsonObject)EnsureSourceRoot().DeepClone();
@@ -537,6 +557,7 @@ internal sealed partial class EditorSession
         if (createdActions is null || createdActions.Count == 0)
         {
             createdActions?.Clear();
+            int propertyRevision = _structureEdits.Count + (recordStructure ? 1 : 0);
             foreach (ClipboardAction item in clipboardActions)
             {
                 int sourceIndex = NextNewSourceIndex();
@@ -544,7 +565,8 @@ internal sealed partial class EditorSession
                 {
                     Floor = clampedAfter + 1 + item.RelativeFloor,
                     SourceIndex = sourceIndex,
-                    Kind = LevelActionKinds.FromEventType(item.Action.EventType)
+                    Kind = LevelActionKinds.FromEventType(item.Action.EventType),
+                    PropertyOverridesStructureRevision = propertyRevision
                 };
                 _actions.Add(created);
                 createdActions?.Add(created);
@@ -554,8 +576,15 @@ internal sealed partial class EditorSession
         }
         else
         {
-            foreach (LevelAction created in createdActions)
+            int propertyRevision = _structureEdits.Count + (recordStructure ? 1 : 0);
+            for (int i = 0; i < createdActions.Count; i++)
+            {
+                LevelAction created = createdActions[i];
+                created.PropertyOverridesStructureRevision = propertyRevision;
                 _actions.Add(created);
+                if (i < clipboardActions.Count && clipboardActions[i].Template is JsonObject template)
+                    _newActionTemplates[created.SourceIndex] = (JsonObject)template.DeepClone();
+            }
         }
 
         if (createdDecorations is null || createdDecorations.Count == 0)
@@ -660,16 +689,39 @@ internal sealed partial class EditorSession
         foreach (DeletedDecoration removed in deleted.Decorations.OrderBy(item => item.Index))
             _decorations.Insert(Math.Min(removed.Index, _decorations.Count), removed.Decoration);
 
-        if (removeLastStructureEdit && _structureEdits.Count > 0)
-            _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        if (removeLastStructureEdit &&
+            !TryRemoveLastStructureEdit(FloorStructureEditKind.Delete, deleted.FirstFloor, count))
+            _structureEdits.Add(inverseEdit);
         RebuildDocument();
     }
 
     internal void RemoveInsertedRaw(int firstFloor, int count, bool removeLastStructureEdit)
     {
+        int beforeFloorCount = Document.FloorCount;
         DeleteRaw(firstFloor, firstFloor + count - 1, recordStructure: false);
-        if (removeLastStructureEdit && _structureEdits.Count > 0)
-            _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        if (removeLastStructureEdit &&
+            !TryRemoveLastStructureEdit(FloorStructureEditKind.Insert, firstFloor - 1, count))
+        {
+            _structureEdits.Add(new FloorStructureEdit(
+                FloorStructureEditKind.Delete,
+                firstFloor,
+                count,
+                beforeFloorCount));
+        }
+    }
+
+    private bool TryRemoveLastStructureEdit(
+        FloorStructureEditKind kind,
+        int floor,
+        int count)
+    {
+        if (_structureEdits.Count == 0)
+            return false;
+        FloorStructureEdit last = _structureEdits[^1];
+        if (last.Kind != kind || last.Floor != floor || last.Count != count)
+            return false;
+        _structureEdits.RemoveAt(_structureEdits.Count - 1);
+        return true;
     }
 
     internal void SetAngleValues(int[] angleIndices, double[] values)
@@ -698,16 +750,20 @@ internal sealed partial class EditorSession
         int index = FindActionIndex(oldAction);
         if (index >= 0)
             _actions[index] = newAction;
-        RebuildDocument(
-            rebuildGeometry: !IsSetHitsoundGeometryIndependentReplacement(oldAction, newAction));
+        // Replacing an action never changes angleData, which is the sole input to
+        // the managed base path positions/bounds. Event-specific native timelines
+        // are refreshed by the window after the command commits.
+        RebuildDocument(rebuildGeometry: false);
     }
 
     private void Execute(IEditorCommand command)
     {
+        long beforeRevision = _currentRevision;
         command.Execute(this);
-        _undo.Push(command);
+        long afterRevision = ++_nextRevision;
+        _undo.Push(new EditorHistoryEntry(command, beforeRevision, afterRevision));
         _redo.Clear();
-        _historyPosition++;
+        _currentRevision = afterRevision;
         OnChanged();
     }
 
@@ -741,7 +797,13 @@ internal sealed partial class EditorSession
             phaseWatch = Stopwatch.StartNew();
         }
 
-        _actions.Sort(static (a, b) => a.Floor.CompareTo(b.Floor));
+        if (!_actions.Select(action => action.Floor).SequenceEqual(
+                _actions.Select(action => action.Floor).OrderBy(floor => floor)))
+        {
+            LevelAction[] stableFloorOrder = _actions.OrderBy(action => action.Floor).ToArray();
+            _actions.Clear();
+            _actions.AddRange(stableFloorOrder);
+        }
         LogManagedMutationPhase("actionSort", phaseWatch);
 
         phaseWatch?.Restart();
@@ -926,20 +988,132 @@ internal sealed partial class EditorSession
                 _actions[i] = action with { SourceIndex = NextNewSourceIndex() };
         }
 
+        foreach (LevelAction action in _actions)
+        {
+            if (action.SourceIndex >= 0 &&
+                !_actionSourceTemplates.ContainsKey(action.SourceIndex) &&
+                GetSourceActionTemplate(root, action.SourceIndex) is JsonObject template)
+            {
+                _actionSourceTemplates[action.SourceIndex] = template;
+            }
+        }
+
         _sourceMappingInitialized = true;
         RebuildDocument();
     }
 
     private void RebaseSource(string path)
     {
-        _sourceRoot = null;
-        _sourceMappingInitialized = false;
+        _sourceRoot = LooseAdoFaiJson.ParseObject(path);
+        if (_sourceRoot["settings"] is JsonObject savedSettings &&
+            savedSettings["songFilename"] is JsonValue songValue &&
+            songValue.TryGetValue(out string? savedSongFilename))
+        {
+            Document.SongFilename = savedSongFilename;
+        }
+
+        if (_sourceRoot["actions"] is JsonArray savedActions)
+        {
+            for (int i = 0; i < _actions.Count && i < savedActions.Count; i++)
+            {
+                if (savedActions[i] is JsonObject savedAction)
+                {
+                    _actionSourceTemplates[_actions[i].SourceIndex] =
+                        (JsonObject)savedAction.DeepClone();
+                    if (_actions[i].SourceProperties is not null)
+                        _actions[i].SourceProperties = (JsonObject)savedAction.DeepClone();
+                    if (_actions[i].PropertyOverrides is not null)
+                        _actions[i].PropertyOverrides = (JsonObject)savedAction.DeepClone();
+                }
+            }
+        }
+
+        _sourceMappingInitialized = true;
         _structureEdits.Clear();
         _newActionTemplates.Clear();
-        _nextNewSourceIndex = -2;
+        JsonArray? savedDecorations = _sourceRoot["decorations"] as JsonArray;
         for (int i = 0; i < _decorations.Count; i++)
-            _decorations[i] = _decorations[i] with { SourceIndex = i };
-        EnsureSourceMapping();
+        {
+            JsonObject properties = savedDecorations is not null &&
+                                    i < savedDecorations.Count &&
+                                    savedDecorations[i] is JsonObject savedDecoration
+                ? (JsonObject)savedDecoration.DeepClone()
+                : (JsonObject)_decorations[i].Properties.DeepClone();
+            int? floor = TryGetInt(properties["floor"], out int savedFloor)
+                ? savedFloor
+                : _decorations[i].Floor;
+            string eventType = properties["eventType"]?.GetValue<string>()
+                ?? _decorations[i].EventType;
+            properties.Remove("floor");
+            properties.Remove("eventType");
+            _decorations[i] = _decorations[i] with
+            {
+                Floor = floor,
+                EventType = eventType,
+                SourceIndex = i,
+                Properties = properties
+            };
+        }
+        RebuildDocument();
+    }
+
+    private void RebaseLiveAssetReferences(string sourcePath, string targetPath)
+    {
+        if (_sourceRoot is not null)
+        {
+            AdoFaiEditorSaveService.RebaseRelativeAssetReferences(
+                _sourceRoot,
+                sourcePath,
+                targetPath,
+                requireExisting: false);
+        }
+
+        Document.SongFilename = AdoFaiEditorSaveService.RebaseRelativeAssetReference(
+            Document.SongFilename,
+            sourcePath,
+            targetPath,
+            requireExisting: false);
+
+        foreach (LevelAction action in _actions)
+        {
+            RebaseLiveProperty(action.SourceProperties, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.SourceProperties, "decorationImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.PropertyOverrides, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(action.PropertyOverrides, "decorationImage", sourcePath, targetPath);
+        }
+
+        foreach (JsonObject template in _actionSourceTemplates.Values)
+        {
+            RebaseLiveProperty(template, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(template, "decorationImage", sourcePath, targetPath);
+        }
+        foreach (JsonObject template in _newActionTemplates.Values)
+        {
+            RebaseLiveProperty(template, "bgImage", sourcePath, targetPath);
+            RebaseLiveProperty(template, "decorationImage", sourcePath, targetPath);
+        }
+
+        foreach (LevelDecoration decoration in _decorations)
+            RebaseLiveProperty(decoration.Properties, "decorationImage", sourcePath, targetPath);
+    }
+
+    private static void RebaseLiveProperty(
+        JsonObject? properties,
+        string property,
+        string sourcePath,
+        string targetPath)
+    {
+        if (properties?[property] is not JsonValue value ||
+            !value.TryGetValue(out string? reference))
+        {
+            return;
+        }
+
+        properties[property] = AdoFaiEditorSaveService.RebaseRelativeAssetReference(
+            reference,
+            sourcePath,
+            targetPath,
+            requireExisting: false);
     }
 
     private static JsonObject? GetSourceActionTemplate(JsonObject root, int sourceIndex)
@@ -949,11 +1123,24 @@ internal sealed partial class EditorSession
         return actions[sourceIndex] is JsonObject obj ? (JsonObject)obj.DeepClone() : null;
     }
 
+    internal JsonObject? GetActionSourceTemplate(int sourceIndex)
+    {
+        EnsureSourceMapping();
+        if (_actionSourceTemplates.TryGetValue(sourceIndex, out JsonObject? source))
+            return (JsonObject)source.DeepClone();
+        if (_newActionTemplates.TryGetValue(sourceIndex, out JsonObject? created))
+            return (JsonObject)created.DeepClone();
+        return GetSourceActionTemplate(EnsureSourceRoot(), sourceIndex);
+    }
+
     private static LevelDecoration CloneDecoration(LevelDecoration decoration) =>
         decoration with { Properties = (JsonObject)decoration.Properties.DeepClone() };
 
     private void OnChanged()
     {
+        // All edit commands and Undo/Redo modify the same LevelDocument object.
+        // Its existing prepared native snapshot is no longer safe to reuse.
+        NativeLoadPreparationCache.InvalidateLevel(Document);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -982,6 +1169,11 @@ internal sealed partial class EditorSession
         void Execute(EditorSession session);
         void Undo(EditorSession session);
     }
+
+    private sealed record EditorHistoryEntry(
+        IEditorCommand Command,
+        long BeforeRevision,
+        long AfterRevision);
 
     private sealed class CompositeEditorCommand(string name, IReadOnlyList<IEditorCommand> commands) : IEditorCommand
     {
@@ -1099,6 +1291,11 @@ internal sealed record EditorClipboard(
     double[] Angles,
     ClipboardAction[] Actions,
     ClipboardDecoration[] Decorations);
+
+internal sealed class EditorClipboardStore
+{
+    internal EditorClipboard? Value { get; set; }
+}
 
 internal sealed record ClipboardAction(int RelativeFloor, LevelAction Action, JsonObject? Template);
 internal sealed record ClipboardDecoration(int RelativeFloor, string EventType, JsonObject Properties);

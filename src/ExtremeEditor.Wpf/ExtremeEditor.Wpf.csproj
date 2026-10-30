@@ -9,9 +9,11 @@
     <AssetExtractorProject>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\ExtremeEditor.AssetExtractor.csproj</AssetExtractorProject>
     <AssetExtractorOutputDir>$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\bin\$(Configuration)\net8.0\</AssetExtractorOutputDir>
     <AssetExtractorPublishDir>$(MSBuildThisFileDirectory)obj\$(Configuration)\asset-extractor-publish\</AssetExtractorPublishDir>
+    <NativeRendererParallelJobs Condition="'$(NativeRendererParallelJobs)' == ''">6</NativeRendererParallelJobs>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="DiscordRichPresence" Version="1.6.1.70" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ExtremeEditor.Core\ExtremeEditor.Core.csproj" />
@@ -25,16 +27,38 @@
           CopyToPublishDirectory="PreserveNewest"
           Visible="false" />
   </ItemGroup>
-  <Target Name="BuildAssetExtractor" BeforeTargets="CoreCompile">
+  <!-- Track actual dependency inputs instead of running the sidecar builds
+       every time CoreCompile is visited. Copying is still performed for a fresh
+       WPF output directory even when upstream DLLs are unchanged. -->
+  <ItemGroup>
+    <_AssetExtractorBuildInputs Include="$(AssetExtractorProject);$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\**\*.cs"
+                                Exclude="$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\**\obj\**;$(MSBuildThisFileDirectory)..\ExtremeEditor.AssetExtractor\**\bin\**" />
+    <_NativeRendererBuildInputs Include="$(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\CMakeLists.txt;
+                                        $(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\src\**\*.cpp;
+                                        $(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\src\**\*.h;
+                                        $(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\src\**\*.hpp;
+                                        $(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\include\**\*.h;
+                                        $(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer\include\**\*.hpp" />
+  </ItemGroup>
+  <Target Name="BuildAssetExtractor"
+          Inputs="@(_AssetExtractorBuildInputs)"
+          Outputs="$(AssetExtractorOutputDir)ExtremeEditor.AssetExtractor.dll">
     <MSBuild Projects="$(AssetExtractorProject)"
              Targets="Restore;Build"
              Properties="Configuration=$(Configuration)"
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishTrimmed" />
+  </Target>
+  <Target Name="PrepareWpfDependencies"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="BuildAssetExtractor;BuildNativeRenderer">
     <ItemGroup>
       <_AssetExtractorFiles Include="$(AssetExtractorOutputDir)**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(_AssetExtractorFiles)"
           DestinationFiles="@(_AssetExtractorFiles->'$(OutDir)AssetExtractor\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(NativeRendererDll)"
+          DestinationFiles="$(OutDir)ExtremeEditor.NativeRenderer.dll"
           SkipUnchangedFiles="true" />
   </Target>
   <Target Name="PublishAssetExtractor" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
@@ -49,11 +73,10 @@
           DestinationFiles="@(_PublishedAssetExtractorFiles->'$(PublishDir)AssetExtractor\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="false" />
   </Target>
-  <Target Name="BuildNativeRenderer" BeforeTargets="CoreCompile">
+  <Target Name="BuildNativeRenderer"
+          Inputs="@(_NativeRendererBuildInputs)"
+          Outputs="$(NativeRendererDll)">
     <Exec Command="cmake -S &quot;$(MSBuildThisFileDirectory)..\ExtremeEditor.NativeRenderer&quot; -B &quot;$(NativeRendererBuildDir)&quot; -A x64" />
-    <Exec Command="cmake --build &quot;$(NativeRendererBuildDir)&quot; --config $(Configuration)" />
-    <Copy SourceFiles="$(NativeRendererDll)"
-          DestinationFiles="$(OutDir)ExtremeEditor.NativeRenderer.dll"
-          SkipUnchangedFiles="false" />
+    <Exec Command="cmake --build &quot;$(NativeRendererBuildDir)&quot; --config $(Configuration) --target ExtremeEditor.NativeRenderer --parallel $(NativeRendererParallelJobs)" />
   </Target>
 </Project>

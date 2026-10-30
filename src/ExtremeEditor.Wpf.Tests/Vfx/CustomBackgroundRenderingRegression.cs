@@ -1,6 +1,9 @@
 using System.IO;
 using System.Reflection;
+using System.Text.Json.Nodes;
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -59,6 +62,53 @@ internal static class CustomBackgroundRenderingRegression
             string body = backend.Substring(start, end - start);
             Require(body.Contains("DrawBitmap(", StringComparison.Ordinal),
                 "DrawBackground only clears the color; no image is composited.");
+        });
+
+        Check(failures, "CustomBackground image edits reload native assets", () =>
+        {
+            var before = new LevelAction(1, "CustomBackground", true, null, null, null, null)
+            {
+                SourceProperties = new JsonObject { ["bgImage"] = "first.png" }
+            };
+            var changed = before with
+            {
+                PropertyOverrides = new JsonObject { ["bgImage"] = "second.png" }
+            };
+            Require(BackgroundAssetResolver.RequiresReload(before, changed),
+                "changing bgImage must rebuild the native background asset table.");
+            var colorOnly = before with
+            {
+                PropertyOverrides = new JsonObject { ["bgImage"] = "first.png", ["color"] = "abcdef" }
+            };
+            Require(!BackgroundAssetResolver.RequiresReload(before, colorOnly),
+                "color-only changes must not trigger a full level rebuild.");
+            var inactive = before with { Active = false };
+            Require(BackgroundAssetResolver.RequiresReload(before, inactive),
+                "disabling an image-bearing background must refresh native assets.");
+
+            string editorSource = File.ReadAllText(Path.Combine(root,
+                "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.EventAutoApply.cs"));
+            Require(editorSource.Contains(
+                    "BackgroundAssetResolver.RequiresReload(before, after)", StringComparison.Ordinal),
+                "event edits must check whether background assets changed.");
+        });
+
+        string headlessSource = File.ReadAllText(Path.Combine(root,
+            "src", "ExtremeEditor.Wpf", "Native", "NativeHeadlessRendererSession.cs"));
+        Check(failures, "headless video export background upload", () =>
+        {
+            Require(headlessSource.Contains(
+                "foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)",
+                StringComparison.Ordinal),
+                "headless renderer does not iterate background image assets.");
+            Require(headlessSource.Contains(
+                "NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath)",
+                StringComparison.Ordinal),
+                "headless renderer does not upload background images.");
+            Require(headlessSource.Contains(
+                "UploadArray(prepared.BackgroundTimeline, NativeRendererNative.SetBackgroundTimeline",
+                StringComparison.Ordinal),
+                "headless renderer does not upload background events.");
         });
 
         if (failures.Count != 0)

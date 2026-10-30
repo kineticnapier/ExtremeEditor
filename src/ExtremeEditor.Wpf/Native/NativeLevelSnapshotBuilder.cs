@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Numerics;
+using System.Threading;
 using ExtremeEditor.Core;
 using ExtremeEditor.Rendering;
 
@@ -8,6 +9,12 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal sealed class NativeLevelSnapshot
 {
+    private static long _nextSceneCacheKey;
+    // Each independently constructed (and therefore potentially edited)
+    // snapshot gets a distinct identity. It is stable across tab reactivation.
+    public ulong SceneCacheKey { get; } =
+        unchecked((ulong)Interlocked.Increment(ref _nextSceneCacheKey));
+
     public required NativeFloor[] Floors { get; init; }
     public required NativeGeometry[] Geometries { get; init; }
     public required NativePoint[] Points { get; init; }

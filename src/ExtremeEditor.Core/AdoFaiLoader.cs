@@ -33,21 +33,28 @@ public static partial class AdoFaiLoader
         using JsonDocument json = JsonDocument.Parse(jsonBytes, TolerantJsonOptions);
 
         JsonElement root = json.RootElement;
-        if (!root.TryGetProperty("angleData", out JsonElement angleData) ||
-            angleData.ValueKind != JsonValueKind.Array)
+        double[] angles;
+        if (root.TryGetProperty("angleData", out JsonElement angleData) &&
+            angleData.ValueKind == JsonValueKind.Array)
         {
-            throw new InvalidDataException(
-                "This prototype currently requires angleData. Legacy pathData is not implemented.");
+            angles = new double[angleData.GetArrayLength()];
+            int ai = 0;
+            foreach (JsonElement value in angleData.EnumerateArray())
+            {
+                angles[ai++] = TryReadDouble(value, out double parsed)
+                    ? parsed
+                    : throw new InvalidDataException(
+                        $"Unsupported angleData value at index {ai - 1}: {value.ValueKind}");
+            }
         }
-
-        var angles = new double[angleData.GetArrayLength()];
-        int ai = 0;
-        foreach (JsonElement value in angleData.EnumerateArray())
+        else if (root.TryGetProperty("pathData", out JsonElement pathData) &&
+                 pathData.ValueKind == JsonValueKind.String)
         {
-            angles[ai++] = TryReadDouble(value, out double parsed)
-                ? parsed
-                : throw new InvalidDataException(
-                    $"Unsupported angleData value at index {ai - 1}: {value.ValueKind}");
+            angles = ConvertLegacyPathData(pathData.GetString() ?? string.Empty);
+        }
+        else
+        {
+            throw new InvalidDataException("ADOFAI document requires angleData or legacy pathData.");
         }
 
         double initialBpm = 100.0;
@@ -191,6 +198,39 @@ public static partial class AdoFaiLoader
         return new LoadResult(
             document,
             new LoadMetrics(read, parse, build, bytes.LongLength));
+    }
+
+    internal static double[] ConvertLegacyPathData(string pathData)
+    {
+        var angles = new double[pathData.Length];
+        double previous = 0;
+        for (int index = 0; index < pathData.Length; index++)
+        {
+            char symbol = pathData[index];
+            double angle = symbol switch
+            {
+                'R' => 0, 'p' => 15, 'J' => 30, 'E' => 45, 'T' => 60, 'o' => 75,
+                'U' => 90, 'q' => 105, 'G' => 120, 'Q' => 135, 'H' => 150, 'W' => 165,
+                'L' => 180, 'x' => 195, 'N' => 210, 'Z' => 225, 'F' => 240, 'V' => 255,
+                'D' => 270, 'Y' => 285, 'B' => 300, 'C' => 315, 'M' => 330, 'A' => 345,
+                '!' => 999,
+                '5' => NormalizeAngle(previous + 72),
+                '6' => NormalizeAngle(previous - 72),
+                '7' => NormalizeAngle(previous + (360.0 / 7.0)),
+                '8' => NormalizeAngle(previous - (360.0 / 7.0)),
+                _ => throw new InvalidDataException(
+                    $"Unsupported pathData character '{symbol}' at index {index}.")
+            };
+            angles[index] = angle;
+            previous = angle;
+        }
+        return angles;
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        double normalized = angle % 360;
+        return normalized < 0 ? normalized + 360 : normalized;
     }
 
     private static bool TryCreateDecoration(

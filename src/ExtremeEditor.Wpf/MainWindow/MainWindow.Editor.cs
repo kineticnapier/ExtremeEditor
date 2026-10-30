@@ -14,8 +14,6 @@ public partial class MainWindow
 {
     private EditorSession? _editor;
     private bool _editorFeaturesInitialized;
-    private bool _allowClose;
-    private bool _saveBeforeCloseInProgress;
 
     protected override void OnContentRendered(EventArgs e)
     {
@@ -35,7 +33,7 @@ public partial class MainWindow
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
-            if (_allowClose || _editor is null || !_editor.IsDirty)
+            if (_windowCloseApproved || !_documentTabs.Tabs.Any(static tab => tab.IsDirty))
             {
                 base.OnClosing(e);
                 if (!e.Cancel)
@@ -43,62 +41,19 @@ public partial class MainWindow
                 return;
             }
 
-            if (_saveBeforeCloseInProgress)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            ShutdownDiagnostics.Begin("MainWindow.SaveDiscardConfirmation");
-            MessageBoxResult result = MessageBox.Show(
-                this,
-                "Save changes before closing?",
-                "ExtremeEditor",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
-            ShutdownDiagnostics.Complete(
-                "MainWindow.SaveDiscardConfirmation",
-                $"result={result}");
-
-            if (result == MessageBoxResult.Cancel)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            if (result == MessageBoxResult.Yes)
-            {
-                e.Cancel = true;
-                _saveBeforeCloseInProgress = true;
-                _ = SaveAndCloseAsync();
-                return;
-            }
-
-            _allowClose = true;
+            e.Cancel = true;
             base.OnClosing(e);
-            if (!e.Cancel)
-                ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
+            if (!_windowCloseConfirmationPending)
+            {
+                _windowCloseConfirmationPending = true;
+                _ = ConfirmWindowCloseAsync();
+            }
         }
         finally
         {
             ShutdownDiagnostics.Complete(
                 "MainWindow.OnClosing",
                 $"cancel={e.Cancel}");
-        }
-    }
-
-    private async Task SaveAndCloseAsync()
-    {
-        try
-        {
-            if (!await SaveCurrentAsync(saveAs: false))
-                return;
-            _allowClose = true;
-            Close();
-        }
-        finally
-        {
-            _saveBeforeCloseInProgress = false;
         }
     }
 
@@ -111,6 +66,7 @@ public partial class MainWindow
         AddBinding(EditorCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
         AddBinding(EditorCommands.Paste, ExecutePaste, CanExecutePaste);
+        AddBinding(EditorCommands.PasteAtEnd, ExecutePasteAtEnd, CanExecutePasteAtEnd);
         AddBinding(ApplicationCommands.Copy, ExecuteCopy, CanExecuteFloorSelection);
         AddBinding(ApplicationCommands.Cut, ExecuteCut, CanExecuteFloorSelection);
         AddBinding(ApplicationCommands.Paste, ExecutePaste, CanExecutePaste);
@@ -143,7 +99,13 @@ public partial class MainWindow
         if (_editor is not null && ReferenceEquals(_editor.Document, _level))
             return _editor;
 
-        _editor = new EditorSession(_level);
+        if (_editor is not null)
+            _editor.Changed -= ActiveEditorSessionChanged;
+
+        _editor = new EditorSession(_level, clipboardStore: _editorClipboard);
+        _documentTabs.ResetToSingle(new EditorDocumentTab(_level, _editor));
+        _editor.Changed += ActiveEditorSessionChanged;
+        RefreshActiveDocumentTab();
         CommandManager.InvalidateRequerySuggested();
         return _editor;
     }
@@ -214,11 +176,13 @@ public partial class MainWindow
 
     private async Task<bool> SaveCurrentAsync(bool saveAs)
     {
-        EditorSession? editor = EnsureEditorSession();
-        if (editor is null)
+        EnsureEditorSession();
+        EditorDocumentTab? saveTab = _documentTabs.ActiveTab;
+        if (saveTab is null)
             return false;
+        EditorSession editor = saveTab.Editor;
 
-        string? path = _level?.SourcePath;
+        string? path = saveTab.Document.SourcePath;
         if (saveAs || string.IsNullOrWhiteSpace(path) || path == "<synthetic>")
         {
             var dialog = new SaveFileDialog
@@ -232,20 +196,45 @@ public partial class MainWindow
             path = dialog.FileName;
         }
 
+        if (!TryCommitPendingRawEventDrafts(saveTab))
+            return false;
+
+        IDisposable? saveReservation = _documentTabs.TryReserveSavePath(saveTab, path!);
+        if (saveReservation is null)
+        {
+            MessageBox.Show(
+                this,
+                "That chart is already open or being saved by another tab, or this tab " +
+                "already has a save in progress. Wait for it to finish or use a different filename.",
+                "ExtremeEditor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
+        using (saveReservation)
         try
         {
             Mouse.OverrideCursor = Cursors.Wait;
             StatusText.Text = "Saving…";
             await editor.SaveAsync(path!);
-            Title = $"ExtremeEditor {EditorVersion.Current} — WPF — {Path.GetFileName(path)}";
-            StatusText.Text = $"Saved {Path.GetFileName(path)}";
+            RefreshActiveDocumentTab();
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+            {
+                string dirty = editor.IsDirty ? " *" : string.Empty;
+                Title = $"ExtremeEditor {EditorVersion.Current} — WPF — {Path.GetFileName(path)}{dirty}";
+                StatusText.Text = editor.IsDirty
+                    ? $"Saved {Path.GetFileName(path)}; newer edits remain modified"
+                    : $"Saved {Path.GetFileName(path)}";
+            }
             CommandManager.InvalidateRequerySuggested();
             return true;
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.ToString(), "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            StatusText.Text = "Save failed";
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+                StatusText.Text = "Save failed";
             return false;
         }
         finally
@@ -303,8 +292,10 @@ public partial class MainWindow
     private void ExecuteCopy(object sender, ExecutedRoutedEventArgs e)
     {
         EditorSession? editor = EnsureEditorSession();
-        editor?.CopyFloors(_selection.SelectedFloors);
-        StatusText.Text = $"Copied {_selection.SelectedFloors.Count:N0} floor(s)";
+        bool copied = editor?.CopyFloors(_selection.SelectedFloors) == true;
+        StatusText.Text = copied
+            ? $"Copied {editor!.ClipboardFloorCount:N0} floor(s)"
+            : "Copy requires one continuous floor range";
         CommandManager.InvalidateRequerySuggested();
         e.Handled = true;
     }
@@ -315,8 +306,10 @@ public partial class MainWindow
         if (editor is null)
             return;
         int target = Math.Max(0, _selection.SelectedFloors.DefaultIfEmpty(1).Min() - 1);
-        editor.CutFloors(_selection.SelectedFloors);
-        RefreshEditorAfterMutation(target);
+        if (editor.CutFloors(_selection.SelectedFloors))
+            RefreshEditorAfterMutation(target);
+        else
+            StatusText.Text = "Cut requires one continuous floor range";
         e.Handled = true;
     }
 
@@ -326,6 +319,17 @@ public partial class MainWindow
         if (editor is null || _selection.PrimaryFloor < 0)
             return;
         EditorPasteResult? pasted = editor.PasteFloors(_selection.PrimaryFloor);
+        if (pasted is EditorPasteResult result)
+            RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
+        e.Handled = true;
+    }
+
+    private void ExecutePasteAtEnd(object sender, ExecutedRoutedEventArgs e)
+    {
+        EditorSession? editor = EnsureEditorSession();
+        if (editor is null)
+            return;
+        EditorPasteResult? pasted = editor.PasteFloors(editor.Document.FloorCount, allowEnd: true);
         if (pasted is EditorPasteResult result)
             RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
         e.Handled = true;
@@ -463,6 +467,8 @@ public partial class MainWindow
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             int[] selection = _selection.SelectedFloors.ToArray();
             editor.ReplaceAction(item.Action, updated);
+            if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                AcceptDisplayedRawEventDraft(activeTab, item.Action.SourceIndex);
             RefreshEditorAfterMutation(updated.Floor, selection, item.Action, updated);
         }
         catch (Exception ex)
@@ -474,14 +480,26 @@ public partial class MainWindow
 
     private void EventListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+        {
+            activeTab.SelectedEventSourceIndex =
+                (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
+        }
         if (EventList.SelectedItem is EventListItem item && EnsureEditorSession() is EditorSession editor)
         {
             JsonObject obj = AdoFaiEditorSaveService.BuildEditableActionJson(editor, item.Action);
-            EventEditorText.Text = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            string baseline = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            _displayedRawEventSourceIndex = item.Action.SourceIndex;
+            _displayedRawEventBaseline = baseline;
+            string text = _documentTabs.ActiveTab?.PendingRawEventJson
+                .GetValueOrDefault(item.Action.SourceIndex) ?? baseline;
+            SetEventEditorText(text);
         }
         else
         {
-            EventEditorText.Clear();
+            _displayedRawEventSourceIndex = null;
+            _displayedRawEventBaseline = string.Empty;
+            SetEventEditorText(string.Empty);
         }
         CommandManager.InvalidateRequerySuggested();
     }
@@ -528,8 +546,8 @@ public partial class MainWindow
         SelectionSummaryText.Text = primary < 0
             ? "No floor selected"
             : count <= 1
-                ? $"Floor {primary:N0}"
-                : $"{count:N0} floors selected | primary {primary:N0}";
+                ? $"Floor {primary + 1:N0}"
+                : $"{count:N0} floors selected | primary {primary + 1:N0}";
 
         int? selectedSource = (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
         IReadOnlyList<LevelAction> actions = editor is null || primary < 0
@@ -543,16 +561,82 @@ public partial class MainWindow
                 .FirstOrDefault(item => item.Action.SourceIndex == source);
         }
         if (EventList.SelectedItem is null)
-            EventEditorText.Clear();
+        {
+            _displayedRawEventSourceIndex = null;
+            _displayedRawEventBaseline = string.Empty;
+            SetEventEditorText(string.Empty);
+        }
     }
 
     private void UpdateEditorStatus()
     {
         if (_editor is null || _level is null)
             return;
-        string dirty = _editor.IsDirty ? "modified" : "saved";
+        bool isDirty = _documentTabs.ActiveTab?.IsDirty ?? _editor.IsDirty;
+        string dirty = isDirty ? "modified" : "saved";
         StatusText.Text = $"{Path.GetFileName(_level.SourcePath)} | floors {_level.FloorCount:N0} | actions {_level.ActionCount:N0} | {dirty}";
-        Title = $"ExtremeEditor {EditorVersion.Current} — WPF{(_editor.IsDirty ? " *" : string.Empty)}";
+        Title = $"ExtremeEditor {EditorVersion.Current} — WPF{(isDirty ? " *" : string.Empty)}";
+    }
+
+    private bool TryCommitPendingRawEventDrafts(EditorDocumentTab saveTab)
+    {
+        if (saveTab.PendingRawEventJson.Count == 0)
+            return true;
+
+        var updates = new List<(LevelAction Before, LevelAction After)>();
+        try
+        {
+            foreach ((int sourceIndex, string text) in saveTab.PendingRawEventJson)
+            {
+                if (!TryResolveLiveRawEventDraft(
+                        saveTab, sourceIndex, text, out LevelAction? before, out JsonObject? obj))
+                    continue;
+                LevelAction after = ParseEditedAction(obj!, before!);
+                after.PropertyOverrides = (JsonObject)obj!.DeepClone();
+                after.PropertyOverridesStructureRevision = saveTab.Editor.StructureEdits.Count;
+                updates.Add((before!, after));
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid event JSON", MessageBoxButton.OK, MessageBoxImage.Warning);
+            StatusText.Text = "Save canceled: a Raw JSON draft is invalid.";
+            return false;
+        }
+
+        saveTab.PendingRawEventJson.Clear();
+        foreach ((LevelAction before, LevelAction after) in updates)
+        {
+            saveTab.Editor.ReplaceAction(before, after);
+            if (ReferenceEquals(_documentTabs.ActiveTab, saveTab))
+                RefreshAfterEventPropertyCommit(before, after);
+        }
+        if (ReferenceEquals(_documentTabs.ActiveTab, saveTab) &&
+            _displayedRawEventSourceIndex is int displayed)
+        {
+            AcceptDisplayedRawEventDraft(saveTab, displayed);
+        }
+        return true;
+    }
+
+    internal static bool TryResolveLiveRawEventDraft(
+        EditorDocumentTab tab,
+        int sourceIndex,
+        string text,
+        out LevelAction? before,
+        out JsonObject? draft)
+    {
+        before = tab.Document.ActionStore.Actions
+            .FirstOrDefault(action => action.SourceIndex == sourceIndex);
+        if (before is null)
+        {
+            draft = null;
+            return false;
+        }
+
+        draft = JsonNode.Parse(text) as JsonObject
+            ?? throw new JsonException($"Event {sourceIndex} expects a JSON object.");
+        return true;
     }
 
     private static LevelAction ParseEditedAction(JsonObject obj, LevelAction original)
@@ -639,6 +723,12 @@ public partial class MainWindow
     private void CanExecutePaste(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true && _selection.PrimaryFloor >= 0;
+        e.Handled = true;
+    }
+
+    private void CanExecutePasteAtEnd(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = !_isLoading && EnsureEditorSession()?.HasClipboard == true;
         e.Handled = true;
     }
 

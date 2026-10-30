@@ -23,11 +23,18 @@ internal sealed class HitSoundLibrary
     private readonly Dictionary<string, CachedHitSound> _sounds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _offsets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, IReadOnlyDictionary<string, RenderedHitSound>> _renderedBySampleRate = new();
+    private readonly object _gate = new();
 
-    public int LoadedCount => _sounds.Count;
-    public string AssetSummary => _sounds.Count == 0 ? "hitsounds none" : $"hitsounds {_sounds.Count}";
+    public int LoadedCount { get { lock (_gate) return _sounds.Count; } }
+    public string AssetSummary { get { lock (_gate) return _sounds.Count == 0 ? "hitsounds none" : $"hitsounds {_sounds.Count}"; } }
 
     public void ReloadAssets()
+    {
+        lock (_gate)
+            ReloadAssetsCore();
+    }
+
+    private void ReloadAssetsCore()
     {
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
         using IDisposable? measurement = log?.Measure("hitsounds.reload");
@@ -83,6 +90,12 @@ internal sealed class HitSoundLibrary
     }
 
     public IReadOnlyDictionary<string, RenderedHitSound> RenderFor(int sampleRate)
+    {
+        lock (_gate)
+            return RenderForCore(sampleRate);
+    }
+
+    private IReadOnlyDictionary<string, RenderedHitSound> RenderForCore(int sampleRate)
     {
         if (_renderedBySampleRate.TryGetValue(sampleRate, out IReadOnlyDictionary<string, RenderedHitSound>? cached))
             return cached;
@@ -216,6 +229,18 @@ internal sealed class HitSoundLibrary
             return toCopy;
         }
     }
+}
+
+internal static class SharedHitSoundLibrary
+{
+    private static readonly Lazy<HitSoundLibrary> LazyInstance = new(() =>
+    {
+        var library = new HitSoundLibrary();
+        library.ReloadAssets();
+        return library;
+    }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    internal static HitSoundLibrary Instance => LazyInstance.Value;
 }
 
 internal sealed record RenderedHitSound(float[] Samples, double OffsetSeconds)

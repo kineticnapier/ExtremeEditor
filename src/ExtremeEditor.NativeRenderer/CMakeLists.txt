@@ -157,9 +157,33 @@ add_executable(floor_hit_order_tests tests/floor_hit_order_tests.cpp)
 target_compile_features(floor_hit_order_tests PRIVATE cxx_std_20)
 target_include_directories(floor_hit_order_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(editor_floor_numbers_contract_tests tests/editor_floor_numbers_contract_tests.cpp)
+target_compile_features(editor_floor_numbers_contract_tests PRIVATE cxx_std_20)
+target_compile_definitions(editor_floor_numbers_contract_tests PRIVATE
+    EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    EE_WPF_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ExtremeEditor.Wpf"
+)
+
+add_executable(editor_hud_zoom_tests tests/editor_hud_zoom_tests.cpp)
+target_compile_features(editor_hud_zoom_tests PRIVATE cxx_std_20)
+target_compile_definitions(editor_hud_zoom_tests PRIVATE NOMINMAX)
+target_include_directories(editor_hud_zoom_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(background_layer_contract_tests tests/background_layer_contract_tests.cpp)
 target_compile_features(background_layer_contract_tests PRIVATE cxx_std_20)
 target_compile_definitions(background_layer_contract_tests PRIVATE EE_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+add_executable(win32_window_extent_tests tests/win32_window_extent_tests.cpp)
+target_compile_features(win32_window_extent_tests PRIVATE cxx_std_20)
+target_include_directories(win32_window_extent_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(camera_component_lookup_tests tests/camera_component_lookup_tests.cpp)
+target_compile_features(camera_component_lookup_tests PRIVATE cxx_std_20)
+target_include_directories(camera_component_lookup_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(background_timeline_lookup_tests tests/background_timeline_lookup_tests.cpp)
+target_compile_features(background_timeline_lookup_tests PRIVATE cxx_std_20)
+target_include_directories(background_timeline_lookup_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
@@ -180,3 +204,8 @@ add_test(NAME track_visual_runtime_tests COMMAND track_visual_runtime_tests)
 add_test(NAME track_animation_runtime_tests COMMAND track_animation_runtime_tests)
 add_test(NAME floor_hit_order_tests COMMAND floor_hit_order_tests)
 add_test(NAME background_layer_contract_tests COMMAND background_layer_contract_tests)
+add_test(NAME camera_component_lookup_tests COMMAND camera_component_lookup_tests)
+add_test(NAME background_timeline_lookup_tests COMMAND background_timeline_lookup_tests)
+add_test(NAME win32_window_extent_tests COMMAND win32_window_extent_tests)
+add_test(NAME editor_hud_zoom_tests COMMAND editor_hud_zoom_tests)
+add_test(NAME editor_floor_numbers_contract_tests COMMAND editor_floor_numbers_contract_tests)

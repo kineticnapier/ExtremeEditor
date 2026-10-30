@@ -29,7 +29,49 @@ internal static class VideoExportFfmpegEncoderRegression
                 "FfmpegVideoEncoder must accept an ffmpeg executable path.");
         }
 
+        VerifyAtomicCommit(ffmpegType, constructor);
         VerifySourceContract();
+    }
+
+    private static void VerifyAtomicCommit(Type encoderType, ConstructorInfo constructor)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-VideoCommit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string final = Path.Combine(directory, "result.mp4");
+            string temporary = Path.Combine(directory, ".result.tmp.mp4");
+            File.WriteAllText(final, "old-complete-video");
+
+            MethodInfo commit = encoderType.GetMethod(
+                "CommitVideoOutput", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Atomic video commit helper is missing.");
+            FieldInfo tempField = encoderType.GetField("_videoTempPath", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            FieldInfo finalField = encoderType.GetField("_finalOutputPath", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+            tempField.SetValue(encoder, temporary);
+            finalField.SetValue(encoder, final);
+
+            try
+            {
+                commit.Invoke(encoder, null);
+                throw new InvalidOperationException("Missing temporary video unexpectedly replaced the destination.");
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is InvalidOperationException)
+            {
+            }
+            if (File.ReadAllText(final) != "old-complete-video")
+                throw new InvalidOperationException("Failed video commit damaged the existing destination.");
+
+            File.WriteAllText(temporary, "new-complete-video");
+            commit.Invoke(encoder, null);
+            if (File.ReadAllText(final) != "new-complete-video" || File.Exists(temporary))
+                throw new InvalidOperationException("Successful video commit was not an atomic replacement.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static void VerifySourceContract()
@@ -59,6 +101,11 @@ internal static class VideoExportFfmpegEncoderRegression
             failures.Add("encoder must stream raw media to bounded temp files instead of accumulating it in memory");
         if (!source.Contains("Delete", StringComparison.Ordinal))
             failures.Add("encoder must clean up temporary raw media files");
+        if (!source.Contains("_videoTempPath", StringComparison.Ordinal) ||
+            !source.Contains("File.Move", StringComparison.Ordinal))
+        {
+            failures.Add("encoder must commit a same-directory temporary MP4 only after success");
+        }
         if (!source.Contains("ThrowIfCancellationRequested", StringComparison.Ordinal))
             failures.Add("encoder must observe cancellation");
         if (source.Contains("List<byte[]>", StringComparison.Ordinal) ||

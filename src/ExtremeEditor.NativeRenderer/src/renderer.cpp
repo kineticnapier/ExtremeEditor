@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
 #include "follow_camera_state.h"
@@ -133,8 +134,15 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
 
     std::lock_guard lock(scene_mutex_);
     const bool had_scene = static_cast<bool>(scene_);
+    // Every scene created by a full upload may replace the inactive cache.
+    // Keep the previous scene only when it was registered from a prepared
+    // managed snapshot. Untracked edits explicitly clear that registration.
+    cached_scene_ = current_scene_cache_key_ == 0u ? nullptr : std::move(scene_);
+    cached_scene_key_ = cached_scene_ ? current_scene_cache_key_ : 0u;
+    current_scene_cache_key_ = 0u;
     scene_ = std::move(scene);
     pending_icon_states_.clear();
+    delete_hud_button_ = -1; // WPF will refresh this after updating the selected floor.
 
     if (!had_scene)
     {
@@ -148,6 +156,53 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     playback_active_ = false;
     ++scene_version_;
     return true;
+}
+
+bool Renderer::TryActivateCachedLevel(std::uint64_t scene_key) noexcept
+{
+    if (scene_key == 0u)
+        return false;
+
+    std::lock_guard lock(scene_mutex_);
+    if (!cached_scene_ || cached_scene_key_ != scene_key)
+        return false;
+
+    const bool had_scene = static_cast<bool>(scene_);
+    std::shared_ptr<LevelScene> previous = std::move(scene_);
+    const std::uint64_t previous_key = current_scene_cache_key_;
+    scene_ = std::move(cached_scene_);
+    current_scene_cache_key_ = scene_key;
+    cached_scene_ = previous_key == 0u ? nullptr : std::move(previous);
+    cached_scene_key_ = cached_scene_ ? previous_key : 0u;
+
+    // Match SetLevel's activation contract; tab-specific selections, assets
+    // and playback timelines are restored by WPF after scene activation.
+    pending_icon_states_.clear();
+    delete_hud_button_ = -1;
+    if (!had_scene)
+    {
+        camera_x_ = scene_->floors.front().x;
+        camera_y_ = scene_->floors.front().y;
+        zoom_ = 28.0f;
+    }
+    if (selected_floor_ < 0 || static_cast<std::size_t>(selected_floor_) >= scene_->floors.size())
+        selected_floor_ = -1;
+    playback_active_ = false;
+    ++scene_version_;
+    return true;
+}
+
+void Renderer::RememberCurrentLevel(std::uint64_t scene_key) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    current_scene_cache_key_ = scene_key != 0u && scene_ ? scene_key : 0u;
+    if (current_scene_cache_key_ == 0u)
+    {
+        // A full unprepared upload (typically an edit) cannot reuse an
+        // inactive scene whose snapshots may be obsolete.
+        cached_scene_.reset();
+        cached_scene_key_ = 0u;
+    }
 }
 
 bool Renderer::UpdateFloorIcons(
@@ -205,6 +260,32 @@ void Renderer::CenterAt(float world_x, float world_y) noexcept
     std::lock_guard lock(scene_mutex_);
     camera_x_ = world_x;
     camera_y_ = world_y;
+}
+
+bool Renderer::TryGetEditorCamera(float& world_x, float& world_y, float& zoom) noexcept
+{
+    std::lock_guard lock(scene_mutex_);
+    if (!scene_ || !std::isfinite(camera_x_) || !std::isfinite(camera_y_) || !std::isfinite(zoom_))
+        return false;
+
+    world_x = camera_x_;
+    world_y = camera_y_;
+    zoom = zoom_;
+    return true;
+}
+
+bool Renderer::SetEditorCamera(float world_x, float world_y, float zoom) noexcept
+{
+    if (!std::isfinite(world_x) || !std::isfinite(world_y) || !std::isfinite(zoom) || zoom <= 0.0f)
+        return false;
+
+    std::lock_guard lock(scene_mutex_);
+    if (!scene_)
+        return false;
+    camera_x_ = world_x;
+    camera_y_ = world_y;
+    zoom_ = std::clamp(zoom, 0.05f, 400.0f);
+    return true;
 }
 
 void Renderer::ClearIconAssets() noexcept
@@ -628,14 +709,10 @@ EeBackgroundState ResolveBackgroundAtTime(
 {
     const BackgroundRuntime runtime{};
     EeBackgroundState state = runtime.initial;
-    if (events == nullptr)
-        return state;
-    for (const auto& event : *events)
-    {
-        if (event.start_time > chart_time)
-            break;
-        state = event.state;
-    }
+    const EeBackgroundEvent* event =
+        FindLastBackgroundEventAtOrBefore(events, chart_time);
+    if (event != nullptr)
+        state = event->state;
     return state;
 }
 
@@ -837,6 +914,18 @@ void Renderer::SnapshotPositionTrackDragBaseLocked(
     }
 }
 
+bool Renderer::IsContiguousFloorSelectionLocked() const noexcept
+{
+    if (!selected_floors_ || selected_floors_->empty())
+        return false;
+
+    return std::adjacent_find(
+        selected_floors_->begin(),
+        selected_floors_->end(),
+        [](std::int32_t left, std::int32_t right) { return right != left + 1; }) ==
+        selected_floors_->end();
+}
+
 void Renderer::CancelPositionTrackDrag(HWND hwnd) noexcept
 {
     if (!position_drag_.Active()) return;
@@ -889,7 +978,13 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
             FloorDrawDepth(index, floor.track_sorting_offset, scene_->floors.size())});
     }
 
-    const std::int32_t best_floor = SelectNearestFloorHit(hits, radius * radius);
+    const bool repeated_click = has_last_floor_click_ &&
+        std::abs(screen_x - last_floor_click_.x) <= 3 &&
+        std::abs(screen_y - last_floor_click_.y) <= 3;
+    const std::int32_t best_floor = SelectFrontmostFloorHit(
+        hits, radius * radius, selected_floor_, repeated_click);
+    last_floor_click_ = {screen_x, screen_y};
+    has_last_floor_click_ = best_floor >= 0;
     selected_floor_ = best_floor;
     return selected_floor_;
 }
@@ -1095,6 +1190,8 @@ LRESULT Renderer::HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LP
                 if (selected_floors_ &&
                     std::binary_search(selected_floors_->begin(), selected_floors_->end(), selected))
                 {
+                    if (!IsContiguousFloorSelectionLocked())
+                        return 0;
                     first_floor = selected_floors_->front();
                     last_floor = selected_floors_->back();
                 }
@@ -1167,6 +1264,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const IconAssetTable> icon_assets;
         std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
         std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
+        std::shared_ptr<const CameraComponentLookup> camera_component_lookup;
         std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
         std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
         std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
@@ -1180,6 +1278,9 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const std::vector<std::int32_t>> selected_floors;
         std::int32_t selected_floor = -1;
         bool clean_view = false;
+        bool show_floor_numbers = false;
+        int editor_hud_hover = -1;
+        int delete_hud_button = -1;
         PositionTrackDragPreview position_drag_preview;
         std::vector<InputWorldPoint> position_drag_base_positions;
         std::uint64_t scene_version = 0;
@@ -1209,6 +1310,7 @@ void Renderer::RenderLoop() noexcept
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;
             camera_events = camera_events_;
+            camera_component_lookup = camera_component_lookup_;
             flash_events = flash_events_;
             bloom_events = bloom_events_;
             screen_tile_events = screen_tile_events_;
@@ -1222,6 +1324,9 @@ void Renderer::RenderLoop() noexcept
             selected_floors = selected_floors_;
             selected_floor = selected_floor_;
             clean_view = clean_view_;
+            show_floor_numbers = show_floor_numbers_;
+            editor_hud_hover = hover_hud_button_;
+            delete_hud_button = delete_hud_button_;
             position_drag_preview = position_drag_preview_;
             position_drag_base_positions = position_drag_base_positions_;
             scene_version = scene_version_;
@@ -1304,7 +1409,8 @@ void Renderer::RenderLoop() noexcept
                 camera_playback.stationary_y = follow_camera.y;
 
                 CameraVisualState camera_visual = CalculateCameraVisual(
-                    camera_events.get(), camera_playback, chart_time);
+                    camera_events.get(), camera_playback, chart_time,
+                    camera_component_lookup.get());
                 if (camera_visual.active)
                 {
                     render_camera_x = camera_visual.x;
@@ -1346,6 +1452,9 @@ void Renderer::RenderLoop() noexcept
             backend.SetFilterState(ResolveFilterStateAtTime(filter_events.get(), chart_time));
             backend.SetBackgroundState(ResolveBackgroundAtTime(background_events.get(), chart_time));
             backend.SyncBackgroundAssets(background_assets.get(), background_assets_version);
+            backend.SetShowFloorNumbers(show_floor_numbers && !clean_view && !playback_active);
+            backend.SetEditorHudHover(clean_view || playback_active ? -1 : editor_hud_hover);
+            backend.SetEditorHudDeleteButton(clean_view || playback_active ? -1 : delete_hud_button);
             const auto render_started = std::chrono::steady_clock::now();
             static const std::vector<std::int32_t> no_selected_floors;
             const HRESULT hr = backend.RenderFrame(
@@ -1416,8 +1525,14 @@ void Renderer::RenderLoop() noexcept
     ShutdownD2DDiagnosticsActive = true;
     backend.Shutdown();
     ShutdownD2DDiagnosticsActive = false;
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RenderLoopCoUninitializeEntry,
+        "RenderLoop.coUninitialize.begin");
     if (com_initialized)
         CoUninitialize();
+    ShutdownDiagnosticLogOnce(
+        ShutdownDiagnosticPhase::RenderLoopCoUninitializeExit,
+        "RenderLoop.coUninitialize.end");
 }
 
 void Renderer::StopRenderThread(bool shutdown_diagnostic) noexcept

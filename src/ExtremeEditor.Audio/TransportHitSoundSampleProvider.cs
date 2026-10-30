@@ -74,44 +74,160 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (_identitySourcePcmFastPath && _sourcePcm is not null)
             return ReadIdentitySourcePcm(buffer, offset, requestedFrames);
 
-        int writtenFrames = 0;
-        while (writtenFrames < requestedFrames)
+        // Events are scheduled on the output clock, but clips retain their
+        // device-rate shape. Mix intersections per voice per output block
+        // instead of scanning every active voice for every output sample.
+        int framesToRead = CalculateReadableFrames(requestedFrames);
+        if (framesToRead <= 0)
+            return 0;
+
+        Array.Clear(buffer, offset, framesToRead * channels);
+        MixActiveVoicesIntoBlock(buffer, offset, framesToRead);
+        _outputPositionFrames += framesToRead;
+        return framesToRead * channels;
+    }
+
+    // Advance the transport clock without decoding PCM or mixing any voices.
+    // The final hit tail still determines the silent transport duration.
+    internal int AdvanceMuted(int requestedFrames)
+    {
+        if (requestedFrames <= 0)
+            return 0;
+
+        int frames = CalculateReadableFrames(requestedFrames);
+        _outputPositionFrames += frames;
+        _activeVoices.Clear();
+        _identitySourcePcmFastPath = false;
+        return frames;
+    }
+
+    // Called by the audio callback on the first audible block after muting.
+    // Rebuild only voices overlapping that block; never replay elapsed hits.
+    internal void ResumeAfterMute()
+    {
+        if (_sourcePcm is not null && _segments.Count == 1 &&
+            Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon &&
+            OutputToSource(_outputPositionFrames) < _totalSourceFrames)
         {
-            TriggerDueHits();
-            RemoveFinishedVoices();
-
-            double sourcePosition = OutputToSource(_outputPositionFrames);
-            if (sourcePosition >= _totalSourceFrames &&
-                _nextHitIndex >= _hits.Count &&
-                _activeVoices.Count == 0)
-            {
-                break;
-            }
-
-            int destination = offset + writtenFrames * channels;
-            for (int channel = 0; channel < channels; channel++)
-                buffer[destination + channel] = 0.0f;
-
-            foreach (ActiveVoice voice in _activeVoices)
-            {
-                long clipFrame = _outputPositionFrames - voice.StartOutputFrame;
-                if ((ulong)clipFrame >= (ulong)voice.Hit.Clip.FrameCount)
-                    continue;
-
-                int source = checked((int)clipFrame) * channels;
-                for (int channel = 0; channel < channels; channel++)
-                {
-                    buffer[destination + channel] +=
-                        voice.Hit.Clip.Samples[source + channel] * voice.Hit.Volume;
-                }
-            }
-
-            _outputPositionFrames++;
-            writtenFrames++;
+            long sourceFrame = Math.Clamp(
+                (long)Math.Round(OutputToSource(_outputPositionFrames),
+                    MidpointRounding.AwayFromZero), 0, _totalSourceFrames);
+            _sourcePcm.Seek(sourceFrame);
+            _identitySourcePcmFastPath = true;
+            _activeVoices.Clear();
+            _nextHitIndex = LowerBound(sourceFrame);
+            return;
         }
 
-        return writtenFrames * channels;
+        _identitySourcePcmFastPath = false;
+        int low = 0;
+        int high = _hits.Count;
+        while (low < high)
+        {
+            int middle = low + ((high - low) >> 1);
+            if (SourceToOutput(_hits[middle].StartFrame) < _outputPositionFrames)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+
+        _nextHitIndex = low;
+        _activeVoices.Clear();
+        for (int index = low - 1; index >= 0; index--)
+        {
+            SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[index];
+            long start = SourceToOutput(hit.StartFrame);
+            if (_outputPositionFrames - start >= _maxClipFrames)
+                break;
+            if (EndOfVoice(start, hit.Clip.FrameCount) > _outputPositionFrames)
+                _activeVoices.Add(new ActiveVoice(hit, start));
+        }
     }
+
+    private int CalculateReadableFrames(int requestedFrames)
+    {
+        // Preserve the song's transport duration as well as all hit tails.
+        // A speed change shifts future trigger times, not active clip length.
+        long outputEnd = _outputPositionFrames;
+        double sourceRemaining = _totalSourceFrames - OutputToSource(_outputPositionFrames);
+        if (sourceRemaining > 0.0)
+        {
+            double outputRemaining = Math.Ceiling(sourceRemaining / _playbackSpeed);
+            outputEnd = outputRemaining >= long.MaxValue - _outputPositionFrames
+                ? long.MaxValue
+                : _outputPositionFrames + (long)outputRemaining;
+        }
+
+        if (_nextHitIndex < _hits.Count)
+        {
+            SampleAccurateHitSoundProvider.ScheduledHit lastHit = _hits[^1];
+            long lastStart = SourceToOutput(lastHit.StartFrame);
+            outputEnd = Math.Max(outputEnd, EndOfVoice(lastStart, lastHit.Clip.FrameCount));
+        }
+
+        foreach (ActiveVoice voice in _activeVoices)
+            outputEnd = Math.Max(outputEnd, EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount));
+
+        long remaining = Math.Max(0L, outputEnd - _outputPositionFrames);
+        return (int)Math.Min(requestedFrames, remaining);
+    }
+
+    private void MixActiveVoicesIntoBlock(float[] buffer, int offset, int frameCount)
+    {
+        long blockStart = _outputPositionFrames;
+        long blockEnd = blockStart + frameCount;
+
+        // Render each existing tail once; keep only voices crossing the block.
+        _activeVoices.RemoveAll(voice =>
+            EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount) <= blockStart);
+        foreach (ActiveVoice voice in _activeVoices)
+            MixVoiceIntoBlock(buffer, offset, blockStart, blockEnd, voice);
+
+        // Events at the block boundary belong to the following Read.
+        // No hit is dropped or rounded differently by this optimization.
+        while (_nextHitIndex < _hits.Count)
+        {
+            SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[_nextHitIndex];
+            long outputStart = SourceToOutput(hit.StartFrame);
+            if (outputStart >= blockEnd)
+                break;
+
+            var voice = new ActiveVoice(hit, outputStart);
+            MixVoiceIntoBlock(buffer, offset, blockStart, blockEnd, voice);
+            if (EndOfVoice(outputStart, hit.Clip.FrameCount) > blockEnd)
+                _activeVoices.Add(voice);
+            _nextHitIndex++;
+        }
+
+        _activeVoices.RemoveAll(voice =>
+            EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount) <= blockEnd);
+    }
+
+    private void MixVoiceIntoBlock(
+        float[] buffer,
+        int offset,
+        long blockStart,
+        long blockEnd,
+        ActiveVoice voice)
+    {
+        long overlapStart = Math.Max(blockStart, voice.StartOutputFrame);
+        long overlapEnd = Math.Min(blockEnd,
+            EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount));
+        if (overlapEnd <= overlapStart)
+            return;
+
+        int channels = WaveFormat.Channels;
+        int destination = offset + checked((int)(overlapStart - blockStart)) * channels;
+        int source = checked((int)(overlapStart - voice.StartOutputFrame)) * channels;
+        int samples = checked((int)(overlapEnd - overlapStart)) * channels;
+        float scale = voice.Hit.Volume;
+        float[] clip = voice.Hit.Clip.Samples;
+        for (int i = 0; i < samples; i++)
+            buffer[destination + i] += clip[source + i] * scale;
+    }
+
+    private static long EndOfVoice(long start, int frames) =>
+        frames > 0 && start > long.MaxValue - frames ? long.MaxValue : start + frames;
 
     internal void Seek(long sourceFrame)
     {
@@ -156,7 +272,15 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 
         long remainingFrames = _totalSourceFrames - _sourcePcm.PositionFrames;
         if (remainingFrames <= 0)
-            return 0;
+        {
+            // The prerendered identity bus is bounded by the song duration.
+            // Hand off only the post-song portion to the block voice mixer so a
+            // hit that began before EOF can finish without being triggered twice.
+            _identitySourcePcmFastPath = false;
+            _nextHitIndex = UpperBound(_totalSourceFrames);
+            RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
+            return Read(buffer, offset, requestedFrames * WaveFormat.Channels);
+        }
 
         int framesToRead = (int)Math.Min(requestedFrames, remainingFrames);
         int sampleCount = checked(framesToRead * WaveFormat.Channels);
@@ -164,20 +288,6 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         int readFrames = read / WaveFormat.Channels;
         _outputPositionFrames += readFrames;
         return readFrames * WaveFormat.Channels;
-    }
-
-    private void TriggerDueHits()
-    {
-        while (_nextHitIndex < _hits.Count)
-        {
-            SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[_nextHitIndex];
-            long triggerOutput = SourceToOutput(hit.StartFrame);
-            if (triggerOutput > _outputPositionFrames)
-                break;
-
-            _activeVoices.Add(new ActiveVoice(hit, triggerOutput));
-            _nextHitIndex++;
-        }
     }
 
     private void RebuildActiveVoices(long sourceAnchor, bool includeAnchor)
@@ -194,12 +304,6 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
             if (age >= 0 && age < hit.Clip.FrameCount)
                 _activeVoices.Add(new ActiveVoice(hit, triggerOutput));
         }
-    }
-
-    private void RemoveFinishedVoices()
-    {
-        _activeVoices.RemoveAll(voice =>
-            _outputPositionFrames - voice.StartOutputFrame >= voice.Hit.Clip.FrameCount);
     }
 
     private long SourceToOutput(long sourceFrame)

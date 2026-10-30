@@ -34,34 +34,32 @@ internal sealed record VideoExportFrame(
 
 internal static class VideoExportTimeline
 {
-    internal static IReadOnlyList<VideoExportFrame> Build(VideoExportPlan plan)
+    internal static int CountFrames(VideoExportPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
         plan.Validate();
-
         double chartDuration = plan.EndChartTimeSeconds - plan.StartChartTimeSeconds;
         double outputDuration = chartDuration / plan.ChartRate;
         double exactFrameCount = outputDuration * plan.FramesPerSecond;
-        int frameCount = checked((int)Math.Ceiling(exactFrameCount - 1e-12));
+        return checked((int)Math.Ceiling(exactFrameCount - 1e-12));
+    }
 
-        var frames = new VideoExportFrame[frameCount];
+    internal static IEnumerable<VideoExportFrame> Enumerate(VideoExportPlan plan)
+    {
+        int frameCount = CountFrames(plan);
         for (int index = 0; index < frameCount; index++)
         {
             double outputTime = (double)index / plan.FramesPerSecond;
-            double chartTime =
-                plan.StartChartTimeSeconds + outputTime * plan.ChartRate;
-
+            double chartTime = plan.StartChartTimeSeconds + outputTime * plan.ChartRate;
             if (!(chartTime < plan.EndChartTimeSeconds))
                 throw new InvalidOperationException(
                     "Video export timeline advanced into the exclusive end boundary.");
-
-            frames[index] = new VideoExportFrame(
-                index,
-                outputTime,
-                chartTime,
-                outputTime);
+            yield return new VideoExportFrame(index, outputTime, chartTime, outputTime);
         }
+    }
 
-        return frames;
+    internal static IReadOnlyList<VideoExportFrame> Build(VideoExportPlan plan)
+    {
+        return Enumerate(plan).ToArray();
     }
 }

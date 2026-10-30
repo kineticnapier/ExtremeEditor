@@ -15,9 +15,30 @@ internal static class NativeRendererAbiRegression
             BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("NativeRendererNative.GetApiVersion is missing.");
 
+        Type sessionType = assembly.GetType("ExtremeEditor.Wpf.Native.NativeRendererSession")
+            ?? throw new InvalidOperationException("NativeRendererSession is missing.");
+        FieldInfo expectedVersionField = sessionType.GetField(
+            "ExpectedApiVersion",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("NativeRendererSession.ExpectedApiVersion is missing.");
+        if (expectedVersionField.GetRawConstantValue() is not uint expectedVersion)
+            throw new InvalidOperationException("Native renderer expected API version is invalid.");
+
         uint version = (uint)(getApiVersion.Invoke(null, null) ?? 0u);
-        if (version != 22u)
-            throw new InvalidOperationException($"Native renderer API version mismatch: {version}.");
+        if (version != expectedVersion)
+            throw new InvalidOperationException(
+                $"Native renderer API version mismatch: expected {expectedVersion}, got {version}.");
+
+        Type headlessType = assembly.GetType("ExtremeEditor.Wpf.Native.NativeHeadlessRendererSession")
+            ?? throw new InvalidOperationException("NativeHeadlessRendererSession is missing.");
+        FieldInfo headlessVersionField = headlessType.GetField(
+            "ExpectedBaseApiVersion",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("NativeHeadlessRendererSession.ExpectedBaseApiVersion is missing.");
+        object? headlessValue = headlessVersionField.GetRawConstantValue();
+        if (headlessValue is not uint headlessExpectedVersion || headlessExpectedVersion != expectedVersion)
+            throw new InvalidOperationException(
+                $"Native headless renderer API version mismatch: expected {expectedVersion}, got {headlessValue}.");
 
         Type trackAnimationSegment = assembly.GetType("ExtremeEditor.Wpf.Native.NativeTrackAnimationSegment")
             ?? throw new InvalidOperationException("NativeTrackAnimationSegment is missing.");

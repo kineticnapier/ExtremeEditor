@@ -171,9 +171,16 @@ bool Renderer::SetCameraTimeline(const EeCameraEvent* events, std::uint32_t even
         auto next = std::make_shared<std::vector<EeCameraEvent>>();
         if (event_count > 0)
             next->assign(events, events + event_count);
+        // Build before publishing: an allocation failure must leave the old
+        // events and lookup paired together.
+        auto next_lookup = std::make_shared<CameraComponentLookup>(
+            CameraComponentLookup::Build(*next,
+                {EE_CAMERA_APPLY_X, EE_CAMERA_APPLY_Y,
+                 EE_CAMERA_APPLY_ROTATION, EE_CAMERA_APPLY_ZOOM}));
 
         std::lock_guard lock(scene_mutex_);
         camera_events_ = std::move(next);
+        camera_component_lookup_ = std::move(next_lookup);
         return true;
     }
     catch (...)
@@ -186,7 +193,8 @@ CameraVisualState CalculateCameraVisual(
     const LevelScene* scene,
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
-    double chart_time) noexcept
+    double chart_time,
+    const CameraComponentLookup* lookup) noexcept
 {
     CameraVisualState result;
     if (!playback.active)
@@ -215,21 +223,38 @@ CameraVisualState CalculateCameraVisual(
     const EeCameraEvent* rotation_event = nullptr;
     const EeCameraEvent* zoom_event = nullptr;
 
-    auto it = upper;
-    while (it != events->begin() &&
-           (x_event == nullptr || y_event == nullptr ||
-            rotation_event == nullptr || zoom_event == nullptr))
+    if (lookup != nullptr && lookup->Count() == events->size())
     {
-        --it;
-        const EeCameraEvent& item = *it;
-        if (x_event == nullptr && (item.flags & EE_CAMERA_APPLY_X) != 0u)
-            x_event = &item;
-        if (y_event == nullptr && (item.flags & EE_CAMERA_APPLY_Y) != 0u)
-            y_event = &item;
-        if (rotation_event == nullptr && (item.flags & EE_CAMERA_APPLY_ROTATION) != 0u)
-            rotation_event = &item;
-        if (zoom_event == nullptr && (item.flags & EE_CAMERA_APPLY_ZOOM) != 0u)
-            zoom_event = &item;
+        const auto indices = lookup->At(static_cast<std::size_t>(upper - events->begin()));
+        auto get = [&](std::size_t component) -> const EeCameraEvent*
+        {
+            return indices[component] == CameraComponentLookup::Missing
+                ? nullptr : &(*events)[indices[component]];
+        };
+        x_event = get(0);
+        y_event = get(1);
+        rotation_event = get(2);
+        zoom_event = get(3);
+    }
+    else
+    {
+        // Preserve the original evaluator for direct callers without an index.
+        auto it = upper;
+        while (it != events->begin() &&
+               (x_event == nullptr || y_event == nullptr ||
+                rotation_event == nullptr || zoom_event == nullptr))
+        {
+            --it;
+            const EeCameraEvent& item = *it;
+            if (x_event == nullptr && (item.flags & EE_CAMERA_APPLY_X) != 0u)
+                x_event = &item;
+            if (y_event == nullptr && (item.flags & EE_CAMERA_APPLY_Y) != 0u)
+                y_event = &item;
+            if (rotation_event == nullptr && (item.flags & EE_CAMERA_APPLY_ROTATION) != 0u)
+                rotation_event = &item;
+            if (zoom_event == nullptr && (item.flags & EE_CAMERA_APPLY_ZOOM) != 0u)
+                zoom_event = &item;
+        }
     }
 
     if (x_event != nullptr)

@@ -1,5 +1,6 @@
 #pragma once
 #include "position_track_drag.h"
+#include "camera_component_lookup.h"
 
 #include "decoration_assets.h"
 #include "icon_assets.h"
@@ -46,7 +47,11 @@ public:
         std::uint32_t row_stride) noexcept;
     void Resize(std::uint32_t width, std::uint32_t height) noexcept;
     void SetCleanView(bool enabled) noexcept;
+    void SetShowFloorNumbers(bool enabled) noexcept;
+    void SetEditorHudDeleteButton(int button_index) noexcept;
     bool SetLevel(std::shared_ptr<LevelScene> scene) noexcept;
+    bool TryActivateCachedLevel(std::uint64_t scene_key) noexcept;
+    void RememberCurrentLevel(std::uint64_t scene_key) noexcept;
     bool UpdateFloorIcons(
         std::uint32_t start_floor,
         const EeFloorIconState* states,
@@ -56,6 +61,8 @@ public:
     bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
     void FrameAll() noexcept;
     void CenterAt(float world_x, float world_y) noexcept;
+    bool TryGetEditorCamera(float& world_x, float& world_y, float& zoom) noexcept;
+    bool SetEditorCamera(float world_x, float world_y, float zoom) noexcept;
     void ClearIconAssets() noexcept;
     bool SetIconAsset(
         std::uint32_t icon_id,
@@ -100,6 +107,7 @@ private:
     ViewportInputTransform InputTransformLocked() const noexcept;
     void CancelPositionTrackDrag(HWND hwnd) noexcept;
     void SnapshotPositionTrackDragBaseLocked(std::int32_t first_floor, std::int32_t last_floor) noexcept;
+    [[nodiscard]] bool IsContiguousFloorSelectionLocked() const noexcept;
     int HitTestEditorHud(int screen_x, int screen_y) noexcept;
     void NotifySelectionChanged(std::int32_t floor, std::uint32_t modifiers) noexcept;
     void NotifyEditorAction(EeEditorAction action, std::int32_t floor, double value) noexcept;
@@ -121,6 +129,10 @@ private:
 
     mutable std::mutex scene_mutex_;
     std::shared_ptr<LevelScene> scene_;
+    // Bounded scene cache: current + one inactive, never an unbounded map.
+    std::shared_ptr<LevelScene> cached_scene_;
+    std::uint64_t current_scene_cache_key_ = 0u;
+    std::uint64_t cached_scene_key_ = 0u;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
     std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
         std::make_shared<std::vector<EeStaticDecoration>>();
@@ -130,6 +142,8 @@ private:
         std::make_shared<std::vector<EePlaybackTiming>>();
     std::shared_ptr<const std::vector<EeCameraEvent>> camera_events_ =
         std::make_shared<std::vector<EeCameraEvent>>();
+    // Protected by scene_mutex_ and published with camera_events_.
+    std::shared_ptr<const CameraComponentLookup> camera_component_lookup_;
     std::shared_ptr<const std::vector<EeFlashEvent>> flash_events_ =
         std::make_shared<std::vector<EeFlashEvent>>();
     std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events_ =
@@ -147,10 +161,14 @@ private:
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
     std::int32_t selected_floor_ = -1;
+    POINT last_floor_click_{-100000, -100000};
+    bool has_last_floor_click_ = false;
     std::shared_ptr<const std::vector<std::int32_t>> selected_floors_ =
         std::make_shared<std::vector<std::int32_t>>();
     bool clean_view_ = false;
+    bool show_floor_numbers_ = false;
     int hover_hud_button_ = -1;
+    int delete_hud_button_ = -1;
     std::uint64_t scene_version_ = 0;
     std::uint64_t icon_assets_version_ = 0;
     std::uint64_t static_decorations_version_ = 0;

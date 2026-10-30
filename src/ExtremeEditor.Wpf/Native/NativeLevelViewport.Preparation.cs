@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
@@ -47,6 +48,7 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 
 public sealed partial class NativeLevelViewport : HwndHost
 {
+    private const int WmKillFocus = 0x0008;
     private const float PlaybackReferenceHeight = 560f;
 
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
@@ -62,10 +64,15 @@ public sealed partial class NativeLevelViewport : HwndHost
         typeof(NativeLevelViewport));
 
     private NativeRendererSession? _session;
+    private readonly NativePlaybackAnchorDispatchGate _playbackAnchorGate = new();
     private LevelDocument? _level;
     private NativeLevelSnapshot? _snapshot;
     private NativePlaybackTiming[] _playbackTimeline = [];
     private NativeCameraEvent[] _cameraTimeline = [];
+    // Camera zoom conversion depends on viewport height, never width.
+    private NativeRendererSession? _cameraUploadSession;
+    private NativeCameraEvent[]? _cameraUploadedSource;
+    private uint _cameraUploadedHeight;
     private NativeFlashEvent[] _flashTimeline = [];
     private NativeBloomEvent[] _bloomTimeline = [];
     private NativeScreenTileEvent[] _screenTileTimeline = [];
@@ -78,14 +85,64 @@ public sealed partial class NativeLevelViewport : HwndHost
     private bool _frameAllPending;
     private bool _followPlayer = true;
     private bool _cleanView;
+    private bool _showFloorNumbers;
 
     public NativeLevelViewport()
     {
-        Focusable = false;
+        // Allow keyboard navigation to reach the HwndHost. Enter commits also
+        // transfer focus explicitly to its native child HWND.
+        Focusable = true;
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        ResizeNativeChild();
+    }
+
+    /// <summary>
+    /// Return keyboard input to the actual native editor window after a WPF
+    /// settings field commits. UIElement.Focus() alone is insufficient for a
+    /// child HWND, especially when the WPF focus element is stale.
+    /// </summary>
+    public bool FocusEditorSurface()
+    {
+        nint childHwnd = _session?.ChildHwnd ?? nint.Zero;
+        if (childHwnd == nint.Zero || !IsVisible || !IsEnabled)
+            return false;
+
+        SetFocus(childHwnd);
+        return GetFocus() == childHwnd;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint SetFocus(nint hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetFocus();
+
     public event Action<bool>? FollowPlayerChanged;
+    internal event Action<IReadOnlyList<string>>? DecorationAssetLoadFailed;
+
+    private void ReportDecorationAssetFailures()
+    {
+        if (_session?.LastDecorationAssetFailures is { Count: > 0 } failures)
+            DecorationAssetLoadFailed?.Invoke(failures);
+    }
+    internal event Action? NativeFocusLost;
+
+    protected override nint WndProc(
+        nint hwnd,
+        int msg,
+        nint wParam,
+        nint lParam,
+        ref bool handled)
+    {
+        if (msg == WmKillFocus)
+            NativeFocusLost?.Invoke();
+        return base.WndProc(hwnd, msg, wParam, lParam, ref handled);
+    }
 
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
     internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
@@ -109,10 +166,17 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session?.SetCleanView(enabled);
     }
 
+    public void SetShowFloorNumbers(bool enabled)
+    {
+        _showFloorNumbers = enabled;
+        _session?.SetShowFloorNumbers(enabled);
+    }
+
     public void SetLevel(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
+        _playbackAnchorGate.Invalidate();
         bool changedDocument = !ReferenceEquals(_level, level);
         _level = level;
         _snapshot = null;
@@ -132,6 +196,9 @@ public sealed partial class NativeLevelViewport : HwndHost
             _trackAnimationTimings = [];
         }
         LastLevelUploadMetrics = UploadPendingLevel();
+        // The host may have been created on the welcome screen, before a
+        // chart existed. Honor a FrameAll request once that first level arrives.
+        ApplyPendingFrameAll();
     }
 
     internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
@@ -159,8 +226,18 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public void ReloadAssets()
     {
+        _playbackAnchorGate.Invalidate();
         _snapshot = null;
         LastLevelUploadMetrics = UploadPendingLevel();
+    }
+
+    private void SyncBackwardHudButton()
+    {
+        int button = _level is not null && _selectedFloors.Length == 1
+            ? global::ExtremeEditor.Wpf.AdoFaiPathDirection.GetBackwardHudButtonIndex(
+                _level.Angles, _primarySelection)
+            : -1;
+        _session?.SetEditorHudDeleteButton(button);
     }
 
     public void SetSelection(IEnumerable<int> floors, int primaryFloor)
@@ -170,6 +247,7 @@ public sealed partial class NativeLevelViewport : HwndHost
             _selectedFloors = [];
             _primarySelection = -1;
             _session?.SetSelection(_selectedFloors, _primarySelection);
+            SyncBackwardHudButton();
             return;
         }
 
@@ -182,69 +260,52 @@ public sealed partial class NativeLevelViewport : HwndHost
             ? primaryFloor
             : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
         _session?.SetSelection(_selectedFloors, _primarySelection);
+        SyncBackwardHudButton();
     }
 
     public void SetPlaybackTimeline(TimingMap timingMap)
     {
         ArgumentNullException.ThrowIfNull(timingMap);
+        _playbackAnchorGate.Invalidate();
 
-        var watch = Stopwatch.StartNew();
-        _playbackTimeline = NativePlaybackTimelineBuilder.Build(timingMap);
-        if (_level is null)
+        // Build every timeline before changing the active viewport state.
+        // A builder exception must not leave playback timing from one chart
+        // combined with camera, filter or decoration data from another.
+        PreparedNativePlayback prepared;
+        if (_level is LevelDocument level)
         {
-            _cameraTimeline = [];
-            _flashTimeline = [];
-            _bloomTimeline = [];
-            _screenTileTimeline = [];
-            _filterTimeline = [];
-            _backgroundTimeline = [];
-            _trackTransformTimeline = [];
-            _trackVisualTimeline = [];
-            _trackAnimationTimeline = [];
-            _trackAnimationTimings = [];
+            prepared = PreparePlayback(level, timingMap);
         }
         else
         {
-            _cameraTimeline = FaithfulNativeCameraTimelineBuilder.Build(_level, timingMap);
-            NativeCameraRuntimeCompatibility.MakePlayerStartsRelative(_level, timingMap, _cameraTimeline);
-            _flashTimeline = FlashTimelineBuilder.Build(_level, timingMap);
-            _bloomTimeline = BloomTimelineBuilder.Build(_level, timingMap);
-            _screenTileTimeline = ScreenTileTimelineBuilder.Build(_level, timingMap);
-            _filterTimeline = FilterTimelineBuilder.Build(_level, timingMap);
-            _backgroundTimeline = BackgroundTimelineBuilder.Build(_level, timingMap);
-            StaticTrackTransform[] staticTransforms = TrackTransformResolver.ResolveStatic(_level);
-            _trackTransformTimeline = TrackTransformResolver.BuildMoveTimeline(_level, timingMap, staticTransforms);
-            _trackVisualTimeline = TrackVisualTimelineBuilder.Build(_level, timingMap);
-            (_trackAnimationTimeline, _trackAnimationTimings) = TrackAnimationTimelineBuilder.Build(_level, timingMap);
+            // Before a chart is loaded only the timing map is meaningful.
+            var watch = Stopwatch.StartNew();
+            NativePlaybackTiming[] playback = NativePlaybackTimelineBuilder.Build(timingMap);
+            watch.Stop();
+            prepared = new PreparedNativePlayback(
+                playback, [], [], [], [], [], [], [], [], [], [],
+                watch.Elapsed);
         }
-        watch.Stop();
-        TimeSpan buildTime = watch.Elapsed;
 
-        watch.Restart();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
-        watch.Stop();
-        LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(buildTime, watch.Elapsed);
+        // The shared upload path restores all managed timelines and invalidates
+        // the camera cache if a native upload fails partway through.
+        SetPreparedPlayback(prepared);
     }
 
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
     {
         UpdateDecorationPlayback(chartTime);
-        _session?.SetPlaybackAnchor(chartTime, chartRate, active, playing);
+        if (_session is NativeRendererSession session &&
+            _playbackAnchorGate.ShouldSend(chartTime, chartRate, active, playing))
+            session.SetPlaybackAnchor(chartTime, chartRate, active, playing);
     }
 
     public void ClearPlayback()
     {
         UpdateDecorationPlayback(double.NegativeInfinity);
-        _session?.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
+        if (_session is NativeRendererSession session &&
+            _playbackAnchorGate.ShouldSend(0.0, 1.0, active: false, playing: false))
+            session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
@@ -257,11 +318,22 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     public void FrameAll()
     {
-        if (_session is null)
+        if (_session is null || _level is null)
         {
             _frameAllPending = true;
             return;
         }
+        _session.FrameAll();
+        _frameAllPending = false;
+    }
+
+    private void ApplyPendingFrameAll()
+    {
+        if (!_frameAllPending || _session is null || _level is null)
+            return;
+
+        // Only consume the request after the native camera operation succeeds.
+        // A failed call must remain eligible for retry.
         _session.FrameAll();
         _frameAllPending = false;
     }
@@ -274,50 +346,100 @@ public sealed partial class NativeLevelViewport : HwndHost
         _session?.CenterAt(target.X, target.Y);
     }
 
+    internal NativeEditorCameraState? TryGetEditorCamera() =>
+        _session is not null && _session.TryGetEditorCamera(out NativeEditorCameraState state)
+            ? state
+            : null;
+
+    internal bool RestoreEditorCamera(NativeEditorCameraState state) =>
+        _session?.SetEditorCamera(state) == true;
+
+    internal static T RunNativeHostInitialization<T>(Func<T> initialize, Action cleanup)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        ArgumentNullException.ThrowIfNull(cleanup);
+        try
+        {
+            return initialize();
+        }
+        catch
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception cleanupError)
+            {
+                Console.Error.WriteLine(
+                    $"[native-host] cleanup after initialization failure: {cleanupError}");
+            }
+            throw;
+        }
+    }
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        uint width = ToPixelExtent(ActualWidth);
-        uint height = ToPixelExtent(ActualHeight);
-        _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
-        _session.SelectionChanged += NativeSelectionChanged;
-        _session.FollowPlayerChanged += NativeFollowPlayerChanged;
-        _session.EditorActionRequested += NativeEditorActionRequested;
-        _session.SetFollowPlayer(_followPlayer);
-        _session.SetCleanView(_cleanView);
-        LastLevelUploadMetrics = UploadPendingLevel();
+        return RunNativeHostInitialization(
+            initialize: () =>
+            {
+                DpiScale dpi = VisualTreeHelper.GetDpi(this);
+                uint width = ToPixelExtent(ActualWidth, dpi.DpiScaleX);
+                uint height = ToPixelExtent(ActualHeight, dpi.DpiScaleY);
+                _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+                _playbackAnchorGate.Invalidate();
+                _session.SelectionChanged += NativeSelectionChanged;
+                _session.FollowPlayerChanged += NativeFollowPlayerChanged;
+                _session.EditorActionRequested += NativeEditorActionRequested;
+                _session.SetFollowPlayer(_followPlayer);
+                _session.SetCleanView(_cleanView);
+                _session.SetShowFloorNumbers(_showFloorNumbers);
+                LastLevelUploadMetrics = UploadPendingLevel();
 
-        var watch = Stopwatch.StartNew();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
-        watch.Stop();
-        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with { NativeUpload = watch.Elapsed };
+                // The welcome screen has no chart. Native timeline setters
+                // require an uploaded level, so leave them pending until the
+                // first document is activated.
+                if (_level is null)
+                    return new HandleRef(this, _session.ChildHwnd);
 
-        if (_frameAllPending)
-        {
-            _session.FrameAll();
-            _frameAllPending = false;
-        }
-        return new HandleRef(this, _session.ChildHwnd);
+                var watch = Stopwatch.StartNew();
+                UploadPendingPlaybackTimeline();
+                UploadPendingCameraTimeline();
+                UploadPendingFlashTimeline();
+                UploadPendingBloomTimeline();
+                UploadPendingScreenTileTimeline();
+                UploadPendingFilterTimeline();
+                UploadPendingBackgroundTimeline();
+                UploadPendingTrackTransformTimeline();
+                UploadPendingTrackVisualTimeline();
+                UploadPendingTrackAnimationTimeline();
+                watch.Stop();
+                LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with
+                {
+                    NativeUpload = watch.Elapsed
+                };
+
+                ApplyPendingFrameAll();
+                return new HandleRef(this, _session.ChildHwnd);
+            },
+            cleanup: () => DestroyWindowCore(default));
     }
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
-        if (_session is not null)
-        {
-            _session.SelectionChanged -= NativeSelectionChanged;
-            _session.FollowPlayerChanged -= NativeFollowPlayerChanged;
-            _session.EditorActionRequested -= NativeEditorActionRequested;
-        }
-        _session?.Dispose();
+        NativeRendererSession? session = _session;
         _session = null;
+        _playbackAnchorGate.Invalidate();
+        _cameraUploadSession = null;
+        _cameraUploadedSource = null;
+        _cameraUploadedHeight = 0;
+
+        if (session is null)
+            return;
+
+        session.SelectionChanged -= NativeSelectionChanged;
+        session.FollowPlayerChanged -= NativeFollowPlayerChanged;
+        session.EditorActionRequested -= NativeEditorActionRequested;
+        session.Dispose();
     }
 
     private void NativeSelectionChanged(int floor, uint nativeModifiers)
@@ -365,16 +487,19 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             var snapshotWatch = Stopwatch.StartNew();
             NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(_level);
-            _snapshot = result.Snapshot;
+            // Do not publish an incomplete snapshot if decoration or background
+            // preparation fails. A later retry must rebuild the entire scene.
+            NativeLevelSnapshot pendingSnapshot = result.Snapshot;
             StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(_level);
-            _snapshot.StaticDecorations = decorationData.Instances;
-            _snapshot.DecorationAssets = decorationData.Assets;
-            _snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
+            pendingSnapshot.StaticDecorations = decorationData.Instances;
+            pendingSnapshot.DecorationAssets = decorationData.Assets;
+            pendingSnapshot.DecorationPlayback = decorationData.PlaybackRuntime;
             var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(_level);
             BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(_level);
-            _snapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
+            pendingSnapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
                 backgroundIds.TryGetValue(initialBackground.Image, out uint imageId) ? imageId : 0u);
-            _snapshot.BackgroundAssets = backgroundAssets;
+            pendingSnapshot.BackgroundAssets = backgroundAssets;
+            _snapshot = pendingSnapshot;
             buildMetrics = result.Metrics;
             snapshotWatch.Stop();
             snapshotBuild = snapshotWatch.Elapsed;
@@ -382,7 +507,9 @@ public sealed partial class NativeLevelViewport : HwndHost
 
         var uploadWatch = Stopwatch.StartNew();
         _session.SetLevel(_snapshot);
+        ReportDecorationAssetFailures();
         _session.SetSelection(_selectedFloors, _primarySelection);
+        SyncBackwardHudButton();
         uploadWatch.Stop();
 
         return new NativeLevelUploadMetrics(
@@ -401,7 +528,17 @@ public sealed partial class NativeLevelViewport : HwndHost
         if (_snapshot?.DecorationPlayback is not NativeDecorationPlaybackRuntime playback ||
             !playback.Update(chartTime))
             return;
-        _session?.SetStaticDecorations(_snapshot.StaticDecorations);
+        try
+        {
+            _session?.SetStaticDecorations(_snapshot.StaticDecorations);
+        }
+        catch
+        {
+            // Update already advanced its time marker. Without invalidation,
+            // a paused frame would never retry a failed native upload.
+            playback.InvalidateLastTime();
+            throw;
+        }
     }
 
     private void UploadPendingPlaybackTimeline()
@@ -415,22 +552,33 @@ public sealed partial class NativeLevelViewport : HwndHost
         if (_session is null)
             return;
 
-        uint viewportHeight = ToPixelExtent(ActualHeight);
+        uint viewportHeight = ToPixelExtent(ActualHeight, VisualTreeHelper.GetDpi(this).DpiScaleY);
+        if (ReferenceEquals(_cameraUploadSession, _session) &&
+            ReferenceEquals(_cameraUploadedSource, _cameraTimeline) &&
+            _cameraUploadedHeight == viewportHeight)
+            return;
+
         float zoomScale = PlaybackReferenceHeight / Math.Max(1f, viewportHeight);
         if (_cameraTimeline.Length == 0 || Math.Abs(zoomScale - 1f) < 0.000001f)
         {
             _session.SetCameraTimeline(_cameraTimeline);
-            return;
+        }
+        else
+        {
+            var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
+            for (int i = 0; i < _cameraTimeline.Length; i++)
+            {
+                adjusted[i] = _cameraTimeline[i];
+                adjusted[i].StartZoom *= zoomScale;
+                adjusted[i].TargetZoom *= zoomScale;
+            }
+            _session.SetCameraTimeline(adjusted);
         }
 
-        var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
-        for (int i = 0; i < _cameraTimeline.Length; i++)
-        {
-            adjusted[i] = _cameraTimeline[i];
-            adjusted[i].StartZoom *= zoomScale;
-            adjusted[i].TargetZoom *= zoomScale;
-        }
-        _session.SetCameraTimeline(adjusted);
+        // Update cache only after a successful native upload.
+        _cameraUploadSession = _session;
+        _cameraUploadedSource = _cameraTimeline;
+        _cameraUploadedHeight = viewportHeight;
     }
 
     private void UploadPendingFlashTimeline()
@@ -477,7 +625,10 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     private void ResizeNativeChild()
     {
-        _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        _session?.Resize(
+            ToPixelExtent(ActualWidth, dpi.DpiScaleX),
+            ToPixelExtent(ActualHeight, dpi.DpiScaleY));
         UploadPendingCameraTimeline();
     }
 
@@ -491,10 +642,19 @@ public sealed partial class NativeLevelViewport : HwndHost
         return result;
     }
 
-    private static uint ToPixelExtent(double value)
+    internal static uint ToPixelExtent(double value, double dpiScale = 1d)
     {
+        // WPF sizes are DIPs; native HWND and renderer dimensions are pixels.
+        // Use a neutral scale when WPF has not yet supplied a valid DPI.
+        if (!double.IsFinite(dpiScale) || dpiScale <= 0d)
+            dpiScale = 1d;
         if (!double.IsFinite(value) || value <= 0d)
             return 1u;
-        return checked((uint)Math.Clamp(Math.Ceiling(value), 1d, uint.MaxValue));
+        // A finite DIP extent may overflow when multiplied by a finite scale.
+        // NativeWindow passes these dimensions to Win32 as signed int values.
+        // Values above int.MaxValue would wrap negative at CreateWindowEx/MoveWindow.
+        // Saturate positive overflow rather than returning a zero/negative extent.
+        double pixels = value * dpiScale;
+        return checked((uint)Math.Clamp(Math.Ceiling(pixels), 1d, int.MaxValue));
     }
 }

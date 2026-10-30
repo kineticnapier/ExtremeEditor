@@ -29,8 +29,9 @@ public sealed class AudioPlayer : IDisposable
     private const double HitSoundOnlyMinimumSeconds = 0.25;
     private const double HitSoundOnlyEndPaddingSeconds = 0.05;
 
-    private readonly HitSoundLibrary _hitSoundLibrary = new();
+    private readonly HitSoundLibrary _hitSoundLibrary;
     private readonly AudioPcmPrerenderLifecycle _hitSoundPrerender = new();
+    private IDisposable? _realtimeDiagnosticsHeartbeat;
     private WaveOutEvent? _output;
     private WaveStream? _reader;
     private UnifiedAudioSampleProvider? _graph;
@@ -53,10 +54,15 @@ public sealed class AudioPlayer : IDisposable
     private double _playbackSpeed = 1.0;
     private double _songVolumePercent = 100.0;
 
-    public AudioPlayer()
+    public AudioPlayer() : this(loadHitSoundAssets: true) { }
+
+    public AudioPlayer(bool loadHitSoundAssets)
     {
         using IDisposable? measurement = AudioDiagnosticLog.Shared?.Measure("audio_player.construct");
-        _hitSoundLibrary.ReloadAssets();
+        _hitSoundsEnabled = loadHitSoundAssets;
+        _hitSoundLibrary = loadHitSoundAssets
+            ? SharedHitSoundLibrary.Instance
+            : new HitSoundLibrary();
     }
 
     /// <summary>True when either a song graph or a hit-sound-only graph is ready.</summary>
@@ -112,6 +118,24 @@ public sealed class AudioPlayer : IDisposable
             _hitSoundsEnabled = value;
             if (_graph is not null)
                 _graph.HitSoundsEnabled = value;
+
+            // Stop speculative PCM rendering when hitsounds are muted. The
+            // transport graph still advances its hit schedule so unmuting
+            // cannot replay earlier triggers.
+            if (!value)
+            {
+                CancelHitSoundPrerender();
+            }
+            else if (_hitSoundProvider is not null && _outputFormat is not null)
+            {
+                long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    Position.TotalSeconds, _outputFormat.SampleRate);
+                _hitSoundPrerender.Start(
+                    _hitSoundProvider,
+                    _outputFormat.SampleRate,
+                    frame,
+                    AudioPcmCachePolicy.GetAvailableMemoryBytes());
+            }
         }
     }
 
@@ -273,12 +297,14 @@ public sealed class AudioPlayer : IDisposable
             Seek(TimeSpan.Zero);
 
         _output.Play();
+        StartRealtimeDiagnostics();
     }
 
     public void Pause()
     {
         if (_output?.PlaybackState == PlaybackState.Playing)
             _output.Pause();
+        StopRealtimeDiagnostics();
     }
 
     public void Stop()
@@ -286,6 +312,7 @@ public sealed class AudioPlayer : IDisposable
         if (_output is null || _graph is null)
             return;
 
+        StopRealtimeDiagnostics();
         _output.Stop();
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.Zero;
@@ -303,6 +330,7 @@ public sealed class AudioPlayer : IDisposable
 
         double seconds = Math.Clamp(position.TotalSeconds, 0, _transportDurationSeconds);
         PlaybackState previousState = _output.PlaybackState;
+        StopRealtimeDiagnostics();
         _output.Stop();
         if (_reader is not null)
             _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
@@ -314,7 +342,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(seconds);
 
         if (previousState == PlaybackState.Playing)
+        {
             _output.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (previousState == PlaybackState.Paused)
         {
             _output.Play();
@@ -366,13 +397,15 @@ public sealed class AudioPlayer : IDisposable
                 _hitSoundTimeline,
                 out TimeSpan renderAssets);
 
-        long totalFrames = _reader is not null
-            ? (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate)
-            : AudioGraphFactory.CalculateHitSoundOnlyFrames(
-                _outputFormat.SampleRate,
-                _level,
-                _timingMap,
-                clips);
+        long songFrames = _reader is null
+            ? 0
+            : (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
+        long totalFrames = AudioGraphFactory.CalculatePlaybackFrames(
+            songFrames,
+            _outputFormat.SampleRate,
+            _level,
+            _timingMap,
+            clips);
         _transportDurationSeconds = totalFrames <= 0
             ? 0.0
             : (double)totalFrames / _outputFormat.SampleRate;
@@ -397,7 +430,7 @@ public sealed class AudioPlayer : IDisposable
         _hitSoundProvider = graphBuild.HitSoundProvider;
         HitSoundRenderMetrics renderMetrics = graphBuild.HitSoundMetrics;
 
-        if (_hitSoundProvider is not null)
+        if (_hitSoundsEnabled && _hitSoundProvider is not null)
         {
             long availableMemoryBytes = AudioPcmCachePolicy.GetAvailableMemoryBytes();
             using (log?.Measure(
@@ -450,6 +483,7 @@ public sealed class AudioPlayer : IDisposable
 
         TimeSpan position = Position;
         PlaybackState state = _output?.PlaybackState ?? PlaybackState.Stopped;
+        StopRealtimeDiagnostics();
         CancelHitSoundPrerender();
         _hitSoundProvider = null;
         _output?.Stop();
@@ -473,7 +507,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
+        {
             _output!.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (state == PlaybackState.Paused)
         {
             _output!.Play();
@@ -483,7 +520,7 @@ public sealed class AudioPlayer : IDisposable
 
     private void RestartHitSoundPrerender(long startFrame)
     {
-        if (_hitSoundProvider is null)
+        if (!_hitSoundsEnabled || _hitSoundProvider is null)
             return;
 
         _hitSoundPrerender.Restart(startFrame);
@@ -492,6 +529,51 @@ public sealed class AudioPlayer : IDisposable
     private void CancelHitSoundPrerender()
     {
         _hitSoundPrerender.Cancel();
+    }
+
+    private void StartRealtimeDiagnostics()
+    {
+        AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        if (log is null || _realtimeDiagnosticsHeartbeat is not null || _graph is null)
+            return;
+
+        // No log I/O or string formatting occurs in an audio callback.
+        UnifiedAudioSampleProvider graph = _graph;
+        SampleAccurateHitSoundProvider? pcm = _hitSoundProvider;
+        AudioGraphRealtimeDiagnostics previousGraph = graph.GetRealtimeDiagnostics();
+        HitSoundRealtimeDiagnostics previousPcm = pcm?.GetRealtimeDiagnostics() ?? default;
+
+        _realtimeDiagnosticsHeartbeat = log.StartHeartbeat(
+            "audio_player.realtime", TimeSpan.FromSeconds(1), () =>
+            {
+                AudioGraphRealtimeDiagnostics currentGraph = graph.GetRealtimeDiagnostics();
+                HitSoundRealtimeDiagnostics currentPcm = pcm?.GetRealtimeDiagnostics() ?? default;
+                long calls = currentGraph.ReadCalls - previousGraph.ReadCalls;
+                long readTicks = currentGraph.ReadTicks - previousGraph.ReadTicks;
+                long songTicks = currentGraph.SongReadTicks - previousGraph.SongReadTicks;
+                long hitTicks = currentGraph.HitSoundReadTicks - previousGraph.HitSoundReadTicks;
+                long limiterTicks = currentGraph.LimiterTicks - previousGraph.LimiterTicks;
+                long misses = currentPcm.ForegroundChunkRenders - previousPcm.ForegroundChunkRenders;
+                long missTicks = currentPcm.ForegroundRenderTicks - previousPcm.ForegroundRenderTicks;
+                long slowReads = currentGraph.OverBudgetReadCalls - previousGraph.OverBudgetReadCalls;
+                previousGraph = currentGraph;
+                previousPcm = currentPcm;
+                return $"calls={calls} readMs={TimeSpan.FromTicks(readTicks).TotalMilliseconds:F1} " +
+                       $"maxReadMs={TimeSpan.FromTicks(currentGraph.MaxReadTicks).TotalMilliseconds:F2} " +
+                       $"songMs={TimeSpan.FromTicks(songTicks).TotalMilliseconds:F1} " +
+                       $"hitsMs={TimeSpan.FromTicks(hitTicks).TotalMilliseconds:F1} " +
+                       $"limiterMs={TimeSpan.FromTicks(limiterTicks).TotalMilliseconds:F1} " +
+                       $"foregroundPcmMisses={misses} " +
+                       $"foregroundPcmMs={TimeSpan.FromTicks(missTicks).TotalMilliseconds:F1} " +
+                       $"peakForegroundPcmMs={TimeSpan.FromTicks(currentPcm.MaxForegroundRenderTicks).TotalMilliseconds:F2} " +
+                       $"overBudgetReads={slowReads} worstMasterGain={currentGraph.MinimumMasterGain:F6}";
+            });
+    }
+
+    private void StopRealtimeDiagnostics()
+    {
+        _realtimeDiagnosticsHeartbeat?.Dispose();
+        _realtimeDiagnosticsHeartbeat = null;
     }
 
     private void ResetClock(double audioSeconds)
@@ -518,6 +600,7 @@ public sealed class AudioPlayer : IDisposable
     {
         double sourceSeconds = Position.TotalSeconds;
         PlaybackState previousState = _output!.PlaybackState;
+        StopRealtimeDiagnostics();
         _output.Stop();
 
         _playbackSpeed = normalized;
@@ -538,7 +621,10 @@ public sealed class AudioPlayer : IDisposable
         ResetClock(sourceSeconds);
 
         if (previousState == PlaybackState.Playing)
+        {
             _output.Play();
+            StartRealtimeDiagnostics();
+        }
         else if (previousState == PlaybackState.Paused)
         {
             _output.Play();
@@ -549,6 +635,7 @@ public sealed class AudioPlayer : IDisposable
     private void DisposePlayback()
     {
         AudioDiagnosticLog? log = AudioDiagnosticLog.Shared;
+        StopRealtimeDiagnostics();
         CancelHitSoundPrerender();
         _hitSoundProvider = null;
         using (log?.Measure("audio_player.output_stop", $"has_output={_output is not null}"))

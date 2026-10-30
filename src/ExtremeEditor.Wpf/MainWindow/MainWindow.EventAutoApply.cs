@@ -95,6 +95,11 @@ public partial class MainWindow
             ?? item.Action;
 
         JsonObject draft = (JsonObject)_eventPropertyDraft.DeepClone();
+        if (_eventPropertyDraftBaseline is not null &&
+            JsonNode.DeepEquals(_eventPropertyDraftBaseline, draft))
+        {
+            return;
+        }
         JsonObject current = AdoFaiEditorSaveService.BuildEditableActionJson(editor, before);
         bool setSpeedDraftSynchronized = _level is not null &&
             SetSpeedEditorConversion.SynchronizeDraft(_level, before, current, draft);
@@ -118,6 +123,8 @@ public partial class MainWindow
             updated.PropertyOverrides = (JsonObject)draft.DeepClone();
             updated.PropertyOverridesStructureRevision = editor.StructureEdits.Count;
             editor.ReplaceAction(before, updated);
+            if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
+                AcceptDisplayedRawEventDraft(activeTab, before.SourceIndex);
             RefreshAfterEventPropertyCommit(before, updated);
             if (setSpeedDraftSynchronized)
                 RefreshEventPropertyEditor();
@@ -148,6 +155,9 @@ public partial class MainWindow
                                      IsTrackTransformEvent(after.EventType);
         bool scaleRadiusChanged = IsScaleRadiusEvent(before.EventType) ||
                                   IsScaleRadiusEvent(after.EventType);
+        bool playbackVisualChanged = IsPlaybackVisualEvent(before.EventType) ||
+                                     IsPlaybackVisualEvent(after.EventType);
+        bool backgroundAssetChanged = BackgroundAssetResolver.RequiresReload(before, after);
 
         if (speedVisualChanged)
             RecomputeSpeedRatios();
@@ -166,13 +176,21 @@ public partial class MainWindow
         // MoveTrack changes playback transforms. ScaleRadius changes the base
         // coordinates used by all of them, so every one of these paths needs the
         // native scene rebuilt when edited.
-        if (speedVisualChanged || trackVisualChanged || trackTransformChanged || scaleRadiusChanged)
+        if (speedVisualChanged || trackVisualChanged || trackTransformChanged ||
+            scaleRadiusChanged || backgroundAssetChanged)
             NativeViewport.SetLevel(_level);
 
         // SetLevel resets the native transform runtime. Re-upload after either a
         // track transform edit or a radius edit so MoveTrack and camera targets are
         // rebuilt from the new base floor coordinates and dimensions.
-        if (trackTransformChanged || scaleRadiusChanged)
+        if (trackTransformChanged || scaleRadiusChanged || backgroundAssetChanged)
+        {
+            _timingMap ??= FlatTimingMapBuilder.Build(_level);
+            NativeViewport.SetPlaybackTimeline(_timingMap);
+        }
+
+        if (playbackVisualChanged && !timingChanged && !cameraChanged &&
+            !trackTransformChanged && !scaleRadiusChanged && !backgroundAssetChanged)
         {
             _timingMap ??= FlatTimingMapBuilder.Build(_level);
             NativeViewport.SetPlaybackTimeline(_timingMap);
@@ -231,6 +249,11 @@ public partial class MainWindow
 
     private static bool IsScaleRadiusEvent(string eventType) =>
         string.Equals(eventType, "ScaleRadius", StringComparison.Ordinal);
+
+    private static bool IsPlaybackVisualEvent(string eventType) => eventType is
+        "Flash" or "Bloom" or "SetFilter" or "ScreenTile" or
+        "CustomBackground" or "ColorTrack" or "RecolorTrack" or
+        "MoveDecorations";
 
     private static bool IsCameraEvent(string eventType) =>
         string.Equals(eventType, "MoveCamera", StringComparison.Ordinal);

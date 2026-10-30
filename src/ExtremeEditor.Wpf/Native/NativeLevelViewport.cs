@@ -100,15 +100,45 @@ public sealed partial class NativeLevelViewport
 
     internal void SetPreparedLevel(LevelDocument level, PreparedNativeLevel prepared)
     {
+        SetPreparedLevelCore(level, prepared, (snapshot, selectedFloors, primaryFloor) =>
+        {
+            if (_session is not null)
+            {
+                _session.SetLevel(snapshot, useCache: true);
+                ReportDecorationAssetFailures();
+                _session.SetSelection(selectedFloors, primaryFloor);
+            }
+        });
+    }
+
+    // A native upload may throw after changing part of the renderer. Do not
+    // commit the viewport's managed document/snapshot until both uploads pass:
+    // the caller can then attempt rollback using the previous managed scene.
+    // The upload delegate also permits fault injection without a native HWND.
+    internal void SetPreparedLevelCore(
+        LevelDocument level,
+        PreparedNativeLevel prepared,
+        Action<NativeLevelSnapshot, int[], int> upload)
+    {
         ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(upload);
+        _playbackAnchorGate.Invalidate();
 
         bool changedDocument = !ReferenceEquals(_level, level);
+        int[] selectedFloors = changedDocument ? [] : _selectedFloors;
+        int primaryFloor = changedDocument ? -1 : _primarySelection;
+
+        var uploadWatch = Stopwatch.StartNew();
+        upload(prepared.Snapshot, selectedFloors, primaryFloor);
+        uploadWatch.Stop();
+
+        // Only a successful upload may replace the active managed scene.
         _level = level;
         _snapshot = prepared.Snapshot;
         if (changedDocument)
         {
-            _selectedFloors = [];
-            _primarySelection = -1;
+            _selectedFloors = selectedFloors;
+            _primarySelection = primaryFloor;
             _cameraTimeline = [];
             _flashTimeline = [];
             _bloomTimeline = [];
@@ -121,14 +151,6 @@ public sealed partial class NativeLevelViewport
             _trackAnimationTimings = [];
         }
 
-        var uploadWatch = Stopwatch.StartNew();
-        if (_session is not null)
-        {
-            _session.SetLevel(_snapshot);
-            _session.SetSelection(_selectedFloors, _primarySelection);
-        }
-        uploadWatch.Stop();
-
         NativeLevelSnapshotBuildMetrics metrics = prepared.BuildMetrics;
         LastLevelUploadMetrics = new NativeLevelUploadMetrics(
             prepared.BuildTime,
@@ -139,10 +161,47 @@ public sealed partial class NativeLevelViewport
             metrics.GeometryCount,
             metrics.IconAssetCount,
             metrics.ActionFloorCount);
+
+        // Normal tab activation uses the prepared upload path rather than
+        // SetLevel. Apply a welcome-screen FrameAll request here as well.
+        // A missing renderer or a failed upload keeps the request pending.
+        ApplyPendingFrameAll();
     }
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)
     {
+        SetPreparedPlaybackCore(prepared, () =>
+        {
+            UploadPendingPlaybackTimeline();
+            UploadPendingCameraTimeline();
+            UploadPendingFlashTimeline();
+            UploadPendingBloomTimeline();
+            UploadPendingScreenTileTimeline();
+            UploadPendingFilterTimeline();
+            UploadPendingBackgroundTimeline();
+            UploadPendingTrackTransformTimeline();
+            UploadPendingTrackVisualTimeline();
+            UploadPendingTrackAnimationTimeline();
+        });
+    }
+
+    internal void SetPreparedPlaybackCore(PreparedNativePlayback prepared, Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
+        _playbackAnchorGate.Invalidate();
+
+        NativePlaybackTiming[] previousPlayback = _playbackTimeline;
+        NativeCameraEvent[] previousCamera = _cameraTimeline;
+        NativeFlashEvent[] previousFlash = _flashTimeline;
+        NativeBloomEvent[] previousBloom = _bloomTimeline;
+        NativeScreenTileEvent[] previousScreenTile = _screenTileTimeline;
+        NativeFilterEvent[] previousFilter = _filterTimeline;
+        NativeBackgroundEvent[] previousBackground = _backgroundTimeline;
+        NativeTrackTransformEvent[] previousTrackTransform = _trackTransformTimeline;
+        NativeTrackVisualEvent[] previousTrackVisual = _trackVisualTimeline;
+        NativeTrackAnimationSegment[] previousTrackAnimation = _trackAnimationTimeline;
+        NativeTrackAnimationTiming[] previousTrackTimings = _trackAnimationTimings;
+
         _playbackTimeline = prepared.PlaybackTimeline;
         _cameraTimeline = prepared.CameraTimeline;
         _flashTimeline = prepared.FlashTimeline;
@@ -156,16 +215,28 @@ public sealed partial class NativeLevelViewport
         _trackAnimationTimings = prepared.TrackAnimationTimings;
 
         var watch = Stopwatch.StartNew();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
+        try
+        {
+            upload();
+        }
+        catch
+        {
+            _playbackTimeline = previousPlayback;
+            _cameraTimeline = previousCamera;
+            _flashTimeline = previousFlash;
+            _bloomTimeline = previousBloom;
+            _screenTileTimeline = previousScreenTile;
+            _filterTimeline = previousFilter;
+            _backgroundTimeline = previousBackground;
+            _trackTransformTimeline = previousTrackTransform;
+            _trackVisualTimeline = previousTrackVisual;
+            _trackAnimationTimeline = previousTrackAnimation;
+            _trackAnimationTimings = previousTrackTimings;
+            _cameraUploadSession = null;
+            _cameraUploadedSource = null;
+            _cameraUploadedHeight = 0;
+            throw;
+        }
         watch.Stop();
 
         LastPlaybackTimelineUploadMetrics = new NativePlaybackTimelineUploadMetrics(

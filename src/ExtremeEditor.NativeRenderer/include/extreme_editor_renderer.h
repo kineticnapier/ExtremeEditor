@@ -13,7 +13,7 @@
     #define EE_RENDERER_API
 #endif
 
-#define EE_RENDERER_API_VERSION 22u
+#define EE_RENDERER_API_VERSION 25u
 #define EE_ICON_NONE 0xffffffffu
 #define EE_ICON_FLAG_FLOOR 0x1u
 #define EE_ICON_FLAG_FLIPPED 0x2u
@@ -476,6 +476,8 @@ EE_RENDERER_API void ee_renderer_destroy(EeRendererHandle renderer);
 EE_RENDERER_API HWND ee_renderer_get_child_hwnd(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_resize(EeRendererHandle renderer, uint32_t width, uint32_t height);
 EE_RENDERER_API void ee_renderer_set_clean_view(EeRendererHandle renderer, int32_t enabled);
+EE_RENDERER_API void ee_renderer_set_show_floor_numbers(EeRendererHandle renderer, int32_t enabled);
+EE_RENDERER_API void ee_renderer_set_editor_hud_delete_button(EeRendererHandle renderer, int32_t button_index);
 EE_RENDERER_API EeResult ee_renderer_set_level(
     EeRendererHandle renderer,
     const EeFloor* floors,
@@ -488,12 +490,20 @@ EE_RENDERER_API EeResult ee_renderer_set_level(
     float bounds_top,
     float bounds_right,
     float bounds_bottom);
+// A cache key belongs to one immutable managed level snapshot. Zero clears
+// the active key and releases the single inactive cached scene.
+EE_RENDERER_API int32_t ee_renderer_try_activate_cached_level(EeRendererHandle renderer, uint64_t scene_key);
+EE_RENDERER_API void ee_renderer_remember_current_level(EeRendererHandle renderer, uint64_t scene_key);
 EE_RENDERER_API EeResult ee_renderer_update_floor_icons(EeRendererHandle renderer, uint32_t start_floor, const EeFloorIconState* states, uint32_t state_count);
 EE_RENDERER_API EeResult ee_renderer_set_static_decorations(EeRendererHandle renderer, const EeStaticDecoration* decorations, uint32_t decoration_count);
 EE_RENDERER_API void ee_renderer_clear_decoration_assets(EeRendererHandle renderer);
 EE_RENDERER_API EeResult ee_renderer_set_decoration_asset(EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path);
 EE_RENDERER_API void ee_renderer_frame_all(EeRendererHandle renderer);
 EE_RENDERER_API void ee_renderer_center_at(EeRendererHandle renderer, float world_x, float world_y);
+EE_RENDERER_API EeResult ee_renderer_get_editor_camera(
+    EeRendererHandle renderer, float* world_x, float* world_y, float* zoom);
+EE_RENDERER_API EeResult ee_renderer_set_editor_camera(
+    EeRendererHandle renderer, float world_x, float world_y, float zoom);
 EE_RENDERER_API void ee_renderer_clear_icon_assets(EeRendererHandle renderer);
 EE_RENDERER_API EeResult ee_renderer_set_icon_asset(
     EeRendererHandle renderer,

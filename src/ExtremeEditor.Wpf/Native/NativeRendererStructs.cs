@@ -3,6 +3,8 @@ using ExtremeEditor.Rendering;
 
 namespace ExtremeEditor.Wpf.Native;
 
+internal readonly record struct NativeEditorCameraState(float X, float Y, float Zoom);
+
 [StructLayout(LayoutKind.Sequential)]
 internal struct NativeAbiInfo
 {

@@ -187,6 +187,7 @@ public static partial class AdoFaiLoader
         private FlatActionBuilder _action;
         private int _skipDepth;
         private bool _sawAngleData;
+        private string? _pathData;
         private int _actionCount;
         private int _decorationSourceIndex;
         private JsonObjectTokenBuilder? _decorationBuilder;
@@ -247,8 +248,11 @@ public static partial class AdoFaiLoader
         public FlatParseResult Complete()
         {
             if (!_sawAngleData)
-                throw new InvalidDataException(
-                    "This prototype currently requires angleData. Legacy pathData is not implemented.");
+            {
+                if (_pathData is null)
+                    throw new InvalidDataException("ADOFAI document requires angleData or legacy pathData.");
+                _angles.AddRange(ConvertLegacyPathData(_pathData));
+            }
 
             ComputeSpeedRatios();
             LevelActionStore store = LevelActionStore.Create(_actions);
@@ -274,6 +278,7 @@ public static partial class AdoFaiLoader
             if (reader.TokenType == JsonTokenType.PropertyName)
             {
                 _rootField = reader.ValueTextEquals("angleData"u8) ? FlatRootField.AngleData :
+                    reader.ValueTextEquals("pathData"u8) ? FlatRootField.PathData :
                     reader.ValueTextEquals("settings"u8) ? FlatRootField.Settings :
                     reader.ValueTextEquals("actions"u8) ? FlatRootField.Actions : FlatRootField.Unknown;
                 if (reader.ValueTextEquals("decorations"u8))
@@ -293,6 +298,10 @@ public static partial class AdoFaiLoader
             {
                 _sawAngleData = true;
                 _mode = FlatParserMode.Angles;
+            }
+            else if (field == FlatRootField.PathData && reader.TokenType == JsonTokenType.String)
+            {
+                _pathData = reader.GetString() ?? string.Empty;
             }
             else if (field == FlatRootField.Settings && reader.TokenType == JsonTokenType.StartObject)
             {
@@ -501,6 +510,30 @@ public static partial class AdoFaiLoader
                 case FlatActionField.Opacity when TryReadDouble(ref reader, out double opacity):
                     _action.Opacity = opacity;
                     break;
+                case FlatActionField.Color:
+                    _action.Color = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.BgImage:
+                    _action.BgImage = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.ImageColor:
+                    _action.ImageColor = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.BgDisplayMode:
+                    _action.BgDisplayMode = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.ImageSmoothing:
+                    _action.ImageSmoothing = ReadBool(ref reader, true);
+                    break;
+                case FlatActionField.LockRot:
+                    _action.LockRot = ReadBool(ref reader, false);
+                    break;
+                case FlatActionField.LoopBg:
+                    _action.LoopBg = ReadBool(ref reader, false);
+                    break;
+                case FlatActionField.ScalingRatio when TryReadDouble(ref reader, out double scalingRatio):
+                    _action.ScalingRatio = scalingRatio;
+                    break;
             }
         }
 
@@ -536,6 +569,7 @@ public static partial class AdoFaiLoader
                 case FlatActionField.Scale: _action.Scale = value; break;
                 case FlatActionField.PivotOffset: _action.PivotOffset = value; break;
                 case FlatActionField.ParallaxOffset: _action.ParallaxOffset = value; break;
+                case FlatActionField.Parallax: _action.Parallax = value; break;
             }
         }
 
@@ -544,7 +578,8 @@ public static partial class AdoFaiLoader
             FlatActionField.PositionOffset or
             FlatActionField.Scale or
             FlatActionField.PivotOffset or
-            FlatActionField.ParallaxOffset;
+            FlatActionField.ParallaxOffset or
+            FlatActionField.Parallax;
 
         private void AcceptDecorations(ref Utf8JsonReader reader)
         {
@@ -612,6 +647,11 @@ public static partial class AdoFaiLoader
                 EventTag = _action.EventTag,
                 SourceProperties = string.Equals(type, "MoveDecorations", StringComparison.Ordinal)
                     ? BuildMoveProperties(_action)
+                    : string.Equals(type, "CustomBackground", StringComparison.Ordinal)
+                        ? BuildBackgroundProperties(_action)
+                        : null,
+                PropertyOverrides = string.Equals(type, "CustomBackground", StringComparison.Ordinal)
+                    ? BuildBackgroundProperties(_action)
                     : null,
                 SourceIndex = _actionCount - 1
             };
@@ -638,6 +678,21 @@ public static partial class AdoFaiLoader
             return properties;
         }
 
+        private static JsonObject BuildBackgroundProperties(FlatActionBuilder action)
+        {
+            var properties = new JsonObject();
+            Add(properties, "color", action.Color);
+            Add(properties, "bgImage", action.BgImage);
+            Add(properties, "imageColor", action.ImageColor);
+            Add(properties, "parallax", action.Parallax);
+            Add(properties, "bgDisplayMode", action.BgDisplayMode);
+            Add(properties, "imageSmoothing", action.ImageSmoothing);
+            Add(properties, "lockRot", action.LockRot);
+            Add(properties, "loopBG", action.LoopBg);
+            Add(properties, "scalingRatio", action.ScalingRatio);
+            return properties;
+        }
+
         private static void Add(JsonObject properties, string name, MovePair? value)
         {
             if (value is MovePair pair)
@@ -654,6 +709,12 @@ public static partial class AdoFaiLoader
         {
             if (value is double number)
                 properties[name] = number;
+        }
+
+        private static void Add(JsonObject properties, string name, bool? value)
+        {
+            if (value is bool flag)
+                properties[name] = flag;
         }
 
         private void ComputeSpeedRatios()
@@ -750,6 +811,15 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("opacity"u8)) return FlatActionField.Opacity;
             if (reader.ValueTextEquals("pivotOffset"u8)) return FlatActionField.PivotOffset;
             if (reader.ValueTextEquals("parallaxOffset"u8)) return FlatActionField.ParallaxOffset;
+            if (reader.ValueTextEquals("color"u8)) return FlatActionField.Color;
+            if (reader.ValueTextEquals("bgImage"u8)) return FlatActionField.BgImage;
+            if (reader.ValueTextEquals("imageColor"u8)) return FlatActionField.ImageColor;
+            if (reader.ValueTextEquals("parallax"u8)) return FlatActionField.Parallax;
+            if (reader.ValueTextEquals("bgDisplayMode"u8)) return FlatActionField.BgDisplayMode;
+            if (reader.ValueTextEquals("imageSmoothing"u8)) return FlatActionField.ImageSmoothing;
+            if (reader.ValueTextEquals("lockRot"u8)) return FlatActionField.LockRot;
+            if (reader.ValueTextEquals("loopBG"u8)) return FlatActionField.LoopBg;
+            if (reader.ValueTextEquals("scalingRatio"u8)) return FlatActionField.ScalingRatio;
             return FlatActionField.Unknown;
         }
 
@@ -795,7 +865,7 @@ public static partial class AdoFaiLoader
         };
 
         private enum FlatParserMode { Root, Angles, Settings, Actions, Action, ActionArray, Decorations, Decoration, Skip }
-        private enum FlatRootField { None, Unknown, AngleData, Settings, Actions, Decorations }
+        private enum FlatRootField { None, Unknown, AngleData, PathData, Settings, Actions, Decorations }
         private enum FlatSettingField
         {
             None, Unknown, Bpm, SongFilename, Volume, Offset, SongOffset, Pitch,
@@ -807,7 +877,8 @@ public static partial class AdoFaiLoader
             BpmMultiplier, Icon, HitSound, HitSoundVolume, GameSound, Planets,
             AngleOffset, Duration, Tag, EventTag, Ease, RelativeTo, Position,
             PositionOffset, Rotation, RotationOffset, Scale, Opacity, PivotOffset,
-            ParallaxOffset
+            ParallaxOffset, Color, BgImage, ImageColor, Parallax, BgDisplayMode,
+            ImageSmoothing, LockRot, LoopBg, ScalingRatio
         }
 
         private struct FlatActionBuilder
@@ -838,6 +909,15 @@ public static partial class AdoFaiLoader
             public double? Opacity;
             public MovePair? PivotOffset;
             public MovePair? ParallaxOffset;
+            public string? Color;
+            public string? BgImage;
+            public string? ImageColor;
+            public MovePair? Parallax;
+            public string? BgDisplayMode;
+            public bool? ImageSmoothing;
+            public bool? LockRot;
+            public bool? LoopBg;
+            public double? ScalingRatio;
         }
 
         private readonly record struct MovePair(double? X, double? Y);

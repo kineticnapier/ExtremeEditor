@@ -8,6 +8,7 @@ internal static class SetSpeedEditorConversionRegression
 {
     internal static void Run()
     {
+        VerifyEnumDisplayDoesNotRewriteSource();
         LevelDocument level = LevelDocument.CreateSynthetic(6);
         level.InitialBpm = 100.0;
 
@@ -88,6 +89,33 @@ internal static class SetSpeedEditorConversionRegression
         invalid["beatsPerMinute"] = -1.0;
         SetSpeedEditorConversion.SynchronizeDraft(level, target, currentBpm, invalid);
         AssertNear(100.0, ReadDouble(invalid["beatsPerMinute"]), "invalid BPM edit is rejected");
+    }
+
+    private static void VerifyEnumDisplayDoesNotRewriteSource()
+    {
+        string[] options = ["Bpm", "Multiplier"];
+        var lowerCase = MainWindow.ResolveEnumSelection(options, "multiplier");
+        if (lowerCase.Unknown || lowerCase.Selected != "Multiplier" ||
+            !ReferenceEquals(lowerCase.Options, options))
+        {
+            throw new InvalidOperationException(
+                "#101: a case-insensitive SetSpeed value must display the matching choice.");
+        }
+
+        var unknown = MainWindow.ResolveEnumSelection(options, "CustomMode");
+        if (!unknown.Unknown || unknown.Selected != "Unsupported: CustomMode" ||
+            unknown.Options.Length != 3 || unknown.Options[2] != unknown.Selected)
+        {
+            throw new InvalidOperationException(
+                "#101: an unknown SetSpeed value must remain visible, not default to Bpm.");
+        }
+
+        if (options.Length != 2 || options[0] != "Bpm" || options[1] != "Multiplier")
+            throw new InvalidOperationException("#101: the schema options were modified.");
+
+        var exact = MainWindow.ResolveEnumSelection(options, "Bpm");
+        if (exact.Unknown || exact.Selected != "Bpm")
+            throw new InvalidOperationException("#101: canonical enum display changed.");
     }
 
     private static double ReadDouble(JsonNode? node)

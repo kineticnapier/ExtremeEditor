@@ -4,11 +4,25 @@ using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using NAudio.Wave;
 
+if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_ONLY"),
+    "1", StringComparison.Ordinal))
+{
+    DenseAudioRuntimeDiagnosticsRegression.Run();
+    DenseTransportBlockMixRegression.Run();
+    Console.WriteLine("PASS: dense audio diagnostics and transport block mixing.");
+    return 0;
+}
+
+DenseAudioRuntimeDiagnosticsRegression.Run();
+DenseTransportBlockMixRegression.Run();
+MutedPrerenderRegression.Run();
+MutedTransportRegression.Run();
 RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunProviderChecks();
+MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
 RunProgressiveConstructionRegression();

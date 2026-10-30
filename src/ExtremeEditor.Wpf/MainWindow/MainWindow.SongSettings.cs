@@ -56,7 +56,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitSongSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
@@ -83,11 +83,11 @@ public partial class MainWindow
         SettingsSidebarCollapseButton.ToolTip = _settingsPaneCollapsed ? "Expand settings" : "Collapse settings";
     }
 
-    private void CommitSongSettingsFromUi()
+    private bool CommitSongSettingsFromUi(bool preserveInvalidInput = false)
     {
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _refreshingSongSettings)
-            return;
+            return true;
 
         LevelSettingsSnapshot before = editor.GetLevelSettings();
         if (!TryReadSetting(SongBpmTextBox.Text, out double bpm) || bpm <= 0 ||
@@ -96,9 +96,10 @@ public partial class MainWindow
             !TryReadSetting(SongPitchTextBox.Text, out double pitch) || pitch <= 0 ||
             !TryReadSetting(SongHitSoundVolumeTextBox.Text, out double hitSoundVolume))
         {
-            RefreshSongSettings();
+            if (!preserveInvalidInput)
+                RefreshSongSettings();
             StatusText.Text = "Song Settings contain an invalid numeric value.";
-            return;
+            return false;
         }
 
         string hitSound = (SongHitSoundComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString()
@@ -116,10 +117,20 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         RefreshSongSettings();
         if (before == after)
-            return;
+            return true;
 
         RefreshAfterSongSettingsChange(before, after);
+        return true;
     }
+
+    private bool TryCommitSettingsBeforeDocumentChange() => _settingsCategory switch
+    {
+        SettingsCategory.Song => CommitSongSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Camera => CommitCameraSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Track => CommitTrackSettingsFromUi(preserveInvalidInput: true),
+        SettingsCategory.Level => CommitLevelMetadataSettingsFromUi(),
+        _ => true
+    };
 
     private void RefreshAfterSongSettingsChange(
         LevelSettingsSnapshot before,
@@ -128,10 +139,8 @@ public partial class MainWindow
         if (_level is null)
             return;
 
-        StopPlayback();
+        bool volumeOnly = IsSongVolumeOnlyChange(before, after);
         _audio.SongVolumePercent = after.SongVolumePercent;
-
-        bool volumeOnly = (before with { SongVolumePercent = after.SongVolumePercent }) == after;
         if (volumeOnly)
         {
             UpdateEditorStatus();
@@ -139,6 +148,7 @@ public partial class MainWindow
             return;
         }
 
+        StopPlayback();
         bool songChanged = !string.Equals(before.SongFilename, after.SongFilename, StringComparison.Ordinal);
         bool nativeDependent = before.InitialBpm != after.InitialBpm || before.PitchPercent != after.PitchPercent;
         if (nativeDependent)
@@ -152,14 +162,25 @@ public partial class MainWindow
         if (songChanged)
             _audio.Unload();
         _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
+        string? songLoadStatus = null;
         if (songChanged && playback.SongPath is string songPath && File.Exists(songPath))
-            _ = LoadSong(songPath);
+            songLoadStatus = LoadSong(songPath);
         _audio.SongVolumePercent = after.SongVolumePercent;
 
         RefreshInspector();
         UpdateEditorStatus();
+        if (songLoadStatus is not null &&
+            songLoadStatus.StartsWith("audio load failed:", StringComparison.Ordinal))
+        {
+            StatusText.Text = songLoadStatus;
+        }
         CommandManager.InvalidateRequerySuggested();
     }
+
+    internal static bool IsSongVolumeOnlyChange(
+        LevelSettingsSnapshot before,
+        LevelSettingsSnapshot after) =>
+        (before with { SongVolumePercent = after.SongVolumePercent }) == after;
 
     private static bool TryReadSetting(string text, out double value) =>
         (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value) ||
@@ -167,5 +188,5 @@ public partial class MainWindow
         double.IsFinite(value);
 
     private static string FormatSetting(double value) =>
-        value.ToString("0.###", CultureInfo.CurrentCulture);
+        value.ToString("R", CultureInfo.CurrentCulture);
 }

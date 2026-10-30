@@ -25,7 +25,7 @@ internal readonly record struct NativeEditorActionRequest(
 
 internal sealed class NativeRendererSession : IDisposable
 {
-    private const uint ExpectedApiVersion = 22;
+    internal const uint ExpectedApiVersion = 25;
 
     private readonly NativeRendererNative.SelectionChangedCallback _selectionChangedCallback;
     private readonly NativeRendererNative.FollowPlayerChangedCallback _followPlayerChangedCallback;
@@ -48,6 +48,7 @@ internal sealed class NativeRendererSession : IDisposable
     }
 
     internal nint ChildHwnd { get; private set; }
+    internal IReadOnlyList<string> LastDecorationAssetFailures { get; private set; } = [];
     internal int SelectedFloor => _renderer == nint.Zero ? -1 : NativeRendererNative.GetSelectedFloor(_renderer);
     internal event Action<int, uint>? SelectionChanged;
     internal event Action<bool>? FollowPlayerChanged;
@@ -138,14 +139,45 @@ internal sealed class NativeRendererSession : IDisposable
         if (result != 0 || renderer == nint.Zero)
             throw new InvalidOperationException($"Native renderer creation failed with result {result}.");
 
-        nint childHwnd = NativeRendererNative.GetChildHwnd(renderer);
-        if (childHwnd == nint.Zero)
-        {
-            NativeRendererNative.Destroy(renderer);
-            throw new InvalidOperationException("Native renderer did not create a child HWND.");
-        }
+        // The native handle already exists. Failure to query its child HWND
+        // or register callbacks in the constructor must release that handle.
+        return CompleteCreation(
+            renderer,
+            handle =>
+            {
+                nint childHwnd = NativeRendererNative.GetChildHwnd(handle);
+                if (childHwnd == nint.Zero)
+                    throw new InvalidOperationException("Native renderer did not create a child HWND.");
+                return new NativeRendererSession(handle, childHwnd);
+            },
+            NativeRendererNative.Destroy);
+    }
 
-        return new NativeRendererSession(renderer, childHwnd);
+    // The viewport's BuildWindowCore cleanup cannot help if Create throws
+    // before a NativeRendererSession can be assigned to the viewport.
+    // Keep the original initialization failure even if native cleanup fails.
+    internal static T CompleteCreation<T>(
+        nint renderer, Func<nint, T> initialize, Action<nint> destroy)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        ArgumentNullException.ThrowIfNull(destroy);
+        try
+        {
+            return initialize(renderer);
+        }
+        catch
+        {
+            try
+            {
+                destroy(renderer);
+            }
+            catch (Exception cleanupError)
+            {
+                Console.Error.WriteLine(
+                    $"[native-session] cleanup after creation failure: {cleanupError}");
+            }
+            throw;
+        }
     }
 
     internal void Resize(uint width, uint height)
@@ -154,7 +186,7 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.Resize(_renderer, Math.Max(1u, width), Math.Max(1u, height));
     }
 
-    internal void SetLevel(NativeLevelSnapshot snapshot)
+    internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (_renderer == nint.Zero)
@@ -164,6 +196,16 @@ internal sealed class NativeRendererSession : IDisposable
 
         var totalWatch = Stopwatch.StartNew();
         var phaseWatch = Stopwatch.StartNew();
+        bool cacheHit = useCache &&
+            NativeRendererNative.TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey) != 0;
+        if (!cacheHit && !useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, 0u);
+
+        if (NativeUploadDiagnostics.Enabled)
+            Console.WriteLine($"[native-upload] scene-cache {(cacheHit ? "hit" : "miss")} key={snapshot.SceneCacheKey}");
+
+        if (!cacheHit)
+        {
         GCHandle floorsHandle = default;
         GCHandle geometriesHandle = default;
         GCHandle pointsHandle = default;
@@ -187,6 +229,9 @@ internal sealed class NativeRendererSession : IDisposable
             if (geometriesHandle.IsAllocated) geometriesHandle.Free();
             if (floorsHandle.IsAllocated) floorsHandle.Free();
         }
+        if (useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
+        }
 
         phaseWatch.Stop();
         TimeSpan nativeLevelTime = phaseWatch.Elapsed;
@@ -197,13 +242,14 @@ internal sealed class NativeRendererSession : IDisposable
 
         phaseWatch.Restart();
         NativeRendererNative.ClearDecorationAssets(_renderer);
+        var decorationAssetFailures = new List<string>();
         foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
         {
             int result = NativeRendererNative.SetDecorationAsset(_renderer, asset.Id, asset.ImagePath);
             if (result != 0)
-                throw new InvalidOperationException(
-                    $"Native decoration asset upload failed for {asset.ImagePath} with result {result}.");
+                decorationAssetFailures.Add(asset.ImagePath);
         }
+        LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
         foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
@@ -425,6 +471,18 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.SetCleanView(_renderer, enabled ? 1 : 0);
     }
 
+    internal void SetShowFloorNumbers(bool enabled)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetShowFloorNumbers(_renderer, enabled ? 1 : 0);
+    }
+
+    internal void SetEditorHudDeleteButton(int buttonIndex)
+    {
+        if (_renderer != nint.Zero)
+            NativeRendererNative.SetEditorHudDeleteButton(_renderer, buttonIndex);
+    }
+
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
     {
         diagnostics = new NativeRendererDiagnostics
@@ -465,6 +523,23 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.CenterAt(_renderer, worldX, worldY);
     }
 
+    internal bool TryGetEditorCamera(out NativeEditorCameraState state)
+    {
+        state = default;
+        if (_renderer == nint.Zero ||
+            NativeRendererNative.GetEditorCamera(_renderer, out float x, out float y, out float zoom) != 0)
+        {
+            return false;
+        }
+
+        state = new NativeEditorCameraState(x, y, zoom);
+        return true;
+    }
+
+    internal bool SetEditorCamera(NativeEditorCameraState state) =>
+        _renderer != nint.Zero &&
+        NativeRendererNative.SetEditorCamera(_renderer, state.X, state.Y, state.Zoom) == 0;
+
     private void OnNativeSelectionChanged(nint userData, int floor, uint modifiers) =>
         SelectionChanged?.Invoke(floor, modifiers);
 
@@ -494,6 +569,40 @@ internal sealed class NativeRendererSession : IDisposable
         double worldDy) =>
         EditorActionRequested?.Invoke(PositionTrackDragRequest(firstFloor, lastFloor, worldDx, worldDy));
 
+    // A failed native callback unregister must not prevent releasing the
+    // renderer. Preserve the original exception if destruction also fails.
+    // The delegates make the failure paths testable without a native HWND.
+    internal static void CompleteDisposal(Action unregisterCallbacks, Action destroy)
+    {
+        ArgumentNullException.ThrowIfNull(unregisterCallbacks);
+        ArgumentNullException.ThrowIfNull(destroy);
+
+        Exception? unregisterFailure = null;
+        try
+        {
+            unregisterCallbacks();
+        }
+        catch (Exception ex)
+        {
+            unregisterFailure = ex;
+        }
+
+        try
+        {
+            destroy();
+        }
+        catch (Exception destroyError)
+        {
+            if (unregisterFailure is null)
+                throw;
+            Console.Error.WriteLine(
+                $"[native-session] destroy after callback cleanup failure: {destroyError}");
+        }
+
+        if (unregisterFailure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(unregisterFailure).Throw();
+    }
+
     public void Dispose()
     {
         ShutdownDiagnostics.Begin("NativeRendererSession.Dispose");
@@ -504,14 +613,26 @@ internal sealed class NativeRendererSession : IDisposable
             return;
         }
 
-        NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
-        NativeRendererNative.SetPositionTrackDragCallback(renderer, null, nint.Zero);
+        // Mark the session as closed before invoking native cleanup so a
+        // failed callback detach cannot expose a half-disposed renderer.
         _renderer = nint.Zero;
         ChildHwnd = nint.Zero;
-        NativeRendererNative.Destroy(renderer);
-        GC.SuppressFinalize(this);
-        ShutdownDiagnostics.Complete("NativeRendererSession.Dispose");
+        try
+        {
+            CompleteDisposal(
+                unregisterCallbacks: () =>
+                {
+                    NativeRendererNative.SetSelectionChangedCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetFollowPlayerChangedCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetEditorActionCallback(renderer, null, nint.Zero);
+                    NativeRendererNative.SetPositionTrackDragCallback(renderer, null, nint.Zero);
+                },
+                destroy: () => NativeRendererNative.Destroy(renderer));
+        }
+        finally
+        {
+            GC.SuppressFinalize(this);
+            ShutdownDiagnostics.Complete("NativeRendererSession.Dispose");
+        }
     }
 }

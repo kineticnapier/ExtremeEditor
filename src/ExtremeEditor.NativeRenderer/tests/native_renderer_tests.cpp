@@ -5,16 +5,25 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
 int main()
 {
-    if (EE_RENDERER_API_VERSION != 22u)
+    // The reverse-direction HUD setter was added in v24. Later API versions
+    // are additive and must continue to satisfy this ABI regression.
+    constexpr uint32_t reverse_direction_hud_minimum_api_version = 24u;
+    if (EE_RENDERER_API_VERSION < reverse_direction_hud_minimum_api_version)
     {
-        std::cerr << "Recording clean-view ABI requires API version 22.\n";
+        std::cerr << "Reverse-direction HUD ABI requires API version 24 or newer.\n";
         return 1;
     }
+
+    // Link/ABI smoke test for the new optional reverse-direction HUD setter.
+    // A null handle is explicitly a no-op and must never crash.
+    ee_renderer_set_editor_hud_delete_button(nullptr, -1);
 
     if (ee_renderer_get_api_version() != EE_RENDERER_API_VERSION)
     {
@@ -205,6 +214,45 @@ int main()
             1.0f) != EE_OK)
     {
         std::cerr << "Headless level upload failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    float camera_x = 0.0f;
+    float camera_y = 0.0f;
+    float camera_zoom = 0.0f;
+    if (ee_renderer_set_editor_camera(headless, 12.5f, -8.25f, 64.0f) != EE_OK ||
+        ee_renderer_get_editor_camera(headless, &camera_x, &camera_y, &camera_zoom) != EE_OK ||
+        std::abs(camera_x - 12.5f) > epsilon ||
+        std::abs(camera_y + 8.25f) > epsilon ||
+        std::abs(camera_zoom - 64.0f) > epsilon)
+    {
+        std::cerr << "Editor camera state did not round-trip through the additive ABI.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (ee_renderer_set_editor_camera(headless, 0.0f, 0.0f, 0.0f) == EE_OK)
+    {
+        std::cerr << "Editor camera accepted an invalid zoom.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    const std::filesystem::path invalid_decoration =
+        std::filesystem::temp_directory_path() / "extreme-editor-invalid-decoration.png";
+    {
+        std::ofstream output(invalid_decoration, std::ios::binary | std::ios::trunc);
+        output << "not a png";
+    }
+    const EeResult invalid_decoration_result = ee_renderer_set_decoration_asset(
+        headless,
+        0xf00du,
+        invalid_decoration.c_str());
+    std::error_code remove_error;
+    std::filesystem::remove(invalid_decoration, remove_error);
+    if (invalid_decoration_result == EE_OK)
+    {
+        std::cerr << "Invalid decoration image was accepted as a loaded asset.\n";
         destroy_headless();
         return 1;
     }

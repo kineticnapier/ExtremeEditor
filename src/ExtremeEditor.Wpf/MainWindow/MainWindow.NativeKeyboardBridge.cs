@@ -6,6 +6,18 @@ using System.Windows.Interop;
 
 namespace ExtremeEditor.Wpf;
 
+internal sealed class NativeKeyDownTracker
+{
+    private readonly HashSet<Key> _keysDown = [];
+
+    internal bool TryPress(Key key, bool win32Repeat) =>
+        !win32Repeat && _keysDown.Add(key);
+
+    internal void Release(Key key) => _keysDown.Remove(key);
+
+    internal void FocusLost() => _keysDown.Clear();
+}
+
 public partial class MainWindow
 {
     private const int WmKillFocus = 0x0008;
@@ -13,34 +25,23 @@ public partial class MainWindow
     private const int WmKeyUp = 0x0101;
     private const int WmSysKeyDown = 0x0104;
     private const int WmSysKeyUp = 0x0105;
-    private const int WmSysCommand = 0x0112;
     private const int WmMouseWheel = 0x020A;
-    private const int ScKeyMenu = 0xF100;
-    private const int VkSpace = 0x20;
     private const int MkControl = 0x0008;
     private const string NativeRendererWindowClass = "ExtremeEditor.NativeRenderer.Window";
 
-    private readonly HashSet<Key> _nativeKeysDown = [];
-    private HwndSource? _mainWindowSource;
+    private readonly NativeKeyDownTracker _nativeKeysDown = new();
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         InitializeSharedSelectionState();
-        _mainWindowSource = PresentationSource.FromVisual(this) as HwndSource;
-        _mainWindowSource?.AddHook(MainWindowMessageHook);
         ComponentDispatcher.ThreadPreprocessMessage += NativeThreadPreprocessMessage;
+        NativeViewport.NativeFocusLost += NativeViewportFocusLost;
         Closed += NativeKeyboardBridgeClosed;
     }
 
     private void NativeThreadPreprocessMessage(ref MSG msg, ref bool handled)
     {
-        if (msg.message == WmSysCommand && IsAltSpaceSystemMenu(msg.wParam, msg.lParam))
-        {
-            handled = true;
-            return;
-        }
-
         if (NativeViewport.Visibility != Visibility.Visible || !IsNativeRendererWindow(msg.hwnd))
             return;
 
@@ -56,7 +57,7 @@ public partial class MainWindow
 
         if (msg.message == WmKillFocus)
         {
-            _nativeKeysDown.Clear();
+            _nativeKeysDown.FocusLost();
             return;
         }
 
@@ -64,7 +65,7 @@ public partial class MainWindow
         {
             Key released = KeyInterop.KeyFromVirtualKey(unchecked((int)msg.wParam));
             if (released != Key.None)
-                _nativeKeysDown.Remove(released);
+                _nativeKeysDown.Release(released);
             return;
         }
 
@@ -89,7 +90,7 @@ public partial class MainWindow
         // covers keyboard drivers/IME paths that synthesize repeated down messages.
         long keyFlags = msg.lParam.ToInt64();
         bool win32Repeat = (keyFlags & (1L << 30)) != 0;
-        if (win32Repeat || !_nativeKeysDown.Add(key))
+        if (!_nativeKeysDown.TryPress(key, win32Repeat))
         {
             handled = true;
             return;
@@ -100,9 +101,8 @@ public partial class MainWindow
             return;
 
         // HwndHost owns a real child HWND, so WPF's routed PreviewKeyDown is not
-        // reliably generated while that HWND has keyboard focus. Re-enter the exact
-        // same ADOFAI key handler from the thread message pump instead of maintaining
-        // a second key map in C++.
+        // reliably generated while that HWND has keyboard focus. Use the same
+        // palette-then-ADOFAI handler as WPF, without maintaining a second key map.
         var args = new KeyEventArgs(
             Keyboard.PrimaryDevice,
             source,
@@ -112,33 +112,18 @@ public partial class MainWindow
             RoutedEvent = Keyboard.PreviewKeyDownEvent
         };
 
-        AdoFaiPreviewKeyDown(this, args);
+        HandleExtremeEditorPreviewKeyDown(this, args, fromNativeChild: true);
         handled = args.Handled;
-    }
-
-    private nint MainWindowMessageHook(
-        nint hwnd,
-        int message,
-        nint wParam,
-        nint lParam,
-        ref bool handled)
-    {
-        if (message == WmSysCommand && IsAltSpaceSystemMenu(wParam, lParam))
-            handled = true;
-        return nint.Zero;
     }
 
     private void NativeKeyboardBridgeClosed(object? sender, EventArgs e)
     {
         ComponentDispatcher.ThreadPreprocessMessage -= NativeThreadPreprocessMessage;
-        _mainWindowSource?.RemoveHook(MainWindowMessageHook);
-        _mainWindowSource = null;
+        NativeViewport.NativeFocusLost -= NativeViewportFocusLost;
         Closed -= NativeKeyboardBridgeClosed;
     }
 
-    private static bool IsAltSpaceSystemMenu(nint wParam, nint lParam) =>
-        (wParam.ToInt64() & 0xFFF0L) == ScKeyMenu &&
-        (lParam.ToInt64() & 0xFFFFL) == VkSpace;
+    private void NativeViewportFocusLost() => _nativeKeysDown.FocusLost();
 
     private static bool IsNativeRendererWindow(nint hwnd)
     {

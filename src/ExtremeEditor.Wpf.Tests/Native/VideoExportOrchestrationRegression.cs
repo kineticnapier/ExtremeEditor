@@ -31,6 +31,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyServiceApi(serviceType!, requestType!, progressType!);
         VerifyServiceSourceContract();
         VerifyUiContract();
+        VerifyExclusiveUiSourceContract();
     }
 
     private static void VerifyServiceApi(
@@ -106,6 +107,9 @@ internal static class VideoExportOrchestrationRegression
         }
         if (!xaml.Contains("ExportVideoClick", StringComparison.Ordinal))
             failures.Add("Export Video menu item must be wired to ExportVideoClick");
+        if (!xaml.Contains("CancelVideoExportMenuItem", StringComparison.Ordinal) ||
+            !xaml.Contains("CancelVideoExportClick", StringComparison.Ordinal))
+            failures.Add("File menu must expose a keyboard-reachable cancel action during export");
         if (!File.Exists(codePath))
             failures.Add("MainWindow.VideoExport.cs is missing");
 
@@ -114,6 +118,61 @@ internal static class VideoExportOrchestrationRegression
             throw new InvalidOperationException(
                 "VE5 UI contract failed:\n- " +
                 string.Join("\n- ", failures));
+        }
+    }
+
+    // This checks the actual event-handler control flow without starting WPF dialogs
+    // or FFmpeg. Windows GUI concurrency and exception presentation still require
+    // separate integration testing.
+    private static void VerifyExclusiveUiSourceContract()
+    {
+        string path = Path.Combine(
+            FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow",
+            "MainWindow.VideoExport.cs");
+        string source = File.ReadAllText(path);
+
+        int handlerStart = source.IndexOf("private async void ExportVideoClick(", StringComparison.Ordinal);
+        int coreStart = source.IndexOf("private async Task ExportVideoCoreAsync(", StringComparison.Ordinal);
+        int nextMember = source.IndexOf("internal static bool RequiresSaveBeforeVideoExport(", StringComparison.Ordinal);
+        if (handlerStart < 0 || coreStart <= handlerStart || nextMember <= coreStart)
+            throw new InvalidOperationException("Export Video must have a guarded async handler and a preparation core.");
+
+        string handler = source[handlerStart..coreStart];
+        string core = source[coreStart..nextMember];
+        int guard = handler.IndexOf("_videoExportInProgress = true;", StringComparison.Ordinal);
+        int disable = handler.IndexOf("ExportVideoMenuItem.IsEnabled = false;", StringComparison.Ordinal);
+        int tryStart = handler.IndexOf("        try", StringComparison.Ordinal);
+        int awaitCore = handler.IndexOf("await ExportVideoCoreAsync();", StringComparison.Ordinal);
+        int catchFailure = handler.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        int cleanup = handler.IndexOf("finally", StringComparison.Ordinal);
+        int release = handler.IndexOf("_videoExportInProgress = false;", StringComparison.Ordinal);
+
+        if (!handler.Contains("if (_videoExportInProgress ||", StringComparison.Ordinal) ||
+            guard < 0 || disable < guard || tryStart < disable || awaitCore < tryStart ||
+            catchFailure < awaitCore || cleanup < catchFailure || release < cleanup ||
+            !handler.Contains("_videoExportCancellation = null;", StringComparison.Ordinal) ||
+            !handler.Contains("ExportVideoMenuItem.IsEnabled = true;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Export Video must acquire the single-flight guard before any await and release it in finally.");
+        }
+
+        if (!core.Contains("await SaveCurrentAsync(", StringComparison.Ordinal) ||
+            !core.Contains("await Task.Run(() => CreateVideoExportSnapshot(chartPath))", StringComparison.Ordinal) ||
+            !core.Contains("await service.ExportAsync(", StringComparison.Ordinal) ||
+            core.Contains("_videoExportInProgress = true;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Save, snapshot preparation, and encoding must all execute inside the guarded core.");
+        }
+
+        if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||
+            !source.Contains("_videoExportCancellation?.Cancel();", StringComparison.Ordinal) ||
+            !source.Contains("CancelVideoExportMenuItem.IsEnabled = false;", StringComparison.Ordinal) ||
+            !core.Contains("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Video export must expose cancellation only while a cancellable operation is active.");
         }
     }
 

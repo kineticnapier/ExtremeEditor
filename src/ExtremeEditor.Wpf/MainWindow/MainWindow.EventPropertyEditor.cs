@@ -3,7 +3,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -84,6 +86,10 @@ public partial class MainWindow
     private StackPanel? _eventPropertyPanel;
     private Expander? _eventRawJsonExpander;
     private JsonObject? _eventPropertyDraft;
+    private JsonObject? _eventPropertyDraftBaseline;
+    private bool _settingEventEditorText;
+    private int? _displayedRawEventSourceIndex;
+    private string _displayedRawEventBaseline = string.Empty;
 
     private void InitializeEventPropertyEditor()
     {
@@ -92,6 +98,7 @@ public partial class MainWindow
         _eventPropertyEditorInitialized = true;
 
         EventList.SelectionChanged += (_, _) => RefreshEventPropertyEditor();
+        EventEditorText.TextChanged += EventEditorTextChanged;
 
         if (EventEditorText.Parent is Grid editorGrid)
         {
@@ -144,22 +151,41 @@ public partial class MainWindow
         if (EventList.SelectedItem is not EventListItem item)
         {
             _eventPropertyDraft = null;
+            _eventPropertyDraftBaseline = null;
             return;
         }
 
-        JsonObject draft;
+        JsonObject? draft;
         try
         {
-            draft = JsonNode.Parse(EventEditorText.Text) as JsonObject ?? new JsonObject();
+            draft = JsonNode.Parse(EventEditorText.Text) as JsonObject;
         }
         catch
         {
-            draft = new JsonObject();
+            draft = null;
         }
 
         string eventType = item.Action.EventType;
+        if (draft is null)
+        {
+            _eventPropertyDraft = null;
+            _eventPropertyDraftBaseline = null;
+            _eventPropertyPanel.Children.Add(CreateEventPropertyHeader(eventType));
+            _eventPropertyPanel.Children.Add(new TextBlock
+            {
+                Text = "Raw JSON draft is invalid. Correct it or select Apply Event for details.",
+                Foreground = EventEditorMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            if (rawExpander is not null)
+                _eventPropertyPanel.Children.Add(rawExpander);
+            return;
+        }
+
         ApplyMissingEventDefaults(eventType, draft);
         _eventPropertyDraft = draft;
+        _eventPropertyDraftBaseline = (JsonObject)draft.DeepClone();
         SyncEventDraftToRawJson();
 
         _eventPropertyPanel.Children.Add(CreateEventPropertyHeader(eventType));
@@ -279,6 +305,10 @@ public partial class MainWindow
             EventPropertyEditorKind.Number => CreateScalarEditor(property, value, integer: false),
             _ => CreateTextEditor(property, value)
         };
+        string accessibleName = string.IsNullOrWhiteSpace(property.Unit)
+            ? property.Name
+            : $"{property.Name} ({property.Unit})";
+        AutomationProperties.SetName(editor, accessibleName);
         Grid.SetColumn(editor, 1);
         row.Children.Add(editor);
 
@@ -318,20 +348,38 @@ public partial class MainWindow
         if (property.Options is not { Length: > 0 })
             return CreateTextEditor(property, value);
 
+        var resolved = ResolveEnumSelection(property.Options, current);
         var combo = new ComboBox
         {
-            ItemsSource = property.Options,
-            SelectedItem = current,
+            ItemsSource = resolved.Options,
+            SelectedItem = resolved.Selected,
             MinHeight = 24
         };
-        if (combo.SelectedIndex < 0 && property.Options.Length > 0)
-            combo.SelectedIndex = 0;
         combo.SelectionChanged += (_, _) =>
         {
-            if (combo.SelectedItem is string selected)
+            if (combo.SelectedItem is string selected &&
+                !(resolved.Unknown && string.Equals(selected, resolved.Selected, StringComparison.Ordinal)))
+            {
                 SetEventDraftValue(property.Name, JsonValue.Create(selected));
+            }
         };
         return combo;
+    }
+
+    // Preserve unknown values without silently displaying the first valid choice.
+    // A case-insensitive match is display-only: opening the editor never rewrites JSON.
+    internal static (string[] Options, string Selected, bool Unknown) ResolveEnumSelection(
+        string[] options, string current)
+    {
+        string? known = Array.Find(options,
+            option => string.Equals(option, current, StringComparison.OrdinalIgnoreCase));
+        if (known is not null)
+            return (options, known, false);
+
+        string placeholder = $"Unsupported: {current}";
+        while (Array.Exists(options, option => string.Equals(option, placeholder, StringComparison.Ordinal)))
+            placeholder = "!" + placeholder;
+        return ([..options, placeholder], placeholder, true);
     }
 
     private FrameworkElement CreateTextEditor(EventPropertyDefinition property, JsonNode? value)
@@ -352,14 +400,26 @@ public partial class MainWindow
         box.LostKeyboardFocus += (_, _) =>
         {
             string candidate = box.Text.Trim();
+            bool committed = false;
             if (integer)
             {
                 if (int.TryParse(candidate, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue))
+                {
                     SetEventDraftValue(property.Name, JsonValue.Create(intValue));
+                    committed = true;
+                }
             }
-            else if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue))
+            else if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue) &&
+                     double.IsFinite(doubleValue))
             {
                 SetEventDraftValue(property.Name, JsonValue.Create(doubleValue));
+                committed = true;
+            }
+
+            if (!committed)
+            {
+                box.Text = text;
+                StatusText.Text = $"{property.Name} requires a finite numeric value.";
             }
         };
         return box;
@@ -378,6 +438,8 @@ public partial class MainWindow
 
         TextBox xBox = CreateEditorTextBox(x);
         TextBox yBox = CreateEditorTextBox(y);
+        AutomationProperties.SetName(xBox, $"{property.Name} X");
+        AutomationProperties.SetName(yBox, $"{property.Name} Y");
         Grid.SetColumn(xBox, 0);
         Grid.SetColumn(yBox, 2);
         grid.Children.Add(xBox);
@@ -385,8 +447,14 @@ public partial class MainWindow
 
         void Commit()
         {
-            JsonNode? xNode = ParseVectorComponentNode(xBox.Text);
-            JsonNode? yNode = ParseVectorComponentNode(yBox.Text);
+            if (!TryParseVectorComponentNode(xBox.Text, out JsonNode? xNode) ||
+                !TryParseVectorComponentNode(yBox.Text, out JsonNode? yNode))
+            {
+                xBox.Text = x;
+                yBox.Text = y;
+                StatusText.Text = $"{property.Name} requires finite numeric components.";
+                return;
+            }
             SetEventDraftValue(property.Name, new JsonArray(xNode, yNode));
         }
 
@@ -408,9 +476,14 @@ public partial class MainWindow
 
     private void SetEventDraftValue(string propertyName, JsonNode? value)
     {
-        if (_eventPropertyDraft is null)
+        if (!TryUpdateRawEventDraftProperty(
+                EventEditorText.Text, propertyName, value, out JsonObject? latest))
+        {
+            _eventPropertyDraft = null;
+            StatusText.Text = "Raw JSON draft is invalid; correct it before editing property fields.";
             return;
-        _eventPropertyDraft[propertyName] = value;
+        }
+        _eventPropertyDraft = latest!;
         SyncEventDraftToRawJson();
     }
 
@@ -418,7 +491,79 @@ public partial class MainWindow
     {
         if (_eventPropertyDraft is null)
             return;
-        EventEditorText.Text = _eventPropertyDraft.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        SetEventEditorText(
+            _eventPropertyDraft.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private void EventEditorTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_settingEventEditorText ||
+            _displayedRawEventSourceIndex is not int sourceIndex ||
+            _documentTabs.ActiveTab is not EditorDocumentTab tab)
+            return;
+
+        if (string.Equals(EventEditorText.Text, _displayedRawEventBaseline, StringComparison.Ordinal))
+            tab.PendingRawEventJson.Remove(sourceIndex);
+        else
+            tab.PendingRawEventJson[sourceIndex] = EventEditorText.Text;
+
+        _eventPropertyDraft = TryParseRawEventDraftForPropertyEdit(
+            EventEditorText.Text, out JsonObject? latest)
+            ? latest
+            : null;
+
+        RefreshActiveDocumentTab();
+        UpdateEditorStatus();
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    internal static bool TryParseRawEventDraftForPropertyEdit(
+        string text,
+        out JsonObject? draft)
+    {
+        try
+        {
+            draft = JsonNode.Parse(text) as JsonObject;
+            return draft is not null;
+        }
+        catch (JsonException)
+        {
+            draft = null;
+            return false;
+        }
+    }
+
+    internal static bool TryUpdateRawEventDraftProperty(
+        string text,
+        string propertyName,
+        JsonNode? value,
+        out JsonObject? draft)
+    {
+        if (!TryParseRawEventDraftForPropertyEdit(text, out draft))
+            return false;
+        draft![propertyName] = value;
+        return true;
+    }
+
+    private void SetEventEditorText(string text)
+    {
+        _settingEventEditorText = true;
+        try
+        {
+            EventEditorText.Text = text;
+        }
+        finally
+        {
+            _settingEventEditorText = false;
+        }
+    }
+
+    private void AcceptDisplayedRawEventDraft(EditorDocumentTab tab, int sourceIndex)
+    {
+        tab.PendingRawEventJson.Remove(sourceIndex);
+        if (_displayedRawEventSourceIndex == sourceIndex)
+            _displayedRawEventBaseline = EventEditorText.Text;
+        RefreshActiveDocumentTab();
     }
 
     private static void ApplyMissingEventDefaults(string eventType, JsonObject draft)
@@ -461,14 +606,22 @@ public partial class MainWindow
         };
     }
 
-    private static JsonNode? ParseVectorComponentNode(string text)
+    private static bool TryParseVectorComponentNode(string text, out JsonNode? node)
     {
         string trimmed = text.Trim();
         if (trimmed.Length == 0)
-            return null;
-        return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            ? JsonValue.Create(value)
-            : JsonValue.Create(trimmed);
+        {
+            node = null;
+            return true;
+        }
+        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+            double.IsFinite(value))
+        {
+            node = JsonValue.Create(value);
+            return true;
+        }
+        node = null;
+        return false;
     }
 
     private static bool TryReadBool(JsonNode? node, out bool value)

@@ -73,7 +73,7 @@ public partial class MainWindow
         if (e.Key != Key.Enter)
             return;
         CommitTrackSettingsFromUi();
-        NativeViewport.Focus();
+        NativeViewport.FocusEditorSurface();
         e.Handled = true;
     }
 
@@ -89,11 +89,11 @@ public partial class MainWindow
             CommitTrackSettingsFromUi();
     }
 
-    private void CommitTrackSettingsFromUi()
+    private bool CommitTrackSettingsFromUi(bool preserveInvalidInput = false)
     {
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _refreshingTrackSettings)
-            return;
+            return true;
 
         TrackSettingsSnapshot before = editor.GetTrackSettings();
         if (!EditorSession.IsValidTrackColor(TrackPrimaryColorTextBox.Text) ||
@@ -104,9 +104,10 @@ public partial class MainWindow
             !TryReadSetting(TrackBeatsAheadTextBox.Text, out double beatsAhead) || beatsAhead < 0.0 ||
             !TryReadSetting(TrackBeatsBehindTextBox.Text, out double beatsBehind) || beatsBehind < 0.0)
         {
-            RefreshTrackSettings();
+            if (!preserveInvalidInput)
+                RefreshTrackSettings();
             StatusText.Text = "Track Settings contain an invalid value.";
-            return;
+            return false;
         }
 
         string colorType = SelectedTrackSettingValue(TrackColorTypeComboBox, before.TrackColorType);
@@ -134,8 +135,9 @@ public partial class MainWindow
         TrackSettingsSnapshot after = editor.GetTrackSettings();
         RefreshTrackSettings();
         if (before == after)
-            return;
+            return true;
         RefreshAfterTrackSettingsCommit(before, after);
+        return true;
     }
 
     private static string SelectedTrackSettingValue(ComboBox comboBox, string fallback) =>

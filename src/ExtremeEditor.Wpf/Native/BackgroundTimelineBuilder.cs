@@ -49,9 +49,8 @@ internal static class BackgroundSourceReader
         if (string.IsNullOrWhiteSpace(level.SourcePath) || !File.Exists(level.SourcePath))
             return ReadRoot(null);
 
-        using var stream = File.OpenRead(level.SourcePath);
-        JsonNode? root = JsonNode.Parse(stream);
-        return ReadRoot(root?["settings"] as JsonObject);
+        JsonObject root = ExtremeEditor.Wpf.LooseAdoFaiJson.ParseObject(level.SourcePath);
+        return ReadRoot(root["settings"] as JsonObject);
     }
 
     internal static BackgroundSourceState ReadRoot(JsonObject? settings) => new(
@@ -165,6 +164,26 @@ internal static class BackgroundNativeEncoding
 
 internal static class BackgroundAssetResolver
 {
+    internal static bool RequiresReload(LevelAction before, LevelAction after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+
+        static string? ActiveImage(LevelAction action)
+        {
+            if (!action.Active ||
+                !string.Equals(action.EventType, "CustomBackground", StringComparison.Ordinal))
+                return null;
+            JsonObject? properties = MoveDecorationsTargeting.GetProperties(action);
+            string? image = properties?["bgImage"] is JsonValue value &&
+                            value.TryGetValue(out string? path) ? path : null;
+            return string.IsNullOrWhiteSpace(image) ? null : image;
+        }
+
+        return !StringComparer.OrdinalIgnoreCase.Equals(
+            ActiveImage(before), ActiveImage(after));
+    }
+
     internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(LevelDocument level)
     {
         var ids = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);

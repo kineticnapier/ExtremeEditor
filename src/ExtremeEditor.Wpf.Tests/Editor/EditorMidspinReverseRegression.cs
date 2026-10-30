@@ -19,6 +19,14 @@ internal static class EditorMidspinReverseRegression
         VerifyDirectionCase([0.0, 999.0, 999.0], 3, 180.0, expected: true, "two Midspins", failures);
         VerifyDirectionCase([0.0, 999.0, 999.0, 999.0], 4, 0.0, expected: true, "three Midspins", failures);
         VerifyDirectionCase([999.0], 1, 0.0, expected: false, "no prior normal angle", failures);
+        VerifyReverseHudIndex([0.0], 1, 3, "regular backward A", failures);
+        VerifyReverseHudIndex([90.0], 1, 6, "regular backward S", failures);
+        VerifyReverseHudIndex([315.0], 1, 0, "regular backward Q", failures);
+        VerifyReverseHudIndex([0.0, 999.0], 2, 4, "one Midspin reverse D", failures);
+        VerifyReverseHudIndex([0.0, 999.0, 999.0], 3, 3, "two Midspins reverse A", failures);
+        VerifyReverseHudIndex([999.0], 1, -1, "unknown pre-Midspin direction", failures);
+        VerifyReverseHudIndex([10.0], 1, -1, "off-grid reverse direction", failures);
+        VerifyReverseHudIndex([], 0, -1, "first floor has no reverse button", failures);
         VerifyTwirlDoesNotAffectPathDirection(failures);
         VerifyDeleteRemapAndUndoRedo(failures);
         VerifyDeleteSelectionContract(failures);
@@ -45,6 +53,28 @@ internal static class EditorMidspinReverseRegression
             failures.Add(
                 $"{label} decision mismatch (expected={expected}, actual={actual}, " +
                 $"angles=[{string.Join(",", angles)}], input={inputDirection})");
+        }
+    }
+
+    private static void VerifyReverseHudIndex(
+        double[] angles,
+        int primary,
+        int expectedIndex,
+        string label,
+        List<string> failures)
+    {
+        Type helper = typeof(MainWindow).Assembly.GetType(
+            "ExtremeEditor.Wpf.AdoFaiPathDirection")
+            ?? throw new InvalidOperationException("Cannot find AdoFaiPathDirection");
+        MethodInfo resolve = helper.GetMethod(
+            "GetBackwardHudButtonIndex",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Cannot find HUD backwards resolver");
+        int actual = (int)(resolve.Invoke(null, [angles, primary]) ?? -99);
+        if (actual != expectedIndex)
+        {
+            failures.Add(
+                $"{label}: expected HUD button {expectedIndex}, got {actual}");
         }
     }
 
@@ -129,6 +159,20 @@ internal static class EditorMidspinReverseRegression
         const string expected = "RefreshAfterAdoFaiMutation(Math.Max(0, primary - 1))";
         if (!source.Contains(expected, StringComparison.Ordinal))
             failures.Add("reverse deletion does not restore primary selection to the preceding floor");
+        string nativeActionSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.NativeEditor.cs"));
+        if (!nativeActionSource.Contains(
+                "ApplyAdoFaiDirection(editor, primary, request.Value)",
+                StringComparison.Ordinal))
+            failures.Add("HUD click must use keyboard's reverse-direction deletion semantics");
+        string viewportSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src", "ExtremeEditor.Wpf", "Native", "NativeLevelViewport.Preparation.cs"));
+        if (!viewportSource.Contains("_selectedFloors.Length == 1", StringComparison.Ordinal) ||
+            !viewportSource.Contains("SyncBackwardHudButton();", StringComparison.Ordinal))
+            failures.Add("HUD deletion color must update for single selection and chart upload");
+
     }
 
     private static bool InvokeBackwardsDecision(LevelDocument level, int primary, double direction)
