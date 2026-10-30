@@ -115,7 +115,6 @@ public partial class MainWindow
         if (!fromTabCycle && _pendingTabNavigationTarget is not null)
         {
             _pendingTabNavigationTarget = null;
-            ++_tabActivationGeneration;
         }
 
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
