@@ -72,7 +72,7 @@ internal static class DocumentTabNavigationRegression
                 activate.Contains("NativeViewport.SetPlaybackTimelineProfiled(previousTiming)", StringComparison.Ordinal) &&
                 activate.Contains("_suppressNativeSelectionUpload = true;", StringComparison.Ordinal) &&
                 !activate.Contains("NativeViewport.ClearPlayback();", StringComparison.Ordinal) &&
-                !activate.Contains("NativeViewport.SetSelection(_selection.SelectedFloors", StringComparison.Ordinal),
+                !activate[nativeCommit..].Contains("NativeViewport.SetSelection(_selection.SelectedFloors", StringComparison.Ordinal),
             "Native selection and playback clearing must finish inside the guarded upload, before committing the tab.");
         string selection = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.Selection.cs"));
