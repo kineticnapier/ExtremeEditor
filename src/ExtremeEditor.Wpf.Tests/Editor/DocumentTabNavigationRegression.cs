@@ -33,7 +33,7 @@ internal static class DocumentTabNavigationRegression
                 cycle.Contains("_pendingTabNavigationTarget", StringComparison.Ordinal) &&
                 cycle.Contains("backwards", StringComparison.Ordinal),
             "Cycling must use creation order, move in either direction and wrap at both ends.");
-        Require(cycle.Contains("ActivateDocumentTab(", StringComparison.Ordinal),
+        Require(cycle.Contains("RequestDocumentTabActivation(", StringComparison.Ordinal),
             "Cycling must use the existing workspace-switch path, preserving audio and undo.");
         Require(cycle.Contains("Count <= 1", StringComparison.Ordinal),
             "Cycling with zero or one tab must be a no-op.");

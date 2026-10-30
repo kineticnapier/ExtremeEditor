@@ -105,6 +105,7 @@ public sealed partial class NativeLevelViewport
             if (_session is not null)
             {
                 _session.SetLevel(snapshot, useCache: true);
+                ReportDecorationAssetFailures();
                 _session.SetSelection(selectedFloors, primaryFloor);
             }
         });
@@ -120,6 +121,7 @@ public sealed partial class NativeLevelViewport
         Action<NativeLevelSnapshot, int[], int> upload)
     {
         ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
 
         bool changedDocument = !ReferenceEquals(_level, level);
@@ -149,15 +151,6 @@ public sealed partial class NativeLevelViewport
             _trackAnimationTimings = [];
         }
 
-        var uploadWatch = Stopwatch.StartNew();
-        if (_session is not null)
-        {
-            _session.SetLevel(_snapshot, useCache: true);
-            ReportDecorationAssetFailures();
-            _session.SetSelection(_selectedFloors, _primarySelection);
-        }
-        uploadWatch.Stop();
-
         NativeLevelSnapshotBuildMetrics metrics = prepared.BuildMetrics;
         LastLevelUploadMetrics = new NativeLevelUploadMetrics(
             prepared.BuildTime,
@@ -177,7 +170,38 @@ public sealed partial class NativeLevelViewport
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)
     {
+        SetPreparedPlaybackCore(prepared, () =>
+        {
+            UploadPendingPlaybackTimeline();
+            UploadPendingCameraTimeline();
+            UploadPendingFlashTimeline();
+            UploadPendingBloomTimeline();
+            UploadPendingScreenTileTimeline();
+            UploadPendingFilterTimeline();
+            UploadPendingBackgroundTimeline();
+            UploadPendingTrackTransformTimeline();
+            UploadPendingTrackVisualTimeline();
+            UploadPendingTrackAnimationTimeline();
+        });
+    }
+
+    internal void SetPreparedPlaybackCore(PreparedNativePlayback prepared, Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
+
+        NativePlaybackTiming[] previousPlayback = _playbackTimeline;
+        NativeCameraEvent[] previousCamera = _cameraTimeline;
+        NativeFlashEvent[] previousFlash = _flashTimeline;
+        NativeBloomEvent[] previousBloom = _bloomTimeline;
+        NativeScreenTileEvent[] previousScreenTile = _screenTileTimeline;
+        NativeFilterEvent[] previousFilter = _filterTimeline;
+        NativeBackgroundEvent[] previousBackground = _backgroundTimeline;
+        NativeTrackTransformEvent[] previousTrackTransform = _trackTransformTimeline;
+        NativeTrackVisualEvent[] previousTrackVisual = _trackVisualTimeline;
+        NativeTrackAnimationSegment[] previousTrackAnimation = _trackAnimationTimeline;
+        NativeTrackAnimationTiming[] previousTrackTimings = _trackAnimationTimings;
+
         _playbackTimeline = prepared.PlaybackTimeline;
         _cameraTimeline = prepared.CameraTimeline;
         _flashTimeline = prepared.FlashTimeline;

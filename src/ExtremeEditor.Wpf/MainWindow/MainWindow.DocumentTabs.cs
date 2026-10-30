@@ -58,11 +58,6 @@ public partial class MainWindow
 
     private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()
     {
-        _ = CreateNewDocumentTabAsync();
-    }
-
-    private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()
-    {
         if (!CanSwitchDocumentTabs())
             return null;
 
@@ -195,6 +190,7 @@ public partial class MainWindow
         // native upload must succeed before committing the managed tab switch.
         FlushEditorPlaybackRefresh();
         EditorDocumentTab? previous = _documentTabs.ActiveTab;
+        Native.NativeEditorCameraState? previousCamera = NativeViewport.TryGetEditorCamera();
         Native.PreparedNativeLevel nativeLevel = await levelPreparation;
         Native.PreparedNativePlayback? nativePlayback = deferPlaybackTimeline
             ? null : await playbackPreparation!;
@@ -236,6 +232,8 @@ public partial class MainWindow
                 if (_timingMap is TimingMap previousTiming)
                     NativeViewport.SetPlaybackTimelineProfiled(previousTiming);
                 NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+                if (previousCamera is Native.NativeEditorCameraState camera)
+                    NativeViewport.RestoreEditorCamera(camera);
             },
             out Exception? uploadError,
             out Exception? restoreError,
@@ -244,6 +242,10 @@ public partial class MainWindow
                 // Selection is a native upload too. Do it before the managed
                 // tab switch, while a failed upload can still restore the old scene.
                 NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
+                if (tab.EditorCamera is Native.NativeEditorCameraState editorCamera)
+                    NativeViewport.RestoreEditorCamera(editorCamera);
+                else
+                    NativeViewport.CenterFloor(tab.PrimaryFloor);
                 StopPlayback();
             });
         if (!uploaded)
@@ -271,7 +273,7 @@ public partial class MainWindow
             previous.PrimaryFloor = _selection.PrimaryFloor;
             previous.SelectedEventSourceIndex =
                 (EventList.SelectedItem as EventListItem)?.Action.SourceIndex;
-            previous.EditorCamera = NativeViewport.TryGetEditorCamera();
+            previous.EditorCamera = previousCamera;
         }
 
         _editorPlaybackRefreshTimer?.Stop();
@@ -293,14 +295,18 @@ public partial class MainWindow
             $"levelWait={levelWaitMs:F1}ms levelUpload={levelUploadMs:F1}ms " +
             $"playbackWait={playbackWaitMs:F1}ms playbackUpload={playbackUploadMs:F1}ms " +
             $"snapshotBuild={levelMetrics.SnapshotBuild.TotalMilliseconds:F1}ms");
-        _selection.SetFloorCount(tab.Document.FloorCount);
-        _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
-        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-        if (tab.EditorCamera is Native.NativeEditorCameraState editorCamera)
-            NativeViewport.RestoreEditorCamera(editorCamera);
-        else
-            NativeViewport.CenterFloor(_selection.PrimaryFloor);
-        NativeViewport.ClearPlayback();
+        // Native selection and camera were already uploaded inside the guarded
+        // transaction. Avoid a second fallible upload after committing ActiveTab.
+        _suppressNativeSelectionUpload = true;
+        try
+        {
+            _selection.SetFloorCount(tab.Document.FloorCount);
+            _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
+        }
+        finally
+        {
+            _suppressNativeSelectionUpload = false;
+        }
 
         _editor.Changed += ActiveEditorSessionChanged;
         int? selectedEventSource = tab.SelectedEventSourceIndex;
@@ -397,7 +403,36 @@ public partial class MainWindow
             return;
 
         _pendingTabNavigationTarget = target;
-        _ = ActivateDocumentTab(target);
+        RequestDocumentTabActivation(target, fromTabCycle: true);
+    }
+
+    private async void RequestDocumentTabActivation(
+        EditorDocumentTab tab, bool fromTabCycle = false)
+    {
+        await ObserveDocumentTabActivationAsync(
+            () => ActivateDocumentTab(tab, fromTabCycle: fromTabCycle),
+            ex =>
+            {
+                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+                if (!_isClosed)
+                    StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
+            });
+    }
+
+    internal static async Task ObserveDocumentTabActivationAsync(
+        Func<Task<bool>> activate, Action<Exception> reportFailure)
+    {
+        ArgumentNullException.ThrowIfNull(activate);
+        ArgumentNullException.ThrowIfNull(reportFailure);
+        try
+        {
+            await activate();
+        }
+        catch (Exception ex)
+        {
+            reportFailure(ex);
+        }
     }
 
     private void ApplySharedPlaybackPreferences(AudioPlayer player)

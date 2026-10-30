@@ -95,6 +95,12 @@ public sealed partial class NativeLevelViewport : HwndHost
         SizeChanged += (_, _) => ResizeNativeChild();
     }
 
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        ResizeNativeChild();
+    }
+
     /// <summary>
     /// Return keyboard input to the actual native editor window after a WPF
     /// settings field commits. UIElement.Focus() alone is insufficient for a
@@ -348,39 +354,52 @@ public sealed partial class NativeLevelViewport : HwndHost
     internal bool RestoreEditorCamera(NativeEditorCameraState state) =>
         _session?.SetEditorCamera(state) == true;
 
+    internal static T RunNativeHostInitialization<T>(Func<T> initialize, Action cleanup)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        ArgumentNullException.ThrowIfNull(cleanup);
+        try
+        {
+            return initialize();
+        }
+        catch
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception cleanupError)
+            {
+                Console.Error.WriteLine(
+                    $"[native-host] cleanup after initialization failure: {cleanupError}");
+            }
+            throw;
+        }
+    }
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        uint width = ToPixelExtent(ActualWidth);
-        uint height = ToPixelExtent(ActualHeight);
-        _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
-        _playbackAnchorGate.Invalidate();
-        _session.SelectionChanged += NativeSelectionChanged;
-        _session.FollowPlayerChanged += NativeFollowPlayerChanged;
-        _session.EditorActionRequested += NativeEditorActionRequested;
-        _session.SetFollowPlayer(_followPlayer);
-        _session.SetCleanView(_cleanView);
-        _session.SetShowFloorNumbers(_showFloorNumbers);
-        LastLevelUploadMetrics = UploadPendingLevel();
+        return RunNativeHostInitialization(
+            initialize: () =>
+            {
+                DpiScale dpi = VisualTreeHelper.GetDpi(this);
+                uint width = ToPixelExtent(ActualWidth, dpi.DpiScaleX);
+                uint height = ToPixelExtent(ActualHeight, dpi.DpiScaleY);
+                _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+                _playbackAnchorGate.Invalidate();
+                _session.SelectionChanged += NativeSelectionChanged;
+                _session.FollowPlayerChanged += NativeFollowPlayerChanged;
+                _session.EditorActionRequested += NativeEditorActionRequested;
+                _session.SetFollowPlayer(_followPlayer);
+                _session.SetCleanView(_cleanView);
+                _session.SetShowFloorNumbers(_showFloorNumbers);
+                LastLevelUploadMetrics = UploadPendingLevel();
 
-        // The Welcome screen starts without a chart. Native timeline setters
-        // require a level to have been uploaded, so defer them until the first
-        // chart is activated and its prepared timelines are applied.
-        if (_level is null)
-            return new HandleRef(this, _session.ChildHwnd);
-
-        var watch = Stopwatch.StartNew();
-        UploadPendingPlaybackTimeline();
-        UploadPendingCameraTimeline();
-        UploadPendingFlashTimeline();
-        UploadPendingBloomTimeline();
-        UploadPendingScreenTileTimeline();
-        UploadPendingFilterTimeline();
-        UploadPendingBackgroundTimeline();
-        UploadPendingTrackTransformTimeline();
-        UploadPendingTrackVisualTimeline();
-        UploadPendingTrackAnimationTimeline();
-        watch.Stop();
-        LastPlaybackTimelineUploadMetrics = LastPlaybackTimelineUploadMetrics with { NativeUpload = watch.Elapsed };
+                // The welcome screen has no chart. Native timeline setters
+                // require an uploaded level, so leave them pending until the
+                // first document is activated.
+                if (_level is null)
+                    return new HandleRef(this, _session.ChildHwnd);
 
                 var watch = Stopwatch.StartNew();
                 UploadPendingPlaybackTimeline();
@@ -410,6 +429,17 @@ public sealed partial class NativeLevelViewport : HwndHost
         NativeRendererSession? session = _session;
         _session = null;
         _playbackAnchorGate.Invalidate();
+        _cameraUploadSession = null;
+        _cameraUploadedSource = null;
+        _cameraUploadedHeight = 0;
+
+        if (session is null)
+            return;
+
+        session.SelectionChanged -= NativeSelectionChanged;
+        session.FollowPlayerChanged -= NativeFollowPlayerChanged;
+        session.EditorActionRequested -= NativeEditorActionRequested;
+        session.Dispose();
     }
 
     private void NativeSelectionChanged(int floor, uint nativeModifiers)
