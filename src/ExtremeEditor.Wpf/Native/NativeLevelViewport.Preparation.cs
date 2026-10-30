@@ -621,9 +621,11 @@ public sealed partial class NativeLevelViewport : HwndHost
         // Use a neutral scale when WPF has not yet supplied a valid DPI.
         if (!double.IsFinite(dpiScale) || dpiScale <= 0d)
             dpiScale = 1d;
-        double pixels = value * dpiScale;
-        if (!double.IsFinite(pixels) || pixels <= 0d)
+        if (!double.IsFinite(value) || value <= 0d)
             return 1u;
+        // A finite DIP extent may overflow when multiplied by a finite scale.
+        // Clamp positive infinity to uint.MaxValue, not to the 1px fallback.
+        double pixels = value * dpiScale;
         return checked((uint)Math.Clamp(Math.Ceiling(pixels), 1d, uint.MaxValue));
     }
 }
