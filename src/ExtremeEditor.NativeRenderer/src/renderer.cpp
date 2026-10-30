@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
 #include "follow_camera_state.h"
@@ -682,14 +683,10 @@ EeBackgroundState ResolveBackgroundAtTime(
 {
     const BackgroundRuntime runtime{};
     EeBackgroundState state = runtime.initial;
-    if (events == nullptr)
-        return state;
-    for (const auto& event : *events)
-    {
-        if (event.start_time > chart_time)
-            break;
-        state = event.state;
-    }
+    const EeBackgroundEvent* event =
+        FindLastBackgroundEventAtOrBefore(events, chart_time);
+    if (event != nullptr)
+        state = event->state;
     return state;
 }
 
