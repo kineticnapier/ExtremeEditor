@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
+#include <cstdlib>
 #include <cstddef>
 #include <iostream>
 #include <vector>
@@ -16,10 +16,18 @@ struct Event
     unsigned int flags;
 };
 
+void Require(bool condition, const char* message)
+{
+    if (condition)
+        return;
+    std::cerr << "FAIL: " << message << '\n';
+    std::exit(1);
+}
+
 void Verify(const std::vector<Event>& events)
 {
     const auto lookup = ee::CameraComponentLookup::Build(events, Flags);
-    assert(lookup.Count() == events.size());
+    Require(lookup.Count() == events.size(), "lookup size");
     for (std::size_t upper = 0; upper <= events.size(); ++upper)
     {
         auto expected = ee::CameraComponentLookup::Indices{
@@ -29,9 +37,9 @@ void Verify(const std::vector<Event>& events)
             for (std::size_t c = 0; c < Flags.size(); ++c)
                 if ((events[i].flags & Flags[c]) != 0u)
                     expected[c] = i;
-        assert(lookup.At(upper) == expected);
+        Require(lookup.At(upper) == expected, "indexed result differs from reference scan");
     }
-    assert(lookup.At(events.size() + 1) == lookup.At(0));
+    Require(lookup.At(events.size() + 1) == lookup.At(0), "out-of-range lookup");
 }
 }
 
@@ -61,7 +69,7 @@ int main()
         const auto last = lookup.At(static_cast<std::size_t>(upper - events.begin()));
         for (std::size_t c = 0; c < Flags.size(); ++c)
             if (last[c] != ee::CameraComponentLookup::Missing)
-                assert(events[last[c]].start_time <= time && (events[last[c]].flags & Flags[c]));
+                Require(events[last[c]].start_time <= time && (events[last[c]].flags & Flags[c]), "seek/tie lookup");
     }
     std::cout << "PASS: camera component lookup matches backwards scan.\n";
 }
