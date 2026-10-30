@@ -115,10 +115,38 @@ internal static class NativeSceneReuseRegression
 
         VerifyShutdownClearsNativeCaches();
         VerifyPendingFrameAll();
+        VerifyNativeDpiExtents();
 
         string tabs = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
         Require(tabs.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document,", StringComparison.Ordinal),
             "Tab reactivation must continue through the prepared viewport path.");
+    }
+
+    private static void VerifyNativeDpiExtents()
+    {
+        // Native HWND dimensions and camera height scaling must use physical
+        // pixels, not the WPF device-independent units from ActualWidth/Height.
+        foreach (double scale in new[] { 1.0, 1.25, 1.5, 2.0 })
+        {
+            uint expected = (uint)Math.Ceiling(800d * scale);
+            Require(NativeLevelViewport.ToPixelExtent(800d, scale) == expected,
+                $"800 DIP must become {expected} device pixels at {scale:P0} DPI.");
+        }
+        Require(NativeLevelViewport.ToPixelExtent(0d, 1.5d) == 1u &&
+                NativeLevelViewport.ToPixelExtent(double.NaN, 1.5d) == 1u &&
+                NativeLevelViewport.ToPixelExtent(800d, double.NaN) == 800u &&
+                NativeLevelViewport.ToPixelExtent(800d, 0d) == 800u &&
+                NativeLevelViewport.ToPixelExtent(double.MaxValue, 2d) == 1u,
+            "Invalid extents and DPI scales must not overflow or create zero-size native windows.");
+
+        string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
+        Require(preparation.Contains("protected override void OnDpiChanged(", StringComparison.Ordinal) &&
+                preparation.Contains("ResizeNativeChild();", StringComparison.Ordinal) &&
+                preparation.Contains("VisualTreeHelper.GetDpi(this)", StringComparison.Ordinal) &&
+                preparation.Contains("ToPixelExtent(ActualWidth, dpi.DpiScaleX)", StringComparison.Ordinal) &&
+                preparation.Contains("ToPixelExtent(ActualHeight, dpi.DpiScaleY)", StringComparison.Ordinal) &&
+                preparation.Contains("ToPixelExtent(ActualHeight, VisualTreeHelper.GetDpi(this).DpiScaleY)", StringComparison.Ordinal),
+            "Host creation, resize and camera zoom scaling must share DPI-aware pixel extents.");
     }
 
     private static void VerifyPendingFrameAll()
