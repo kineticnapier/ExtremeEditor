@@ -20,6 +20,25 @@ internal static class NativeSceneReuseRegression
                 preparation.Contains("_session.SetLevel(_snapshot);", StringComparison.Ordinal),
             "Only prepared level uploads should opt into native scene reuse; ordinary uploads must remain uncached.");
 
+        // HwndHost is also created for the welcome screen, before a chart
+        // exists. Timeline setters require a level and must not run there.
+        // Keep the guard between scene setup and the first timeline upload.
+        int hostStart = preparation.IndexOf(
+            "protected override HandleRef BuildWindowCore(", StringComparison.Ordinal);
+        Require(hostStart >= 0, "Native host initialization must remain present.");
+        int hostEnd = preparation.IndexOf(
+            "protected override void DestroyWindowCore(", hostStart, StringComparison.Ordinal);
+        Require(hostEnd > hostStart, "Native host initialization must have a bounded body.");
+        string host = preparation[hostStart..hostEnd];
+        int levelSetup = host.IndexOf("LastLevelUploadMetrics = UploadPendingLevel();", StringComparison.Ordinal);
+        int noChartGuard = host.IndexOf("if (_level is null)", StringComparison.Ordinal);
+        int guardReturn = noChartGuard < 0 ? -1 : host.IndexOf(
+            "return new HandleRef(this, _session.ChildHwnd);", noChartGuard, StringComparison.Ordinal);
+        int firstTimeline = host.IndexOf("UploadPendingPlaybackTimeline();", StringComparison.Ordinal);
+        Require(levelSetup >= 0 && levelSetup < noChartGuard &&
+                noChartGuard < guardReturn && guardReturn < firstTimeline,
+            "Welcome-screen host creation must skip native timeline uploads until a level is loaded.");
+
         // An ordinary scene rebuild can fail while resolving decorations or
         // background assets. Do not cache a partially populated snapshot:
         // otherwise a retry skips the missing preparation steps.
