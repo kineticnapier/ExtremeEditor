@@ -41,7 +41,54 @@ internal static class NativePlaybackAnchorDispatchRegression
         Require(gate.ShouldSend(2.5, 0.75, active: false, playing: true),
             "Resuming after a scene reload must forward the new state.");
 
+        VerifyFailedAnchorUploadRetry();
+
         VerifyViewportWiring();
+    }
+
+    private static void VerifyFailedAnchorUploadRetry()
+    {
+        var gate = new NativePlaybackAnchorDispatchGate();
+        var expected = new InvalidOperationException("Simulated native anchor failure");
+        int uploads = 0;
+        try
+        {
+            gate.Dispatch(3.5, 1.0, active: true, playing: false, () =>
+            {
+                uploads++;
+                throw expected;
+            });
+            throw new InvalidOperationException("RED: Expected native upload failure.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Require(ReferenceEquals(ex, expected),
+                "A failed native anchor upload must preserve the original exception.");
+        }
+
+        gate.Dispatch(3.5, 1.0, active: true, playing: false, () => uploads++);
+        gate.Dispatch(3.5, 1.0, active: true, playing: false, () => uploads++);
+        Require(uploads == 2,
+            "A failed paused anchor must retry once at the same time, then deduplicate.");
+
+        gate.Invalidate();
+        try
+        {
+            gate.Dispatch(0.0, 1.0, active: false, playing: false, () =>
+            {
+                uploads++;
+                throw expected;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            Require(ReferenceEquals(ex, expected),
+                "A failed stopped anchor must preserve the original exception.");
+        }
+        gate.Dispatch(0.0, 1.0, active: false, playing: false, () => uploads++);
+        gate.Dispatch(0.0, 1.0, active: false, playing: false, () => uploads++);
+        Require(uploads == 4,
+            "A failed stopped anchor must retry once at the same time, then deduplicate.");
     }
 
     private static void VerifyViewportWiring()
@@ -53,8 +100,8 @@ internal static class NativePlaybackAnchorDispatchRegression
         string shutdown = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Shutdown.cs"));
 
-        Require(preparation.Split("_playbackAnchorGate.ShouldSend(", StringSplitOptions.None).Length == 3,
-            "Both SetPlaybackState and ClearPlayback must use the anchor gate.");
+        Require(preparation.Split("_playbackAnchorGate.Dispatch(", StringSplitOptions.None).Length == 3,
+            "Both SetPlaybackState and ClearPlayback must use retry-safe anchor dispatch.");
         Require(preparation.Contains("UpdateDecorationPlayback(chartTime);", StringComparison.Ordinal) &&
                 preparation.Contains("UpdateDecorationPlayback(double.NegativeInfinity);", StringComparison.Ordinal),
             "Decoration evaluation must remain active while the native anchor is deduplicated.");
