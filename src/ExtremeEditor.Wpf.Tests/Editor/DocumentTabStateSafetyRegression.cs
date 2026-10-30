@@ -10,7 +10,23 @@ internal static class DocumentTabStateSafetyRegression
     {
         VerifyPendingNavigationTarget();
         VerifyPendingSettingsCommit();
+        VerifyNativeUploadAtomicity();
         VerifyUndoRefreshesEverySettingsPane();
+    }
+
+    private static void VerifyNativeUploadAtomicity()
+    {
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source, "private async Task<bool> ActivateDocumentTab(");
+        int upload = activate.IndexOf("NativeViewport.SetPreparedLevelProfiled(tab.Document", StringComparison.Ordinal);
+        int commit = activate.IndexOf("_documentTabs.Activate(tab)", StringComparison.Ordinal);
+        int guardedCatch = activate.LastIndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        Require(upload >= 0 && commit > upload,
+            "native level/timeline upload must succeed before committing active managed tab state");
+        Require(guardedCatch > upload &&
+                activate.Contains("await RestoreNativeTabState(previous)", StringComparison.Ordinal),
+            "native upload failures must be observed and restore the previous renderer state");
     }
 
     private static void VerifyPendingNavigationTarget()
