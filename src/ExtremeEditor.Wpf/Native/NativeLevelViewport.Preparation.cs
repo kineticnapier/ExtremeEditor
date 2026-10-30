@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
@@ -91,6 +92,14 @@ public sealed partial class NativeLevelViewport : HwndHost
         // transfer focus explicitly to its native child HWND.
         Focusable = true;
         SizeChanged += (_, _) => ResizeNativeChild();
+    }
+
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        // A monitor DPI change can leave ActualWidth/Height unchanged in DIPs.
+        // Refresh the native pixel size and height-dependent camera scaling.
+        ResizeNativeChild();
     }
 
     /// <summary>
@@ -347,8 +356,9 @@ public sealed partial class NativeLevelViewport : HwndHost
         return RunNativeHostInitialization(
             initialize: () =>
             {
-                uint width = ToPixelExtent(ActualWidth);
-                uint height = ToPixelExtent(ActualHeight);
+                DpiScale dpi = VisualTreeHelper.GetDpi(this);
+                uint width = ToPixelExtent(ActualWidth, dpi.DpiScaleX);
+                uint height = ToPixelExtent(ActualHeight, dpi.DpiScaleY);
                 _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
                 _playbackAnchorGate.Invalidate();
                 _session.SelectionChanged += NativeSelectionChanged;
@@ -515,7 +525,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         if (_session is null)
             return;
 
-        uint viewportHeight = ToPixelExtent(ActualHeight);
+        uint viewportHeight = ToPixelExtent(ActualHeight, VisualTreeHelper.GetDpi(this).DpiScaleY);
         if (ReferenceEquals(_cameraUploadSession, _session) &&
             ReferenceEquals(_cameraUploadedSource, _cameraTimeline) &&
             _cameraUploadedHeight == viewportHeight)
@@ -588,7 +598,10 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     private void ResizeNativeChild()
     {
-        _session?.Resize(ToPixelExtent(ActualWidth), ToPixelExtent(ActualHeight));
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        _session?.Resize(
+            ToPixelExtent(ActualWidth, dpi.DpiScaleX),
+            ToPixelExtent(ActualHeight, dpi.DpiScaleY));
         UploadPendingCameraTimeline();
     }
 
@@ -602,10 +615,15 @@ public sealed partial class NativeLevelViewport : HwndHost
         return result;
     }
 
-    private static uint ToPixelExtent(double value)
+    internal static uint ToPixelExtent(double value, double dpiScale = 1d)
     {
-        if (!double.IsFinite(value) || value <= 0d)
+        // WPF sizes are DIPs; native HWND and renderer dimensions are pixels.
+        // Use a neutral scale when WPF has not yet supplied a valid DPI.
+        if (!double.IsFinite(dpiScale) || dpiScale <= 0d)
+            dpiScale = 1d;
+        double pixels = value * dpiScale;
+        if (!double.IsFinite(pixels) || pixels <= 0d)
             return 1u;
-        return checked((uint)Math.Clamp(Math.Ceiling(value), 1d, uint.MaxValue));
+        return checked((uint)Math.Clamp(Math.Ceiling(pixels), 1d, uint.MaxValue));
     }
 }
