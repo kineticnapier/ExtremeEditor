@@ -624,8 +624,10 @@ public sealed partial class NativeLevelViewport : HwndHost
         if (!double.IsFinite(value) || value <= 0d)
             return 1u;
         // A finite DIP extent may overflow when multiplied by a finite scale.
-        // Clamp positive infinity to uint.MaxValue, not to the 1px fallback.
+        // NativeWindow passes these dimensions to Win32 as signed int values.
+        // Values above int.MaxValue would wrap negative at CreateWindowEx/MoveWindow.
+        // Saturate positive overflow rather than returning a zero/negative extent.
         double pixels = value * dpiScale;
-        return checked((uint)Math.Clamp(Math.Ceiling(pixels), 1d, uint.MaxValue));
+        return checked((uint)Math.Clamp(Math.Ceiling(pixels), 1d, int.MaxValue));
     }
 }
