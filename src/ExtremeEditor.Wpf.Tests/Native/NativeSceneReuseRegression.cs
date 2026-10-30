@@ -138,6 +138,31 @@ internal static class NativeSceneReuseRegression
         Require(pendingField.GetValue(viewport) is true,
             "Preparing a level before the native host exists must preserve pending FrameAll.");
 
+        // Normal first-tab activation uses SetPreparedLevel, not SetLevel.
+        // Without a native host the request must remain pending in both paths.
+        var preparedViewport = new NativeLevelViewport();
+        preparedViewport.FrameAll();
+        var preparedLevel = ExtremeEditor.Core.LevelDocument.CreateSynthetic(2);
+        preparedViewport.SetPreparedLevel(
+            preparedLevel, NativeLevelViewport.PrepareLevel(preparedLevel));
+        Require(pendingField.GetValue(preparedViewport) is true,
+            "A prepared level without a native host must retain pending FrameAll.");
+
+        // Check the real prepared upload path as well: a welcome-screen
+        // request must be applied only after the new level has been committed.
+        string preparedSource = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.cs");
+        int preparedStart = preparedSource.IndexOf(
+            "internal void SetPreparedLevelCore(", StringComparison.Ordinal);
+        int preparedEnd = preparedSource.IndexOf(
+            "internal void SetPreparedPlayback(", preparedStart, StringComparison.Ordinal);
+        Require(preparedStart >= 0 && preparedEnd > preparedStart,
+            "Prepared level upload must have a bounded implementation.");
+        string preparedUpload = preparedSource[preparedStart..preparedEnd];
+        int preparedCommit = preparedUpload.IndexOf("_snapshot = prepared.Snapshot;", StringComparison.Ordinal);
+        int preparedFrame = preparedUpload.IndexOf("ApplyPendingFrameAll();", StringComparison.Ordinal);
+        Require(preparedCommit >= 0 && preparedFrame > preparedCommit,
+            "Prepared level activation must apply deferred FrameAll after committing the uploaded chart.");
+
         string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
         int setLevelStart = preparation.IndexOf("public void SetLevel(", StringComparison.Ordinal);
         int setLevelEnd = preparation.IndexOf("internal bool TryUpdateFloorIconsFrom(", setLevelStart, StringComparison.Ordinal);
