@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdlib>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <iostream>
 #include <vector>
 
@@ -15,6 +17,11 @@ struct Event
     double start_time;
     unsigned int flags;
 };
+
+// A camera timeline has four component offsets per event. Keep the
+// index storage at 16 bytes/event on both 32-bit and 64-bit builds.
+static_assert(sizeof(ee::CameraComponentLookup::Indices) == 4 * sizeof(std::uint32_t));
+static_assert(ee::CameraComponentLookup::Missing == std::numeric_limits<std::uint32_t>::max());
 
 void Require(bool condition, const char* message)
 {
