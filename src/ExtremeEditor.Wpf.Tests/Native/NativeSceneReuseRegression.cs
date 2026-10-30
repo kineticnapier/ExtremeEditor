@@ -114,10 +114,63 @@ internal static class NativeSceneReuseRegression
             "Edits must discard their existing prepared snapshot and therefore its native scene identity.");
 
         VerifyShutdownClearsNativeCaches();
+        VerifyPendingFrameAll();
 
         string tabs = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
         Require(tabs.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document,", StringComparison.Ordinal),
             "Tab reactivation must continue through the prepared viewport path.");
+    }
+
+    private static void VerifyPendingFrameAll()
+    {
+        // HwndHost can be created on the welcome screen before any chart
+        // exists. FrameAll must remain pending until a real level is uploaded.
+        var viewport = new NativeLevelViewport();
+        FieldInfo? pendingField = typeof(NativeLevelViewport).GetField(
+            "_frameAllPending", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(pendingField is not null, "Pending FrameAll state must remain available.");
+
+        viewport.FrameAll();
+        Require(pendingField!.GetValue(viewport) is true,
+            "FrameAll without a renderer must defer the camera operation.");
+
+        viewport.SetLevel(ExtremeEditor.Core.LevelDocument.CreateSynthetic(2));
+        Require(pendingField.GetValue(viewport) is true,
+            "Preparing a level before the native host exists must preserve pending FrameAll.");
+
+        string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
+        int setLevelStart = preparation.IndexOf("public void SetLevel(", StringComparison.Ordinal);
+        int setLevelEnd = preparation.IndexOf("internal bool TryUpdateFloorIconsFrom(", setLevelStart, StringComparison.Ordinal);
+        Require(setLevelStart >= 0 && setLevelEnd > setLevelStart,
+            "Level replacement must remain available.");
+        string setLevel = preparation[setLevelStart..setLevelEnd];
+        Require(setLevel.Contains("LastLevelUploadMetrics = UploadPendingLevel();", StringComparison.Ordinal) &&
+                setLevel.Contains("ApplyPendingFrameAll();", StringComparison.Ordinal) &&
+                setLevel.IndexOf("ApplyPendingFrameAll();", StringComparison.Ordinal) >
+                setLevel.IndexOf("LastLevelUploadMetrics = UploadPendingLevel();", StringComparison.Ordinal),
+            "Loading the first chart must apply a deferred FrameAll after its native level upload.");
+
+        int frameStart = preparation.IndexOf("public void FrameAll()", StringComparison.Ordinal);
+        int frameEnd = preparation.IndexOf("public void CenterFloor(", frameStart, StringComparison.Ordinal);
+        Require(frameStart >= 0 && frameEnd > frameStart &&
+                preparation[frameStart..frameEnd].Contains("_session is null || _level is null", StringComparison.Ordinal),
+            "FrameAll must defer while either the native renderer or chart is missing.");
+
+        int helperStart = preparation.IndexOf("private void ApplyPendingFrameAll()", StringComparison.Ordinal);
+        int helperEnd = preparation.IndexOf("public void CenterFloor(", helperStart, StringComparison.Ordinal);
+        Require(helperStart >= 0 && helperEnd > helperStart,
+            "Deferred FrameAll must have an explicit application path.");
+        string helper = preparation[helperStart..helperEnd];
+        Require(helper.IndexOf("_session.FrameAll();", StringComparison.Ordinal) >= 0 &&
+                helper.IndexOf("_session.FrameAll();", StringComparison.Ordinal) <
+                helper.IndexOf("_frameAllPending = false;", StringComparison.Ordinal),
+            "A failed native FrameAll must not consume the pending request.");
+
+        int hostStart = preparation.IndexOf("protected override HandleRef BuildWindowCore(", StringComparison.Ordinal);
+        int hostEnd = preparation.IndexOf("protected override void DestroyWindowCore(", hostStart, StringComparison.Ordinal);
+        Require(hostStart >= 0 && hostEnd > hostStart &&
+                preparation[hostStart..hostEnd].Contains("ApplyPendingFrameAll();", StringComparison.Ordinal),
+            "Host creation with an existing chart must still apply deferred FrameAll.");
     }
 
     private static void VerifyShutdownClearsNativeCaches()
