@@ -246,7 +246,13 @@ public partial class MainWindow
             },
             out Exception? uploadError,
             out Exception? restoreError,
-            beforeCommit: StopPlayback);
+            beforeCommit: () =>
+            {
+                // Selection is a native upload too. Do it before the managed
+                // tab switch, while a failed upload can still restore the old scene.
+                NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
+                StopPlayback();
+            });
         if (!uploaded)
         {
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
@@ -293,10 +299,19 @@ public partial class MainWindow
             $"levelWait={levelWaitMs:F1}ms levelUpload={levelUploadMs:F1}ms " +
             $"playbackWait={playbackWaitMs:F1}ms playbackUpload={playbackUploadMs:F1}ms " +
             $"snapshotBuild={levelMetrics.SnapshotBuild.TotalMilliseconds:F1}ms");
-        _selection.SetFloorCount(tab.Document.FloorCount);
-        _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
-        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-        NativeViewport.ClearPlayback();
+        // The target selection was already uploaded inside the guarded
+        // transaction. Avoid sending it again after committing ActiveTab:
+        // a second native failure here would leave the tabs out of sync.
+        _suppressNativeSelectionUpload = true;
+        try
+        {
+            _selection.SetFloorCount(tab.Document.FloorCount);
+            _selection.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
+        }
+        finally
+        {
+            _suppressNativeSelectionUpload = false;
+        }
 
         _editor.Changed += ActiveEditorSessionChanged;
         int? selectedEventSource = tab.SelectedEventSourceIndex;
