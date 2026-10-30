@@ -475,7 +475,17 @@ public sealed partial class NativeLevelViewport : HwndHost
         if (_snapshot?.DecorationPlayback is not NativeDecorationPlaybackRuntime playback ||
             !playback.Update(chartTime))
             return;
-        _session?.SetStaticDecorations(_snapshot.StaticDecorations);
+        try
+        {
+            _session?.SetStaticDecorations(_snapshot.StaticDecorations);
+        }
+        catch
+        {
+            // Update already advanced its time marker. Without invalidation,
+            // a paused frame would never retry a failed native upload.
+            playback.InvalidateLastTime();
+            throw;
+        }
     }
 
     private void UploadPendingPlaybackTimeline()
