@@ -263,17 +263,17 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
     {
         UpdateDecorationPlayback(chartTime);
-        if (_session is NativeRendererSession session &&
-            _playbackAnchorGate.ShouldSend(chartTime, chartRate, active, playing))
-            session.SetPlaybackAnchor(chartTime, chartRate, active, playing);
+        if (_session is NativeRendererSession session)
+            _playbackAnchorGate.Dispatch(chartTime, chartRate, active, playing,
+                () => session.SetPlaybackAnchor(chartTime, chartRate, active, playing));
     }
 
     public void ClearPlayback()
     {
         UpdateDecorationPlayback(double.NegativeInfinity);
-        if (_session is NativeRendererSession session &&
-            _playbackAnchorGate.ShouldSend(0.0, 1.0, active: false, playing: false))
-            session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
+        if (_session is NativeRendererSession session)
+            _playbackAnchorGate.Dispatch(0.0, 1.0, active: false, playing: false,
+                () => session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false));
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
