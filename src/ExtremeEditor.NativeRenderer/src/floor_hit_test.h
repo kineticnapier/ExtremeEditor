@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <algorithm>
+#include <vector>
 #include <limits>
 #include <span>
 
@@ -33,4 +35,31 @@ inline std::int32_t SelectNearestFloorHit(
     }
     return best_floor;
 }
+ 
+// The foremost visible floor wins. Repeated clicks at the same screen point
+// advance through overlapping floors, wrapping from back to front.
+inline std::int32_t SelectFrontmostFloorHit(
+    std::span<const FloorHitCandidate> candidates,
+    float maximum_distance_squared,
+    std::int32_t previous_floor,
+    bool repeated_click)
+{
+    std::vector<FloorHitCandidate> covered;
+    for (const auto& candidate : candidates)
+        if (candidate.distance_squared <= maximum_distance_squared)
+            covered.push_back(candidate);
+    std::sort(covered.begin(), covered.end(), [](const auto& a, const auto& b) {
+        if (a.draw_depth != b.draw_depth)
+            return a.draw_depth < b.draw_depth;
+        return a.floor > b.floor;
+    });
+    if (covered.empty())
+        return -1;
+    if (repeated_click)
+        for (std::size_t i = 0; i < covered.size(); ++i)
+            if (static_cast<std::int32_t>(covered[i].floor) == previous_floor)
+                return static_cast<std::int32_t>(covered[(i + 1) % covered.size()].floor);
+    return static_cast<std::int32_t>(covered.front().floor);
+}
+
 }

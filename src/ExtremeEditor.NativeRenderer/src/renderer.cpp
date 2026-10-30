@@ -981,7 +981,13 @@ std::int32_t Renderer::SelectFloorAt(int screen_x, int screen_y) noexcept
             FloorDrawDepth(index, floor.track_sorting_offset, scene_->floors.size())});
     }
 
-    const std::int32_t best_floor = SelectNearestFloorHit(hits, radius * radius);
+    const bool repeated_click = has_last_floor_click_ &&
+        std::abs(screen_x - last_floor_click_.x) <= 3 &&
+        std::abs(screen_y - last_floor_click_.y) <= 3;
+    const std::int32_t best_floor = SelectFrontmostFloorHit(
+        hits, radius * radius, selected_floor_, repeated_click);
+    last_floor_click_ = {screen_x, screen_y};
+    has_last_floor_click_ = best_floor >= 0;
     selected_floor_ = best_floor;
     return selected_floor_;
 }

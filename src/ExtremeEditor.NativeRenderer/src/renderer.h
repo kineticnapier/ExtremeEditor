@@ -158,6 +158,8 @@ private:
     float camera_y_ = 0.0f;
     float zoom_ = 28.0f;
     std::int32_t selected_floor_ = -1;
+    POINT last_floor_click_{-100000, -100000};
+    bool has_last_floor_click_ = false;
     std::shared_ptr<const std::vector<std::int32_t>> selected_floors_ =
         std::make_shared<std::vector<std::int32_t>>();
     bool clean_view_ = false;
