@@ -13,6 +13,7 @@ internal static class PlaybackSetupRegression
         Directory.CreateDirectory(directory);
         string levelPath = Path.Combine(directory, "level.adofai");
         string songPath = Path.Combine(directory, "song.ogg");
+        LevelDocument? level = null;
 
         try
         {
@@ -36,7 +37,7 @@ internal static class PlaybackSetupRegression
             """);
             File.WriteAllBytes(songPath, [0]);
 
-            LevelDocument level = AdoFaiLoader.Load(levelPath).Document;
+            level = AdoFaiLoader.Load(levelPath).Document;
             Assembly assembly = typeof(LevelViewport).Assembly;
             Type builderType = assembly.GetType("ExtremeEditor.Wpf.WpfPlaybackSetupBuilder")
                 ?? throw new InvalidOperationException("WpfPlaybackSetupBuilder does not exist yet.");
@@ -73,8 +74,23 @@ internal static class PlaybackSetupRegression
         }
         finally
         {
-            if (Directory.Exists(directory))
-                Directory.Delete(directory, recursive: true);
+            try
+            {
+                // WpfPlaybackSetupBuilder.Build starts native preparation on a
+                // background task. Do not delete its source chart while that
+                // task can still read assets from the temporary directory.
+                if (level is not null &&
+                    NativeLoadPreparationCache.TryGetLevel(level, out var preparation) &&
+                    preparation is not null)
+                    preparation.GetAwaiter().GetResult();
+            }
+            finally
+            {
+                if (level is not null)
+                    NativeLoadPreparationCache.InvalidateLevel(level);
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, recursive: true);
+            }
         }
     }
 }

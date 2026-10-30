@@ -862,7 +862,8 @@ internal static class Program
                 "1",
                 StringComparison.Ordinal))
             {
-                WinFormsHostRemovalRegression.Run();
+                VerifyFailureDiagnostics();
+            WinFormsHostRemovalRegression.Run();
                 Console.WriteLine("PASS: legacy WinForms host removal regression is valid.");
                 return 0;
             }
@@ -1040,9 +1041,35 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"FAIL: {ex.Message}");
+            Console.Error.WriteLine(FormatFailure(ex));
             return 1;
         }
+    }
+
+    // Include the exception type and call stack when a Windows CI regression fails.
+    // The message alone cannot identify which fixture or cleanup path held a file.
+    private static string FormatFailure(Exception exception) => $"FAIL: {exception}";
+
+    private static void VerifyFailureDiagnostics()
+    {
+        static void ThrowDiagnosticFailure() =>
+            throw new IOException("injected diagnostic failure");
+
+        try
+        {
+            ThrowDiagnosticFailure();
+        }
+        catch (IOException exception)
+        {
+            string diagnostic = FormatFailure(exception);
+            if (diagnostic.Contains("System.IO.IOException", StringComparison.Ordinal) &&
+                diagnostic.Contains("injected diagnostic failure", StringComparison.Ordinal) &&
+                diagnostic.Contains(nameof(ThrowDiagnosticFailure), StringComparison.Ordinal))
+                return;
+        }
+
+        throw new InvalidOperationException(
+            "WPF test failures must preserve exception type, message and call stack.");
     }
 
     private static void VerifyFloorGeometryIsCachedAndFrozen()

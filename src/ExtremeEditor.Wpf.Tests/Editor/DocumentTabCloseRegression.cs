@@ -42,7 +42,7 @@ internal static class DocumentTabCloseRegression
         string refresh = ExtractMethodBody(source, "private void RefreshActiveDocumentTab(");
         Require(source.Contains("close.Click +=", StringComparison.Ordinal) &&
                 source.Contains("CloseDocumentTab(tab)", StringComparison.Ordinal) &&
-                source.Contains("activate.Click += (_, _) => _ = ActivateDocumentTab(tab)", StringComparison.Ordinal),
+                source.Contains("activate.Click += (_, _) => RequestDocumentTabActivation(tab)", StringComparison.Ordinal),
             "Close and activate must be separate clickable controls.");
 
         string keybinds = File.ReadAllText(FindSourceFile(

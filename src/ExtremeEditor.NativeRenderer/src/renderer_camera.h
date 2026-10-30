@@ -1,6 +1,7 @@
 #pragma once
 
 #include "d2d_backend.h"
+#include "camera_component_lookup.h"
 
 #include <vector>
 
@@ -45,10 +46,12 @@ CameraVisualState CalculateCameraVisual(
     const LevelScene* scene,
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
-    double chart_time) noexcept;
+    double chart_time,
+    const CameraComponentLookup* lookup = nullptr) noexcept;
 
 CameraVisualState CalculateCameraVisual(
     const std::vector<EeCameraEvent>* events,
     const PlaybackVisualState& playback,
-    double chart_time) noexcept;
+    double chart_time,
+    const CameraComponentLookup* lookup = nullptr) noexcept;
 }

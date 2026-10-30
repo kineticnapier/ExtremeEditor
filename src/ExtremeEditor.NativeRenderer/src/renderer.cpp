@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
 #include "follow_camera_state.h"
@@ -708,14 +709,10 @@ EeBackgroundState ResolveBackgroundAtTime(
 {
     const BackgroundRuntime runtime{};
     EeBackgroundState state = runtime.initial;
-    if (events == nullptr)
-        return state;
-    for (const auto& event : *events)
-    {
-        if (event.start_time > chart_time)
-            break;
-        state = event.state;
-    }
+    const EeBackgroundEvent* event =
+        FindLastBackgroundEventAtOrBefore(events, chart_time);
+    if (event != nullptr)
+        state = event->state;
     return state;
 }
 
@@ -1267,6 +1264,7 @@ void Renderer::RenderLoop() noexcept
         std::shared_ptr<const IconAssetTable> icon_assets;
         std::shared_ptr<const std::vector<EePlaybackTiming>> playback_timings;
         std::shared_ptr<const std::vector<EeCameraEvent>> camera_events;
+        std::shared_ptr<const CameraComponentLookup> camera_component_lookup;
         std::shared_ptr<const std::vector<EeFlashEvent>> flash_events;
         std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events;
         std::shared_ptr<const std::vector<EeScreenTileEvent>> screen_tile_events;
@@ -1312,6 +1310,7 @@ void Renderer::RenderLoop() noexcept
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;
             camera_events = camera_events_;
+            camera_component_lookup = camera_component_lookup_;
             flash_events = flash_events_;
             bloom_events = bloom_events_;
             screen_tile_events = screen_tile_events_;
@@ -1410,7 +1409,8 @@ void Renderer::RenderLoop() noexcept
                 camera_playback.stationary_y = follow_camera.y;
 
                 CameraVisualState camera_visual = CalculateCameraVisual(
-                    camera_events.get(), camera_playback, chart_time);
+                    camera_events.get(), camera_playback, chart_time,
+                    camera_component_lookup.get());
                 if (camera_visual.active)
                 {
                     render_camera_x = camera_visual.x;

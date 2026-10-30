@@ -1,4 +1,5 @@
 #include "native_window.h"
+#include "win32_window_extent.h"
 #include "renderer.h"
 
 #include <mutex>
@@ -73,8 +74,8 @@ bool NativeWindow::Create(HWND parent, std::uint32_t width, std::uint32_t height
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
         0,
         0,
-        static_cast<int>(width),
-        static_cast<int>(height),
+        ToWin32WindowExtent(width),
+        ToWin32WindowExtent(height),
         parent,
         nullptr,
         GetModuleHandleW(nullptr),
@@ -98,6 +99,6 @@ void NativeWindow::Resize(std::uint32_t width, std::uint32_t height) noexcept
     if (hwnd_ == nullptr)
         return;
 
-    MoveWindow(hwnd_, 0, 0, static_cast<int>(width), static_cast<int>(height), TRUE);
+    MoveWindow(hwnd_, 0, 0, ToWin32WindowExtent(width), ToWin32WindowExtent(height), TRUE);
 }
 }

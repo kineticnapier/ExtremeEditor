@@ -41,7 +41,22 @@ public partial class MainWindow
         CreateNewDocumentTab();
     }
 
-    private void CreateNewDocumentTab()
+    private async void CreateNewDocumentTab()
+    {
+        // This is a WPF command path. Observe failures instead of leaving
+        // an unhandled exception on a discarded task.
+        try
+        {
+            await CreateNewDocumentTabAsync();
+        }
+        catch (Exception ex)
+        {
+            if (!_isClosed)
+                StatusText.Text = $"Could not create tab: {ex.Message}";
+        }
+    }
+
+    private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()
     {
         _ = CreateNewDocumentTabAsync();
     }
@@ -98,8 +113,16 @@ public partial class MainWindow
         EditorDocumentTab tab,
         Native.PreparedNativeLevel? preparedLevel = null,
         bool deferPlaybackTimeline = false,
-        bool allowDuringWindowClose = false)
+        bool allowDuringWindowClose = false,
+        bool fromTabCycle = false)
     {
+        // A direct tab click cancels any still-preparing Ctrl+Tab request.
+        if (!fromTabCycle && _pendingTabNavigationTarget is not null)
+        {
+            _pendingTabNavigationTarget = null;
+            ++_tabActivationGeneration;
+        }
+
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
             !_documentTabs.Tabs.Contains(tab))
             return false;
@@ -119,21 +142,27 @@ public partial class MainWindow
         }
 
         int activationGeneration = ++_tabActivationGeneration;
-        WpfPlaybackSetup? builtPlayback = null;
-        TimingMap targetTimingMap = tab.TimingMap ??
-            (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
-        HitSoundTimeline targetHitSoundTimeline = tab.HitSoundTimeline ??
-            builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
-
-        Task<Native.PreparedNativeLevel> levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
-            ? Task.FromResult(readyLevel)
-            : NativeLoadPreparationCache.StartLevel(tab.Document);
-        Task<Native.PreparedNativePlayback>? playbackPreparation = deferPlaybackTimeline
-            ? null
-            : NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap);
+        TimingMap targetTimingMap;
+        HitSoundTimeline targetHitSoundTimeline;
+        Task<Native.PreparedNativeLevel> levelPreparation;
+        Task<Native.PreparedNativePlayback>? playbackPreparation;
         var preparationWatch = Stopwatch.StartNew();
         try
         {
+            // Both synchronous setup and asynchronous preparation can fail.
+            // Keep every preparation step inside the same error boundary.
+            WpfPlaybackSetup? builtPlayback = null;
+            targetTimingMap = tab.TimingMap ??
+                (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
+            targetHitSoundTimeline = tab.HitSoundTimeline ??
+                builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
+
+            levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
+                ? Task.FromResult(readyLevel)
+                : NativeLoadPreparationCache.StartLevel(tab.Document);
+            playbackPreparation = deferPlaybackTimeline
+                ? null
+                : NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap);
             if (playbackPreparation is null)
                 await levelPreparation;
             else
@@ -152,17 +181,87 @@ public partial class MainWindow
         double preparationWaitMs = preparationWatch.Elapsed.TotalMilliseconds;
         if (activationGeneration != _tabActivationGeneration || _isClosed ||
             !_documentTabs.Tabs.Contains(tab))
+        {
+            if (activationGeneration == _tabActivationGeneration &&
+                fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                _pendingTabNavigationTarget = null;
             return false;
+        }
 
         tab.TimingMap = targetTimingMap;
         tab.HitSoundTimeline = targetHitSoundTimeline;
 
-        // Resolve a pending edit's playback timing before leaving the current
-        // chart, so no deferred timer can update a different tab afterwards.
+        // Finish any pending edits while the old tab is still active. The
+        // native upload must succeed before committing the managed tab switch.
         FlushEditorPlaybackRefresh();
-        StopPlayback();
-
         EditorDocumentTab? previous = _documentTabs.ActiveTab;
+        Native.PreparedNativeLevel nativeLevel = await levelPreparation;
+        Native.PreparedNativePlayback? nativePlayback = deferPlaybackTimeline
+            ? null : await playbackPreparation!;
+
+        NativeLevelLoadMetrics levelMetrics = default;
+        double levelWaitMs = preparationWaitMs;
+        double levelUploadMs = 0.0;
+        double playbackWaitMs = nativePlayback.HasValue ? preparationWaitMs : 0.0;
+        double playbackUploadMs = 0.0;
+        var uploadWatch = new Stopwatch();
+        Action? uploadPlayback = null;
+        if (nativePlayback is Native.PreparedNativePlayback playback)
+        {
+            uploadPlayback = () =>
+            {
+                uploadWatch.Restart();
+                NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
+                playbackUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+            };
+        }
+
+        bool uploaded = TryUploadDocumentTabScene(
+            uploadLevel: () =>
+            {
+                uploadWatch.Restart();
+                levelMetrics = NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
+                levelUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
+            },
+            uploadPlayback: uploadPlayback,
+            restorePrevious: () =>
+            {
+                if (previous is null)
+                    return;
+
+                // The target may have changed the renderer before throwing.
+                // Reapply the old level, timelines and selection, even when
+                // only a later timeline upload failed.
+                NativeViewport.SetLevelProfiled(previous.Document);
+                if (_timingMap is TimingMap previousTiming)
+                    NativeViewport.SetPlaybackTimelineProfiled(previousTiming);
+                NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+            },
+            out Exception? uploadError,
+            out Exception? restoreError,
+            beforeCommit: () =>
+            {
+                // Selection is a native upload too. Do it before the managed
+                // tab switch, while a failed upload can still restore the old scene.
+                NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
+                StopPlayback();
+            });
+        if (!uploaded)
+        {
+            if (activationGeneration == _tabActivationGeneration && !_isClosed)
+            {
+                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
+                    _pendingTabNavigationTarget = null;
+                string recovery = restoreError is null
+                    ? string.Empty
+                    : $" Renderer recovery also failed: {restoreError.Message}";
+                StatusText.Text = $"Could not activate {tab.DisplayName}: {uploadError!.Message}.{recovery}";
+            }
+            return false;
+        }
+
+        // The old playback was stopped inside the guarded upload transaction.
+        // Only now commit the new editor, document, audio and selection state.
         if (previous is not null)
         {
             previous.Audio = _audio;
@@ -188,32 +287,6 @@ public partial class MainWindow
         ApplySharedPlaybackPreferences(_audio);
         _timingMap = targetTimingMap;
         _hitSoundTimeline = targetHitSoundTimeline;
-
-        // NativeLevelViewport remains a single HWND. Restore the immutable
-        // prepared snapshot for this document instead of rebuilding the entire
-        // chart whenever the user returns to its tab.
-        Native.PreparedNativeLevel nativeLevel = await levelPreparation;
-        double levelWaitMs = preparationWaitMs;
-
-        var uploadWatch = Stopwatch.StartNew();
-        NativeLevelLoadMetrics levelMetrics =
-            NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel);
-        double levelUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
-
-        double playbackWaitMs = 0.0;
-        double playbackUploadMs = 0.0;
-        if (!deferPlaybackTimeline)
-        {
-            if (_timingMap is null)
-                throw new InvalidOperationException("Active tab has no playback timing map.");
-
-            Native.PreparedNativePlayback playback = await playbackPreparation!;
-            playbackWaitMs = preparationWaitMs;
-
-            uploadWatch.Restart();
-            NativeViewport.SetPreparedPlaybackTimelineProfiled(playback);
-            playbackUploadMs = uploadWatch.Elapsed.TotalMilliseconds;
-        }
 
         Console.WriteLine(
             $"[tab-switch] chart={tab.DisplayName} " +
@@ -252,6 +325,64 @@ public partial class MainWindow
             ReferenceEquals(_pendingTabNavigationTarget, tab))
             _pendingTabNavigationTarget = null;
         return true;
+    }
+
+    // The upload may fail after changing only part of the shared native scene.
+    // Keep the managed tab unchanged and attempt to restore the old scene.
+    // A failed recovery is reported separately rather than hiding the cause.
+    internal static bool TryUploadDocumentTabScene(
+        Action uploadLevel,
+        Action? uploadPlayback,
+        Action restorePrevious,
+        out Exception? uploadError,
+        out Exception? restoreError,
+        Action? beforeCommit = null)
+    {
+        ArgumentNullException.ThrowIfNull(uploadLevel);
+        ArgumentNullException.ThrowIfNull(restorePrevious);
+        uploadError = null;
+        restoreError = null;
+        try
+        {
+            uploadLevel();
+            uploadPlayback?.Invoke();
+            // StopPlayback can fail while clearing the shared native anchor.
+            // Treat that failure like an upload fault before changing ActiveTab.
+            beforeCommit?.Invoke();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            uploadError = ex;
+            try
+            {
+                restorePrevious();
+            }
+            catch (Exception recoveryException)
+            {
+                restoreError = recoveryException;
+            }
+            return false;
+        }
+    }
+
+    internal static EditorDocumentTab? SelectNextDocumentTab(
+        EditorDocumentTabs tabs, EditorDocumentTab? pendingTarget, bool backwards)
+    {
+        if (tabs.Tabs.Count <= 1)
+            return null;
+
+        // Count rapid key presses from the most recently requested destination,
+        // not the old active tab whose native preparation has yet to finish.
+        EditorDocumentTab? origin = pendingTarget is not null &&
+            tabs.Tabs.Contains(pendingTarget) ? pendingTarget : tabs.ActiveTab;
+        int currentIndex = origin is null ? -1 : tabs.Tabs.ToList().IndexOf(origin);
+        if (currentIndex < 0)
+            return null;
+
+        int offset = backwards ? -1 : 1;
+        int nextIndex = (currentIndex + offset + tabs.Tabs.Count) % tabs.Tabs.Count;
+        return tabs.Tabs[nextIndex];
     }
 
     private void CycleDocumentTab(bool backwards)
@@ -389,28 +520,27 @@ public partial class MainWindow
         }
     }
 
-    private async Task SaveAndCloseDocumentTabAsync(EditorDocumentTab tab)
+    private async Task<bool> SaveAndCloseDocumentTabAsync(EditorDocumentTab tab)
     {
-        // SaveCurrentAsync saves only the active document.
+        // Keep the outer close-operation guard held throughout activation and
+        // Save As. A second Ctrl+W must not close a dirty tab mid-save.
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
             await ActivateDocumentTab(tab);
         if (!ReferenceEquals(_documentTabs.ActiveTab, tab))
-            return;
+            return false;
 
-        bool saved = false;
         _tabCloseSavePending = true;
         try
         {
-            saved = await SaveCurrentAsync(saveAs: false);
+            bool saved = await SaveCurrentAsync(saveAs: false);
+            // Canceled Save As, save failure or a newly-dirty tab stays open.
+            return saved && !tab.IsDirty && !_isClosed &&
+                   _documentTabs.Tabs.Contains(tab);
         }
         finally
         {
             _tabCloseSavePending = false;
         }
-
-        // Canceled Save As, save failure or a newly-dirty tab stays open.
-        if (saved && !tab.IsDirty && !_isClosed && _documentTabs.Tabs.Contains(tab))
-            CloseDocumentTab(tab);
     }
 
     private void RefreshActiveDocumentTab()
@@ -510,7 +640,7 @@ public partial class MainWindow
             Margin = new Thickness(0), Padding = new Thickness(12, 2, 6, 2),
             Background = Brushes.Transparent
         };
-        activate.Click += (_, _) => _ = ActivateDocumentTab(tab);
+        activate.Click += (_, _) => RequestDocumentTabActivation(tab);
         var close = new Button
         {
             Content = "×", FontSize = 14, MinWidth = 25, MinHeight = 26,

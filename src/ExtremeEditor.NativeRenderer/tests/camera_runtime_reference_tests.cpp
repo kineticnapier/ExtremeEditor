@@ -168,12 +168,60 @@ void VerifyPlayerTweenStaysInMovingPlayerFrame()
 }
 }
 
+void VerifyIndexedCameraParity()
+{
+    std::vector<EeCameraEvent> events;
+    events.reserve(10000);
+    for (int i = 0; i < 10000; ++i)
+    {
+        EeCameraEvent item{};
+        item.start_time = static_cast<double>(i / 3);
+        item.duration_seconds = 5.0;
+        item.start_x = static_cast<float>(i % 100);
+        item.target_x = item.start_x + 10.0f;
+        item.start_y = static_cast<float>(i % 75);
+        item.target_y = item.start_y - 4.0f;
+        item.start_rotation = static_cast<float>(i % 360);
+        item.target_rotation = item.start_rotation + 30.0f;
+        item.start_zoom = 1.0f;
+        item.target_zoom = 2.0f;
+        item.ease = EE_CAMERA_EASE_LINEAR;
+        item.flags = i == 0
+            ? EE_CAMERA_APPLY_X | EE_CAMERA_APPLY_Y | EE_CAMERA_APPLY_ROTATION | EE_CAMERA_APPLY_ZOOM
+            : i % 101 == 0 ? EE_CAMERA_APPLY_ZOOM
+            : i % 37 == 0 ? EE_CAMERA_APPLY_ROTATION
+            : i % 3 == 0 ? EE_CAMERA_APPLY_Y : EE_CAMERA_APPLY_X;
+        if (i % 29 == 0)
+            item.flags |= EE_CAMERA_TARGET_PLAYER_X;
+        events.push_back(item);
+    }
+
+    const auto lookup = ee::CameraComponentLookup::Build(events,
+        {EE_CAMERA_APPLY_X, EE_CAMERA_APPLY_Y,
+         EE_CAMERA_APPLY_ROTATION, EE_CAMERA_APPLY_ZOOM});
+    const auto playback = MakePlayback(12.0f, -7.0f);
+    for (double time : {-1.0, 0.0, 1.0, 20.5, 500.0, 3333.0, 99999.0})
+    {
+        const auto original = ee::CalculateCameraVisual(
+            nullptr, &events, playback, time);
+        const auto indexed = ee::CalculateCameraVisual(
+            nullptr, &events, playback, time, &lookup);
+        ExpectNear(indexed.x, original.x, 0.0001f, "Indexed X must match original");
+        ExpectNear(indexed.y, original.y, 0.0001f, "Indexed Y must match original");
+        ExpectNear(indexed.rotation, original.rotation, 0.0001f,
+            "Indexed rotation must match original");
+        ExpectNear(indexed.zoom_multiplier.multiplier, original.zoom_multiplier.multiplier,
+            0.0001f, "Indexed zoom must match original");
+    }
+}
+
 int main()
 {
     VerifyTileTargetIsFrozenWhenEventStarts();
     VerifyPlayerToTileSwitchPreservesWorldStart();
     VerifyReplacementTweenStartsFromCompletedPreviousTarget();
     VerifyPlayerTweenStaysInMovingPlayerFrame();
+    VerifyIndexedCameraParity();
     std::cout << "PASS: ADOFAI camera rig compatibility regressions are valid.\n";
     return 0;
 }
