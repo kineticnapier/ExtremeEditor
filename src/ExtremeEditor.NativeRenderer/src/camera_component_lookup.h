@@ -2,7 +2,9 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace ee
@@ -12,14 +14,22 @@ namespace ee
 class CameraComponentLookup
 {
 public:
-    using Indices = std::array<std::size_t, 4>;
-    static constexpr std::size_t Missing = std::numeric_limits<std::size_t>::max();
+    // The native upload API caps the event count at uint32_t. Store four
+    // 32-bit indices rather than four platform-sized indices per event.
+    using Index = std::uint32_t;
+    using Indices = std::array<Index, 4>;
+    static constexpr Index Missing = std::numeric_limits<Index>::max();
 
     template <typename Event>
     static CameraComponentLookup Build(
         const std::vector<Event>& events,
         const std::array<unsigned int, 4>& apply_flags)
     {
+        // Missing is reserved as a sentinel, so the last valid index must
+        // remain strictly below it. Direct callers are checked as well.
+        if (events.size() > static_cast<std::size_t>(Missing))
+            throw std::length_error("Camera timeline exceeds 32-bit index range");
+
         CameraComponentLookup lookup;
         lookup.last_.reserve(events.size());
         Indices last{Missing, Missing, Missing, Missing};
@@ -28,7 +38,7 @@ public:
             for (std::size_t component = 0; component < last.size(); ++component)
             {
                 if ((events[i].flags & apply_flags[component]) != 0u)
-                    last[component] = i;
+                    last[component] = static_cast<Index>(i);
             }
             lookup.last_.push_back(last);
         }
