@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -40,6 +42,26 @@ internal static class NativeSceneReuseRegression
                 background < commit && commit < nativeUpload &&
                 !upload.Contains("_snapshot = result.Snapshot;", StringComparison.Ordinal),
             "A rebuilt snapshot must be committed only after decorations and background assets are ready.");
+
+        // When a native animated-decoration upload fails, the managed
+        // playback runtime must forget its last timestamp. Otherwise a paused
+        // frame at the same chart time is silently skipped on retry.
+        var playbackRuntime = new NativeDecorationPlaybackRuntime([], []);
+        FieldInfo? lastTime = typeof(NativeDecorationPlaybackRuntime).GetField(
+            "_lastTime", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(lastTime is not null, "Animated decoration playback must track its last time.");
+        lastTime!.SetValue(playbackRuntime, 12.5d);
+        playbackRuntime.InvalidateLastTime();
+        Require(lastTime.GetValue(playbackRuntime) is double value && double.IsNaN(value),
+            "Invalidation must permit a same-time animation update after upload failure.");
+
+        string decorationUpload = preparation[
+            preparation.IndexOf("private void UpdateDecorationPlayback(", StringComparison.Ordinal)..
+            preparation.IndexOf("private void UploadPendingPlaybackTimeline(", StringComparison.Ordinal)];
+        Require(decorationUpload.Contains("playback.InvalidateLastTime();", StringComparison.Ordinal) &&
+                decorationUpload.Contains("catch", StringComparison.Ordinal) &&
+                decorationUpload.Contains("throw;", StringComparison.Ordinal),
+            "The viewport must invalidate animated-decoration time and rethrow failed native uploads.");
 
         string bridge = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererNative.cs");
         Require(bridge.Contains("TryActivateCachedLevel", StringComparison.Ordinal) &&
