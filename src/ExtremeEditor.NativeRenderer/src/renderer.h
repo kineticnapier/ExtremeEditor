@@ -1,5 +1,6 @@
 #pragma once
 #include "position_track_drag.h"
+#include "camera_component_lookup.h"
 
 #include "decoration_assets.h"
 #include "icon_assets.h"
@@ -138,6 +139,8 @@ private:
         std::make_shared<std::vector<EePlaybackTiming>>();
     std::shared_ptr<const std::vector<EeCameraEvent>> camera_events_ =
         std::make_shared<std::vector<EeCameraEvent>>();
+    // Protected by scene_mutex_ and published with camera_events_.
+    std::shared_ptr<const CameraComponentLookup> camera_component_lookup_;
     std::shared_ptr<const std::vector<EeFlashEvent>> flash_events_ =
         std::make_shared<std::vector<EeFlashEvent>>();
     std::shared_ptr<const std::vector<EeBloomEvent>> bloom_events_ =
