@@ -81,6 +81,7 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal),
             "Shared selection changes must suppress redundant native uploads only during tab activation.");
         VerifyNativeUploadRollback();
+        VerifyStopPlaybackNativeFailureOrdering();
         VerifyPreparedLevelStateIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
         VerifyDirectPlaybackRefreshIsAtomic();
@@ -101,6 +102,22 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+    }
+
+    private static void VerifyStopPlaybackNativeFailureOrdering()
+    {
+        // The tab-switch transaction can roll back native uploads. A failed
+        // ClearPlayback must leave the old tab's audio and silent clock intact.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string stop = ExtractMethodBody(source, "private void StopPlayback()");
+        int nativeClear = stop.IndexOf("NativeViewport.ClearPlayback();", StringComparison.Ordinal);
+        int audioStop = stop.IndexOf("_audio.Stop();", StringComparison.Ordinal);
+        int silentClear = stop.IndexOf("ClearSilentPlaybackState();", StringComparison.Ordinal);
+        int uiUpdate = stop.IndexOf("PlayButton.Content = \"Play\";", StringComparison.Ordinal);
+        Require(nativeClear >= 0 && nativeClear < audioStop &&
+                audioStop < silentClear && silentClear < uiUpdate,
+            "Native playback clearing must succeed before audio and UI state are stopped.");
     }
 
     private static void VerifyPreparedLevelStateIsAtomic()
