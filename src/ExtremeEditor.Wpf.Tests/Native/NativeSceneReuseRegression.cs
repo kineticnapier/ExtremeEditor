@@ -94,9 +94,49 @@ internal static class NativeSceneReuseRegression
         Require(cache.Contains("ByLevel.Remove(level)", StringComparison.Ordinal),
             "Edits must discard their existing prepared snapshot and therefore its native scene identity.");
 
+        VerifyShutdownClearsNativeCaches();
+
         string tabs = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
         Require(tabs.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document,", StringComparison.Ordinal),
             "Tab reactivation must continue through the prepared viewport path.");
+    }
+
+    private static void VerifyShutdownClearsNativeCaches()
+    {
+        // HwndHost may already have destroyed its child before the window
+        // invokes ShutdownRenderer. Even that no-session path must release
+        // managed references to the old camera timeline and invalidate the
+        // paused playback anchor for a possible later renderer creation.
+        var viewport = new NativeLevelViewport();
+        Type type = typeof(NativeLevelViewport);
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        FieldInfo? sourceField = type.GetField("_cameraUploadedSource", flags);
+        FieldInfo? heightField = type.GetField("_cameraUploadedHeight", flags);
+        FieldInfo? sessionField = type.GetField("_cameraUploadSession", flags);
+        FieldInfo? anchorField = type.GetField("_playbackAnchorGate", flags);
+        Require(sourceField is not null && heightField is not null &&
+                sessionField is not null && anchorField is not null,
+            "Native shutdown cache fields must remain available.");
+
+        var previousCamera = new NativeCameraEvent[2];
+        sourceField!.SetValue(viewport, previousCamera);
+        heightField!.SetValue(viewport, 720u);
+        var gate = (NativePlaybackAnchorDispatchGate)anchorField!.GetValue(viewport)!;
+        Require(gate.ShouldSend(1.0, 1.0, active: false, playing: false) &&
+                !gate.ShouldSend(1.0, 1.0, active: false, playing: false),
+            "A stopped anchor must be cached before shutdown.");
+
+        viewport.ShutdownRenderer();
+
+        Require(sourceField.GetValue(viewport) is null &&
+                heightField.GetValue(viewport) is uint height && height == 0u &&
+                sessionField!.GetValue(viewport) is null,
+            "Shutdown without a live session must release camera cache references.");
+        Require(gate.ShouldSend(1.0, 1.0, active: false, playing: false),
+            "Shutdown must invalidate the previous renderer's playback anchor.");
+
+        // Repeated shutdowns must be safe when the child HWND is already gone.
+        viewport.ShutdownRenderer();
     }
 
     private static void Require(bool condition, string message)
