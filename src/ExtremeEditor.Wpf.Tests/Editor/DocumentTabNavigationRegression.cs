@@ -63,13 +63,23 @@ internal static class DocumentTabNavigationRegression
             "Timing-map building and native preparation must share an exception boundary before activation.");
         int nativeUpload = activate.IndexOf("TryUploadDocumentTabScene(", StringComparison.Ordinal);
         int nativeCommit = activate.IndexOf("_documentTabs.Activate(tab)", StringComparison.Ordinal);
-        int stopAudio = activate.IndexOf("beforeCommit: StopPlayback", StringComparison.Ordinal);
-        Require(nativeUpload > setupCatch && nativeUpload < stopAudio &&
-                stopAudio < nativeCommit &&
+        int nativeSelection = activate.IndexOf(
+            "NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor)", StringComparison.Ordinal);
+        int stopAudio = activate.IndexOf("StopPlayback();", nativeSelection, StringComparison.Ordinal);
+        Require(nativeUpload > setupCatch && nativeUpload < nativeSelection &&
+                nativeSelection < stopAudio && stopAudio < nativeCommit &&
                 activate.Contains("NativeViewport.SetLevelProfiled(previous.Document)", StringComparison.Ordinal) &&
                 activate.Contains("NativeViewport.SetPlaybackTimelineProfiled(previousTiming)", StringComparison.Ordinal) &&
-                !activate.Contains("        StopPlayback();", StringComparison.Ordinal),
-            "A failed native upload must restore the previous scene before stopping audio or committing the tab.");
+                activate.Contains("_suppressNativeSelectionUpload = true;", StringComparison.Ordinal) &&
+                !activate.Contains("NativeViewport.ClearPlayback();", StringComparison.Ordinal) &&
+                !activate.Contains("NativeViewport.SetSelection(_selection.SelectedFloors", StringComparison.Ordinal),
+            "Native selection and playback clearing must finish inside the guarded upload, before committing the tab.");
+        string selection = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.Selection.cs"));
+        Require(selection.Contains("if (!_suppressNativeSelectionUpload)", StringComparison.Ordinal) &&
+                selection.Contains("NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor)",
+                    StringComparison.Ordinal),
+            "Shared selection changes must suppress redundant native uploads only during tab activation.");
         VerifyNativeUploadRollback();
         VerifyPreparedLevelStateIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
@@ -275,6 +285,19 @@ internal static class DocumentTabNavigationRegression
                 restoreError is null &&
                 steps.SequenceEqual(new[] { "level", "playback", "stop", "rollback" }),
             "Stopping playback after upload must roll back the old native scene on failure.");
+
+        steps.Clear();
+        var selectionFailure = new InvalidOperationException("injected native selection failure");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError,
+            beforeCommit: () => { steps.Add("selection"); throw selectionFailure; });
+        Require(!ok && ReferenceEquals(uploadError, selectionFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback", "selection", "rollback" }),
+            "A native selection upload failure must roll back before the managed tab commits.");
 
         steps.Clear();
         var recoveryFailure = new InvalidOperationException("injected recovery failure");
