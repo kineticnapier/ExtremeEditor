@@ -5,6 +5,7 @@ namespace ExtremeEditor.Wpf;
 public partial class MainWindow
 {
     private readonly EditorSelectionState _selection = new(0);
+    private bool _suppressNativeSelectionUpload;
 
     private void InitializeSharedSelectionState()
     {
@@ -16,7 +17,10 @@ public partial class MainWindow
 
     private void SharedSelectionChanged(object? sender, EventArgs e)
     {
-        NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
+        // A tab activation uploads its target selection before committing
+        // the managed tab. Do not repeat that native call after the commit.
+        if (!_suppressNativeSelectionUpload)
+            NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
         EnsureEditorSession();
         RefreshInspector();
         CommandManager.InvalidateRequerySuggested();
