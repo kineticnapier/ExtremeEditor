@@ -536,9 +536,12 @@ public partial class MainWindow : Window
 
     private void StopPlayback()
     {
+        // Keep the previous audio/clock running if the native playback clear
+        // fails. Tab activation can then restore the old native scene without
+        // having already stopped the audio for the still-active document.
+        NativeViewport.ClearPlayback();
         _audio.Stop();
         ClearSilentPlaybackState();
-        NativeViewport.ClearPlayback();
         PlayButton.Content = "Play";
         UpdateDiagnosticsDisplay("A --:--.--- | C --");
         CommandManager.InvalidateRequerySuggested();
