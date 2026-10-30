@@ -160,6 +160,11 @@ public sealed partial class NativeLevelViewport
             metrics.GeometryCount,
             metrics.IconAssetCount,
             metrics.ActionFloorCount);
+
+        // Normal tab activation uses the prepared upload path rather than
+        // SetLevel. Apply a welcome-screen FrameAll request here as well.
+        // A missing renderer or a failed upload keeps the request pending.
+        ApplyPendingFrameAll();
     }
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)
