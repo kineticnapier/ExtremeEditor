@@ -136,7 +136,7 @@ internal static class NativeSceneReuseRegression
                 NativeLevelViewport.ToPixelExtent(double.NaN, 1.5d) == 1u &&
                 NativeLevelViewport.ToPixelExtent(800d, double.NaN) == 800u &&
                 NativeLevelViewport.ToPixelExtent(800d, 0d) == 800u &&
-                NativeLevelViewport.ToPixelExtent(double.MaxValue, 2d) == 1u,
+                NativeLevelViewport.ToPixelExtent(double.MaxValue, 2d) == uint.MaxValue,
             "Invalid extents and DPI scales must not overflow or create zero-size native windows.");
 
         string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
