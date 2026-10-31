@@ -252,7 +252,11 @@ public partial class MainWindow
                 // tab switch, while a failed upload can still restore the old scene.
                 NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
                 if (tab.EditorCamera is Native.NativeEditorCameraState editorCamera)
-                    NativeViewport.RestoreEditorCamera(editorCamera);
+                {
+                    if (!NativeViewport.RestoreEditorCamera(editorCamera))
+                        throw new InvalidOperationException(
+                            "Could not restore the target native editor camera.");
+                }
                 else
                     NativeViewport.CenterFloor(tab.PrimaryFloor);
                 StopPlayback();
