@@ -101,8 +101,11 @@ public partial class MainWindow
             return;
         }
         JsonObject current = AdoFaiEditorSaveService.BuildEditableActionJson(editor, before);
+        // Newly created actions may omit fields that the editor displays as defaults.
+        // Use the displayed baseline to detect the first numeric edit correctly.
+        JsonObject conversionBaseline = _eventPropertyDraftBaseline ?? current;
         bool setSpeedDraftSynchronized = _level is not null &&
-            SetSpeedEditorConversion.SynchronizeDraft(_level, before, current, draft);
+            SetSpeedEditorConversion.SynchronizeDraft(_level, before, conversionBaseline, draft);
         if (setSpeedDraftSynchronized)
         {
             _eventPropertyDraft = (JsonObject)draft.DeepClone();
