@@ -133,6 +133,23 @@ internal static class DocumentTabScaffoldRegression
         var thirdDocument = LevelDocument.CreateSynthetic(2);
         var third = new EditorDocumentTab(thirdDocument, new EditorSession(thirdDocument));
 
+        // The initial Open/New flow stages its tab before native activation.
+        // A failed first upload must leave no active tab or orphaned entry.
+        var stagedTabs = new EditorDocumentTabs();
+        var stagedDocument = LevelDocument.CreateSynthetic(2);
+        var stagedTab = new EditorDocumentTab(
+            stagedDocument, new EditorSession(stagedDocument));
+        Require(stagedTabs.Add(stagedTab, activate: false) &&
+                stagedTabs.ActiveTab is null && stagedTabs.Tabs.Count == 1,
+            "Staging the first chart must not activate it before native upload.");
+        Require(stagedTabs.Remove(stagedTab) &&
+                stagedTabs.ActiveTab is null && stagedTabs.Tabs.Count == 0,
+            "A failed first activation can remove its uncommitted chart.");
+        Require(stagedTabs.Add(stagedTab, activate: false) &&
+                stagedTabs.Activate(stagedTab) &&
+                ReferenceEquals(stagedTabs.ActiveTab, stagedTab),
+            "The first chart becomes active only after an explicit successful activation.");
+
         Require(tabs.ActiveTab is null && tabs.Tabs.Count == 0,
             "A fresh tab collection has no active chart.");
         Require(tabs.Add(first), "First chart can be registered.");
