@@ -495,13 +495,13 @@ public partial class MainWindow
             !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
             return;
 
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
-            !TryCommitSettingsBeforeDocumentChange())
-            return;
-
         _tabCloseOperationPending = true;
         try
         {
+            if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                !TryCommitSettingsBeforeDocumentChange())
+                return;
+
             if (tab.IsDirty)
             {
                 MessageBoxResult answer = MessageBox.Show(
@@ -549,6 +549,13 @@ public partial class MainWindow
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
+        }
+        catch (Exception ex)
+        {
+            // async void callbacks must observe failures from Save, activation
+            // and native preparation instead of crashing the WPF dispatcher.
+            if (!_isClosed)
+                StatusText.Text = $"Could not close {tab.DisplayName}: {ex.Message}";
         }
         finally
         {
