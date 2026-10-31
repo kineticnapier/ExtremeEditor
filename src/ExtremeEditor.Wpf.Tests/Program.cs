@@ -14,9 +14,6 @@ internal static class Program
     {
         try
         {
-            SongSettingsAudioAsyncRegression.Run();
-            IncrementalActionPropertyEditRegression.Run();
-            LazyLevelMetadataRegression.Run();
             if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_IDLE_ANCHOR_ONLY"),
                 "1", StringComparison.Ordinal))
@@ -937,6 +934,10 @@ internal static class Program
                 return 0;
             }
 
+            FocusedTestDispatchRegression.Run();
+            SongSettingsAudioAsyncRegression.Run();
+            IncrementalActionPropertyEditRegression.Run();
+            LazyLevelMetadataRegression.Run();
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
