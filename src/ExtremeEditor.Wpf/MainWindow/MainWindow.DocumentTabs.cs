@@ -79,17 +79,25 @@ public partial class MainWindow
             return null;
         }
 
-        bool activated = await ActivateDocumentTab(tab);
-        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+        bool activated = false;
+        try
         {
-            // A failed or superseded activation must not leave an orphan tab.
-            if (_documentTabs.Remove(tab))
+            activated = await ActivateDocumentTab(tab);
+        }
+        finally
+        {
+            // An exception during activation must clean up the uncommitted tab
+            // just like an ordinary failed or superseded activation.
+            if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                _documentTabs.Remove(tab))
             {
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
-            return null;
         }
+
+        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+            return null;
 
         return tab;
     }
