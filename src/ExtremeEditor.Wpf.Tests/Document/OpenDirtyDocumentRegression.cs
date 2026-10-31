@@ -25,7 +25,7 @@ internal static class OpenDirtyDocumentRegression
         int loading = open.IndexOf("LoadLevelAsync(dialog.FileName)", StringComparison.Ordinal);
         Require(dialog >= 0 && duplicate > dialog && activation > duplicate && loading > activation &&
                 open.Contains("if (existing is not null)", StringComparison.Ordinal) &&
-                open.Contains("else\n                await LoadLevelAsync(dialog.FileName);", StringComparison.Ordinal),
+                System.Text.RegularExpressions.Regex.IsMatch(open, @"else\s+await\s+LoadLevelAsync\(dialog\.FileName\)\s*;"),
             "Opening the same path must use observed tab activation; only new paths may load a chart.");
 
         Require(load.Contains("new EditorDocumentTab(", StringComparison.Ordinal) &&
