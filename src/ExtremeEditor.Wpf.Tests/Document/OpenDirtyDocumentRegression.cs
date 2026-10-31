@@ -21,10 +21,12 @@ internal static class OpenDirtyDocumentRegression
 
         int dialog = open.IndexOf("dialog.ShowDialog(this)", StringComparison.Ordinal);
         int duplicate = open.IndexOf("_documentTabs.FindByPath(dialog.FileName)", StringComparison.Ordinal);
-        int activation = open.IndexOf("ActivateDocumentTab(", StringComparison.Ordinal);
+        int activation = open.IndexOf("RequestDocumentTabActivation(existing)", StringComparison.Ordinal);
         int loading = open.IndexOf("LoadLevelAsync(dialog.FileName)", StringComparison.Ordinal);
-        Require(dialog >= 0 && duplicate > dialog && activation > duplicate && loading > duplicate,
-            "Opening the same path must select the already-open tab without loading it again.");
+        Require(dialog >= 0 && duplicate > dialog && activation > duplicate && loading > activation &&
+                open.Contains("if (existing is not null)", StringComparison.Ordinal) &&
+                open.Contains("else\n                await LoadLevelAsync(dialog.FileName);", StringComparison.Ordinal),
+            "Opening the same path must use observed tab activation; only new paths may load a chart.");
 
         Require(load.Contains("new EditorDocumentTab(", StringComparison.Ordinal) &&
                 load.Contains("_documentTabs.Add(", StringComparison.Ordinal) &&
