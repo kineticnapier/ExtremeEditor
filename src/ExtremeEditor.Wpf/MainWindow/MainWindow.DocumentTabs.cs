@@ -515,8 +515,10 @@ public partial class MainWindow
                     return;
                 if (answer == MessageBoxResult.Yes)
                 {
-                    _ = SaveAndCloseDocumentTabAsync(tab);
-                    return;
+                    // Keep the close-operation guard held through Save/Save As.
+                    // Only close the tab after a successful, clean save.
+                    if (!await SaveAndCloseDocumentTabAsync(tab))
+                        return;
                 }
             }
 
