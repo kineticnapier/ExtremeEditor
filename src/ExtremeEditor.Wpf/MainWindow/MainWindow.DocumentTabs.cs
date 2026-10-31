@@ -515,6 +515,14 @@ public partial class MainWindow
             !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
             return;
 
+        // A concurrent Save As may finish after a tab-switch. Do not close
+        // its owner (or activate a replacement) while the write is pending.
+        if (_documentTabs.HasPendingSave(tab))
+        {
+            StatusText.Text = $"Wait for {tab.DisplayName} to finish saving before closing the tab.";
+            return;
+        }
+
         _tabCloseOperationPending = true;
         try
         {
