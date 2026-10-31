@@ -29,6 +29,16 @@ internal static class DocumentTabCloseRegression
         Require(close.Contains("_tabCloseOperationPending", StringComparison.Ordinal) &&
                 close.Contains("finally", StringComparison.Ordinal),
             "Concurrent close requests must not create multiple replacement tabs.");
+        int saveAndClose = close.IndexOf(
+            "if (!await SaveAndCloseDocumentTabAsync(tab))", StringComparison.Ordinal);
+        Require(saveAndClose > cancel && saveAndClose < remove &&
+                !close.Contains("_ = SaveAndCloseDocumentTabAsync(tab)", StringComparison.Ordinal),
+            "Choosing Save must await completion and only remove the tab after a successful save.");
+        string saveHelper = ExtractMethodBody(source,
+            "private async Task<bool> SaveAndCloseDocumentTabAsync(");
+        Require(saveHelper.Contains("await SaveCurrentAsync(saveAs: false)", StringComparison.Ordinal) &&
+                saveHelper.Contains("saved && !tab.IsDirty", StringComparison.Ordinal),
+            "Cancel, failed Save As and newly-dirty tabs must remain open.");
         string create = ExtractMethodBody(source,
             "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync(");
         Require(create.Contains("await ActivateDocumentTab(tab)", StringComparison.Ordinal) &&
