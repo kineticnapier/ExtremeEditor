@@ -267,7 +267,26 @@ public partial class MainWindow : Window
             // editor/selection/audio remain owned by the preceding tab.
             _isLoading = false;
             var switchWatch = Stopwatch.StartNew();
-            await ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            bool activated = false;
+            try
+            {
+                activated = await ActivateDocumentTab(
+                    tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            }
+            finally
+            {
+                // An unsuccessful or faulted activation must not leave a tab
+                // that was never committed as the active workspace.
+                if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                    _documentTabs.Remove(tab))
+                {
+                    tab.Audio?.Dispose();
+                    RefreshActiveDocumentTab();
+                }
+            }
+            if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+                return;
+
             TimeSpan tabSwitch = switchWatch.Elapsed;
             Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 
