@@ -65,6 +65,7 @@ internal static class DocumentTabNavigationRegression
         VerifyFailedPendingTargetCleanup();
         VerifyFailedNewTabCleanup();
         VerifyFailedChartOpenCleanup();
+        VerifyPreparedAudioFailureCleanup();
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
@@ -686,6 +687,38 @@ internal static class DocumentTabNavigationRegression
                 tabs.Remove(rejected) && tabs.Tabs.Count == 1 &&
                 ReferenceEquals(tabs.ActiveTab, original),
             "Removing an uncommitted chart must preserve the previously active tab.");
+    }
+
+    private static void VerifyPreparedAudioFailureCleanup()
+    {
+        // Native playback upload can fail after the audio player was prepared.
+        // The player must be disposed before the method transfers ownership
+        // to the active tab; the old player must remain untouched on failure.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int setupStart = load.IndexOf(
+            "NativePlaybackLoadMetrics nativePlaybackMetrics;", StringComparison.Ordinal);
+        int transfer = load.IndexOf("AudioPlayer previousAudio = _audio;",
+            StringComparison.Ordinal);
+        Require(setupStart >= 0 && transfer > setupStart,
+            "Playback setup must precede the active audio ownership transfer.");
+
+        string setup = load.Substring(setupStart, transfer - setupStart);
+        int upload = setup.IndexOf(
+            "NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback)",
+            StringComparison.Ordinal);
+        int preferences = setup.IndexOf(
+            "ApplySharedPlaybackPreferences(preparedAudio.Player)",
+            StringComparison.Ordinal);
+        int cleanupCatch = setup.IndexOf("catch", StringComparison.Ordinal);
+        int dispose = setup.IndexOf("preparedAudio.Dispose();", StringComparison.Ordinal);
+        int rethrow = setup.IndexOf("throw;", StringComparison.Ordinal);
+        Require(setup.Contains("try", StringComparison.Ordinal) &&
+                upload >= 0 && preferences > upload &&
+                cleanupCatch > preferences && dispose > cleanupCatch &&
+                rethrow > dispose,
+            "Failed native playback setup must dispose the uncommitted audio player and rethrow.");
     }
 
     private static void Require(bool value, string message)
