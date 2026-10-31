@@ -54,6 +54,7 @@ internal static class DocumentTabNavigationRegression
         // so the standard WPF suite silently skipped native failure recovery.
         VerifyStopPlaybackNativeFailureOrdering();
         VerifyPreparedLevelStateIsAtomic();
+        VerifyNativeSelectionStateIsAtomic();
         VerifyDirectPlaybackRefreshIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
         VerifyNativeUploadRollback();
@@ -118,6 +119,59 @@ internal static class DocumentTabNavigationRegression
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
+    }
+
+    private static void VerifyNativeSelectionStateIsAtomic()
+    {
+        // A failed native selection upload must not publish a selection that
+        // the renderer did not accept. No native window is required here.
+        var viewport = new NativeLevelViewport();
+        viewport.SetLevel(LevelDocument.CreateSynthetic(4));
+        viewport.SetSelectionCore([0, 2], 2, (_, _) => { });
+
+        FieldInfo? floorsField = typeof(NativeLevelViewport).GetField(
+            "_selectedFloors", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? primaryField = typeof(NativeLevelViewport).GetField(
+            "_primarySelection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(floorsField is not null && primaryField is not null,
+            "Viewport selection state must be available for regression checks.");
+
+        int[] originalFloors = (int[])floorsField!.GetValue(viewport)!;
+        int originalPrimary = (int)primaryField!.GetValue(viewport)!;
+        var failure = new InvalidOperationException("injected native selection upload failure");
+        Exception? observed = null;
+        try
+        {
+            viewport.SetSelectionCore([1, 3], 3, (_, _) => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            observed = ex;
+        }
+
+        Require(ReferenceEquals(observed, failure) &&
+                ReferenceEquals(floorsField.GetValue(viewport), originalFloors) &&
+                (int)primaryField.GetValue(viewport)! == originalPrimary,
+            "Failed native selection upload must preserve the previous managed selection.");
+
+        int[]? uploadedFloors = null;
+        int uploadedPrimary = -1;
+        viewport.SetSelectionCore([2, 2, 1, -1, 999], 999, (floors, primary) =>
+        {
+            uploadedFloors = floors;
+            uploadedPrimary = primary;
+        });
+        Require(uploadedFloors is not null &&
+                uploadedFloors.SequenceEqual(new[] { 1, 2 }) &&
+                uploadedPrimary == 2 &&
+                ReferenceEquals(floorsField.GetValue(viewport), uploadedFloors) &&
+                (int)primaryField.GetValue(viewport)! == uploadedPrimary,
+            "Successful selection upload must normalize and commit exactly the accepted floors.");
+
+        var emptyViewport = new NativeLevelViewport();
+        emptyViewport.SetSelectionCore([0], 0, (floors, primary) =>
+            Require(floors.Length == 0 && primary == -1,
+                "An unloaded viewport must upload an empty selection."));
     }
 
     private static void VerifyDirectPlaybackRefreshIsAtomic()
