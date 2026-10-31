@@ -21,6 +21,23 @@ internal static class ResponsiveEditorLayoutRegression
             Require(inspector.Width.IsStar, "event inspector must shrink proportionally");
             Require(settings.MinWidth + viewport.MinWidth + inspector.MinWidth + 40 <= window.MinWidth,
                 "column minimums must fit inside the window minimum width");
+            // When the settings pane reaches its new 140-DIP minimum, long
+            // labels and input content must remain reachable instead of clipping.
+            foreach (string paneName in new[]
+            {
+                "SongSettingsPane",
+                "CameraSettingsPane",
+                "TrackSettingsPane",
+                "LevelSettingsPane",
+                "MiscSettingsPane"
+            })
+            {
+                Border pane = window.FindName(paneName) as Border
+                    ?? throw new InvalidOperationException("Missing settings pane: " + paneName);
+                Require(pane.Child is ScrollViewer scroll &&
+                    scroll.HorizontalScrollBarVisibility == ScrollBarVisibility.Auto,
+                    paneName + " must allow horizontal scrolling on narrow windows");
+            }
         }
         finally
         {
