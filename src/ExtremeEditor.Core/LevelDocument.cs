@@ -141,6 +141,34 @@ public sealed class LevelDocument
         ActionTypeCounts = counts;
     }
 
+    public bool TryReplaceActionAt(int index, LevelAction replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        LevelActionStore store = ActionStore;
+        if ((uint)index >= (uint)store.ActionCount)
+            return false;
+
+        LevelAction previous = store.Actions[index];
+        if (!store.TryReplaceAt(index, replacement))
+            return false;
+
+        if (!string.Equals(previous.EventType, replacement.EventType, StringComparison.Ordinal))
+        {
+            var counts = new Dictionary<string, int>(ActionTypeCounts, StringComparer.Ordinal);
+            if (counts.TryGetValue(previous.EventType, out int previousCount))
+            {
+                if (previousCount <= 1)
+                    counts.Remove(previous.EventType);
+                else
+                    counts[previous.EventType] = previousCount - 1;
+            }
+            counts.TryGetValue(replacement.EventType, out int replacementCount);
+            counts[replacement.EventType] = replacementCount + 1;
+            ActionTypeCounts = counts;
+        }
+        return true;
+    }
+
     public void ReplaceDecorations(IEnumerable<LevelDecoration> decorations)
     {
         ArgumentNullException.ThrowIfNull(decorations);
