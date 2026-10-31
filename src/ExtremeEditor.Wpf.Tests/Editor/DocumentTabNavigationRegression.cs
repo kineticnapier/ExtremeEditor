@@ -345,6 +345,33 @@ internal static class DocumentTabNavigationRegression
                 ReferenceEquals(restoreError, recoveryFailure),
             "A failed rollback must preserve both the original and recovery errors.");
 
+        // A native camera restore can report failure with a false return
+        // instead of throwing. The tab switch must treat this as failed recovery.
+        string tabSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(tabSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(activation.Contains("!NativeViewport.RestoreEditorCamera(camera)",
+                    StringComparison.Ordinal) &&
+                activation.Contains("Could not restore the previous native editor camera.",
+                    StringComparison.Ordinal),
+            "Rejected native camera restoration must not be reported as successful rollback.");
+
+        Func<bool> rejectedCameraRestore = () => false;
+        var cameraFailure = new InvalidOperationException("injected camera restore rejection");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => throw playbackFailure,
+            null,
+            () =>
+            {
+                if (!rejectedCameraRestore())
+                    throw cameraFailure;
+            },
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                ReferenceEquals(restoreError, cameraFailure),
+            "A rejected camera restore must preserve the original and recovery errors.");
+
         steps.Clear();
         ok = MainWindow.TryUploadDocumentTabScene(
             () => steps.Add("level"), null,
