@@ -63,6 +63,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
         VerifyFailedPendingTargetCleanup();
+        VerifyFailedChartOpenCleanup();
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
@@ -617,6 +618,44 @@ internal static class DocumentTabNavigationRegression
                     "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
                     StringComparison.Ordinal),
             "All failed direct and cyclic activations must clear only their own pending target.");
+    }
+
+    private static void VerifyFailedChartOpenCleanup()
+    {
+        // A chart that cannot become active must not remain as an orphan,
+        // appear in recent files, or begin audio preparation.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int activation = load.IndexOf("activated = await ActivateDocumentTab(",
+            StringComparison.Ordinal);
+        int cleanup = load.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = load.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = load.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int guard = load.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        int recent = load.IndexOf("RememberRecentFile(path);", StringComparison.Ordinal);
+        int playback = load.IndexOf(
+            "NativeLoadPreparationCache.StartPlayback(loaded.Document",
+            StringComparison.Ordinal);
+        Require(activation >= 0 && cleanup > activation &&
+                remove > cleanup && dispose > remove &&
+                guard > dispose && recent > guard && playback > recent &&
+                load.IndexOf("finally", activation, StringComparison.Ordinal) < guard,
+            "Failed or faulted chart activation must clean up before recent-file and audio work.");
+
+        var tabs = new EditorDocumentTabs();
+        LevelDocument first = LevelDocument.CreateSynthetic(2);
+        LevelDocument second = LevelDocument.CreateSynthetic(3);
+        var original = new EditorDocumentTab(first, new EditorSession(first));
+        var rejected = new EditorDocumentTab(second, new EditorSession(second));
+        Require(tabs.Add(original) && tabs.Add(rejected, activate: false) &&
+                tabs.Remove(rejected) && tabs.Tabs.Count == 1 &&
+                ReferenceEquals(tabs.ActiveTab, original),
+            "Removing an uncommitted chart must preserve the previously active tab.");
     }
 
     private static void Require(bool value, string message)
