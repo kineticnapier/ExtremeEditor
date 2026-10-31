@@ -352,10 +352,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            NativePlaybackLoadMetrics nativePlaybackMetrics =
-                NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+            NativePlaybackLoadMetrics nativePlaybackMetrics;
+            try
+            {
+                nativePlaybackMetrics =
+                    NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+                ApplySharedPlaybackPreferences(preparedAudio.Player);
+            }
+            catch
+            {
+                // Playback preparation already allocated a new audio player.
+                // Do not leak it if native timeline upload or setup fails
+                // before ownership is transferred to the active tab.
+                preparedAudio.Dispose();
+                throw;
+            }
 
-            ApplySharedPlaybackPreferences(preparedAudio.Player);
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
             tab.Audio = _audio;
