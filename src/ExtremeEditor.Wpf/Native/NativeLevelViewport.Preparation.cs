@@ -241,25 +241,33 @@ public sealed partial class NativeLevelViewport : HwndHost
     }
 
     public void SetSelection(IEnumerable<int> floors, int primaryFloor)
-    {
-        if (_level is null)
-        {
-            _selectedFloors = [];
-            _primarySelection = -1;
-            _session?.SetSelection(_selectedFloors, _primarySelection);
-            SyncBackwardHudButton();
-            return;
-        }
+        => SetSelectionCore(floors, primaryFloor,
+            (selected, primary) => _session?.SetSelection(selected, primary));
 
-        _selectedFloors = floors
-            .Where(floor => (uint)floor < (uint)_level.FloorCount)
-            .Distinct()
-            .OrderBy(floor => floor)
-            .ToArray();
-        _primarySelection = _selectedFloors.Contains(primaryFloor)
+    // A native selection upload can throw. Keep the managed selection on the
+    // previous floors until the renderer accepts the new selection.
+    // The delegate permits failure injection without creating a native HWND.
+    internal void SetSelectionCore(
+        IEnumerable<int> floors,
+        int primaryFloor,
+        Action<int[], int> upload)
+    {
+        ArgumentNullException.ThrowIfNull(floors);
+        ArgumentNullException.ThrowIfNull(upload);
+
+        int[] nextFloors = _level is null
+            ? []
+            : floors.Where(floor => (uint)floor < (uint)_level.FloorCount)
+                .Distinct()
+                .OrderBy(floor => floor)
+                .ToArray();
+        int nextPrimary = nextFloors.Contains(primaryFloor)
             ? primaryFloor
-            : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
-        _session?.SetSelection(_selectedFloors, _primarySelection);
+            : nextFloors.Length > 0 ? nextFloors[^1] : -1;
+
+        upload(nextFloors, nextPrimary);
+        _selectedFloors = nextFloors;
+        _primarySelection = nextPrimary;
         SyncBackwardHudButton();
     }
 
