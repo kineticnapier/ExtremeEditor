@@ -641,10 +641,12 @@ internal static class DocumentTabNavigationRegression
         int playback = load.IndexOf(
             "NativeLoadPreparationCache.StartPlayback(loaded.Document",
             StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            load.IndexOf("finally", activation, StringComparison.Ordinal);
         Require(activation >= 0 && cleanup > activation &&
                 remove > cleanup && dispose > remove &&
                 guard > dispose && recent > guard && playback > recent &&
-                load.IndexOf("finally", activation, StringComparison.Ordinal) < guard,
+                cleanupFinally > activation && cleanupFinally < guard,
             "Failed or faulted chart activation must clean up before recent-file and audio work.");
 
         var tabs = new EditorDocumentTabs();
