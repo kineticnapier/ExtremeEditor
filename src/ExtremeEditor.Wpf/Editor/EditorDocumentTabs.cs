@@ -136,9 +136,12 @@ internal sealed class EditorDocumentTabs
 
     private bool HasSamePath(EditorDocumentTab tab) =>
         TryGetSourcePath(tab, out string? path) &&
-        _tabs.Any(existing =>
+        (_tabs.Any(existing =>
             TryGetSourcePath(existing, out string? other) &&
-            StringComparer.OrdinalIgnoreCase.Equals(path, other));
+            StringComparer.OrdinalIgnoreCase.Equals(path, other)) ||
+         // Save As may still be writing this destination for another tab.
+         // Do not admit a second tab with the reserved path mid-save.
+         _savePathReservations.ContainsKey(path));
 
     private static bool TryGetSourcePath(EditorDocumentTab tab, out string? path)
     {
