@@ -130,8 +130,8 @@ public partial class MainWindow
         _pendingTabNavigationTarget = tab;
         if (!TryCommitSettingsBeforeDocumentChange())
         {
-            if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
             return false;
         }
 
@@ -167,8 +167,8 @@ public partial class MainWindow
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
-                if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             }
             return false;
         }
@@ -176,9 +176,9 @@ public partial class MainWindow
         if (activationGeneration != _tabActivationGeneration || _isClosed ||
             !_documentTabs.Tabs.Contains(tab))
         {
-            if (activationGeneration == _tabActivationGeneration &&
-                fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            if (activationGeneration == _tabActivationGeneration)
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             return false;
         }
 
@@ -251,8 +251,8 @@ public partial class MainWindow
         {
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 string recovery = restoreError is null
                     ? string.Empty
                     : $" Renderer recovery also failed: {restoreError.Message}";
@@ -326,9 +326,9 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
-        if (activationGeneration == _tabActivationGeneration &&
-            ReferenceEquals(_pendingTabNavigationTarget, tab))
-            _pendingTabNavigationTarget = null;
+        if (activationGeneration == _tabActivationGeneration)
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
         return true;
     }
 
@@ -371,6 +371,12 @@ public partial class MainWindow
         }
     }
 
+    // A failed direct click must not remain the origin for a later Ctrl+Tab.
+    // Preserve a newer pending request when an older activation finishes.
+    internal static EditorDocumentTab? ClearFailedPendingTabTarget(
+        EditorDocumentTab? pendingTarget, EditorDocumentTab failedTab)
+        => ReferenceEquals(pendingTarget, failedTab) ? null : pendingTarget;
+
     internal static EditorDocumentTab? SelectNextDocumentTab(
         EditorDocumentTabs tabs, EditorDocumentTab? pendingTarget, bool backwards)
     {
@@ -412,8 +418,8 @@ public partial class MainWindow
             () => ActivateDocumentTab(tab, fromTabCycle: fromTabCycle),
             ex =>
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 if (!_isClosed)
                     StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
             });
