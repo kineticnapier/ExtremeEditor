@@ -62,6 +62,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeSessionConstructionCleanup();
         VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
+        VerifyFailedPendingTargetCleanup();
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
@@ -568,6 +569,54 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(
                 MainWindow.SelectNextDocumentTab(tabs, c, backwards: true), a),
             "Two-tab reverse cycling must return to the active tab.");
+    }
+
+    private static void VerifyFailedPendingTargetCleanup()
+    {
+        var tabs = new EditorDocumentTabs();
+        EditorDocumentTab NewTab()
+        {
+            LevelDocument document = LevelDocument.CreateSynthetic(2);
+            return new EditorDocumentTab(document, new EditorSession(document));
+        }
+
+        EditorDocumentTab a = NewTab();
+        EditorDocumentTab b = NewTab();
+        EditorDocumentTab c = NewTab();
+        Require(tabs.Add(a) && tabs.Add(b, activate: false) &&
+                tabs.Add(c, activate: false), "Three tabs must be registered.");
+
+        // A failed direct click on B must not make Ctrl+Tab skip B.
+        EditorDocumentTab? pending = MainWindow.ClearFailedPendingTabTarget(b, b);
+        Require(pending is null &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), b),
+            "Failed direct activation must cycle from the still-active tab.");
+
+        // A late failure from B must not erase a newer pending request for C.
+        pending = MainWindow.ClearFailedPendingTabTarget(c, b);
+        Require(ReferenceEquals(pending, c) &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), a),
+            "Failure cleanup must preserve a newer pending destination.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        string observer = ExtractMethodBody(source,
+            "private async void RequestDocumentTabActivation(");
+        int cleanupCalls = activation.Split(
+            "ClearFailedPendingTabTarget(", StringSplitOptions.None).Length - 1;
+        Require(cleanupCalls >= 5 &&
+                observer.Contains("ClearFailedPendingTabTarget(", StringComparison.Ordinal) &&
+                !activation.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal) &&
+                !observer.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal),
+            "All failed direct and cyclic activations must clear only their own pending target.");
     }
 
     private static void Require(bool value, string message)
