@@ -107,7 +107,7 @@ internal static class DocumentTabScaffoldRegression
         string main = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow.xaml.cs"));
         Require(main.Contains("_documentTabs.FindByPath(dialog.FileName)", StringComparison.Ordinal) &&
-                main.Contains("ActivateDocumentTab(existing)", StringComparison.Ordinal) &&
+                main.Contains("RequestDocumentTabActivation(existing)", StringComparison.Ordinal) &&
                 !main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
             "Open reuses an existing chart tab instead of replacing other tabs.");
         Require(source.Contains("_documentTabs.Tabs.Any(static tab => tab.IsDirty)", StringComparison.Ordinal),
