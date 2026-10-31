@@ -330,6 +330,13 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(observed, syncFailure) && notifications == 2,
             "A synchronous activation failure must also be observed exactly once.");
 
+        string openSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string openHandler = ExtractMethodBody(openSource, "private async void ExecuteOpen(");
+        Require(openHandler.Contains("RequestDocumentTabActivation(existing)", StringComparison.Ordinal) &&
+                !openHandler.Contains("_ = ActivateDocumentTab(existing)", StringComparison.Ordinal),
+            "Reopening an already-open chart must observe native activation failures.");
+
         string source = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
         string observer = ExtractMethodBody(source,
