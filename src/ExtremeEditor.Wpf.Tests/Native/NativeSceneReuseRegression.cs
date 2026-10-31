@@ -90,7 +90,8 @@ internal static class NativeSceneReuseRegression
         string session = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs");
         Require(session.Contains("TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
                 session.Contains("RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
-                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal),
+                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal) &&
+                session.Contains("ReplaceBackgroundAssets(", StringComparison.Ordinal),
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
         int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
         int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);

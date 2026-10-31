@@ -752,6 +752,32 @@ bool Renderer::SetBackgroundAsset(
     catch (...) { return false; }
 }
 
+bool Renderer::ReplaceBackgroundAssets(
+    const std::uint32_t* asset_ids,
+    const wchar_t* const* image_paths,
+    std::uint32_t asset_count) noexcept
+{
+    if (asset_count > 0u && (asset_ids == nullptr || image_paths == nullptr))
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+        next->reserve(asset_count);
+        for (std::uint32_t index = 0u; index < asset_count; ++index)
+        {
+            if (asset_ids[index] == 0u || image_paths[index] == nullptr)
+                return false;
+            (*next)[asset_ids[index]] = image_paths[index];
+        }
+
+        std::lock_guard lock(scene_mutex_);
+        background_assets_ = std::move(next);
+        ++background_assets_version_;
+        return true;
+    }
+    catch (...) { return false; }
+}
+
 bool Renderer::SetFilterTimeline(
     const EeFilterEvent* events,
     std::uint32_t event_count) noexcept

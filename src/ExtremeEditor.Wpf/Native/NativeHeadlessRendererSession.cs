@@ -162,13 +162,11 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         }
 
         // Export must receive the same background image table as the live viewport.
-        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
-        {
-            int result = NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath);
-            if (result != 0)
-                throw new InvalidOperationException(
-                    $"Native background asset upload failed for {asset.ImagePath} with result {result}.");
-        }
+        int backgroundResult = NativeRendererNative.ReplaceBackgroundAssets(
+            _renderer, snapshot.BackgroundAssets);
+        if (backgroundResult != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {backgroundResult}.");
 
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)

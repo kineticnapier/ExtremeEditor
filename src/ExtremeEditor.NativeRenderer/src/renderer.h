@@ -82,6 +82,10 @@ public:
     bool SetFilterTimeline(const EeFilterEvent* events, std::uint32_t event_count) noexcept;
     bool SetBackgroundTimeline(const EeBackgroundEvent* events, std::uint32_t event_count) noexcept;
     bool SetBackgroundAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
+    bool ReplaceBackgroundAssets(
+        const std::uint32_t* asset_ids,
+        const wchar_t* const* image_paths,
+        std::uint32_t asset_count) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackAnimationTimeline(

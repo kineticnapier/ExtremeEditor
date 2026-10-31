@@ -265,8 +265,11 @@ internal sealed class NativeRendererSession : IDisposable
         LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
-        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
-            SetBackgroundAsset(asset);
+        int backgroundResult = NativeRendererNative.ReplaceBackgroundAssets(
+            _renderer, snapshot.BackgroundAssets);
+        if (backgroundResult != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {backgroundResult}.");
 
 
         phaseWatch.Restart();
@@ -380,8 +383,8 @@ internal sealed class NativeRendererSession : IDisposable
 
     internal void ClearBackgroundAssets()
     {
-        // Native background asset lifetime is not wired yet.
-        // Do not call into an unimplemented native clear entry point.
+        if (_renderer != nint.Zero)
+            _ = NativeRendererNative.ReplaceBackgroundAssets(_renderer, []);
     }
 
     internal void SetBackgroundTimeline(NativeBackgroundEvent[] events) =>
