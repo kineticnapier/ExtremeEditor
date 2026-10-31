@@ -20,5 +20,27 @@ internal sealed class NativePlaybackAnchorDispatchGate
         return true;
     }
 
+    // A failed native call must not suppress a retry of the same paused
+    // or stopped anchor. The gate only retains successfully sent anchors.
+    internal bool Dispatch(
+        double chartTime, double chartRate, bool active, bool playing,
+        Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
+        if (!ShouldSend(chartTime, chartRate, active, playing))
+            return false;
+
+        try
+        {
+            upload();
+            return true;
+        }
+        catch
+        {
+            Invalidate();
+            throw;
+        }
+    }
+
     internal void Invalidate() => _hasLast = false;
 }
