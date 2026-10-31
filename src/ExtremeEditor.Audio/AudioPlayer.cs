@@ -188,7 +188,7 @@ public sealed class AudioPlayer : IDisposable
 
         if (_graph is not null)
         {
-            RebuildGraphPreservingTransport();
+            RefreshHitSoundGraphPreservingDevice();
             return;
         }
 
@@ -514,6 +514,89 @@ public sealed class AudioPlayer : IDisposable
         else if (state == PlaybackState.Paused)
         {
             _output!.Play();
+            _output.Pause();
+        }
+    }
+
+    private void RefreshHitSoundGraphPreservingDevice()
+    {
+        if (_graph is null || _output is null || _outputFormat is null || _songRateProvider is null)
+            return;
+
+        TimeSpan position = Position;
+        PlaybackState state = _output.PlaybackState;
+        StopRealtimeDiagnostics();
+        _output.Stop();
+        CancelHitSoundPrerender();
+
+        IReadOnlyDictionary<string, RenderedHitSound>? clips =
+            AudioGraphFactory.RenderHitSoundAssets(
+                _hitSoundLibrary,
+                _outputFormat.SampleRate,
+                _level,
+                _timingMap,
+                _hitSoundTimeline,
+                out _);
+        long songFrames = _reader is null
+            ? 0
+            : (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
+        long totalFrames = AudioGraphFactory.CalculatePlaybackFrames(
+            songFrames,
+            _outputFormat.SampleRate,
+            _level,
+            _timingMap,
+            clips);
+
+        SampleAccurateHitSoundProvider? hitSounds = null;
+        TransportHitSoundSampleProvider? transportHitSounds = null;
+        if (clips is not null && _level is not null && _timingMap is not null && _hitSoundTimeline is not null)
+        {
+            hitSounds = new SampleAccurateHitSoundProvider(
+                _outputFormat,
+                _level,
+                _timingMap,
+                _hitSoundTimeline,
+                clips,
+                totalFrames);
+            transportHitSounds = new TransportHitSoundSampleProvider(hitSounds, _playbackSpeed);
+        }
+
+        double restoredSeconds = Math.Clamp(
+            position.TotalSeconds,
+            0.0,
+            totalFrames <= 0 ? 0.0 : (double)totalFrames / _outputFormat.SampleRate);
+        long restoredFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+            restoredSeconds,
+            _outputFormat.SampleRate);
+        if (_reader is not null)
+        {
+            _reader.CurrentTime = TimeSpan.FromSeconds(
+                Math.Min(restoredSeconds, _reader.TotalTime.TotalSeconds));
+        }
+        if (_silentSong is not null)
+        {
+            _silentSong.TotalFrames = totalFrames;
+            _silentSong.Seek(restoredFrame);
+        }
+
+        _hitSoundProvider = hitSounds;
+        _transportHitSoundProvider = transportHitSounds;
+        _transportDurationSeconds = totalFrames <= 0
+            ? 0.0
+            : (double)totalFrames / _outputFormat.SampleRate;
+        _graph.ReplaceTransportHitSounds(transportHitSounds, restoredFrame);
+        _songRateProvider.Reset();
+        RestartHitSoundPrerender(restoredFrame);
+        ResetClock(restoredSeconds);
+
+        if (state == PlaybackState.Playing)
+        {
+            _output.Play();
+            StartRealtimeDiagnostics();
+        }
+        else if (state == PlaybackState.Paused)
+        {
+            _output.Play();
             _output.Pause();
         }
     }

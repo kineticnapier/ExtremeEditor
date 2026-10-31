@@ -22,6 +22,7 @@ RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunProviderChecks();
+RunHitSoundScheduleHotSwapRegression();
 MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
@@ -121,6 +122,57 @@ static void RunProviderChecks()
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
     Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
+}
+
+static void RunHitSoundScheduleHotSwapRegression()
+{
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.010)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var firstSchedule = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, 100);
+    var graph = new UnifiedAudioSampleProvider(
+        new AudioGraphFactory.FiniteSilentSampleProvider(format) { TotalFrames = 100 },
+        new TransportHitSoundSampleProvider(firstSchedule, playbackSpeed: 1.0));
+
+    var before = new float[20];
+    graph.Read(before, 0, before.Length);
+    Near(0.0, before[^2], "old schedule before hot swap");
+
+    var movedTiming = new TimingMap([Floor(0, 0.0), Floor(1, 0.020)]);
+    var movedSchedule = new SampleAccurateHitSoundProvider(
+        format, level, movedTiming, timeline, clips, 100);
+    graph.ReplaceTransportHitSounds(
+        new TransportHitSoundSampleProvider(movedSchedule, playbackSpeed: 1.0),
+        sourceFrame: 10);
+
+    var after = new float[22];
+    graph.Read(after, 0, after.Length);
+    Near(0.0, after[18], "replacement schedule before moved hit");
+    Near(0.5, after[20], "replacement schedule moved hit");
+
+    string playerSource = File.ReadAllText(Path.Combine(
+        Environment.CurrentDirectory, "src", "ExtremeEditor.Audio", "AudioPlayer.cs"));
+    int methodStart = playerSource.IndexOf(
+        "private void RefreshHitSoundGraphPreservingDevice()", StringComparison.Ordinal);
+    if (methodStart < 0)
+        throw new InvalidOperationException("#65: AudioPlayer has no device-preserving hitsound refresh path.");
+    int methodEnd = playerSource.IndexOf("\n    private ", methodStart + 1, StringComparison.Ordinal);
+    string method = playerSource[methodStart..(methodEnd < 0 ? playerSource.Length : methodEnd)];
+    if (method.Contains("BuildGraph(", StringComparison.Ordinal) ||
+        method.Contains("_output.Dispose", StringComparison.Ordinal) ||
+        method.Contains("_output.Init", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "#65: hitsound refresh still rebuilds or reinitializes the WaveOut device.");
+    }
 }
 
 static void RunSparseTimelineChecks()

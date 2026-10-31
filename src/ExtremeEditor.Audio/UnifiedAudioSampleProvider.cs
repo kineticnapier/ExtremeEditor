@@ -21,7 +21,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     private readonly ISampleProvider _song;
     private readonly SampleAccurateHitSoundProvider? _hitSounds;
-    private readonly TransportHitSoundSampleProvider? _transportHitSounds;
+    private TransportHitSoundSampleProvider? _transportHitSounds;
     private readonly long _totalFrames;
     private readonly bool _transportMode;
     private float[] _hitBuffer = [];
@@ -151,7 +151,24 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         if (!_transportMode)
             return;
         _positionFrames = Math.Max(0, sourceFrame);
-        _transportHitSounds?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
+        Volatile.Read(ref _transportHitSounds)?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
+        _limiterGain = 1.0f;
+    }
+
+    internal void ReplaceTransportHitSounds(
+        TransportHitSoundSampleProvider? hitSounds,
+        long sourceFrame)
+    {
+        if (!_transportMode)
+            throw new InvalidOperationException("Hit-sound replacement requires a transport graph.");
+        if (hitSounds is not null && !WaveFormat.Equals(hitSounds.WaveFormat))
+            throw new ArgumentException("Song and hit-sound formats must match.", nameof(hitSounds));
+
+        long clamped = Math.Max(0, sourceFrame);
+        hitSounds?.Seek(clamped);
+        Interlocked.Exchange(ref _transportHitSounds, hitSounds);
+        _positionFrames = clamped;
+        _transportWasMuted = false;
         _limiterGain = 1.0f;
     }
 
@@ -167,13 +184,14 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         int songRead = _song.Read(buffer, offset, requestedSamples);
         Interlocked.Add(ref _songReadTicks, Stopwatch.GetElapsedTime(songStarted).Ticks);
         int hitRead = 0;
-        if (_transportHitSounds is not null)
+        TransportHitSoundSampleProvider? transportHitSounds = Volatile.Read(ref _transportHitSounds);
+        if (transportHitSounds is not null)
         {
             if (!_hitSoundsEnabled)
             {
                 // Keep the silent transport duration and hit clock, but do
                 // not allocate a mix buffer or render muted hit samples.
-                hitRead = _transportHitSounds.AdvanceMuted(requestedSamples / channels) * channels;
+                hitRead = transportHitSounds.AdvanceMuted(requestedSamples / channels) * channels;
                 _transportWasMuted = true;
             }
             else
@@ -182,13 +200,13 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
                 // so a mute toggle cannot race with transport Read.
                 if (_transportWasMuted)
                 {
-                    _transportHitSounds.ResumeAfterMute();
+                    transportHitSounds.ResumeAfterMute();
                     _transportWasMuted = false;
                 }
                 if (_hitBuffer.Length < requestedSamples)
                     _hitBuffer = new float[requestedSamples];
                 long hitStarted = Stopwatch.GetTimestamp();
-                hitRead = _transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
+                hitRead = transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
                 Interlocked.Add(ref _hitSoundReadTicks, Stopwatch.GetElapsedTime(hitStarted).Ticks);
                 for (int i = 0; i < hitRead; i++)
                     buffer[offset + i] += _hitBuffer[i];
