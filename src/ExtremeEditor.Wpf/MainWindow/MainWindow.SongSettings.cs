@@ -1,8 +1,8 @@
 using System.Globalization;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
@@ -119,7 +119,7 @@ public partial class MainWindow
         if (before == after)
             return true;
 
-        RefreshAfterSongSettingsChange(before, after);
+        _ = ObserveSongSettingsChangeAsync(before, after);
         return true;
     }
 
@@ -132,13 +132,14 @@ public partial class MainWindow
         _ => true
     };
 
-    private void RefreshAfterSongSettingsChange(
+    private async Task RefreshAfterSongSettingsChangeAsync(
         LevelSettingsSnapshot before,
         LevelSettingsSnapshot after)
     {
-        if (_level is null)
+        if (_level is null || _documentTabs.ActiveTab is not EditorDocumentTab targetTab)
             return;
 
+        LevelDocument targetLevel = _level;
         bool volumeOnly = IsSongVolumeOnlyChange(before, after);
         _audio.SongVolumePercent = after.SongVolumePercent;
         if (volumeOnly)
@@ -157,25 +158,94 @@ public partial class MainWindow
         WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
         _timingMap = playback.TimingMap;
         _hitSoundTimeline = playback.HitSoundTimeline;
+        targetTab.TimingMap = playback.TimingMap;
+        targetTab.HitSoundTimeline = playback.HitSoundTimeline;
         NativeViewport.SetPlaybackTimeline(_timingMap);
-
-        if (songChanged)
-            _audio.Unload();
-        _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
-        string? songLoadStatus = null;
-        if (songChanged && playback.SongPath is string songPath && File.Exists(songPath))
-            songLoadStatus = LoadSong(songPath);
-        _audio.SongVolumePercent = after.SongVolumePercent;
 
         RefreshInspector();
         UpdateEditorStatus();
-        if (songLoadStatus is not null &&
-            songLoadStatus.StartsWith("audio load failed:", StringComparison.Ordinal))
+        CommandManager.InvalidateRequerySuggested();
+
+        if (!songChanged && !targetTab.AudioPreparationPending)
         {
-            StatusText.Text = songLoadStatus;
+            _audio.ConfigureHitSounds(targetLevel, _timingMap, _hitSoundTimeline);
+            _audio.SongVolumePercent = after.SongVolumePercent;
+            return;
         }
+
+        int generation = ++targetTab.AudioPreparationGeneration;
+        targetTab.AudioPreparationPending = true;
+        StatusText.Text = $"{targetTab.DisplayName} | audio preparing…";
+        CommandManager.InvalidateRequerySuggested();
+
+        PreparedAudioLoad prepared;
+        try
+        {
+            prepared = await PreparedAudioLoad.PrepareAsync(
+                targetLevel,
+                playback,
+                HitSoundsToggle.IsChecked == true);
+        }
+        catch (Exception ex)
+        {
+            if (!_isClosed &&
+                _documentTabs.Tabs.Contains(targetTab) &&
+                generation == targetTab.AudioPreparationGeneration)
+            {
+                targetTab.AudioPreparationPending = false;
+                if (ReferenceEquals(_documentTabs.ActiveTab, targetTab))
+                    StatusText.Text = $"audio preparation failed: {ex.Message}";
+                CommandManager.InvalidateRequerySuggested();
+            }
+            return;
+        }
+
+        if (_isClosed || !CanApplyPreparedSongAudio(
+                _documentTabs, targetTab, targetLevel, generation))
+        {
+            prepared.Dispose();
+            return;
+        }
+
+        ApplySharedPlaybackPreferences(prepared.Player);
+        prepared.Player.SongVolumePercent = targetLevel.SongVolumePercent;
+        AudioPlayer? previousAudio = targetTab.Audio;
+        targetTab.Audio = prepared.Player;
+        targetTab.AudioPreparationPending = false;
+        if (ReferenceEquals(_documentTabs.ActiveTab, targetTab))
+        {
+            _audio = prepared.Player;
+            StatusText.Text = $"{targetTab.DisplayName} | {prepared.State}";
+            UpdatePlaybackDisplay();
+        }
+        if (previousAudio is not null && !ReferenceEquals(previousAudio, prepared.Player))
+            previousAudio.Dispose();
         CommandManager.InvalidateRequerySuggested();
     }
+
+    private async Task ObserveSongSettingsChangeAsync(
+        LevelSettingsSnapshot before,
+        LevelSettingsSnapshot after)
+    {
+        try
+        {
+            await RefreshAfterSongSettingsChangeAsync(before, after);
+        }
+        catch (Exception ex)
+        {
+            if (!_isClosed)
+                StatusText.Text = $"Could not refresh song settings: {ex.Message}";
+        }
+    }
+
+    internal static bool CanApplyPreparedSongAudio(
+        EditorDocumentTabs tabs,
+        EditorDocumentTab targetTab,
+        LevelDocument targetLevel,
+        int generation) =>
+        tabs.Tabs.Contains(targetTab) &&
+        ReferenceEquals(targetTab.Document, targetLevel) &&
+        generation == targetTab.AudioPreparationGeneration;
 
     internal static bool IsSongVolumeOnlyChange(
         LevelSettingsSnapshot before,

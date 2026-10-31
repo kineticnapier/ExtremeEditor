@@ -422,6 +422,7 @@ public partial class MainWindow : Window
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = !_playbackPreparationPending &&
+                       _documentTabs.ActiveTab?.AudioPreparationPending != true &&
                        _level is not null &&
                        (_timingMap is not null || _editorPlaybackRefreshPending);
         e.Handled = true;

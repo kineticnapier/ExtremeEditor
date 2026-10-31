@@ -14,6 +14,7 @@ internal static class Program
     {
         try
         {
+            SongSettingsAudioAsyncRegression.Run();
             if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_IDLE_ANCHOR_ONLY"),
                 "1", StringComparison.Ordinal))

@@ -82,5 +82,11 @@ internal sealed class PreparedAudioLoad : IDisposable
         }
     }
 
+    internal static Task<PreparedAudioLoad> PrepareAsync(
+        LevelDocument level,
+        WpfPlaybackSetup playback,
+        bool hitSoundsEnabled) =>
+        Task.Run(() => Prepare(level, playback, hitSoundsEnabled));
+
     public void Dispose() => Player.Dispose();
 }

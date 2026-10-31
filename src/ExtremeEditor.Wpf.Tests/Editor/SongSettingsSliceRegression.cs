@@ -209,7 +209,7 @@ internal static class SongSettingsSliceRegression
             Environment.CurrentDirectory, "src", "ExtremeEditor.Wpf",
             "MainWindow", "MainWindow.SongSettings.cs");
         string source = File.ReadAllText(sourcePath);
-        int methodStart = source.IndexOf("private void RefreshAfterSongSettingsChange(", StringComparison.Ordinal);
+        int methodStart = source.IndexOf("private async Task RefreshAfterSongSettingsChangeAsync(", StringComparison.Ordinal);
         if (methodStart < 0)
             throw new InvalidOperationException("#86: song settings refresh method is missing.");
         int gain = source.IndexOf("_audio.SongVolumePercent = after.SongVolumePercent;", methodStart, StringComparison.Ordinal);
