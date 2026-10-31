@@ -63,6 +63,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
         VerifyFailedPendingTargetCleanup();
+        VerifyFailedNewTabCleanup();
         VerifyFailedChartOpenCleanup();
     }
 
@@ -618,6 +619,33 @@ internal static class DocumentTabNavigationRegression
                     "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
                     StringComparison.Ordinal),
             "All failed direct and cyclic activations must clear only their own pending target.");
+    }
+
+    private static void VerifyFailedNewTabCleanup()
+    {
+        // Activation can throw after a new tab is added but before it becomes
+        // active. The asynchronous command handler catches the exception, but
+        // the newly allocated tab and audio must be removed by the callee.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string create = ExtractMethodBody(source,
+            "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()");
+        int activation = create.IndexOf(
+            "activated = await ActivateDocumentTab(tab);", StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            create.IndexOf("finally", activation, StringComparison.Ordinal);
+        int inactiveGuard = create.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = create.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = create.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int after = create.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        Require(activation >= 0 && cleanupFinally > activation &&
+                inactiveGuard > cleanupFinally && remove > inactiveGuard &&
+                dispose > remove && after > dispose,
+            "Faulted new-tab activation must clean up its uncommitted tab and audio.");
     }
 
     private static void VerifyFailedChartOpenCleanup()
