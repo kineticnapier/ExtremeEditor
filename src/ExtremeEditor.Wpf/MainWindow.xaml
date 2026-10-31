@@ -379,7 +379,7 @@
                         BorderThickness="0,0,1,0"
                         Padding="12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock x:Name="L10nSongSettings" Text="Song Settings"
                                        Foreground="#F0F0F4"
@@ -445,7 +445,7 @@
                         BorderThickness="0,0,1,0"
                         Padding="12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock x:Name="L10nCameraSettings" Text="Camera Settings"
                                        Foreground="#F0F0F4"
@@ -497,7 +497,7 @@
                         BorderThickness="0,0,1,0"
                         Padding="12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock x:Name="L10nTrackSettings" Text="Track Settings"
                                        Foreground="#F0F0F4"
@@ -625,7 +625,7 @@
                         BorderThickness="0,0,1,0"
                         Padding="12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock Text="Level Settings"
                                        Foreground="#F0F0F4"
@@ -692,7 +692,7 @@
                         BorderThickness="0,0,1,0"
                         Padding="12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock Text="Misc Settings"
                                        Foreground="#F0F0F4"
