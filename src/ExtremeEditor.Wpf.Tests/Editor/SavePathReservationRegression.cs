@@ -30,6 +30,17 @@ internal static class SavePathReservationRegression
         {
             Require(Reserve(reserve, tabs, second, shared) is null,
                 "RED: another tab acquired an already-reserved save destination.");
+
+            // An Open racing with Save As must not create a second tab for
+            // the destination before the pending write has completed.
+            LevelDocument competingDocument = LevelDocument.CreateSynthetic(2);
+            competingDocument.SourcePath = shared;
+            var competingTab = new EditorDocumentTab(
+                competingDocument, new EditorSession(competingDocument));
+            Require(!tabs.Add(competingTab, activate: false),
+                "RED: a tab opened a destination reserved by another tab's Save As.");
+            Require(tabs.Tabs.Count == 2,
+                "A rejected tab must not change the collection.");
             Require(Reserve(reserve, tabs, first, other) is null,
                 "RED: one tab started a second Save As while its first save was pending.");
             using IDisposable? independent = Reserve(reserve, tabs, second, other);
