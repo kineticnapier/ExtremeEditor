@@ -22,6 +22,7 @@ RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunProviderChecks();
+RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
 MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
@@ -122,6 +123,51 @@ static void RunProviderChecks()
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
     Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
+}
+
+static void RunPlaySoundEventChecks()
+{
+    const int sampleRate = 1_000;
+    var active = new LevelAction(1, "PlaySound", true, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 50,
+        AngleOffset = 90
+    };
+    var inactive = new LevelAction(1, "PlaySound", false, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 100
+    };
+    LevelDocument level = CreateLevel(2, new Dictionary<int, LevelAction[]>
+    {
+        [1] = [active, inactive]
+    });
+    var timing = new TimingMap([
+        new FloorTiming(0, 0.0, 1.0, 0, 0, Math.PI, 100, false, false),
+        new FloorTiming(1, 1.0, 2.0, 0, 0, Math.PI, 100, false, false)
+    ]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0),
+        ["Hat"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level,
+        timing,
+        timeline,
+        clips,
+        totalFrames: 2_000);
+
+    Equal(2, provider.ScheduledHits.Count,
+        "PlaySound adds one independent cue and ignores inactive events");
+    SampleAccurateHitSoundProvider.ScheduledHit eventHit = provider.ScheduledHits
+        .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
+    Equal(1_300L, eventHit.StartFrame, "PlaySound angleOffset sample frame");
+    Near(0.5, eventHit.Volume, "PlaySound volume");
 }
 
 static void RunHitSoundScheduleHotSwapRegression()

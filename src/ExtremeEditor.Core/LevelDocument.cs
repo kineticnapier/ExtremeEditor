@@ -12,7 +12,8 @@ public enum LevelActionKind : byte
     Pause,
     SetHitsound,
     SetFloorIcon,
-    Checkpoint
+    Checkpoint,
+    PlaySound
 }
 
 public static class LevelActionKinds
@@ -24,6 +25,7 @@ public static class LevelActionKinds
         "MultiPlanet" => LevelActionKind.MultiPlanet,
         "Pause" => LevelActionKind.Pause,
         "SetHitsound" => LevelActionKind.SetHitsound,
+        "PlaySound" => LevelActionKind.PlaySound,
         "SetFloorIcon" => LevelActionKind.SetFloorIcon,
         "Checkpoint" => LevelActionKind.Checkpoint,
         _ => LevelActionKind.Unknown

@@ -210,7 +210,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             return new ScheduleBuildResult([], 0);
 
         int floorCount = Math.Min(level.FloorCount, timingMap.Floors.Count);
-        if (floorCount <= 1)
+        if (floorCount <= 0)
             return new ScheduleBuildResult([], 0);
 
         IReadOnlyList<FloorTiming> timings = timingMap.Floors;
@@ -271,6 +271,39 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         if (pendingClip is not null)
             hits.Add(new ScheduledHit(pendingClip, pendingStartFrame, pendingVolume));
+
+        foreach (LevelAction action in level.ActionStore.Actions)
+        {
+            if (!action.Active || action.Kind != LevelActionKind.PlaySound ||
+                string.IsNullOrWhiteSpace(action.HitSound) ||
+                !AudioGraphFactory.TryResolveActionChartTime(
+                    timingMap, action, out double chartTime))
+            {
+                continue;
+            }
+
+            string name = HitSoundLibrary.NormalizeName(action.HitSound);
+            if (string.Equals(name, "None", StringComparison.OrdinalIgnoreCase) ||
+                !clips.TryGetValue(name, out RenderedHitSound? clip))
+            {
+                continue;
+            }
+
+            double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
+            long startFrame = AudioTimeToSampleFrame(
+                audioTime - clip.OffsetSeconds,
+                sampleRate);
+            long endFrame = startFrame + clip.FrameCount;
+            if (endFrame <= 0 || startFrame >= totalFrames)
+                continue;
+
+            float volume = (float)Math.Clamp(
+                (action.HitSoundVolumePercent ?? 100.0) * 0.01,
+                0.0,
+                1.0);
+            hits.Add(new ScheduledHit(clip, startFrame, volume));
+            sourceHitCount++;
+        }
 
         return new ScheduleBuildResult(hits, sourceHitCount);
     }
