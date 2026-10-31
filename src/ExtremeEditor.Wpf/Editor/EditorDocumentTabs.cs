@@ -29,7 +29,10 @@ internal sealed class EditorDocumentTabs
             return false;
 
         _tabs.Add(tab);
-        if (activate || ActiveTab is null)
+        // A staged tab must remain inactive until its native scene is ready.
+        // In particular, the first tab must not become active on Add(false):
+        // a failed initial upload needs to be removable as an uncommitted tab.
+        if (activate)
             ActiveTab = tab;
         return true;
     }
