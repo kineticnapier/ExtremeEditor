@@ -333,7 +333,7 @@ internal static class DocumentTabNavigationRegression
             "private async void RequestDocumentTabActivation(");
         Require(observer.Contains("await ObserveDocumentTabActivationAsync(", StringComparison.Ordinal) &&
                 observer.Contains("Could not activate", StringComparison.Ordinal) &&
-                observer.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
+                observer.Contains("_pendingTabNavigationTarget = ClearFailedPendingTabTarget(", StringComparison.Ordinal),
             "WPF tab activation must display failures and clear stale Ctrl+Tab targets.");
     }
 
