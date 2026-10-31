@@ -2,7 +2,7 @@ using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf.Native;
 
-public sealed class NativeChartFrameRenderer : IChartFrameRenderer
+public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedChartFrameRenderer
 {
     public const int DefaultWidth = 320;
     public const int DefaultHeight = 180;
@@ -12,6 +12,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
     private NativeHeadlessRendererSession? _session;
     private LevelDocument? _level;
     private TimingMap? _timingMap;
+    private byte[]? _reusableRgb;
 
     public NativeChartFrameRenderer(int width = DefaultWidth, int height = DefaultHeight)
     {
@@ -77,6 +78,17 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
         return new RenderedFrame(frame.Width, frame.Height, frame.Rgb);
     }
 
+    public RenderedFrame RenderBorrowed(double sceneTimeSeconds, double visualTimeSeconds)
+    {
+        NativeHeadlessRendererSession session = _session
+            ?? throw new InvalidOperationException("No chart is loaded.");
+
+        int requiredLength = checked(checked(_width * 3) * _height);
+        byte[] rgb = _reusableRgb ??= new byte[requiredLength];
+        session.RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
+        return new RenderedFrame(_width, _height, rgb);
+    }
+
     public void Reset()
     {
         if (_level is null || _timingMap is null)
@@ -98,6 +110,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
         _session = null;
         _level = null;
         _timingMap = null;
+        _reusableRgb = null;
         session?.Dispose();
         GC.SuppressFinalize(this);
     }

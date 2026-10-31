@@ -82,6 +82,17 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal NativeRgbFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
+        int stride = checked(Width * 3);
+        byte[] rgb = new byte[checked(stride * Height)];
+        RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
+        return new NativeRgbFrame(Width, Height, rgb);
+    }
+
+    internal void RenderInto(
+        double sceneTimeSeconds,
+        double visualTimeSeconds,
+        byte[] rgb)
+    {
         if (_renderer == nint.Zero)
             throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
         if (!double.IsFinite(sceneTimeSeconds))
@@ -90,7 +101,14 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
             throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
 
         int stride = checked(Width * 3);
-        byte[] rgb = new byte[checked(stride * Height)];
+        ArgumentNullException.ThrowIfNull(rgb);
+        int requiredLength = checked(stride * Height);
+        if (rgb.Length != requiredLength)
+        {
+            throw new ArgumentException(
+                $"RGB buffer length must be exactly {requiredLength} bytes.",
+                nameof(rgb));
+        }
         GCHandle handle = default;
         try
         {
@@ -112,7 +130,6 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                 handle.Free();
         }
 
-        return new NativeRgbFrame(Width, Height, rgb);
     }
 
     private void SetLevel(NativeLevelSnapshot snapshot)
