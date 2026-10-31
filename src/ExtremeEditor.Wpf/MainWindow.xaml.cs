@@ -193,7 +193,9 @@ public partial class MainWindow : Window
         {
             EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
             if (existing is not null)
-                _ = ActivateDocumentTab(existing);
+                // Reopening an existing chart uses the same observed activation
+                // path as a tab click, so native failures reach the status bar.
+                RequestDocumentTabActivation(existing);
             else
                 await LoadLevelAsync(dialog.FileName);
         }
