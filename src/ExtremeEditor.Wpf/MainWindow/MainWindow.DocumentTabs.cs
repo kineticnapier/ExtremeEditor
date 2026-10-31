@@ -239,8 +239,10 @@ public partial class MainWindow
                 if (_timingMap is TimingMap previousTiming)
                     NativeViewport.SetPlaybackTimelineProfiled(previousTiming);
                 NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-                if (previousCamera is Native.NativeEditorCameraState camera)
-                    NativeViewport.RestoreEditorCamera(camera);
+                if (previousCamera is Native.NativeEditorCameraState camera &&
+                    !NativeViewport.RestoreEditorCamera(camera))
+                    throw new InvalidOperationException(
+                        "Could not restore the previous native editor camera.");
             },
             out Exception? uploadError,
             out Exception? restoreError,
