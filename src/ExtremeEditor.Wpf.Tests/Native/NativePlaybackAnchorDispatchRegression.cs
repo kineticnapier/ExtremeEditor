@@ -41,6 +41,39 @@ internal static class NativePlaybackAnchorDispatchRegression
         Require(gate.ShouldSend(2.5, 0.75, active: false, playing: true),
             "Resuming after a scene reload must forward the new state.");
 
+        // The native renderer may throw after the gate has decided to send.
+        // The same paused anchor must be retried rather than silently skipped.
+        var retryGate = new NativePlaybackAnchorDispatchGate();
+        var nativeFailure = new InvalidOperationException("native anchor failed");
+        Exception? observed = null;
+        try
+        {
+            retryGate.Dispatch(4.0, 1.0, active: true, playing: false,
+                () => throw nativeFailure);
+        }
+        catch (Exception ex)
+        {
+            observed = ex;
+        }
+        Require(ReferenceEquals(observed, nativeFailure),
+            "Native anchor errors must remain observable.");
+
+        int successfulUploads = 0;
+        Require(retryGate.Dispatch(4.0, 1.0, active: true, playing: false,
+                    () => successfulUploads++) &&
+                successfulUploads == 1,
+            "A failed paused anchor must be eligible for an identical retry.");
+        Require(!retryGate.Dispatch(4.0, 1.0, active: true, playing: false,
+                    () => successfulUploads++) &&
+                successfulUploads == 1,
+            "A successfully retried paused anchor must still be deduplicated.");
+
+        retryGate.Invalidate();
+        Require(retryGate.Dispatch(0.0, 1.0, active: false, playing: false,
+                    () => successfulUploads++) &&
+                successfulUploads == 2,
+            "A stopped anchor must be sent after invalidation.");
+
         VerifyViewportWiring();
     }
 
@@ -53,8 +86,9 @@ internal static class NativePlaybackAnchorDispatchRegression
         string shutdown = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Shutdown.cs"));
 
-        Require(preparation.Split("_playbackAnchorGate.ShouldSend(", StringSplitOptions.None).Length == 3,
-            "Both SetPlaybackState and ClearPlayback must use the anchor gate.");
+        Require(preparation.Split("_playbackAnchorGate.Dispatch(", StringSplitOptions.None).Length == 3 &&
+                !preparation.Contains("_playbackAnchorGate.ShouldSend(", StringComparison.Ordinal),
+            "Both SetPlaybackState and ClearPlayback must use failure-aware anchor dispatch.");
         Require(preparation.Contains("UpdateDecorationPlayback(chartTime);", StringComparison.Ordinal) &&
                 preparation.Contains("UpdateDecorationPlayback(double.NegativeInfinity);", StringComparison.Ordinal),
             "Decoration evaluation must remain active while the native anchor is deduplicated.");
