@@ -49,6 +49,19 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+
+        // These checks previously existed but were never invoked by Run(),
+        // so the standard WPF suite silently skipped native failure recovery.
+        VerifyStopPlaybackNativeFailureOrdering();
+        VerifyPreparedLevelStateIsAtomic();
+        VerifyDirectPlaybackRefreshIsAtomic();
+        VerifyPreparedPlaybackStateIsAtomic();
+        VerifyNativeUploadRollback();
+        VerifyActivationFailureObservation();
+        VerifyNativeHostInitializationCleanup();
+        VerifyNativeSessionConstructionCleanup();
+        VerifyNativeSessionDisposalCleanup();
+        VerifyRapidNavigation();
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
