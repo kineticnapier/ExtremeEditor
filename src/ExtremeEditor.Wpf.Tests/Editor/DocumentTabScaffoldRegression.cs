@@ -89,14 +89,14 @@ internal static class DocumentTabScaffoldRegression
         Require(controller.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
                 controller.Contains("previous.Audio = _audio", StringComparison.Ordinal) &&
                 controller.Contains("previous.SelectedFloors = _selection.SelectedFloors.ToArray()", StringComparison.Ordinal) &&
-                controller.Contains("previous.EditorCamera = NativeViewport.TryGetEditorCamera", StringComparison.Ordinal) &&
+                controller.Contains("previous.EditorCamera = previousCamera", StringComparison.Ordinal) &&
                 controller.Contains("NativeViewport.RestoreEditorCamera", StringComparison.Ordinal) &&
-                controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
+                controller.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel)", StringComparison.Ordinal) &&
                 controller.Contains("_editor?.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
             "Switching tabs preserves the previous audio, selection and editor session.");
-        Require(controller.Contains("foreach (EditorDocumentTab tab in _documentTabs.Tabs)", StringComparison.Ordinal) &&
+        Require(controller.Contains("for (int index = 0; index < _documentTabs.Tabs.Count; index++)", StringComparison.Ordinal) &&
                 controller.Contains("bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab)", StringComparison.Ordinal) &&
-                controller.Contains("DocumentTabsHost.Children.Add(tabChrome)", StringComparison.Ordinal) &&
+                controller.Contains("DocumentTabsHost.Children.Insert(index, visual.Chrome)", StringComparison.Ordinal) &&
                 !controller.Contains("if (ReferenceEquals(tab, active))", StringComparison.Ordinal),
             "The active tab is rendered in its original position alongside every other tab.");
         string keyboard = File.ReadAllText(Path.Combine(
@@ -110,7 +110,7 @@ internal static class DocumentTabScaffoldRegression
                 main.Contains("ActivateDocumentTab(existing)", StringComparison.Ordinal) &&
                 !main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
             "Open reuses an existing chart tab instead of replacing other tabs.");
-        Require(source.Contains("Other chart tabs have unsaved changes.", StringComparison.Ordinal),
+        Require(source.Contains("_documentTabs.Tabs.Any(static tab => tab.IsDirty)", StringComparison.Ordinal),
             "Closing the window protects modified inactive charts.");
         Require(source.Contains("_documentTabs.TryReserveSavePath(saveTab, path!)", StringComparison.Ordinal),
             "Save As must atomically reserve its destination before writing.");
