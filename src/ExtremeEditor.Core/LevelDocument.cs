@@ -61,6 +61,17 @@ public sealed record LevelDecoration(int? Floor, string EventType)
     public required JsonObject Properties { get; init; }
 }
 
+public sealed record LevelMetadata(
+    string? Song,
+    string? Artist,
+    string? Author,
+    string? LevelDescription,
+    string? LevelTags,
+    string? ArtistLinks)
+{
+    public static LevelMetadata Empty { get; } = new(null, null, null, null, null, null);
+}
+
 public sealed class LevelDocument
 {
     private LevelActionStore? _actionStore;
@@ -106,6 +117,7 @@ public sealed class LevelDocument
     public required bool SeparateCountdownTime { get; set; }
     public required string DefaultHitSound { get; set; }
     public required double HitSoundVolumePercent { get; set; }
+    public LevelMetadata Metadata { get; set; } = LevelMetadata.Empty;
     public LevelCameraSettings CameraSettings
     {
         get => _cameraSettings ??= LevelCameraSettings.LoadFromSource(SourcePath);

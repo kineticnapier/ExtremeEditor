@@ -16,6 +16,7 @@ internal static class Program
         {
             SongSettingsAudioAsyncRegression.Run();
             IncrementalActionPropertyEditRegression.Run();
+            LazyLevelMetadataRegression.Run();
             if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_IDLE_ANCHOR_ONLY"),
                 "1", StringComparison.Ordinal))
