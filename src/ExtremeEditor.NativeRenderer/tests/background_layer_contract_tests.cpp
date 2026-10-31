@@ -40,6 +40,7 @@ int main()
     for (const char* token : {
              "EeBackgroundState", "EeBackgroundEvent",
              "ee_renderer_set_background_timeline", "ee_renderer_set_background_asset",
+             "ee_renderer_replace_background_assets",
              "EE_BACKGROUND_DISPLAY_FIT_TO_SCREEN", "EE_BACKGROUND_DISPLAY_UNSCALED",
              "EE_BACKGROUND_DISPLAY_TILED", "EE_BACKGROUND_IMAGE_SMOOTHING",
              "EE_BACKGROUND_LOCK_ROTATION", "EE_BACKGROUND_LOOP" })
@@ -66,8 +67,16 @@ int main()
             std::string(file) + " does not draw the background before floors/grid");
     }
     require(sources.find("BackgroundAssetCache") != std::string::npos &&
-            sources.find("SetBackgroundAsset") != std::string::npos,
+            sources.find("SetBackgroundAsset") != std::string::npos &&
+            sources.find("ReplaceBackgroundAssets") != std::string::npos,
         "background image decode/upload is not isolated to prepare-time asset registration");
+
+    const std::string renderer = Read(root / "src" / "renderer.cpp");
+    const std::size_t replace = renderer.find("Renderer::ReplaceBackgroundAssets(");
+    const std::size_t replace_end = renderer.find("\nbool Renderer::", replace + 1u);
+    require(replace != std::string::npos && replace_end != std::string::npos &&
+            renderer.substr(replace, replace_end - replace).find("background_assets_ = std::move(next)") != std::string::npos,
+        "#83 background assets must be built once and atomically replace the old map");
 
     return failures == 0 ? 0 : 1;
 }

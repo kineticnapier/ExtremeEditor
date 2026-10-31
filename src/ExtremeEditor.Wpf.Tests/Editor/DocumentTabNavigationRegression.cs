@@ -49,6 +49,23 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+
+        // These checks previously existed but were never invoked by Run(),
+        // so the standard WPF suite silently skipped native failure recovery.
+        VerifyStopPlaybackNativeFailureOrdering();
+        VerifyPreparedLevelStateIsAtomic();
+        VerifyDirectPlaybackRefreshIsAtomic();
+        VerifyPreparedPlaybackStateIsAtomic();
+        VerifyNativeUploadRollback();
+        VerifyActivationFailureObservation();
+        VerifyNativeHostInitializationCleanup();
+        VerifyNativeSessionConstructionCleanup();
+        VerifyNativeSessionDisposalCleanup();
+        VerifyRapidNavigation();
+        VerifyFailedPendingTargetCleanup();
+        VerifyFailedNewTabCleanup();
+        VerifyFailedChartOpenCleanup();
+        VerifyPreparedAudioFailureCleanup();
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
@@ -313,13 +330,20 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(observed, syncFailure) && notifications == 2,
             "A synchronous activation failure must also be observed exactly once.");
 
+        string openSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string openHandler = ExtractMethodBody(openSource, "private async void ExecuteOpen(");
+        Require(openHandler.Contains("RequestDocumentTabActivation(existing)", StringComparison.Ordinal) &&
+                !openHandler.Contains("_ = ActivateDocumentTab(existing)", StringComparison.Ordinal),
+            "Reopening an already-open chart must observe native activation failures.");
+
         string source = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
         string observer = ExtractMethodBody(source,
             "private async void RequestDocumentTabActivation(");
         Require(observer.Contains("await ObserveDocumentTabActivationAsync(", StringComparison.Ordinal) &&
                 observer.Contains("Could not activate", StringComparison.Ordinal) &&
-                observer.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
+                observer.Contains("_pendingTabNavigationTarget = ClearFailedPendingTabTarget(", StringComparison.Ordinal),
             "WPF tab activation must display failures and clear stale Ctrl+Tab targets.");
     }
 
@@ -555,6 +579,153 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(
                 MainWindow.SelectNextDocumentTab(tabs, c, backwards: true), a),
             "Two-tab reverse cycling must return to the active tab.");
+    }
+
+    private static void VerifyFailedPendingTargetCleanup()
+    {
+        var tabs = new EditorDocumentTabs();
+        EditorDocumentTab NewTab()
+        {
+            LevelDocument document = LevelDocument.CreateSynthetic(2);
+            return new EditorDocumentTab(document, new EditorSession(document));
+        }
+
+        EditorDocumentTab a = NewTab();
+        EditorDocumentTab b = NewTab();
+        EditorDocumentTab c = NewTab();
+        Require(tabs.Add(a) && tabs.Add(b, activate: false) &&
+                tabs.Add(c, activate: false), "Three tabs must be registered.");
+
+        // A failed direct click on B must not make Ctrl+Tab skip B.
+        EditorDocumentTab? pending = MainWindow.ClearFailedPendingTabTarget(b, b);
+        Require(pending is null &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), b),
+            "Failed direct activation must cycle from the still-active tab.");
+
+        // A late failure from B must not erase a newer pending request for C.
+        pending = MainWindow.ClearFailedPendingTabTarget(c, b);
+        Require(ReferenceEquals(pending, c) &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), a),
+            "Failure cleanup must preserve a newer pending destination.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        string observer = ExtractMethodBody(source,
+            "private async void RequestDocumentTabActivation(");
+        int cleanupCalls = activation.Split(
+            "ClearFailedPendingTabTarget(", StringSplitOptions.None).Length - 1;
+        Require(cleanupCalls >= 5 &&
+                observer.Contains("ClearFailedPendingTabTarget(", StringComparison.Ordinal) &&
+                !activation.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal) &&
+                !observer.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal),
+            "All failed direct and cyclic activations must clear only their own pending target.");
+    }
+
+    private static void VerifyFailedNewTabCleanup()
+    {
+        // Activation can throw after a new tab is added but before it becomes
+        // active. The asynchronous command handler catches the exception, but
+        // the newly allocated tab and audio must be removed by the callee.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string create = ExtractMethodBody(source,
+            "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()");
+        int activation = create.IndexOf(
+            "activated = await ActivateDocumentTab(tab);", StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            create.IndexOf("finally", activation, StringComparison.Ordinal);
+        int inactiveGuard = create.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = create.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = create.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int after = create.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        Require(activation >= 0 && cleanupFinally > activation &&
+                inactiveGuard > cleanupFinally && remove > inactiveGuard &&
+                dispose > remove && after > dispose,
+            "Faulted new-tab activation must clean up its uncommitted tab and audio.");
+    }
+
+    private static void VerifyFailedChartOpenCleanup()
+    {
+        // A chart that cannot become active must not remain as an orphan,
+        // appear in recent files, or begin audio preparation.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int activation = load.IndexOf("activated = await ActivateDocumentTab(",
+            StringComparison.Ordinal);
+        int cleanup = load.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = load.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = load.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int guard = load.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        int recent = load.IndexOf("RememberRecentFile(path);", StringComparison.Ordinal);
+        int playback = load.IndexOf(
+            "NativeLoadPreparationCache.StartPlayback(loaded.Document",
+            StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            load.IndexOf("finally", activation, StringComparison.Ordinal);
+        Require(activation >= 0 && cleanup > activation &&
+                remove > cleanup && dispose > remove &&
+                guard > dispose && recent > guard && playback > recent &&
+                cleanupFinally > activation && cleanupFinally < guard,
+            "Failed or faulted chart activation must clean up before recent-file and audio work.");
+
+        var tabs = new EditorDocumentTabs();
+        LevelDocument first = LevelDocument.CreateSynthetic(2);
+        LevelDocument second = LevelDocument.CreateSynthetic(3);
+        var original = new EditorDocumentTab(first, new EditorSession(first));
+        var rejected = new EditorDocumentTab(second, new EditorSession(second));
+        Require(tabs.Add(original) && tabs.Add(rejected, activate: false) &&
+                tabs.Remove(rejected) && tabs.Tabs.Count == 1 &&
+                ReferenceEquals(tabs.ActiveTab, original),
+            "Removing an uncommitted chart must preserve the previously active tab.");
+    }
+
+    private static void VerifyPreparedAudioFailureCleanup()
+    {
+        // Native playback upload can fail after the audio player was prepared.
+        // The player must be disposed before the method transfers ownership
+        // to the active tab; the old player must remain untouched on failure.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int setupStart = load.IndexOf(
+            "NativePlaybackLoadMetrics nativePlaybackMetrics;", StringComparison.Ordinal);
+        int transfer = load.IndexOf("AudioPlayer previousAudio = _audio;",
+            StringComparison.Ordinal);
+        Require(setupStart >= 0 && transfer > setupStart,
+            "Playback setup must precede the active audio ownership transfer.");
+
+        string setup = load.Substring(setupStart, transfer - setupStart);
+        int upload = setup.IndexOf(
+            "NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback)",
+            StringComparison.Ordinal);
+        int preferences = setup.IndexOf(
+            "ApplySharedPlaybackPreferences(preparedAudio.Player)",
+            StringComparison.Ordinal);
+        int cleanupCatch = setup.IndexOf("catch", StringComparison.Ordinal);
+        int dispose = setup.IndexOf("preparedAudio.Dispose();", StringComparison.Ordinal);
+        int rethrow = setup.IndexOf("throw;", StringComparison.Ordinal);
+        Require(setup.Contains("try", StringComparison.Ordinal) &&
+                upload >= 0 && preferences > upload &&
+                cleanupCatch > preferences && dispose > cleanupCatch &&
+                rethrow > dispose,
+            "Failed native playback setup must dispose the uncommitted audio player and rethrow.");
     }
 
     private static void Require(bool value, string message)

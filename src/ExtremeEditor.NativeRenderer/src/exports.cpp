@@ -461,6 +461,22 @@ EeResult ee_renderer_set_background_asset(
         ? EE_OK : EE_ERROR_INITIALIZATION;
 }
 
+EeResult ee_renderer_replace_background_assets(
+    EeRendererHandle renderer,
+    const uint32_t* asset_ids,
+    const wchar_t* const* image_paths,
+    uint32_t asset_count)
+{
+    if (renderer == nullptr ||
+        (asset_count > 0u && (asset_ids == nullptr || image_paths == nullptr)))
+    {
+        return EE_ERROR_INVALID_ARGUMENT;
+    }
+    return static_cast<ee::Renderer*>(renderer)->ReplaceBackgroundAssets(
+        asset_ids, image_paths, asset_count)
+        ? EE_OK : EE_ERROR_INITIALIZATION;
+}
+
 EeResult ee_renderer_set_track_transform_timeline(
     EeRendererHandle renderer,
     const EeTrackTransformEvent* events,

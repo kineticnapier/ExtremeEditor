@@ -98,13 +98,9 @@ internal static class CustomBackgroundRenderingRegression
         Check(failures, "headless video export background upload", () =>
         {
             Require(headlessSource.Contains(
-                "foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)",
+                "NativeRendererNative.ReplaceBackgroundAssets(",
                 StringComparison.Ordinal),
-                "headless renderer does not iterate background image assets.");
-            Require(headlessSource.Contains(
-                "NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath)",
-                StringComparison.Ordinal),
-                "headless renderer does not upload background images.");
+                "headless renderer does not atomically replace background images.");
             Require(headlessSource.Contains(
                 "UploadArray(prepared.BackgroundTimeline, NativeRendererNative.SetBackgroundTimeline",
                 StringComparison.Ordinal),

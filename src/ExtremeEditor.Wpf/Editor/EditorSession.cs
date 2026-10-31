@@ -26,6 +26,7 @@ internal sealed partial class EditorSession
 
     private readonly List<double> _angles;
     private readonly List<LevelAction> _actions;
+    private readonly Dictionary<int, int> _actionIndexBySource = [];
     private readonly Stack<EditorHistoryEntry> _undo = new();
     private readonly Stack<EditorHistoryEntry> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
@@ -51,6 +52,7 @@ internal sealed partial class EditorSession
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
+        RebuildActionSourceIndex();
         _decorations = document.Decorations.Select(CloneDecoration).ToList();
         _saveWriter = saveWriter ?? AdoFaiEditorSaveService.WriteAsync;
         _clipboardStore = clipboardStore ?? new EditorClipboardStore();
@@ -748,8 +750,21 @@ internal sealed partial class EditorSession
     internal void ReplaceActionRaw(LevelAction oldAction, LevelAction newAction)
     {
         int index = FindActionIndex(oldAction);
-        if (index >= 0)
-            _actions[index] = newAction;
+        if (index < 0)
+            return;
+
+        _actions[index] = newAction;
+        if (oldAction.Floor == newAction.Floor)
+        {
+            if (oldAction.Kind == LevelActionKind.SetSpeed || newAction.Kind == LevelActionKind.SetSpeed)
+                RecomputeSpeedRatios();
+            if (Document.TryReplaceActionAt(index, newAction))
+            {
+                if (oldAction.SourceIndex != newAction.SourceIndex)
+                    RebuildActionSourceIndex();
+                return;
+            }
+        }
         // Replacing an action never changes angleData, which is the sole input to
         // the managed base path positions/bounds. Event-specific native timelines
         // are refreshed by the window after the command commits.
@@ -804,6 +819,7 @@ internal sealed partial class EditorSession
             _actions.Clear();
             _actions.AddRange(stableFloorOrder);
         }
+        RebuildActionSourceIndex();
         LogManagedMutationPhase("actionSort", phaseWatch);
 
         phaseWatch?.Restart();
@@ -928,13 +944,25 @@ internal sealed partial class EditorSession
 
     private int FindActionIndex(LevelAction action)
     {
-        if (action.SourceIndex != -1)
-        {
-            int bySource = _actions.FindIndex(candidate => candidate.SourceIndex == action.SourceIndex);
-            if (bySource >= 0)
-                return bySource;
-        }
+        if (action.SourceIndex != -1 &&
+            _actionIndexBySource.TryGetValue(action.SourceIndex, out int bySource) &&
+            bySource >= 0)
+            return bySource;
         return _actions.IndexOf(action);
+    }
+
+    private void RebuildActionSourceIndex()
+    {
+        _actionIndexBySource.Clear();
+        for (int index = 0; index < _actions.Count; index++)
+        {
+            int sourceIndex = _actions[index].SourceIndex;
+            if (sourceIndex != -1)
+            {
+                if (!_actionIndexBySource.TryAdd(sourceIndex, index))
+                    _actionIndexBySource[sourceIndex] = -1;
+            }
+        }
     }
 
     private int NextNewSourceIndex() => _nextNewSourceIndex--;

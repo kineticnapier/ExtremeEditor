@@ -40,9 +40,7 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
         get => _playbackSpeed;
         set
         {
-            if (!PlaybackSpeedPolicy.TryNormalize(value, out double normalized))
-                throw new ArgumentOutOfRangeException(nameof(value), "Playback speed must be finite and greater than zero.");
-            _playbackSpeed = normalized;
+            _playbackSpeed = SongRatePolicy.Normalize(value);
         }
     }
 
@@ -120,6 +118,27 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
         Array.Copy(_sourceBuffer, _sourceBufferOffset, destination, 0, _channels);
         _sourceBufferOffset += _channels;
         return true;
+    }
+}
+
+internal static class SongRatePolicy
+{
+    internal const double Minimum = 0.000001;
+    internal const double Maximum = 100.0;
+
+    internal static double Normalize(double value)
+    {
+        if (!double.IsFinite(value) || value <= 0.0)
+            throw new ArgumentOutOfRangeException(nameof(value), "Song rate must be finite and greater than zero.");
+        return Math.Clamp(value, Minimum, Maximum);
+    }
+
+    internal static double FromPitchPercent(double pitchPercent)
+    {
+        double factor = pitchPercent * 0.01;
+        return !double.IsFinite(factor) || factor <= 0.0
+            ? 1.0
+            : Math.Clamp(factor, Minimum, Maximum);
     }
 }
 

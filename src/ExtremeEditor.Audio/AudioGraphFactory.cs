@@ -63,7 +63,21 @@ internal static class AudioGraphFactory
     {
         double chartEndAudio = 0.0;
         if (level is not null && timingMap is not null)
+        {
             chartEndAudio = PlaybackClock.ChartToAudioTime(level, timingMap.Duration);
+            foreach (LevelAction action in level.ActionStore.Actions)
+            {
+                if (!action.Active || action.Kind != LevelActionKind.PlaySound ||
+                    !TryResolveActionChartTime(timingMap, action, out double chartTime))
+                {
+                    continue;
+                }
+
+                chartEndAudio = Math.Max(
+                    chartEndAudio,
+                    PlaybackClock.ChartToAudioTime(level, chartTime));
+            }
+        }
 
         double tailSeconds = 0.0;
         if (clips is not null)
@@ -83,14 +97,35 @@ internal static class AudioGraphFactory
         return checked((long)Math.Ceiling(totalSeconds * sampleRate));
     }
 
+    internal static bool TryResolveActionChartTime(
+        TimingMap timingMap,
+        LevelAction action,
+        out double chartTime)
+    {
+        ArgumentNullException.ThrowIfNull(timingMap);
+        ArgumentNullException.ThrowIfNull(action);
+        if ((uint)action.Floor >= (uint)timingMap.Floors.Count)
+        {
+            chartTime = 0;
+            return false;
+        }
+
+        FloorTiming floor = timingMap.Floors[action.Floor];
+        double bpm = floor.Bpm > 0 ? floor.Bpm : 100.0;
+        chartTime = floor.EntryTime + (action.AngleOffset ?? 0.0) / 180.0 * (60.0 / bpm);
+        return double.IsFinite(chartTime);
+    }
+
     internal static long CalculatePlaybackFrames(
         long songFrames,
         int sampleRate,
         LevelDocument? level,
         TimingMap? timingMap,
-        IReadOnlyDictionary<string, RenderedHitSound>? clips) =>
+        IReadOnlyDictionary<string, RenderedHitSound>? clips,
+        double songPitch = 1.0) =>
         Math.Max(
-            Math.Max(0, songFrames),
+            checked((long)Math.Ceiling(
+                Math.Max(0, songFrames) / SongRatePolicy.Normalize(songPitch))),
             CalculateHitSoundOnlyFrames(sampleRate, level, timingMap, clips));
 
     internal static AudioGraphBuildResult Build(
@@ -102,7 +137,8 @@ internal static class AudioGraphFactory
         long totalFrames,
         double songVolumePercent,
         double playbackSpeed,
-        bool hitSoundsEnabled)
+        bool hitSoundsEnabled,
+        double songPitch = 1.0)
     {
         ArgumentNullException.ThrowIfNull(song);
 
@@ -124,7 +160,8 @@ internal static class AudioGraphFactory
         {
             Volume = (float)(Math.Clamp(songVolumePercent, 0.0, 100.0) * 0.01)
         };
-        var songRate = new VariableRateSampleProvider(songVolume, playbackSpeed);
+        double effectiveSongRate = SongRatePolicy.Normalize(playbackSpeed * songPitch);
+        var songRate = new VariableRateSampleProvider(songVolume, effectiveSongRate);
         TransportHitSoundSampleProvider? transportHitSounds = hitSounds is null
             ? null
             : new TransportHitSoundSampleProvider(hitSounds, playbackSpeed);

@@ -21,7 +21,10 @@ RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
+RunSongPitchRateChecks();
 RunProviderChecks();
+RunPlaySoundEventChecks();
+RunHitSoundScheduleHotSwapRegression();
 MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
@@ -78,6 +81,37 @@ static void RunClockChecks()
     Near(2.0, PlaybackClock.AudioToChartTime(level, audio), "clock round trip");
 }
 
+static void RunSongPitchRateChecks()
+{
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    var silent = new AudioGraphFactory.FiniteSilentSampleProvider(format)
+    {
+        TotalFrames = 2_000
+    };
+    AudioGraphBuildResult graph = AudioGraphFactory.Build(
+        silent,
+        level: null,
+        timingMap: null,
+        timeline: null,
+        clips: null,
+        totalFrames: 2_000,
+        songVolumePercent: 100,
+        playbackSpeed: 0.5,
+        hitSoundsEnabled: false,
+        songPitch: 1.5);
+
+    Near(0.75, graph.SongRateProvider.PlaybackSpeed,
+        "song pitch and user speed compose only on the song branch");
+    Equal(1_000L, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: 2_000,
+        sampleRate: 1_000,
+        level: null,
+        timingMap: null,
+        clips: null,
+        songPitch: 2.0),
+        "pitch shortens decoded-song transport duration");
+}
+
 static void RunProviderChecks()
 {
     const int sampleRate = 48_000;
@@ -121,6 +155,102 @@ static void RunProviderChecks()
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
     Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
+}
+
+static void RunPlaySoundEventChecks()
+{
+    const int sampleRate = 1_000;
+    var active = new LevelAction(1, "PlaySound", true, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 50,
+        AngleOffset = 90
+    };
+    var inactive = new LevelAction(1, "PlaySound", false, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 100
+    };
+    LevelDocument level = CreateLevel(2, new Dictionary<int, LevelAction[]>
+    {
+        [1] = [active, inactive]
+    });
+    var timing = new TimingMap([
+        new FloorTiming(0, 0.0, 1.0, 0, 0, Math.PI, 100, false, false),
+        new FloorTiming(1, 1.0, 2.0, 0, 0, Math.PI, 100, false, false)
+    ]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0),
+        ["Hat"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level,
+        timing,
+        timeline,
+        clips,
+        totalFrames: 2_000);
+
+    Equal(2, provider.ScheduledHits.Count,
+        "PlaySound adds one independent cue and ignores inactive events");
+    SampleAccurateHitSoundProvider.ScheduledHit eventHit = provider.ScheduledHits
+        .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
+    Equal(1_300L, eventHit.StartFrame, "PlaySound angleOffset sample frame");
+    Near(0.5, eventHit.Volume, "PlaySound volume");
+}
+
+static void RunHitSoundScheduleHotSwapRegression()
+{
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.010)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var firstSchedule = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, 100);
+    var graph = new UnifiedAudioSampleProvider(
+        new AudioGraphFactory.FiniteSilentSampleProvider(format) { TotalFrames = 100 },
+        new TransportHitSoundSampleProvider(firstSchedule, playbackSpeed: 1.0));
+
+    var before = new float[20];
+    graph.Read(before, 0, before.Length);
+    Near(0.0, before[^2], "old schedule before hot swap");
+
+    var movedTiming = new TimingMap([Floor(0, 0.0), Floor(1, 0.020)]);
+    var movedSchedule = new SampleAccurateHitSoundProvider(
+        format, level, movedTiming, timeline, clips, 100);
+    graph.ReplaceTransportHitSounds(
+        new TransportHitSoundSampleProvider(movedSchedule, playbackSpeed: 1.0),
+        sourceFrame: 10);
+
+    var after = new float[22];
+    graph.Read(after, 0, after.Length);
+    Near(0.0, after[18], "replacement schedule before moved hit");
+    Near(0.5, after[20], "replacement schedule moved hit");
+
+    string playerSource = File.ReadAllText(Path.Combine(
+        Environment.CurrentDirectory, "src", "ExtremeEditor.Audio", "AudioPlayer.cs"));
+    int methodStart = playerSource.IndexOf(
+        "private void RefreshHitSoundGraphPreservingDevice()", StringComparison.Ordinal);
+    if (methodStart < 0)
+        throw new InvalidOperationException("#65: AudioPlayer has no device-preserving hitsound refresh path.");
+    int methodEnd = playerSource.IndexOf("\n    private ", methodStart + 1, StringComparison.Ordinal);
+    string method = playerSource[methodStart..(methodEnd < 0 ? playerSource.Length : methodEnd)];
+    if (method.Contains("BuildGraph(", StringComparison.Ordinal) ||
+        method.Contains("_output.Dispose", StringComparison.Ordinal) ||
+        method.Contains("_output.Init", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "#65: hitsound refresh still rebuilds or reinitializes the WaveOut device.");
+    }
 }
 
 static void RunSparseTimelineChecks()

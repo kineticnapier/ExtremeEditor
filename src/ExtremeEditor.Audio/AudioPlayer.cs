@@ -52,6 +52,7 @@ public sealed class AudioPlayer : IDisposable
     private bool _clockReady;
     private bool _hitSoundsEnabled = true;
     private double _playbackSpeed = 1.0;
+    private double _songPitch = 1.0;
     private double _songVolumePercent = 100.0;
 
     public AudioPlayer() : this(loadHitSoundAssets: true) { }
@@ -89,6 +90,29 @@ public sealed class AudioPlayer : IDisposable
             }
 
             ReanchorPlaybackSpeed(normalized);
+        }
+    }
+    public double SongPitch
+    {
+        get => _songPitch;
+        set
+        {
+            double normalized;
+            try
+            {
+                normalized = SongRatePolicy.Normalize(value);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return;
+            }
+
+            if (Math.Abs(normalized - _songPitch) <= double.Epsilon)
+                return;
+
+            _songPitch = normalized;
+            if (_graph is not null)
+                RefreshHitSoundGraphPreservingDevice();
         }
     }
     public double SongVolumePercent
@@ -140,9 +164,11 @@ public sealed class AudioPlayer : IDisposable
     }
 
     // WaveStream.CurrentTime is a decoder read-ahead position. The device byte
-    // position is the presentation clock shared by the song and hit sounds. This
-    // also works for hit-sound-only playback because the clock belongs to WaveOut,
-    // not to the decoder.
+    // position is the transport clock shared by the song and hit sounds. Song
+    // pitch changes decoder consumption, while this clock advances only by the
+    // user's playback speed so PlaybackClock applies chart pitch exactly once.
+    // This also works for hit-sound-only playback because the clock belongs to
+    // WaveOut, not to the decoder.
     public TimeSpan Position
     {
         get
@@ -182,13 +208,14 @@ public sealed class AudioPlayer : IDisposable
         AudioDiagnosticLog.Shared?.Write("audio_player.configure_hitsounds",
             $"level_floors={level?.FloorCount ?? 0} timing_floors={timingMap?.Floors.Count ?? 0} " +
             $"timeline_changes={timeline?.StateChangeCount ?? 0} transport_loaded={IsLoaded} song_loaded={_reader is not null}");
+        _songPitch = ResolveSongPitch(level);
         _level = level;
         _timingMap = timingMap;
         _hitSoundTimeline = timeline;
 
         if (_graph is not null)
         {
-            RebuildGraphPreservingTransport();
+            RefreshHitSoundGraphPreservingDevice();
             return;
         }
 
@@ -333,7 +360,7 @@ public sealed class AudioPlayer : IDisposable
         StopRealtimeDiagnostics();
         _output.Stop();
         if (_reader is not null)
-            _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, _reader.TotalTime.TotalSeconds));
+            SeekReaderToTransportTime(seconds);
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(seconds, _outputFormat.SampleRate);
         RestartHitSoundPrerender(frame);
         _silentSong?.Seek(frame);
@@ -405,7 +432,8 @@ public sealed class AudioPlayer : IDisposable
             _outputFormat.SampleRate,
             _level,
             _timingMap,
-            clips);
+            clips,
+            _songPitch);
         _transportDurationSeconds = totalFrames <= 0
             ? 0.0
             : (double)totalFrames / _outputFormat.SampleRate;
@@ -421,7 +449,8 @@ public sealed class AudioPlayer : IDisposable
             totalFrames,
             _songVolumePercent,
             _playbackSpeed,
-            _hitSoundsEnabled);
+            _hitSoundsEnabled,
+            _songPitch);
 
         _graph = graphBuild.Graph;
         _songRateProvider = graphBuild.SongRateProvider;
@@ -494,7 +523,7 @@ public sealed class AudioPlayer : IDisposable
         _songVolumeProvider = null;
         _transportHitSoundProvider = null;
         if (_reader is not null)
-            _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(position.TotalSeconds, _reader.TotalTime.TotalSeconds));
+            SeekReaderToTransportTime(position.TotalSeconds);
 
         _ = BuildGraph();
         double restoredSeconds = Math.Clamp(position.TotalSeconds, 0.0, _transportDurationSeconds);
@@ -514,6 +543,90 @@ public sealed class AudioPlayer : IDisposable
         else if (state == PlaybackState.Paused)
         {
             _output!.Play();
+            _output.Pause();
+        }
+    }
+
+    private void RefreshHitSoundGraphPreservingDevice()
+    {
+        if (_graph is null || _output is null || _outputFormat is null || _songRateProvider is null)
+            return;
+
+        TimeSpan position = Position;
+        PlaybackState state = _output.PlaybackState;
+        StopRealtimeDiagnostics();
+        _output.Stop();
+        CancelHitSoundPrerender();
+
+        IReadOnlyDictionary<string, RenderedHitSound>? clips =
+            AudioGraphFactory.RenderHitSoundAssets(
+                _hitSoundLibrary,
+                _outputFormat.SampleRate,
+                _level,
+                _timingMap,
+                _hitSoundTimeline,
+                out _);
+        long songFrames = _reader is null
+            ? 0
+            : (long)Math.Ceiling(_reader.TotalTime.TotalSeconds * _outputFormat.SampleRate);
+        long totalFrames = AudioGraphFactory.CalculatePlaybackFrames(
+            songFrames,
+            _outputFormat.SampleRate,
+            _level,
+            _timingMap,
+            clips,
+            _songPitch);
+
+        SampleAccurateHitSoundProvider? hitSounds = null;
+        TransportHitSoundSampleProvider? transportHitSounds = null;
+        if (clips is not null && _level is not null && _timingMap is not null && _hitSoundTimeline is not null)
+        {
+            hitSounds = new SampleAccurateHitSoundProvider(
+                _outputFormat,
+                _level,
+                _timingMap,
+                _hitSoundTimeline,
+                clips,
+                totalFrames);
+            transportHitSounds = new TransportHitSoundSampleProvider(hitSounds, _playbackSpeed);
+        }
+
+        double restoredSeconds = Math.Clamp(
+            position.TotalSeconds,
+            0.0,
+            totalFrames <= 0 ? 0.0 : (double)totalFrames / _outputFormat.SampleRate);
+        long restoredFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+            restoredSeconds,
+            _outputFormat.SampleRate);
+        if (_reader is not null)
+        {
+            SeekReaderToTransportTime(restoredSeconds);
+        }
+        if (_silentSong is not null)
+        {
+            _silentSong.TotalFrames = totalFrames;
+            _silentSong.Seek(restoredFrame);
+        }
+
+        _hitSoundProvider = hitSounds;
+        _transportHitSoundProvider = transportHitSounds;
+        _transportDurationSeconds = totalFrames <= 0
+            ? 0.0
+            : (double)totalFrames / _outputFormat.SampleRate;
+        _graph.ReplaceTransportHitSounds(transportHitSounds, restoredFrame);
+        _songRateProvider.PlaybackSpeed = EffectiveSongRate;
+        _songRateProvider.Reset();
+        RestartHitSoundPrerender(restoredFrame);
+        ResetClock(restoredSeconds);
+
+        if (state == PlaybackState.Playing)
+        {
+            _output.Play();
+            StartRealtimeDiagnostics();
+        }
+        else if (state == PlaybackState.Paused)
+        {
+            _output.Play();
             _output.Pause();
         }
     }
@@ -604,12 +717,9 @@ public sealed class AudioPlayer : IDisposable
         _output.Stop();
 
         _playbackSpeed = normalized;
-        _songRateProvider!.PlaybackSpeed = normalized;
+        _songRateProvider!.PlaybackSpeed = EffectiveSongRate;
         if (_reader is not null)
-        {
-            _reader.CurrentTime = TimeSpan.FromSeconds(
-                Math.Min(sourceSeconds, _reader.TotalTime.TotalSeconds));
-        }
+            SeekReaderToTransportTime(sourceSeconds);
 
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
             sourceSeconds,
@@ -630,6 +740,22 @@ public sealed class AudioPlayer : IDisposable
             _output.Play();
             _output.Pause();
         }
+    }
+
+    private double EffectiveSongRate =>
+        SongRatePolicy.Normalize(_playbackSpeed * _songPitch);
+
+    private static double ResolveSongPitch(LevelDocument? level)
+        => SongRatePolicy.FromPitchPercent(level?.PitchPercent ?? 100.0);
+
+    private void SeekReaderToTransportTime(double transportSeconds)
+    {
+        if (_reader is null)
+            return;
+
+        double sourceSeconds = Math.Max(0.0, transportSeconds) * _songPitch;
+        _reader.CurrentTime = TimeSpan.FromSeconds(
+            Math.Min(sourceSeconds, _reader.TotalTime.TotalSeconds));
     }
 
     private void DisposePlayback()

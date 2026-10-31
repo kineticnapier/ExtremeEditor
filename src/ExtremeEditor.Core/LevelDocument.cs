@@ -12,7 +12,8 @@ public enum LevelActionKind : byte
     Pause,
     SetHitsound,
     SetFloorIcon,
-    Checkpoint
+    Checkpoint,
+    PlaySound
 }
 
 public static class LevelActionKinds
@@ -24,6 +25,7 @@ public static class LevelActionKinds
         "MultiPlanet" => LevelActionKind.MultiPlanet,
         "Pause" => LevelActionKind.Pause,
         "SetHitsound" => LevelActionKind.SetHitsound,
+        "PlaySound" => LevelActionKind.PlaySound,
         "SetFloorIcon" => LevelActionKind.SetFloorIcon,
         "Checkpoint" => LevelActionKind.Checkpoint,
         _ => LevelActionKind.Unknown
@@ -59,6 +61,17 @@ public sealed record LevelDecoration(int? Floor, string EventType)
 {
     public int SourceIndex { get; init; } = -1;
     public required JsonObject Properties { get; init; }
+}
+
+public sealed record LevelMetadata(
+    string? Song,
+    string? Artist,
+    string? Author,
+    string? LevelDescription,
+    string? LevelTags,
+    string? ArtistLinks)
+{
+    public static LevelMetadata Empty { get; } = new(null, null, null, null, null, null);
 }
 
 public sealed class LevelDocument
@@ -106,6 +119,7 @@ public sealed class LevelDocument
     public required bool SeparateCountdownTime { get; set; }
     public required string DefaultHitSound { get; set; }
     public required double HitSoundVolumePercent { get; set; }
+    public LevelMetadata Metadata { get; set; } = LevelMetadata.Empty;
     public LevelCameraSettings CameraSettings
     {
         get => _cameraSettings ??= LevelCameraSettings.LoadFromSource(SourcePath);
@@ -139,6 +153,34 @@ public sealed class LevelDocument
             counts[action.EventType] = count + 1;
         }
         ActionTypeCounts = counts;
+    }
+
+    public bool TryReplaceActionAt(int index, LevelAction replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        LevelActionStore store = ActionStore;
+        if ((uint)index >= (uint)store.ActionCount)
+            return false;
+
+        LevelAction previous = store.Actions[index];
+        if (!store.TryReplaceAt(index, replacement))
+            return false;
+
+        if (!string.Equals(previous.EventType, replacement.EventType, StringComparison.Ordinal))
+        {
+            var counts = new Dictionary<string, int>(ActionTypeCounts, StringComparer.Ordinal);
+            if (counts.TryGetValue(previous.EventType, out int previousCount))
+            {
+                if (previousCount <= 1)
+                    counts.Remove(previous.EventType);
+                else
+                    counts[previous.EventType] = previousCount - 1;
+            }
+            counts.TryGetValue(replacement.EventType, out int replacementCount);
+            counts[replacement.EventType] = replacementCount + 1;
+            ActionTypeCounts = counts;
+        }
+        return true;
     }
 
     public void ReplaceDecorations(IEnumerable<LevelDecoration> decorations)

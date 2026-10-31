@@ -79,17 +79,25 @@ public partial class MainWindow
             return null;
         }
 
-        bool activated = await ActivateDocumentTab(tab);
-        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+        bool activated = false;
+        try
         {
-            // A failed or superseded activation must not leave an orphan tab.
-            if (_documentTabs.Remove(tab))
+            activated = await ActivateDocumentTab(tab);
+        }
+        finally
+        {
+            // An exception during activation must clean up the uncommitted tab
+            // just like an ordinary failed or superseded activation.
+            if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                _documentTabs.Remove(tab))
             {
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
-            return null;
         }
+
+        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+            return null;
 
         return tab;
     }
@@ -130,8 +138,8 @@ public partial class MainWindow
         _pendingTabNavigationTarget = tab;
         if (!TryCommitSettingsBeforeDocumentChange())
         {
-            if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
             return false;
         }
 
@@ -167,8 +175,8 @@ public partial class MainWindow
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
-                if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             }
             return false;
         }
@@ -176,9 +184,9 @@ public partial class MainWindow
         if (activationGeneration != _tabActivationGeneration || _isClosed ||
             !_documentTabs.Tabs.Contains(tab))
         {
-            if (activationGeneration == _tabActivationGeneration &&
-                fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            if (activationGeneration == _tabActivationGeneration)
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             return false;
         }
 
@@ -251,8 +259,8 @@ public partial class MainWindow
         {
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 string recovery = restoreError is null
                     ? string.Empty
                     : $" Renderer recovery also failed: {restoreError.Message}";
@@ -326,9 +334,9 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
-        if (activationGeneration == _tabActivationGeneration &&
-            ReferenceEquals(_pendingTabNavigationTarget, tab))
-            _pendingTabNavigationTarget = null;
+        if (activationGeneration == _tabActivationGeneration)
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
         return true;
     }
 
@@ -371,6 +379,12 @@ public partial class MainWindow
         }
     }
 
+    // A failed direct click must not remain the origin for a later Ctrl+Tab.
+    // Preserve a newer pending request when an older activation finishes.
+    internal static EditorDocumentTab? ClearFailedPendingTabTarget(
+        EditorDocumentTab? pendingTarget, EditorDocumentTab failedTab)
+        => ReferenceEquals(pendingTarget, failedTab) ? null : pendingTarget;
+
     internal static EditorDocumentTab? SelectNextDocumentTab(
         EditorDocumentTabs tabs, EditorDocumentTab? pendingTarget, bool backwards)
     {
@@ -412,8 +426,8 @@ public partial class MainWindow
             () => ActivateDocumentTab(tab, fromTabCycle: fromTabCycle),
             ex =>
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 if (!_isClosed)
                     StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
             });
@@ -495,13 +509,13 @@ public partial class MainWindow
             !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
             return;
 
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
-            !TryCommitSettingsBeforeDocumentChange())
-            return;
-
         _tabCloseOperationPending = true;
         try
         {
+            if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                !TryCommitSettingsBeforeDocumentChange())
+                return;
+
             if (tab.IsDirty)
             {
                 MessageBoxResult answer = MessageBox.Show(
@@ -515,8 +529,10 @@ public partial class MainWindow
                     return;
                 if (answer == MessageBoxResult.Yes)
                 {
-                    _ = SaveAndCloseDocumentTabAsync(tab);
-                    return;
+                    // Keep the close-operation guard held through Save/Save As.
+                    // Only close the tab after a successful, clean save.
+                    if (!await SaveAndCloseDocumentTabAsync(tab))
+                        return;
                 }
             }
 
@@ -547,6 +563,13 @@ public partial class MainWindow
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
+        }
+        catch (Exception ex)
+        {
+            // async void callbacks must observe failures from Save, activation
+            // and native preparation instead of crashing the WPF dispatcher.
+            if (!_isClosed)
+                StatusText.Text = $"Could not close {tab.DisplayName}: {ex.Message}";
         }
         finally
         {

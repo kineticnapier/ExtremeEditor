@@ -193,7 +193,9 @@ public partial class MainWindow : Window
         {
             EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
             if (existing is not null)
-                _ = ActivateDocumentTab(existing);
+                // Reopening an existing chart uses the same observed activation
+                // path as a tab click, so native failures reach the status bar.
+                RequestDocumentTabActivation(existing);
             else
                 await LoadLevelAsync(dialog.FileName);
         }
@@ -267,7 +269,26 @@ public partial class MainWindow : Window
             // editor/selection/audio remain owned by the preceding tab.
             _isLoading = false;
             var switchWatch = Stopwatch.StartNew();
-            await ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            bool activated = false;
+            try
+            {
+                activated = await ActivateDocumentTab(
+                    tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            }
+            finally
+            {
+                // An unsuccessful or faulted activation must not leave a tab
+                // that was never committed as the active workspace.
+                if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                    _documentTabs.Remove(tab))
+                {
+                    tab.Audio?.Dispose();
+                    RefreshActiveDocumentTab();
+                }
+            }
+            if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+                return;
+
             TimeSpan tabSwitch = switchWatch.Elapsed;
             Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 
@@ -333,10 +354,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            NativePlaybackLoadMetrics nativePlaybackMetrics =
-                NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+            NativePlaybackLoadMetrics nativePlaybackMetrics;
+            try
+            {
+                nativePlaybackMetrics =
+                    NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+                ApplySharedPlaybackPreferences(preparedAudio.Player);
+            }
+            catch
+            {
+                // Playback preparation already allocated a new audio player.
+                // Do not leak it if native timeline upload or setup fails
+                // before ownership is transferred to the active tab.
+                preparedAudio.Dispose();
+                throw;
+            }
 
-            ApplySharedPlaybackPreferences(preparedAudio.Player);
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
             tab.Audio = _audio;
@@ -422,6 +455,7 @@ public partial class MainWindow : Window
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = !_playbackPreparationPending &&
+                       _documentTabs.ActiveTab?.AudioPreparationPending != true &&
                        _level is not null &&
                        (_timingMap is not null || _editorPlaybackRefreshPending);
         e.Handled = true;

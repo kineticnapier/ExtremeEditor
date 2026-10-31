@@ -82,6 +82,17 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal NativeRgbFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
+        int stride = checked(Width * 3);
+        byte[] rgb = new byte[checked(stride * Height)];
+        RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
+        return new NativeRgbFrame(Width, Height, rgb);
+    }
+
+    internal void RenderInto(
+        double sceneTimeSeconds,
+        double visualTimeSeconds,
+        byte[] rgb)
+    {
         if (_renderer == nint.Zero)
             throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
         if (!double.IsFinite(sceneTimeSeconds))
@@ -90,7 +101,14 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
             throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
 
         int stride = checked(Width * 3);
-        byte[] rgb = new byte[checked(stride * Height)];
+        ArgumentNullException.ThrowIfNull(rgb);
+        int requiredLength = checked(stride * Height);
+        if (rgb.Length != requiredLength)
+        {
+            throw new ArgumentException(
+                $"RGB buffer length must be exactly {requiredLength} bytes.",
+                nameof(rgb));
+        }
         GCHandle handle = default;
         try
         {
@@ -112,7 +130,6 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                 handle.Free();
         }
 
-        return new NativeRgbFrame(Width, Height, rgb);
     }
 
     private void SetLevel(NativeLevelSnapshot snapshot)
@@ -162,13 +179,11 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         }
 
         // Export must receive the same background image table as the live viewport.
-        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
-        {
-            int result = NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath);
-            if (result != 0)
-                throw new InvalidOperationException(
-                    $"Native background asset upload failed for {asset.ImagePath} with result {result}.");
-        }
+        int backgroundResult = NativeRendererNative.ReplaceBackgroundAssets(
+            _renderer, snapshot.BackgroundAssets);
+        if (backgroundResult != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {backgroundResult}.");
 
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)

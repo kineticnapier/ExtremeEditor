@@ -103,6 +103,28 @@ internal static class VideoExportFramePipelineRegression
             failures.Add(
                 "pipeline must not accumulate all rendered RGB frames in memory");
         }
+        if (!source.Contains("IBorrowedChartFrameRenderer", StringComparison.Ordinal) ||
+            !source.Contains("RenderBorrowed", StringComparison.Ordinal))
+        {
+            failures.Add(
+                "video pipeline must use the renderer's borrowed frame path so the RGB buffer is reused after each awaited consumer");
+        }
+
+        string renderer = File.ReadAllText(Path.Combine(
+            root, "src", "ExtremeEditor.Wpf", "Native", "NativeChartFrameRenderer.cs"));
+        if (!renderer.Contains("IBorrowedChartFrameRenderer", StringComparison.Ordinal) ||
+            !renderer.Contains("_reusableRgb", StringComparison.Ordinal) ||
+            !renderer.Contains("RenderBorrowed", StringComparison.Ordinal))
+        {
+            failures.Add(
+                "native video renderer must retain one reusable RGB buffer without changing the public owned-frame contract");
+        }
+        if (!renderer.Contains("NativeRgbFrame frame = session.Render", StringComparison.Ordinal) ||
+            !renderer.Contains("session.RenderInto", StringComparison.Ordinal))
+        {
+            failures.Add(
+                "public rendering must keep its owned allocation while only borrowed rendering writes into reusable storage");
+        }
 
         string timeline = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "Export", "VideoExportTimeline.cs"));

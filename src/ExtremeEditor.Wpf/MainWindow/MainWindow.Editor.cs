@@ -255,7 +255,7 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
-            RefreshAfterSongSettingsChange(before, after);
+            _ = ObserveSongSettingsChangeAsync(before, after);
         else if (miscBefore != miscAfter)
         {
             RefreshMiscSettings();
@@ -278,7 +278,7 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
-            RefreshAfterSongSettingsChange(before, after);
+            _ = ObserveSongSettingsChangeAsync(before, after);
         else if (miscBefore != miscAfter)
         {
             RefreshMiscSettings();

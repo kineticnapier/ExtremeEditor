@@ -66,6 +66,7 @@ public static partial class AdoFaiLoader
         bool separateCountdownTime = true;
         string defaultHitSound = "Kick";
         double hitSoundVolumePercent = 100.0;
+        LevelMetadata metadata = LevelMetadata.Empty;
         if (root.TryGetProperty("settings", out JsonElement settings) &&
             settings.ValueKind == JsonValueKind.Object)
         {
@@ -87,6 +88,13 @@ public static partial class AdoFaiLoader
 
             defaultHitSound = ReadLooseString(settings, "hitsound") ?? "Kick";
             hitSoundVolumePercent = ReadLooseDoubleProperty(settings, "hitsoundVolume") ?? 100.0;
+            metadata = new LevelMetadata(
+                ReadLooseString(settings, "song"),
+                ReadLooseString(settings, "artist"),
+                ReadLooseString(settings, "author"),
+                ReadLooseString(settings, "levelDesc"),
+                ReadLooseString(settings, "levelTags"),
+                ReadLooseString(settings, "artistLinks"));
         }
 
         var actionTypes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -191,6 +199,7 @@ public static partial class AdoFaiLoader
             SeparateCountdownTime = separateCountdownTime,
             DefaultHitSound = defaultHitSound,
             HitSoundVolumePercent = hitSoundVolumePercent,
+            Metadata = metadata,
             Bounds = bounds
         };
         document.ReplaceDecorations(parsedDecorations);

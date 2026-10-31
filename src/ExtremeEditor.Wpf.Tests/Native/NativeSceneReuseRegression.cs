@@ -90,10 +90,17 @@ internal static class NativeSceneReuseRegression
         string session = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs");
         Require(session.Contains("TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
                 session.Contains("RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
-                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal),
+                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal) &&
+                session.Contains("ReplaceBackgroundAssets(", StringComparison.Ordinal),
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
-        Require(session.Contains("SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal),
-            "Scene reuse must still restore the active document's decorations and visual resources.");
+        int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
+        int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
+        int staticAssets = session.IndexOf("SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal);
+        int decorationAssets = session.IndexOf("ClearDecorationAssets(_renderer)", StringComparison.Ordinal);
+        int iconAssets = session.IndexOf("ClearIconAssets(_renderer)", StringComparison.Ordinal);
+        Require(cacheGuard >= 0 && cacheReturn > cacheGuard &&
+                cacheReturn < staticAssets && cacheReturn < decorationAssets && cacheReturn < iconAssets,
+            "#67: a cache hit must not clear and reload static decorations, decoration images, or icon images.");
 
         string exports = ReadSource("src/ExtremeEditor.NativeRenderer/src/exports.cpp");
         string header = ReadSource("src/ExtremeEditor.NativeRenderer/include/extreme_editor_renderer.h");
@@ -106,8 +113,10 @@ internal static class NativeSceneReuseRegression
         string renderer = ReadSource("src/ExtremeEditor.NativeRenderer/src/renderer.h");
         Require(renderer.Contains("TryActivateCachedLevel(", StringComparison.Ordinal) &&
                 renderer.Contains("RememberCurrentLevel(", StringComparison.Ordinal) &&
-                renderer.Contains("std::shared_ptr<LevelScene> cached_scene_", StringComparison.Ordinal),
-            "Native scene reuse must retain at most one inactive scene instead of an unbounded scene map.");
+                renderer.Contains("std::shared_ptr<LevelScene> cached_scene_", StringComparison.Ordinal) &&
+                renderer.Contains("cached_icon_assets_", StringComparison.Ordinal) &&
+                renderer.Contains("cached_background_assets_", StringComparison.Ordinal),
+            "#67: native scene reuse must retain the inactive scene's icon and background asset tables.");
 
         string cache = ReadSource("src/ExtremeEditor.Wpf/Services/NativeLoadPreparationCache.cs");
         Require(cache.Contains("ByLevel.Remove(level)", StringComparison.Ordinal),

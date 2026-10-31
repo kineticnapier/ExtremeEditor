@@ -142,6 +142,7 @@ public static partial class AdoFaiLoader
                 SeparateCountdownTime = parsed.SeparateCountdownTime,
                 DefaultHitSound = parsed.DefaultHitSound,
                 HitSoundVolumePercent = parsed.HitSoundVolumePercent,
+                Metadata = parsed.Metadata,
                 Bounds = bounds
             };
             document.ReplaceDecorations(parsed.Decorations);
@@ -202,6 +203,12 @@ public static partial class AdoFaiLoader
         private bool _separateCountdownTime = true;
         private string _defaultHitSound = "Kick";
         private double _hitSoundVolumePercent = 100.0;
+        private string? _song;
+        private string? _artist;
+        private string? _author;
+        private string? _levelDescription;
+        private string? _levelTags;
+        private string? _artistLinks;
 
         public void Accept(ref Utf8JsonReader reader)
         {
@@ -270,6 +277,13 @@ public static partial class AdoFaiLoader
                 _separateCountdownTime,
                 _defaultHitSound,
                 _hitSoundVolumePercent,
+                new LevelMetadata(
+                    _song,
+                    _artist,
+                    _author,
+                    _levelDescription,
+                    _levelTags,
+                    _artistLinks),
                 _decorations.ToArray());
         }
 
@@ -389,6 +403,24 @@ public static partial class AdoFaiLoader
                     break;
                 case FlatSettingField.HitSoundVolume when TryReadDouble(ref reader, out double volume):
                     _hitSoundVolumePercent = volume;
+                    break;
+                case FlatSettingField.Song:
+                    _song = ReadString(ref reader);
+                    break;
+                case FlatSettingField.Artist:
+                    _artist = ReadString(ref reader);
+                    break;
+                case FlatSettingField.Author:
+                    _author = ReadString(ref reader);
+                    break;
+                case FlatSettingField.LevelDescription:
+                    _levelDescription = ReadString(ref reader);
+                    break;
+                case FlatSettingField.LevelTags:
+                    _levelTags = ReadString(ref reader);
+                    break;
+                case FlatSettingField.ArtistLinks:
+                    _artistLinks = ReadString(ref reader);
                     break;
             }
         }
@@ -781,6 +813,12 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("separateCountdownTime"u8)) return FlatSettingField.SeparateCountdownTime;
             if (reader.ValueTextEquals("hitsound"u8)) return FlatSettingField.HitSound;
             if (reader.ValueTextEquals("hitsoundVolume"u8)) return FlatSettingField.HitSoundVolume;
+            if (reader.ValueTextEquals("song"u8)) return FlatSettingField.Song;
+            if (reader.ValueTextEquals("artist"u8)) return FlatSettingField.Artist;
+            if (reader.ValueTextEquals("author"u8)) return FlatSettingField.Author;
+            if (reader.ValueTextEquals("levelDesc"u8)) return FlatSettingField.LevelDescription;
+            if (reader.ValueTextEquals("levelTags"u8)) return FlatSettingField.LevelTags;
+            if (reader.ValueTextEquals("artistLinks"u8)) return FlatSettingField.ArtistLinks;
             return FlatSettingField.Unknown;
         }
 
@@ -869,7 +907,8 @@ public static partial class AdoFaiLoader
         private enum FlatSettingField
         {
             None, Unknown, Bpm, SongFilename, Volume, Offset, SongOffset, Pitch,
-            CountdownTicks, SeparateCountdownTime, HitSound, HitSoundVolume
+            CountdownTicks, SeparateCountdownTime, HitSound, HitSoundVolume,
+            Song, Artist, Author, LevelDescription, LevelTags, ArtistLinks
         }
         private enum FlatActionField
         {
@@ -937,5 +976,6 @@ public static partial class AdoFaiLoader
         bool SeparateCountdownTime,
         string DefaultHitSound,
         double HitSoundVolumePercent,
+        LevelMetadata Metadata,
         LevelDecoration[] Decorations);
 }

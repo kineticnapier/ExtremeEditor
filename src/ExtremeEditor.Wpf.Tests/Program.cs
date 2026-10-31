@@ -94,8 +94,6 @@ internal static class Program
                 TabPlaybackPreferenceRegression.Run();
                 UiSafetyIssueRegression.Run();
                 NativeSettingsFocusRegression.Run();
-            NativeSystemMenuRegression.Run();
-            SetSpeedEditorConversionRegression.Run();
                 NativeSystemMenuRegression.Run();
                 SetSpeedEditorConversionRegression.Run();
                 ManagedGeometryEditRegression.Run();
@@ -486,6 +484,7 @@ internal static class Program
                 DocumentTabCloseRegression.Run();
                 DocumentTabSwitchCacheRegression.Run();
                 NativeSceneReuseRegression.Run();
+                CameraTimelineUploadRegression.Run();
                 Console.WriteLine("PASS: safe tab closing and cached managed/native scene switching.");
                 return 0;
             }
@@ -935,6 +934,11 @@ internal static class Program
                 return 0;
             }
 
+            FocusedTestDispatchRegression.Run();
+            SongSettingsAudioAsyncRegression.Run();
+            IncrementalActionPropertyEditRegression.Run();
+            LazyLevelMetadataRegression.Run();
+            ResponsiveEditorLayoutRegression.Run();
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
@@ -959,6 +963,8 @@ internal static class Program
             SongSettingsSliceRegression.Run();
             SongAudioFallbackRegression.Run();
             UiSafetyIssueRegression.Run();
+            NativeSystemMenuRegression.Run();
+            SetSpeedEditorConversionRegression.Run();
             NumericInputSafetyRegression.Run();
             SavePathReservationRegression.Run();
             StructureReferenceGenerationRegression.Run();
@@ -977,6 +983,7 @@ internal static class Program
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
+            DocumentTabScaffoldRegression.Run();
             DocumentTabCloseRegression.Run();
             DocumentTabSwitchCacheRegression.Run();
             NativeSceneReuseRegression.Run();
