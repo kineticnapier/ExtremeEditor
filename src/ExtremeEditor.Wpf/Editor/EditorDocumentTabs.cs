@@ -65,11 +65,19 @@ internal sealed class EditorDocumentTabs
         return _tabs[(currentIndex + offset + _tabs.Count) % _tabs.Count];
     }
 
+    internal bool HasPendingSave(EditorDocumentTab tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        return _savePathReservations.Values.Any(owner => ReferenceEquals(owner, tab));
+    }
+
     internal bool Remove(EditorDocumentTab tab)
     {
         ArgumentNullException.ThrowIfNull(tab);
         int index = _tabs.IndexOf(tab);
-        if (index < 0)
+        // Do not detach a tab while SaveAsync still owns its destination.
+        // Its document and editor must remain reachable until the lease ends.
+        if (index < 0 || HasPendingSave(tab))
             return false;
 
         bool wasActive = ReferenceEquals(tab, ActiveTab);
