@@ -77,7 +77,7 @@ public partial class MainWindow
         _settingsPaneCollapsed = !_settingsPaneCollapsed;
         SettingsContentColumn.Width = _settingsPaneCollapsed
             ? new GridLength(0)
-            : new GridLength(280);
+            : new GridLength(2, GridUnitType.Star);
         ApplySettingsPaneVisibility();
         SettingsSidebarCollapseButton.Content = _settingsPaneCollapsed ? "›" : "‹";
         SettingsSidebarCollapseButton.ToolTip = _settingsPaneCollapsed ? "Expand settings" : "Collapse settings";

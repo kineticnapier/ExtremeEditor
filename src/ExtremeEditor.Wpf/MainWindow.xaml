@@ -5,8 +5,8 @@
         xmlns:native="clr-namespace:ExtremeEditor.Wpf.Native"
         Width="1500"
         Height="900"
-        MinWidth="1000"
-        MinHeight="650"
+        MinWidth="700"
+        MinHeight="460"
         WindowStartupLocation="CenterScreen"
         Background="#14161A"
         Loaded="AssetSetupWindowLoaded"
@@ -317,9 +317,9 @@
         <Grid x:Name="EditorShellGrid">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SettingsRailColumn" Width="40" />
-                <ColumnDefinition x:Name="SettingsContentColumn" Width="280" MaxWidth="300" />
-                <ColumnDefinition x:Name="EditorViewportColumn" Width="*" MinWidth="350" />
-                <ColumnDefinition x:Name="EventInspectorColumn" Width="330" />
+                <ColumnDefinition x:Name="SettingsContentColumn" Width="2*" MinWidth="140" MaxWidth="300" />
+                <ColumnDefinition x:Name="EditorViewportColumn" Width="4*" MinWidth="280" />
+                <ColumnDefinition x:Name="EventInspectorColumn" Width="2.5*" MinWidth="180" MaxWidth="330" />
             </Grid.ColumnDefinitions>
 
             <Grid x:Name="SettingsSidebarHost"

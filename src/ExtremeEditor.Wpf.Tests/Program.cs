@@ -938,6 +938,7 @@ internal static class Program
             SongSettingsAudioAsyncRegression.Run();
             IncrementalActionPropertyEditRegression.Run();
             LazyLevelMetadataRegression.Run();
+            ResponsiveEditorLayoutRegression.Run();
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();

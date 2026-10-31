@@ -308,15 +308,20 @@ internal static class SongSettingsSliceRegression
             throw new InvalidOperationException($"Settings category rail width must be 36-44px; actual={railWidth}.");
 
         XElement contentColumn = RequireNamedElement(root, "SettingsContentColumn");
-        double contentWidth = ReadRequiredWidth(contentColumn, "settings content pane");
-        if (contentWidth is < 260 or > 300)
+        string contentWidth = contentColumn.Attribute("Width")?.Value ?? string.Empty;
+        if (!contentWidth.EndsWith('*') ||
+            !double.TryParse(contentWidth[..^1], out double contentWeight) ||
+            contentWeight <= 0)
             throw new InvalidOperationException(
-                $"Song Settings pane width must be 260-300px; actual={contentWidth}.");
+                "Song Settings pane must use a positive proportional width for narrow windows.");
+        if (!double.TryParse(contentColumn.Attribute("MinWidth")?.Value, out double minContent) ||
+            minContent is < 120 or > 200)
+            throw new InvalidOperationException("Settings content pane needs a usable responsive minimum width.");
         if (!double.TryParse(contentColumn.Attribute("MaxWidth")?.Value, out double maxWidth) || maxWidth > 300)
             throw new InvalidOperationException("Settings content pane needs a 300px maximum for narrow windows.");
 
         XElement viewportColumn = RequireNamedElement(root, "EditorViewportColumn");
-        if (!double.TryParse(viewportColumn.Attribute("MinWidth")?.Value, out double minViewport) || minViewport < 350)
+        if (!double.TryParse(viewportColumn.Attribute("MinWidth")?.Value, out double minViewport) || minViewport < 280)
             throw new InvalidOperationException("The viewport column must retain usable width beside the sidebar.");
     }
 
