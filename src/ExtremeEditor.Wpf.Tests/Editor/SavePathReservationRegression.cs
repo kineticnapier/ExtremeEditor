@@ -28,6 +28,11 @@ internal static class SavePathReservationRegression
             ?? throw new InvalidOperationException("RED: the first Save As destination was not reserved.");
         try
         {
+            Require(tabs.HasPendingSave(first), "The saving tab must expose its pending save.");
+            Require(!tabs.Remove(first),
+                "RED: a tab was removed while its Save As was still writing.");
+            Require(ReferenceEquals(tabs.ActiveTab, first) && tabs.Tabs.Count == 2,
+                "A rejected close must keep the active tab and tab count unchanged.");
             Require(Reserve(reserve, tabs, second, shared) is null,
                 "RED: another tab acquired an already-reserved save destination.");
 
@@ -52,9 +57,24 @@ internal static class SavePathReservationRegression
             firstLease.Dispose();
         }
 
-        using IDisposable? released = Reserve(reserve, tabs, second, shared);
-        Require(released is not null, "A completed/failed save must release its destination.");
+        Require(!tabs.HasPendingSave(first), "The completed save must clear its owner guard.");
+        using (IDisposable? released = Reserve(reserve, tabs, second, shared))
+        {
+            Require(released is not null, "A completed/failed save must release its destination.");
+            Require(!tabs.Remove(second), "RED: a second tab was removed during its pending save.");
+        }
 
+        Require(!tabs.HasPendingSave(second), "The second save must release its owner guard.");
+        Require(tabs.Remove(first), "A tab must be removable after its save finishes.");
+        LevelDocument reopenedDocument = LevelDocument.CreateSynthetic(2);
+        reopenedDocument.SourcePath = shared;
+        Require(tabs.Add(new EditorDocumentTab(
+            reopenedDocument, new EditorSession(reopenedDocument)), activate: false),
+            "A destination must be openable again after its save reservation is released.");
+
+        string closeSource = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
+        Require(closeSource.Contains("if (_documentTabs.HasPendingSave(tab))", StringComparison.Ordinal),
+            "RED: CloseDocumentTab does not block closing a tab with an in-flight save.");
         string source = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.Editor.cs");
         Require(source.Contains("ReferenceEquals(_documentTabs.ActiveTab, saveTab)", StringComparison.Ordinal),
             "RED: async save completion does not verify which tab owns the visible title/status.");
