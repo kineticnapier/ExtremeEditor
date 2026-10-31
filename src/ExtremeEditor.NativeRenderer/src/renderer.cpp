@@ -137,8 +137,11 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     // Every scene created by a full upload may replace the inactive cache.
     // Keep the previous scene only when it was registered from a prepared
     // managed snapshot. Untracked edits explicitly clear that registration.
-    cached_scene_ = current_scene_cache_key_ == 0u ? nullptr : std::move(scene_);
+    const bool cache_previous = current_scene_cache_key_ != 0u;
+    cached_scene_ = cache_previous ? std::move(scene_) : nullptr;
     cached_scene_key_ = cached_scene_ ? current_scene_cache_key_ : 0u;
+    cached_icon_assets_ = cache_previous ? icon_assets_ : nullptr;
+    cached_background_assets_ = cache_previous ? background_assets_ : nullptr;
     current_scene_cache_key_ = 0u;
     scene_ = std::move(scene);
     pending_icon_states_.clear();
@@ -175,6 +178,20 @@ bool Renderer::TryActivateCachedLevel(std::uint64_t scene_key) noexcept
     cached_scene_ = previous_key == 0u ? nullptr : std::move(previous);
     cached_scene_key_ = cached_scene_ ? previous_key : 0u;
 
+    std::shared_ptr<const IconAssetTable> previous_icons = std::move(icon_assets_);
+    icon_assets_ = cached_icon_assets_
+        ? std::move(cached_icon_assets_)
+        : std::make_shared<IconAssetTable>();
+    cached_icon_assets_ = cached_scene_ ? std::move(previous_icons) : nullptr;
+    ++icon_assets_version_;
+
+    auto previous_backgrounds = std::move(background_assets_);
+    background_assets_ = cached_background_assets_
+        ? std::move(cached_background_assets_)
+        : std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+    cached_background_assets_ = cached_scene_ ? std::move(previous_backgrounds) : nullptr;
+    ++background_assets_version_;
+
     // Match SetLevel's activation contract; tab-specific selections, assets
     // and playback timelines are restored by WPF after scene activation.
     pending_icon_states_.clear();
@@ -202,6 +219,8 @@ void Renderer::RememberCurrentLevel(std::uint64_t scene_key) noexcept
         // inactive scene whose snapshots may be obsolete.
         cached_scene_.reset();
         cached_scene_key_ = 0u;
+        cached_icon_assets_.reset();
+        cached_background_assets_.reset();
     }
 }
 

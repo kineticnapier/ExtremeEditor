@@ -134,6 +134,7 @@ private:
     std::uint64_t current_scene_cache_key_ = 0u;
     std::uint64_t cached_scene_key_ = 0u;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
+    std::shared_ptr<const IconAssetTable> cached_icon_assets_;
     std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
         std::make_shared<std::vector<EeStaticDecoration>>();
     std::shared_ptr<const DecorationAssetTable> decoration_assets_ =
@@ -156,6 +157,7 @@ private:
         std::make_shared<std::vector<EeBackgroundEvent>>();
     std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> background_assets_ =
         std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+    std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> cached_background_assets_;
     std::uint64_t background_assets_version_ = 0;
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;

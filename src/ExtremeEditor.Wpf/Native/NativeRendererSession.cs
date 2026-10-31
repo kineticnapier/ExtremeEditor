@@ -235,6 +235,19 @@ internal sealed class NativeRendererSession : IDisposable
 
         phaseWatch.Stop();
         TimeSpan nativeLevelTime = phaseWatch.Elapsed;
+        if (cacheHit)
+        {
+            LastDecorationAssetFailures = [];
+            totalWatch.Stop();
+            if (NativeUploadDiagnostics.Enabled)
+            {
+                Console.WriteLine(
+                    $"[native-upload] level={nativeLevelTime.TotalMilliseconds:N1}ms " +
+                    "assets=reused total=" + totalWatch.Elapsed.TotalMilliseconds.ToString("N1") + "ms");
+            }
+            return;
+        }
+
         phaseWatch.Restart();
         SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
         phaseWatch.Stop();
