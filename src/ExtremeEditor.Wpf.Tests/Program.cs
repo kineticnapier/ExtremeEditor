@@ -983,6 +983,7 @@ internal static class Program
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
+            DocumentTabScaffoldRegression.Run();
             DocumentTabCloseRegression.Run();
             DocumentTabSwitchCacheRegression.Run();
             NativeSceneReuseRegression.Run();
