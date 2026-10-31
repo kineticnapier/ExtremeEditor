@@ -334,6 +334,41 @@ internal static class DocumentTabNavigationRegression
                 steps.SequenceEqual(new[] { "level", "playback", "selection", "rollback" }),
             "A native selection upload failure must roll back before the managed tab commits.");
 
+        // Restoring the target tab's saved camera is part of the native
+        // transaction. A false result must roll back, just like a thrown error.
+        string targetCameraSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string targetActivation = ExtractMethodBody(targetCameraSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(targetActivation.Contains(
+                    "if (!NativeViewport.RestoreEditorCamera(editorCamera))",
+                    StringComparison.Ordinal) &&
+                targetActivation.Contains(
+                    "Could not restore the target native editor camera.",
+                    StringComparison.Ordinal),
+            "Rejected target camera upload must abort the native tab transaction.");
+
+        steps.Clear();
+        var targetCameraFailure = new InvalidOperationException(
+            "injected target camera rejection");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError,
+            beforeCommit: () =>
+            {
+                steps.Add("target-camera");
+                bool cameraAccepted = false;
+                if (!cameraAccepted)
+                    throw targetCameraFailure;
+                steps.Add("stop");
+            });
+        Require(!ok && ReferenceEquals(uploadError, targetCameraFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback", "target-camera", "rollback" }),
+            "Rejected target camera must roll back without stopping old playback.");
+
         steps.Clear();
         var recoveryFailure = new InvalidOperationException("injected recovery failure");
         ok = MainWindow.TryUploadDocumentTabScene(
