@@ -129,7 +129,8 @@ public sealed class OfflineAudioRenderer
                 sampleRate,
                 plan.Level,
                 plan.TimingMap,
-                clips);
+                clips,
+                SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
 
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;
@@ -148,9 +149,10 @@ public sealed class OfflineAudioRenderer
             long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
             if (reader is not null)
             {
+                double songPitch = SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent);
                 reader.CurrentTime = TimeSpan.FromSeconds(
                     Math.Min(
-                        Math.Max(0.0, plan.StartAudioTimeSeconds),
+                        Math.Max(0.0, plan.StartAudioTimeSeconds) * songPitch,
                         reader.TotalTime.TotalSeconds));
             }
             silentSong?.Seek(sourceStartFrame);
@@ -164,7 +166,8 @@ public sealed class OfflineAudioRenderer
                 totalFrames,
                 plan.SongVolumePercent,
                 playbackSpeed: 1.0,
-                plan.HitSoundsEnabled);
+                plan.HitSoundsEnabled,
+                songPitch: SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
 
             UnifiedAudioSampleProvider graph = graphBuild.Graph;
             graph.Seek(sourceStartFrame);

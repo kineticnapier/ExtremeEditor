@@ -21,6 +21,7 @@ RunSampleIndexChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
+RunSongPitchRateChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -78,6 +79,37 @@ static void RunClockChecks()
     double audio = PlaybackClock.ChartToAudioTime(level, 2.0);
     Near(0.25, audio, "separate countdown chart-to-audio");
     Near(2.0, PlaybackClock.AudioToChartTime(level, audio), "clock round trip");
+}
+
+static void RunSongPitchRateChecks()
+{
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    var silent = new AudioGraphFactory.FiniteSilentSampleProvider(format)
+    {
+        TotalFrames = 2_000
+    };
+    AudioGraphBuildResult graph = AudioGraphFactory.Build(
+        silent,
+        level: null,
+        timingMap: null,
+        timeline: null,
+        clips: null,
+        totalFrames: 2_000,
+        songVolumePercent: 100,
+        playbackSpeed: 0.5,
+        hitSoundsEnabled: false,
+        songPitch: 1.5);
+
+    Near(0.75, graph.SongRateProvider.PlaybackSpeed,
+        "song pitch and user speed compose only on the song branch");
+    Equal(1_000L, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: 2_000,
+        sampleRate: 1_000,
+        level: null,
+        timingMap: null,
+        clips: null,
+        songPitch: 2.0),
+        "pitch shortens decoded-song transport duration");
 }
 
 static void RunProviderChecks()

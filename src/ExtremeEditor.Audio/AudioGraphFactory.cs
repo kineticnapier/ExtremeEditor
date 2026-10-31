@@ -121,9 +121,11 @@ internal static class AudioGraphFactory
         int sampleRate,
         LevelDocument? level,
         TimingMap? timingMap,
-        IReadOnlyDictionary<string, RenderedHitSound>? clips) =>
+        IReadOnlyDictionary<string, RenderedHitSound>? clips,
+        double songPitch = 1.0) =>
         Math.Max(
-            Math.Max(0, songFrames),
+            checked((long)Math.Ceiling(
+                Math.Max(0, songFrames) / SongRatePolicy.Normalize(songPitch))),
             CalculateHitSoundOnlyFrames(sampleRate, level, timingMap, clips));
 
     internal static AudioGraphBuildResult Build(
@@ -135,7 +137,8 @@ internal static class AudioGraphFactory
         long totalFrames,
         double songVolumePercent,
         double playbackSpeed,
-        bool hitSoundsEnabled)
+        bool hitSoundsEnabled,
+        double songPitch = 1.0)
     {
         ArgumentNullException.ThrowIfNull(song);
 
@@ -157,7 +160,8 @@ internal static class AudioGraphFactory
         {
             Volume = (float)(Math.Clamp(songVolumePercent, 0.0, 100.0) * 0.01)
         };
-        var songRate = new VariableRateSampleProvider(songVolume, playbackSpeed);
+        double effectiveSongRate = SongRatePolicy.Normalize(playbackSpeed * songPitch);
+        var songRate = new VariableRateSampleProvider(songVolume, effectiveSongRate);
         TransportHitSoundSampleProvider? transportHitSounds = hitSounds is null
             ? null
             : new TransportHitSoundSampleProvider(hitSounds, playbackSpeed);
