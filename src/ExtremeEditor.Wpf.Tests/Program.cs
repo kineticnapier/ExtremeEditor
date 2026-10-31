@@ -484,6 +484,7 @@ internal static class Program
                 DocumentTabCloseRegression.Run();
                 DocumentTabSwitchCacheRegression.Run();
                 NativeSceneReuseRegression.Run();
+                CameraTimelineUploadRegression.Run();
                 Console.WriteLine("PASS: safe tab closing and cached managed/native scene switching.");
                 return 0;
             }
