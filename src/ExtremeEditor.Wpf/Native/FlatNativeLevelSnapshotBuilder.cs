@@ -219,8 +219,11 @@ internal static class FlatNativeLevelSnapshotBuilder
                 iconResolution.ValidActionFloorCount));
     }
 
-    private static void LogPhase(string phase, TimeSpan elapsed) =>
-        Console.WriteLine($"[native-prepare] {phase}={elapsed.TotalMilliseconds:F1}ms");
+    private static void LogPhase(string phase, TimeSpan elapsed)
+    {
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] {phase}={elapsed.TotalMilliseconds:F1}ms");
+    }
 
     private static (float Left, float Top, float Right, float Bottom) CalculateTransformBounds(
         NativeFloor[] floors,

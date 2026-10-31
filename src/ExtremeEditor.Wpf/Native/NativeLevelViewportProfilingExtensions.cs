@@ -102,8 +102,9 @@ internal static class NativeLevelViewportProfilingExtensions
     private static NativeLevelLoadMetrics ReadLevelMetrics(NativeLevelViewport viewport)
     {
         NativeLevelUploadMetrics metrics = viewport.LastLevelUploadMetrics;
-        Console.WriteLine(
-            $"[load] native-detail floorGeometry={metrics.SnapshotFloorGeometry.TotalMilliseconds:N1}ms " +
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine(
+                $"[load] native-detail floorGeometry={metrics.SnapshotFloorGeometry.TotalMilliseconds:N1}ms " +
             $"icons={metrics.SnapshotIcons.TotalMilliseconds:N1}ms " +
             $"finalize={metrics.SnapshotFinalize.TotalMilliseconds:N1}ms " +
             $"geometries={metrics.GeometryCount:N0} " +

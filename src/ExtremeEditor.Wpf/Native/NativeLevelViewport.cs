@@ -29,8 +29,9 @@ public sealed partial class NativeLevelViewport
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordPrepareLevel();
 
-        Console.WriteLine(
-            $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine(
+                $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
 
         if (DecorationDiagnostics.Enabled)
             DecorationBlendDiagnostics.Log(level);
@@ -39,7 +40,8 @@ public sealed partial class NativeLevelViewport
         var phaseWatch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
         phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
 
         phaseWatch.Restart();
         StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
@@ -52,10 +54,12 @@ public sealed partial class NativeLevelViewport
             backgroundIds.TryGetValue(initialBackground.Image, out uint backgroundId) ? backgroundId : 0u);
         result.Snapshot.BackgroundAssets = backgroundAssets;
         phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
 
         totalWatch.Stop();
-        Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
         return new PreparedNativeLevel(result.Snapshot, result.Metrics, totalWatch.Elapsed);
     }
 
