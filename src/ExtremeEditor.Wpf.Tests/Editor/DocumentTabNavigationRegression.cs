@@ -380,6 +380,34 @@ internal static class DocumentTabNavigationRegression
                 ReferenceEquals(restoreError, recoveryFailure),
             "A failed rollback must preserve both the original and recovery errors.");
 
+        // The first tab has no previous native scene. A partial upload failure
+        // must not be reported as successfully restored in that case.
+        string firstTabSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string firstTabActivation = ExtractMethodBody(firstTabSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(firstTabActivation.Contains("if (previous is null)", StringComparison.Ordinal) &&
+                firstTabActivation.Contains(
+                    "No previous native scene is available for recovery.",
+                    StringComparison.Ordinal),
+            "A first-tab upload failure must explicitly report that native recovery is unavailable.");
+
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => throw playbackFailure,
+            null,
+            () =>
+            {
+                EditorDocumentTab? previousTab = null;
+                if (previousTab is null)
+                    throw new InvalidOperationException(
+                        "No previous native scene is available for recovery.");
+            },
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                restoreError is InvalidOperationException &&
+                restoreError.Message.Contains("No previous native scene", StringComparison.Ordinal),
+            "A failed first-tab upload must preserve the upload error and report failed recovery.");
+
         // A native camera restore can report failure with a false return
         // instead of throwing. The tab switch must treat this as failed recovery.
         string tabSource = File.ReadAllText(FindSourceFile(
