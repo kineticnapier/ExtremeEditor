@@ -197,10 +197,13 @@ internal static class NativeSceneReuseRegression
         Require(preparedStart >= 0 && preparedEnd > preparedStart,
             "Prepared level upload must have a bounded implementation.");
         string preparedUpload = preparedSource[preparedStart..preparedEnd];
-        int preparedCommit = preparedUpload.IndexOf("_snapshot = prepared.Snapshot;", StringComparison.Ordinal);
+        int preparedStage = preparedUpload.IndexOf("_level = level;", StringComparison.Ordinal);
         int preparedFrame = preparedUpload.IndexOf("ApplyPendingFrameAll();", StringComparison.Ordinal);
-        Require(preparedCommit >= 0 && preparedFrame > preparedCommit,
-            "Prepared level activation must apply deferred FrameAll after committing the uploaded chart.");
+        int preparedRollback = preparedUpload.IndexOf("_level = previousLevel;", StringComparison.Ordinal);
+        int preparedCommit = preparedUpload.IndexOf("_snapshot = prepared.Snapshot;", StringComparison.Ordinal);
+        Require(preparedStage >= 0 && preparedStage < preparedFrame &&
+                preparedFrame < preparedRollback && preparedRollback < preparedCommit,
+            "Prepared level activation must stage the chart for deferred FrameAll, roll back on failure, and commit the snapshot only after success.");
 
         string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
         int setLevelStart = preparation.IndexOf("public void SetLevel(", StringComparison.Ordinal);
