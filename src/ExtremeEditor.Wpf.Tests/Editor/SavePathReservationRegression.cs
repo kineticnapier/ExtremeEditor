@@ -92,6 +92,30 @@ internal static class SavePathReservationRegression
             "RED: window close can bypass an in-flight save when the chart is clean.");
         Require(source.Contains("ReferenceEquals(_documentTabs.ActiveTab, saveTab)", StringComparison.Ordinal),
             "RED: async save completion does not verify which tab owns the visible title/status.");
+        int saveHandler = source.IndexOf(
+            "private async void ExecuteSave(", StringComparison.Ordinal);
+        int saveAsHandler = source.IndexOf(
+            "private async void ExecuteSaveAs(", StringComparison.Ordinal);
+        int commandGuard = source.IndexOf(
+            "private async Task ExecuteSaveCommandAsync(", StringComparison.Ordinal);
+        int saveImplementation = source.IndexOf(
+            "private async Task<bool> SaveCurrentAsync(", StringComparison.Ordinal);
+        Require(saveHandler >= 0 && saveAsHandler > saveHandler &&
+                commandGuard > saveAsHandler && saveImplementation > commandGuard,
+            "RED: save command exception boundary is missing.");
+        string saveEntry = source[saveHandler..saveAsHandler];
+        string saveAsEntry = source[saveAsHandler..commandGuard];
+        string saveGuard = source[commandGuard..saveImplementation];
+        Require(saveEntry.Contains("e.Handled = true;", StringComparison.Ordinal) &&
+                saveEntry.Contains("await ExecuteSaveCommandAsync(saveAs: false);", StringComparison.Ordinal) &&
+                saveAsEntry.Contains("e.Handled = true;", StringComparison.Ordinal) &&
+                saveAsEntry.Contains("await ExecuteSaveCommandAsync(saveAs: true);", StringComparison.Ordinal),
+            "RED: a WPF save command bypasses the shared exception boundary.");
+        Require(saveGuard.Contains("try", StringComparison.Ordinal) &&
+                saveGuard.Contains("await SaveCurrentAsync(saveAs);", StringComparison.Ordinal) &&
+                saveGuard.Contains("catch (Exception ex)", StringComparison.Ordinal) &&
+                saveGuard.Contains("StatusText.Text =", StringComparison.Ordinal),
+            "RED: pre-write save failures can escape an async void WPF command.");
     }
 
     private static IDisposable? Reserve(
