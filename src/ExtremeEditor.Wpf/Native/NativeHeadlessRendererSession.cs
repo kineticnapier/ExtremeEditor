@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Native;
 
@@ -35,6 +36,11 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
             throw new ArgumentOutOfRangeException(nameof(width));
         if (height <= 0)
             throw new ArgumentOutOfRangeException(nameof(height));
+
+        // This internal factory can be used without NativeChartFrameRenderer.
+        // Reject RGB24 buffers that cannot fit in a managed byte[] before
+        // allocating a native renderer (and before any native API call).
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
 
         uint apiVersion = NativeRendererNative.GetApiVersion();
         if (apiVersion != ExpectedBaseApiVersion)
