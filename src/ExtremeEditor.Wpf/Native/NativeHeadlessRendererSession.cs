@@ -139,7 +139,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     }
 
-    private void ValidateRenderRequest(double sceneTimeSeconds, double visualTimeSeconds)
+    internal void ValidateRenderRequest(double sceneTimeSeconds, double visualTimeSeconds)
     {
         if (_renderer == nint.Zero)
             throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
