@@ -247,6 +247,7 @@ public sealed class AudioPlayer : IDisposable
 
         using (log?.Measure("audio_player.dispose_before_load"))
             DisposePlayback();
+        string loadStage = "opening song reader";
         try
         {
             string extension = Path.GetExtension(path);
@@ -264,9 +265,11 @@ public sealed class AudioPlayer : IDisposable
                 $"duration_ms={_reader.TotalTime.TotalMilliseconds:F3}");
             LoadedPath = path;
 
+            loadStage = "building audio graph";
             BuildGraphMetrics graphMetrics;
             using (log?.Measure("audio_player.build_graph"))
                 graphMetrics = BuildGraph();
+            loadStage = "resetting playback clock";
             using (log?.Measure("audio_player.reset_clock"))
                 ResetClock(0.0);
 
@@ -278,7 +281,8 @@ public sealed class AudioPlayer : IDisposable
             log?.Write("audio_player.load_failed",
                 $"exception={ex.GetType().FullName} message={ex.Message}");
             DisposePlayback();
-            throw;
+            throw new InvalidOperationException(
+                $"Audio load failed while {loadStage} ({Path.GetFileName(path)}): {ex.Message}", ex);
         }
     }
 

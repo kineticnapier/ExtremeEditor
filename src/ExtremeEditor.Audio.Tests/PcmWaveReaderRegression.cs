@@ -33,7 +33,6 @@ internal static class PcmWaveReaderRegression
             if (count != 4 || Math.Abs(samples[2] - 0.5f) > 0.00001f ||
                 Math.Abs(samples[3] + 0.5f) > 0.00001f)
                 throw new InvalidOperationException("PCM24 sample conversion failed.");
-        }
             string extensiblePath = Path.Combine(Path.GetTempPath(), $"ee-extensible24-{Guid.NewGuid():N}.wav");
             try
             {
