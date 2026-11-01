@@ -85,10 +85,24 @@ internal static class SavePathReservationRegression
         Require(closeSource.Contains("if (_documentTabs.HasPendingSave(tab))", StringComparison.Ordinal),
             "RED: CloseDocumentTab does not block closing a tab with an in-flight save.");
         string source = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.Editor.cs");
-        int closeGuard = source.IndexOf("if (_documentTabs.HasPendingSaves)", StringComparison.Ordinal);
+        // OnClosing now shares its pending-work guard with tab-close and
+        // close-confirmation handling. Verify the call precedes the clean
+        // document fast path rather than requiring the old inline if.
+        int saveStateRead = source.IndexOf(
+            "bool hasPendingSaves = _documentTabs.HasPendingSaves;", StringComparison.Ordinal);
+        int pendingWorkGuard = source.IndexOf(
+            "if (ShouldBlockWindowCloseForPendingWork(", StringComparison.Ordinal);
         int dirtyCloseCheck = source.IndexOf(
             "if (_windowCloseApproved || !_documentTabs.Tabs.Any", StringComparison.Ordinal);
-        Require(closeGuard >= 0 && dirtyCloseCheck > closeGuard,
+        Require(saveStateRead >= 0 && pendingWorkGuard > saveStateRead &&
+                dirtyCloseCheck > pendingWorkGuard &&
+                source[pendingWorkGuard..dirtyCloseCheck].Contains(
+                    "hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending",
+                    StringComparison.Ordinal) &&
+                MainWindow.ShouldBlockWindowCloseForPendingWork(
+                    hasPendingSaves: true,
+                    tabCloseOperationPending: false,
+                    windowCloseConfirmationPending: false),
             "RED: window close can bypass an in-flight save when the chart is clean.");
         Require(source.Contains("ReferenceEquals(_documentTabs.ActiveTab, saveTab)", StringComparison.Ordinal),
             "RED: async save completion does not verify which tab owns the visible title/status.");
