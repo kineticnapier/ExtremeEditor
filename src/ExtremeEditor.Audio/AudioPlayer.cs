@@ -253,9 +253,7 @@ public sealed class AudioPlayer : IDisposable
             var phaseWatch = Stopwatch.StartNew();
             using (log?.Measure("audio_player.open_reader", $"extension={extension}"))
             {
-                _reader = string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase)
-                    ? new VorbisWaveReader(path)
-                    : new AudioFileReader(path);
+                _reader = SongReaderFactory.Open(path);
             }
             phaseWatch.Stop();
             TimeSpan openReader = phaseWatch.Elapsed;

@@ -60,12 +60,7 @@ public sealed class OfflineAudioRenderer
                 2);
         }
 
-        using WaveStream reader = string.Equals(
-            Path.GetExtension(resolved),
-            ".ogg",
-            StringComparison.OrdinalIgnoreCase)
-            ? new VorbisWaveReader(resolved)
-            : new AudioFileReader(resolved);
+        using WaveStream reader = SongReaderFactory.Open(resolved);
         ISampleProvider song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
         return new OfflineAudioFormat(
             song.WaveFormat.SampleRate,
@@ -94,12 +89,7 @@ public sealed class OfflineAudioRenderer
                 : Path.GetFullPath(plan.SongPath);
             if (songPath is not null && File.Exists(songPath))
             {
-                reader = string.Equals(
-                    Path.GetExtension(songPath),
-                    ".ogg",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? new VorbisWaveReader(songPath)
-                    : new AudioFileReader(songPath);
+                reader = SongReaderFactory.Open(songPath);
                 song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
             }
             else
