@@ -29,11 +29,11 @@ internal readonly record struct NativeEditorActionRequest(
 internal sealed class NativeSceneDecorationWarnings
 {
     private const int MaxEntries = 8;
-    private readonly Dictionary<ulong, string[]> _byScene = new();
+    private readonly Dictionary<ulong, IReadOnlyList<string>> _byScene = new();
     private readonly Queue<ulong> _insertionOrder = new();
 
     internal IReadOnlyList<string> ForScene(ulong key) =>
-        key != 0u && _byScene.TryGetValue(key, out string[]? failures) ? failures : [];
+        key != 0u && _byScene.TryGetValue(key, out IReadOnlyList<string>? failures) ? failures : [];
 
     internal void Remember(ulong key, IReadOnlyList<string> failures)
     {
@@ -48,7 +48,7 @@ internal sealed class NativeSceneDecorationWarnings
                 _byScene.Remove(_insertionOrder.Dequeue());
         }
 
-        _byScene[key] = failures.ToArray();
+        _byScene[key] = Array.AsReadOnly(failures.ToArray());
     }
 
     internal void Clear()
@@ -327,7 +327,7 @@ internal sealed class NativeRendererSession : IDisposable
             NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         // Publish warnings only for a fully accepted scene. A later required
         // background/icon upload can fail before the caller restores its state.
-        LastDecorationAssetFailures = decorationAssetFailures;
+        LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());
         if (useCache)
             _decorationWarnings.Remember(snapshot.SceneCacheKey, decorationAssetFailures);
         totalWatch.Stop();
