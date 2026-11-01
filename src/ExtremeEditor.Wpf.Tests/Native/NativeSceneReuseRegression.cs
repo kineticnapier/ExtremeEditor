@@ -93,6 +93,8 @@ internal static class NativeSceneReuseRegression
                 session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal) &&
                 session.Contains("ReplaceBackgroundAssets(", StringComparison.Ordinal),
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
+        VerifyPreparedSceneCacheCommitOrder(session);
+
         int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
         int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
         int staticAssets = session.IndexOf("SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal);
@@ -129,6 +131,42 @@ internal static class NativeSceneReuseRegression
         string tabs = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
         Require(tabs.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document,", StringComparison.Ordinal),
             "Tab reactivation must continue through the prepared viewport path.");
+    }
+
+    private static void VerifyPreparedSceneCacheCommitOrder(string session)
+    {
+        // A failed background or icon upload leaves the native scene incomplete.
+        // Its cache identity must not be published before the final asset succeeds:
+        // otherwise a later tab switch can reuse that incomplete scene.
+        int start = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int end = start < 0 ? -1 : session.IndexOf(
+            "internal void SetStaticDecorations(", start, StringComparison.Ordinal);
+        Require(start >= 0 && end > start,
+            "The native scene upload must remain available for cache-order checks.");
+
+        string upload = session[start..end];
+        int clearUnpreparedCache = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, 0u)",
+            StringComparison.Ordinal);
+        int level = upload.IndexOf("NativeRendererNative.SetLevel(", StringComparison.Ordinal);
+        int decorations = upload.IndexOf(
+            "SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal);
+        int backgrounds = upload.IndexOf(
+            "NativeRendererNative.ReplaceBackgroundAssets(", StringComparison.Ordinal);
+        int icons = upload.IndexOf(
+            "NativeRendererNative.SetIconAsset(", StringComparison.Ordinal);
+        int cacheCommit = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)",
+            StringComparison.Ordinal);
+
+        Require(clearUnpreparedCache >= 0 && clearUnpreparedCache < level &&
+                level < decorations && decorations < backgrounds &&
+                backgrounds < icons && icons < cacheCommit,
+            "A prepared scene must be registered for cache reuse only after " +
+            "geometry, decorations, backgrounds and icons are uploaded; " +
+            "ordinary unprepared uploads must still clear stale cache identities.");
     }
 
     private static void VerifyNativeDpiExtents()
