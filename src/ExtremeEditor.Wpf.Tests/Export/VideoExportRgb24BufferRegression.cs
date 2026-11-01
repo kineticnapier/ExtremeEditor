@@ -1,4 +1,5 @@
 using ExtremeEditor.Wpf.Export;
+using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -18,6 +19,28 @@ internal static class VideoExportRgb24BufferRegression
         RequireRejected(int.MaxValue, 1); // RGB24 stride cannot fit in int.
         RequireRejected(50_000, 50_000); // Valid stride, oversized frame.
         RequireRejected(int.MaxValue, int.MaxValue); // Must not overflow long.
+
+        // The public renderer can also be used without VideoExportRequest.
+        // Invalid dimensions must fail before native renderer initialization.
+        RequireRendererRejected(0, 1080);
+        RequireRendererRejected(int.MaxValue, 1);
+        RequireRendererRejected(50_000, 50_000);
+    }
+
+    private static void RequireRendererRejected(int width, int height)
+    {
+        try
+        {
+            var renderer = new NativeChartFrameRenderer(width, height);
+            renderer.Dispose();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Direct RGB24 renderer must reject unsupported dimensions {width}x{height}.");
     }
 
     private static void RequireRejected(int width, int height)
