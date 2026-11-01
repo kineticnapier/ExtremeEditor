@@ -21,6 +21,8 @@ internal sealed class EditorDocumentTabs
 
     internal IReadOnlyList<EditorDocumentTab> Tabs => _readOnlyTabs;
     internal EditorDocumentTab? ActiveTab { get; private set; }
+    // Keep the window alive while any tab still owns an in-flight save.
+    internal bool HasPendingSaves => _savePathReservations.Count != 0;
 
     internal bool Add(EditorDocumentTab tab, bool activate = true)
     {
