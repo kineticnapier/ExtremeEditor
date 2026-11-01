@@ -99,6 +99,13 @@ internal static class DocumentTabScaffoldRegression
                 controller.Contains("DocumentTabsHost.Children.Insert(index, visual.Chrome)", StringComparison.Ordinal) &&
                 !controller.Contains("if (ReferenceEquals(tab, active))", StringComparison.Ordinal),
             "The active tab is rendered in its original position alongside every other tab.");
+        Require(controller.Contains(
+                    "AutomationProperties.SetName(visual.Activate, $\"Switch to {tab.DisplayName}\")",
+                    StringComparison.Ordinal) &&
+                controller.Contains(
+                    "AutomationProperties.SetName(visual.Close, $\"Close {tab.DisplayName}\")",
+                    StringComparison.Ordinal),
+            "Tab activation and close buttons must expose filename-aware accessible names.");
         string keyboard = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.AdoFaiKeybinds.cs"));
         Require(keyboard.Contains("key == Key.N", StringComparison.Ordinal) &&
