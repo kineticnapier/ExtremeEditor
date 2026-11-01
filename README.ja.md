@@ -7,8 +7,8 @@ ExtremeEditor は、非常に大規模な A Dance of Fire and Ice
 製品版アプリケーションは WPF とネイティブ C++ ビューポートで構成されており、
 Unity、UMM、Harmony、Workbench への実行時依存はありません。
 
-現在のバージョンは `0.0.720-prototype` です。バージョン文字列の正本は
-`src/ExtremeEditor.Core/EditorVersion.cs` にあり、変更したらこの行も更新してください。
+現在のバージョンは `src/ExtremeEditor.Core/EditorVersion.cs` で定義されています。
+この文書が古くならないよう、番号はここには書きません。
 既定の開発ブランチは `main` です。
 WinForms から WPF への移行と、旧 WinForms ホストの削除は完了しています。
 
@@ -100,9 +100,9 @@ ExtremeEditor.NativeRenderer.dll (C++)
 
 ただし、再生時の惑星の姿勢と公転半径は、現状その境界の両側で計算されています。
 C# 側の `TimingMap.GetPose()` と、C++ 側の `CalculatePlaybackVisual()` です。
-両者は一致している必要があり、PositionTrack と ScaleRadius を併用した場合に
-食い違う既知の問題は未解決項目として管理しています。
-詳細は [`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md) を参照してください。
+両者は一致している必要があります。食い違いが残っている場合は
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md) で管理しています。
+この文書は日付付きのスナップショットなので、現在のコードと照らして確認してください。
 
 ## ソリューション構成
 
@@ -211,8 +211,7 @@ ExtremeEditor はまだ本家エディタの完全な byte-for-byte 代替では
 - README と移行ドキュメントの整理
 - UI 整理と診断表示の簡素化
 
-未完了の作業（PositionTrack と ScaleRadius の未解決項目や、CustomBackground 描画の
-未完部分を含む）は
+未完了の作業は
 [`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md) にまとめています。
 この文書は日付付きのスナップショットなので、現在のコードと照らして確認してください。
 

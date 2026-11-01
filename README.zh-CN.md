@@ -6,7 +6,7 @@ ExtremeEditor 是一款面向超大型 A Dance of Fire and Ice（`.adofai`）谱
 Windows 独立编辑器。正式应用使用 WPF 与原生 C++ 视口，不依赖 Unity、UMM、
 Harmony 或 Workbench 运行时。
 
-当前版本为 `0.0.720-prototype`，默认开发分支为 `main`。
+当前版本定义在 `src/ExtremeEditor.Core/EditorVersion.cs` 中，默认开发分支为 `main`。
 从 WinForms 到 WPF 的迁移以及旧 WinForms 宿主的移除已经完成。
 
 ## 发布

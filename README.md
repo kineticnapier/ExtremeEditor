@@ -6,10 +6,10 @@ ExtremeEditor is a standalone Windows editor for very large A Dance of Fire and 
 (`.adofai`) levels. The production application is WPF with a native C++ viewport;
 it has no Unity, UMM, Harmony, or Workbench runtime dependency.
 
-The current version is `0.0.720-prototype`. The version string lives in
-`src/ExtremeEditor.Core/EditorVersion.cs`, which is the source of truth; update
-this line when it changes. `main` is the default development branch. The
-WinForms-to-WPF migration and removal of the legacy WinForms host are complete.
+The current version is defined in `src/ExtremeEditor.Core/EditorVersion.cs`. It
+is deliberately not repeated here, so this file cannot fall behind. `main` is the
+default development branch. The WinForms-to-WPF migration and removal of the
+legacy WinForms host are complete.
 
 ## Releases
 
@@ -99,9 +99,9 @@ snapshots cross a flat P/Invoke boundary.
 
 Playback pose and orbit radius are currently computed on both sides of that
 boundary: `TimingMap.GetPose()` in C# and `CalculatePlaybackVisual()` in C++.
-The two must agree, and a known disagreement (PositionTrack combined with
-ScaleRadius) is tracked as an open item; see
-[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md).
+The two must agree. Any open disagreement between them is tracked in
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md),
+which is a dated snapshot, so check it against the current code.
 
 ## Solution layout
 
@@ -221,8 +221,7 @@ Next:
 1. Sample-accurate hit-sound pre-render
 2. Consolidate the production song + hit-sound unified audio graph
 
-Known unfinished work, including the open PositionTrack and ScaleRadius item and
-the incomplete CustomBackground rendering details, is listed in
+Known unfinished work is listed in
 [`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md).
 That file is a dated snapshot, so check it against the current code.
 
