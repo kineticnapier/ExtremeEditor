@@ -32,15 +32,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(timingMap);
-        if (width <= 0)
-            throw new ArgumentOutOfRangeException(nameof(width));
-        if (height <= 0)
-            throw new ArgumentOutOfRangeException(nameof(height));
-
-        // This internal factory can be used without NativeChartFrameRenderer.
-        // Reject RGB24 buffers that cannot fit in a managed byte[] before
-        // allocating a native renderer (and before any native API call).
-        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
+        ValidateFrameDimensions(width, height);
 
         uint apiVersion = NativeRendererNative.GetApiVersion();
         if (apiVersion != ExpectedBaseApiVersion)
@@ -75,6 +67,18 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
             session.Dispose();
             throw;
         }
+    }
+
+    // This internal factory can be used without NativeChartFrameRenderer.
+    // Validate before any native API call; the helper is testable without
+    // risking a huge native allocation when the validation regresses.
+    internal static void ValidateFrameDimensions(int width, int height)
+    {
+        if (width <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width));
+        if (height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(height));
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
     }
 
     internal NativeRgbFrame Render(double chartTimeSeconds) =>
