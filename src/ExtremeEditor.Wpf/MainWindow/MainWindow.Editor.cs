@@ -33,6 +33,16 @@ public partial class MainWindow
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
+            // A clean chart may still be writing to disk. Do not dispose its
+            // editor or audio while an asynchronous Save/Save As is pending.
+            if (_documentTabs.HasPendingSaves)
+            {
+                e.Cancel = true;
+                base.OnClosing(e);
+                StatusText.Text = "Wait for the current save to finish before closing ExtremeEditor.";
+                return;
+            }
+
             if (_windowCloseApproved || !_documentTabs.Tabs.Any(static tab => tab.IsDirty))
             {
                 base.OnClosing(e);
