@@ -263,11 +263,8 @@ internal sealed class NativeRendererSession : IDisposable
         LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
-        int backgroundResult = NativeRendererNative.ReplaceBackgroundAssets(
-            _renderer, snapshot.BackgroundAssets);
-        if (backgroundResult != 0)
-            throw new InvalidOperationException(
-                $"Native background asset replacement failed with result {backgroundResult}.");
+        RequireBackgroundAssetReplacementSuccess(
+            NativeRendererNative.ReplaceBackgroundAssets(_renderer, snapshot.BackgroundAssets));
 
 
         phaseWatch.Restart();
@@ -387,7 +384,17 @@ internal sealed class NativeRendererSession : IDisposable
     internal void ClearBackgroundAssets()
     {
         if (_renderer != nint.Zero)
-            _ = NativeRendererNative.ReplaceBackgroundAssets(_renderer, []);
+            RequireBackgroundAssetReplacementSuccess(
+                NativeRendererNative.ReplaceBackgroundAssets(_renderer, []));
+    }
+
+    // A failed clear must be reported just like a failed scene upload.
+    // Otherwise the old background table can remain visible after a reset.
+    internal static void RequireBackgroundAssetReplacementSuccess(int result)
+    {
+        if (result != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {result}.");
     }
 
     internal void SetBackgroundTimeline(NativeBackgroundEvent[] events) =>
