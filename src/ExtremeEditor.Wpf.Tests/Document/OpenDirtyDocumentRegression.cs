@@ -35,6 +35,41 @@ internal static class OpenDirtyDocumentRegression
         Require(!load.Contains("EnsureEditorSession();", StringComparison.Ordinal) &&
                 !load.Contains("_audio.Unload();", StringComparison.Ordinal),
             "Loading another chart must not reset tab ownership or unload the previous tab's audio.");
+
+        Require(open.IndexOf("e.Handled = true;", StringComparison.Ordinal) >= 0 &&
+                open.IndexOf("e.Handled = true;", StringComparison.Ordinal) <
+                    open.IndexOf("await ObserveOpenCommandAsync(", StringComparison.Ordinal) &&
+                open.Contains("Could not open chart:", StringComparison.Ordinal),
+            "Open must mark the WPF command handled before observing all setup and load failures.");
+        VerifyOpenCommandObservation();
+    }
+
+    private static void VerifyOpenCommandObservation()
+    {
+        Exception? observed = null;
+        int reports = 0;
+        void Report(Exception ex)
+        {
+            observed = ex;
+            reports++;
+        }
+
+        MainWindow.ObserveOpenCommandAsync(
+            () => Task.CompletedTask, Report).GetAwaiter().GetResult();
+        Require(observed is null && reports == 0,
+            "Successful or canceled Open must not report a failure.");
+
+        var synchronous = new InvalidOperationException("injected dialog failure");
+        MainWindow.ObserveOpenCommandAsync(
+            () => throw synchronous, Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, synchronous) && reports == 1,
+            "A synchronous Open setup failure must be observed once.");
+
+        var asynchronous = new InvalidOperationException("injected load failure");
+        MainWindow.ObserveOpenCommandAsync(
+            () => Task.FromException(asynchronous), Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, asynchronous) && reports == 2,
+            "An asynchronous Open load failure must be observed once.");
     }
 
     private static void Require(bool condition, string message)
