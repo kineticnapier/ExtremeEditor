@@ -1,5 +1,25 @@
 namespace ExtremeEditor.Wpf.Export;
 
+// RGB24 export uses a single managed byte[] and a signed 32-bit stride.
+// Reject impossible dimensions before starting ffmpeg or rendering audio.
+internal static class VideoExportRgb24Buffer
+{
+    internal static int GetRequiredByteCount(int width, int height)
+    {
+        if (width <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width));
+        if (height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(height));
+
+        long stride = (long)width * 3;
+        if (stride > int.MaxValue || height > Array.MaxLength / stride)
+            throw new ArgumentOutOfRangeException(
+                nameof(width), "RGB24 video frame exceeds the supported byte-array size.");
+
+        return checked((int)(stride * height));
+    }
+}
+
 internal sealed record VideoExportPlan(
     double StartChartTimeSeconds,
     double EndChartTimeSeconds,
@@ -21,6 +41,7 @@ internal sealed record VideoExportPlan(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
         if (!double.IsFinite(ChartRate) || ChartRate <= 0.0)
             throw new ArgumentOutOfRangeException(nameof(ChartRate));
     }
