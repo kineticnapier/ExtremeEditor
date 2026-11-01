@@ -29,7 +29,16 @@ internal static class SongReaderFactory
                 return new PcmExtensibleWaveStream(reader, extended);
             }
 
+            // Never silently fall back to ACM for an unsupported WAV subtype.
+            // Report the actual format so we can diagnose a specific file.
+            string detail = reader.WaveFormat is WaveFormatExtensible other
+                ? $" subtype={other.SubFormat}"
+                : string.Empty;
+            string format = reader.WaveFormat.Encoding.ToString();
+            string type = reader.WaveFormat.GetType().Name;
             reader.Dispose();
+            throw new NotSupportedException(
+                $"WAV decoding unsupported: encoding={format} type={type}{detail}");
         }
 
         return new AudioFileReader(path);

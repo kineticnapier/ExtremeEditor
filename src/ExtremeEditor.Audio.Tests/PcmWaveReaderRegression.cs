@@ -43,7 +43,7 @@ internal static class PcmWaveReaderRegression
                     writer.Write("WAVE"u8.ToArray());
                     writer.Write("fmt "u8.ToArray());
                     writer.Write(40);
-                    writer.Write((short)0xFFFE);
+                    writer.Write((ushort)0xFFFE);
                     writer.Write((short)2);
                     writer.Write(48000);
                     writer.Write(288000);
