@@ -27,26 +27,46 @@ public partial class MainWindow
         RefreshInspector();
     }
 
+    // A pending tab close can await native preparation after its save has ended.
+    // Do not dispose the window while that operation or a close confirmation
+    // still owns live UI/editor state.
+    internal static bool ShouldBlockWindowCloseForPendingWork(
+        bool hasPendingSaves,
+        bool tabCloseOperationPending,
+        bool windowCloseConfirmationPending)
+        => hasPendingSaves || tabCloseOperationPending || windowCloseConfirmationPending;
+
     protected override void OnClosing(CancelEventArgs e)
     {
         ShutdownDiagnostics.Activate();
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
-            // A clean chart may still be writing to disk. Do not dispose its
-            // editor or audio while an asynchronous Save/Save As is pending.
-            if (_documentTabs.HasPendingSaves)
+            // Saves, tab removal and an existing close confirmation can all
+            // suspend across awaits. Do not shut down their editor/native state.
+            bool hasPendingSaves = _documentTabs.HasPendingSaves;
+            if (ShouldBlockWindowCloseForPendingWork(
+                    hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending))
             {
+                // A previously approved close must not bypass confirmation
+                // after an intervening operation has prevented shutdown.
+                _windowCloseApproved = false;
                 e.Cancel = true;
                 base.OnClosing(e);
-                StatusText.Text = "Wait for the current save to finish before closing ExtremeEditor.";
+                StatusText.Text = hasPendingSaves
+                    ? "Wait for the current save to finish before closing ExtremeEditor."
+                    : _tabCloseOperationPending
+                        ? "Wait for the current tab close to finish before closing ExtremeEditor."
+                        : "Window close confirmation is already in progress.";
                 return;
             }
 
             if (_windowCloseApproved || !_documentTabs.Tabs.Any(static tab => tab.IsDirty))
             {
                 base.OnClosing(e);
-                if (!e.Cancel)
+                if (e.Cancel)
+                    _windowCloseApproved = false;
+                else
                     ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
                 return;
             }
