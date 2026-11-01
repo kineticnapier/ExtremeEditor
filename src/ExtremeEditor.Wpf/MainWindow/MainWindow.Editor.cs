@@ -174,14 +174,35 @@ public partial class MainWindow
 
     private async void ExecuteSave(object sender, ExecutedRoutedEventArgs e)
     {
-        await SaveCurrentAsync(saveAs: false);
         e.Handled = true;
+        await ExecuteSaveCommandAsync(saveAs: false);
     }
 
     private async void ExecuteSaveAs(object sender, ExecutedRoutedEventArgs e)
     {
-        await SaveCurrentAsync(saveAs: true);
         e.Handled = true;
+        await ExecuteSaveCommandAsync(saveAs: true);
+    }
+
+    private async Task ExecuteSaveCommandAsync(bool saveAs)
+    {
+        try
+        {
+            await SaveCurrentAsync(saveAs);
+        }
+        catch (Exception ex)
+        {
+            // SaveCurrentAsync handles errors during the disk write, but
+            // path normalization, draft commit and reservation happen before
+            // its inner try/catch. Do not let those failures escape an
+            // async void WPF command handler.
+            if (!_isClosed)
+            {
+                StatusText.Text = $"Could not save: {ex.Message}";
+                MessageBox.Show(this, ex.ToString(), "Save failed",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 
     private async Task<bool> SaveCurrentAsync(bool saveAs)
