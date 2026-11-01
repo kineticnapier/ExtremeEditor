@@ -62,7 +62,12 @@ internal static class VideoExportTimeline
         double chartDuration = plan.EndChartTimeSeconds - plan.StartChartTimeSeconds;
         double outputDuration = chartDuration / plan.ChartRate;
         double exactFrameCount = outputDuration * plan.FramesPerSecond;
-        return checked((int)Math.Ceiling(exactFrameCount - 1e-12));
+        if (!double.IsFinite(exactFrameCount) || exactFrameCount > int.MaxValue)
+            throw new ArgumentOutOfRangeException(
+                nameof(plan), "Video export frame count exceeds the supported range.");
+
+        // Even a range shorter than one frame must emit its starting frame.
+        return Math.Max(1, checked((int)Math.Ceiling(exactFrameCount - 1e-12)));
     }
 
     internal static IEnumerable<VideoExportFrame> Enumerate(VideoExportPlan plan)
