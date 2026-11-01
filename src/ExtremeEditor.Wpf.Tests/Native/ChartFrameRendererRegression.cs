@@ -11,6 +11,7 @@ internal static class ChartFrameRendererRegression
     {
         VerifyHeadlessDimensionLimits();
         VerifyRejectedHeadlessRenderDoesNotAllocateFrame();
+        VerifyRejectedBorrowedRenderDoesNotAllocateFrame();
 
         string root = Path.Combine(Path.GetTempPath(), "ExtremeEditor.HeadlessRegression", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -112,6 +113,55 @@ internal static class ChartFrameRendererRegression
         if (!rejected || allocated >= 1_000_000)
             throw new InvalidOperationException(
                 $"Disposed headless render must fail before allocating RGB24 data (allocated {allocated} bytes).");
+    }
+
+
+    private static void VerifyRejectedBorrowedRenderDoesNotAllocateFrame()
+    {
+        // No native renderer is needed: a disposed shell rejects the request.
+        // In particular, the first borrowed call must not cache a 1080p RGB array.
+        ConstructorInfo? constructor = typeof(NativeHeadlessRendererSession).GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(nint), typeof(int), typeof(int)],
+            modifiers: null);
+        FieldInfo? sessionField = typeof(NativeChartFrameRenderer).GetField(
+            "_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? bufferField = typeof(NativeChartFrameRenderer).GetField(
+            "_reusableRgb", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (constructor is null || sessionField is null || bufferField is null)
+            throw new InvalidOperationException("Borrowed frame test setup is missing.");
+
+        using var renderer = new NativeChartFrameRenderer(1920, 1080);
+        var disposed = (NativeHeadlessRendererSession)constructor.Invoke(
+            [nint.Zero, 1920, 1080]);
+        sessionField.SetValue(renderer, disposed);
+
+        // Warm up exception/JIT paths before measuring managed allocation.
+        try
+        {
+            _ = renderer.RenderBorrowed(0.0, 0.0);
+            throw new InvalidOperationException("Disposed borrowed render unexpectedly succeeded.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool rejected = false;
+        try
+        {
+            _ = renderer.RenderBorrowed(0.0, 0.0);
+        }
+        catch (ObjectDisposedException)
+        {
+            rejected = true;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        if (!rejected || allocated >= 1_000_000 || bufferField.GetValue(renderer) is not null)
+            throw new InvalidOperationException(
+                $"Rejected borrowed render must not cache RGB24 data (allocated {allocated} bytes).");
     }
 
     private static void VerifyHeadlessDimensionLimits()
