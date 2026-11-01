@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 
 namespace ExtremeEditor.Wpf;
@@ -153,7 +154,7 @@ internal sealed class EditorDocumentTabs
          // Do not admit a second tab with the reserved path mid-save.
          _savePathReservations.ContainsKey(path));
 
-    private static bool TryGetSourcePath(EditorDocumentTab tab, out string? path)
+    private static bool TryGetSourcePath(EditorDocumentTab tab, [NotNullWhen(true)] out string? path)
     {
         path = tab.Document.SourcePath;
         if (string.IsNullOrWhiteSpace(path) || path == "<synthetic>")
