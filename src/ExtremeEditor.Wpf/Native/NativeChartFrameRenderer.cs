@@ -88,6 +88,9 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
         NativeHeadlessRendererSession session = _session
             ?? throw new InvalidOperationException("No chart is loaded.");
 
+        // Validate before renting the first large RGB frame. RenderInto also
+        // checks this, but would do so after the allocation otherwise.
+        session.ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
         int requiredLength = checked(checked(_width * 3) * _height);
         byte[] rgb = _reusableRgb ??= new byte[requiredLength];
         session.RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
