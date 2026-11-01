@@ -95,6 +95,7 @@ internal static class NativeSceneReuseRegression
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
         VerifyPreparedSceneCacheCommitOrder(session);
         VerifyBackgroundAssetReplacementFailure(session);
+        VerifyDecorationAssetFailurePublication(session);
 
         int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
         int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
@@ -168,6 +169,31 @@ internal static class NativeSceneReuseRegression
             "A prepared scene must be registered for cache reuse only after " +
             "geometry, decorations, backgrounds and icons are uploaded; " +
             "ordinary unprepared uploads must still clear stale cache identities.");
+    }
+
+    private static void VerifyDecorationAssetFailurePublication(string session)
+    {
+        // A non-fatal decoration image warning belongs to the scene that
+        // actually finished uploading. A later required background/icon
+        // failure must not publish warnings from an uncommitted scene.
+        int start = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int end = start < 0 ? -1 : session.IndexOf(
+            "internal void SetStaticDecorations(", start, StringComparison.Ordinal);
+        Require(start >= 0 && end > start,
+            "Native level upload must remain available for warning-publication checks.");
+
+        string upload = session[start..end];
+        int iconUpload = upload.IndexOf("NativeRendererNative.SetIconAsset(", StringComparison.Ordinal);
+        int cacheCommit = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)",
+            StringComparison.Ordinal);
+        int warningPublish = upload.IndexOf(
+            "LastDecorationAssetFailures = decorationAssetFailures;", StringComparison.Ordinal);
+        Require(iconUpload >= 0 && iconUpload < cacheCommit && cacheCommit < warningPublish,
+            "Decoration image warnings must only be published after required " +
+            "background/icon uploads and scene-cache registration succeed.");
     }
 
     private static void VerifyBackgroundAssetReplacementFailure(string session)
