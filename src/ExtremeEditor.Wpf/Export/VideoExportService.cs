@@ -49,6 +49,7 @@ internal sealed record VideoExportRequest(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
     }
 }
 
