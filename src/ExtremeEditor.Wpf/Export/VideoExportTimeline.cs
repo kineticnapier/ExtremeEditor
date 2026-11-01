@@ -66,9 +66,32 @@ internal static class VideoExportTimeline
             throw new ArgumentOutOfRangeException(
                 nameof(plan), "Video export frame count exceeds the supported range.");
 
-        // Even a range shorter than one frame must emit its starting frame.
-        return Math.Max(1, checked((int)Math.Ceiling(exactFrameCount - 1e-12)));
+        // Find the first frame outside the exclusive chart-time range.
+        // A fixed epsilon can discard a valid frame just past a boundary.
+        // Use the same floating-point expression as Enumerate to avoid
+        // producing a frame that the enumerator subsequently rejects.
+        if (ChartTimeAtFrame(plan, int.MaxValue) < plan.EndChartTimeSeconds)
+            throw new ArgumentOutOfRangeException(
+                nameof(plan), "Video export frame count exceeds the supported range.");
+
+        int firstOutside = 0;
+        int upperBound = int.MaxValue;
+        while (firstOutside < upperBound)
+        {
+            int middle = firstOutside + (upperBound - firstOutside) / 2;
+            if (ChartTimeAtFrame(plan, middle) < plan.EndChartTimeSeconds)
+                firstOutside = middle + 1;
+            else
+                upperBound = middle;
+        }
+
+        // A positive sub-frame range must still contain its starting frame.
+        return Math.Max(1, firstOutside);
     }
+
+    private static double ChartTimeAtFrame(VideoExportPlan plan, int index) =>
+        plan.StartChartTimeSeconds +
+        ((double)index / plan.FramesPerSecond) * plan.ChartRate;
 
     internal static IEnumerable<VideoExportFrame> Enumerate(VideoExportPlan plan)
     {
@@ -76,7 +99,7 @@ internal static class VideoExportTimeline
         for (int index = 0; index < frameCount; index++)
         {
             double outputTime = (double)index / plan.FramesPerSecond;
-            double chartTime = plan.StartChartTimeSeconds + outputTime * plan.ChartRate;
+            double chartTime = ChartTimeAtFrame(plan, index);
             if (!(chartTime < plan.EndChartTimeSeconds))
                 throw new InvalidOperationException(
                     "Video export timeline advanced into the exclusive end boundary.");
