@@ -49,7 +49,7 @@ internal static class DocumentTabScaffoldRegression
             "Inactive tab state is independent of the current chart.");
 
         VerifyTabCollection();
-
+        VerifyWindowClosePendingWork();
 
         string root = FindRepositoryRoot();
         string markup = File.ReadAllText(Path.Combine(
@@ -119,8 +119,30 @@ internal static class DocumentTabScaffoldRegression
             "Open reuses an existing chart tab instead of replacing other tabs.");
         Require(source.Contains("_documentTabs.Tabs.Any(static tab => tab.IsDirty)", StringComparison.Ordinal),
             "Closing the window protects modified inactive charts.");
+        Require(source.Contains(
+                    "hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending",
+                    StringComparison.Ordinal) &&
+                source.Contains("_windowCloseApproved = false;", StringComparison.Ordinal) &&
+                source.Contains("if (e.Cancel)", StringComparison.Ordinal),
+            "Window shutdown must defer during tab close/confirmation and clear stale approval.");
         Require(source.Contains("_documentTabs.TryReserveSavePath(saveTab, path!)", StringComparison.Ordinal),
             "Save As must atomically reserve its destination before writing.");
+    }
+
+    private static void VerifyWindowClosePendingWork()
+    {
+        // All eight combinations are checked; a clean document alone must not
+        // authorize shutdown while another asynchronous window operation owns it.
+        for (int mask = 0; mask < 8; mask++)
+        {
+            bool saving = (mask & 1) != 0;
+            bool closingTab = (mask & 2) != 0;
+            bool confirmingClose = (mask & 4) != 0;
+            bool blocked = MainWindow.ShouldBlockWindowCloseForPendingWork(
+                saving, closingTab, confirmingClose);
+            Require(blocked == (mask != 0),
+                $"Window shutdown pending-work guard failed for mask {mask}.");
+        }
     }
 
     private static void VerifyTabCollection()
