@@ -191,7 +191,7 @@ internal static class NativeSceneReuseRegression
             "NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)",
             StringComparison.Ordinal);
         int warningPublish = upload.IndexOf(
-            "LastDecorationAssetFailures = decorationAssetFailures;", StringComparison.Ordinal);
+            "LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());", StringComparison.Ordinal);
         Require(iconUpload >= 0 && iconUpload < cacheCommit && cacheCommit < warningPublish,
             "Decoration image warnings must only be published after required " +
             "background/icon uploads and scene-cache registration succeed.");
@@ -205,6 +205,21 @@ internal static class NativeSceneReuseRegression
         var original = new List<string> { "missing-a.png" };
         warnings.Remember(11u, original);
         original[0] = "mutated.png";
+        IReadOnlyList<string> published = warnings.ForScene(11u);
+        bool mutationBlocked = published is not IList<string>;
+        if (!mutationBlocked)
+        {
+            try
+            {
+                ((IList<string>)published)[0] = "tampered.png";
+            }
+            catch (NotSupportedException)
+            {
+                mutationBlocked = true;
+            }
+        }
+        Require(mutationBlocked && published[0] == "missing-a.png",
+            "Cached decoration warnings must reject mutation through their public read-only view.");
         warnings.Remember(12u, ["missing-b.png"]);
         Require(warnings.ForScene(11u).Count == 1 &&
                 warnings.ForScene(11u)[0] == "missing-a.png" &&
@@ -236,7 +251,7 @@ internal static class NativeSceneReuseRegression
                     StringComparison.Ordinal),
             "A native cache hit must restore that scene's decoration warnings.");
         int warningCommit = session.IndexOf(
-            "LastDecorationAssetFailures = decorationAssetFailures;", StringComparison.Ordinal);
+            "LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());", StringComparison.Ordinal);
         int warningRemember = session.IndexOf(
             "_decorationWarnings.Remember(snapshot.SceneCacheKey, decorationAssetFailures);",
             StringComparison.Ordinal);
