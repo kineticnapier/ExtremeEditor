@@ -53,11 +53,15 @@ internal static class VideoExportFoundationRegression
             string shared = File.ReadAllText(sharedPath);
             if (!shared.Contains("CalculatePlaybackVisual", StringComparison.Ordinal))
                 missing.Add("shared playback visual helper: CalculatePlaybackVisual is missing");
-            if (!shared.Contains("scene->floors[floor + 1", StringComparison.Ordinal) ||
-                !shared.Contains("hypot", StringComparison.Ordinal))
+            // ScaleRadius changes floor geometry, not the distance between
+            // the two orbiting planets. Both renderers share this calculation.
+            if (!shared.Contains("orbit_distance = DefaultPlanetDistance;", StringComparison.Ordinal) ||
+                !shared.Contains("* orbit_distance;", StringComparison.Ordinal) ||
+                shared.Contains("orbit_distance = resolved_distance;", StringComparison.Ordinal) ||
+                shared.Contains("std::hypot(dx, dy)", StringComparison.Ordinal))
             {
                 missing.Add(
-                    "ScaleRadius parity: shared playback visual must derive orbit radius from resolved current-to-next floor distance");
+                    "ScaleRadius parity: shared playback visual must use the fixed planet orbit radius");
             }
         }
 
@@ -71,7 +75,7 @@ internal static class VideoExportFoundationRegression
         if (headless.Contains("CalculateHeadlessPlaybackVisual", StringComparison.Ordinal))
             missing.Add("headless renderer still owns a divergent playback visual implementation");
         if (headless.Contains("* PlanetDistance", StringComparison.Ordinal))
-            missing.Add("headless renderer still uses fixed PlanetDistance and diverges on ScaleRadius charts");
+            missing.Add("headless renderer still calculates its own orbit instead of using the shared helper");
 
         if (missing.Count != 0)
         {
