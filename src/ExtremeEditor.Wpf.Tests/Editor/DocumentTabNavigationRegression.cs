@@ -55,6 +55,7 @@ internal static class DocumentTabNavigationRegression
         VerifyStopPlaybackNativeFailureOrdering();
         VerifyPreparedLevelStateIsAtomic();
         VerifyDirectLevelStateIsAtomic();
+        VerifyAssetReloadStateIsAtomic();
         VerifyNativeSelectionStateIsAtomic();
         VerifyDirectPlaybackRefreshIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
@@ -206,6 +207,65 @@ internal static class DocumentTabNavigationRegression
                 ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
                 ReferenceEquals(floorsField.GetValue(viewport), selected),
             "A failed same-document reload must preserve its existing snapshot and selection.");
+    }
+
+    private static void VerifyAssetReloadStateIsAtomic()
+    {
+        // No native HWND: inject a failure after the new asset upload starts,
+        // then verify that the old managed snapshot and metrics survive.
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        PreparedNativeLevel prepared = NativeLevelViewport.PrepareLevel(level);
+        var viewport = new NativeLevelViewport();
+        viewport.SetPreparedLevelCore(level, prepared, (_, _, _) => { });
+
+        NativeLevelSnapshot? previousSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics previousMetrics = viewport.LastLevelUploadMetrics;
+        PropertyInfo? metricsProperty = typeof(NativeLevelViewport).GetProperty(
+            "LastLevelUploadMetrics", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? snapshotField = typeof(NativeLevelViewport).GetField(
+            "_snapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(metricsProperty is not null && snapshotField is not null &&
+                previousSnapshot is not null,
+            "Asset reload rollback fields must be available.");
+
+        var failure = new InvalidOperationException("injected asset reload failure");
+        Exception? caught = null;
+        bool clearedBeforeUpload = false;
+        try
+        {
+            viewport.ReloadAssetsCore(() =>
+            {
+                clearedBeforeUpload = viewport.SnapshotForDiagnostics is null;
+                metricsProperty!.SetValue(viewport, new NativeLevelUploadMetrics(
+                    TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero,
+                    TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0));
+                throw failure;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(clearedBeforeUpload && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, previousSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(previousMetrics),
+            "Failed asset reload must restore the previous snapshot and metrics.");
+
+        PreparedNativeLevel refreshed = NativeLevelViewport.PrepareLevel(level);
+        var refreshedMetrics = new NativeLevelUploadMetrics(
+            TimeSpan.FromMilliseconds(2), TimeSpan.Zero, TimeSpan.Zero,
+            TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0);
+        viewport.ReloadAssetsCore(() =>
+        {
+            Require(viewport.SnapshotForDiagnostics is null,
+                "Retry must discard the old snapshot before rebuilding assets.");
+            snapshotField!.SetValue(viewport, refreshed.Snapshot);
+            return refreshedMetrics;
+        });
+        Require(ReferenceEquals(viewport.SnapshotForDiagnostics, refreshed.Snapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(refreshedMetrics),
+            "Successful asset reload retry must publish the new snapshot and metrics.");
     }
 
     private static void VerifyNativeSelectionStateIsAtomic()
