@@ -86,6 +86,17 @@ internal static class ChartFrameRendererRegression
 
         var disposed = (NativeHeadlessRendererSession)constructor.Invoke(
             [nint.Zero, 1920, 1080]);
+        // Warm up exception/JIT paths so the allocation check measures RGB
+        // frame allocation rather than one-time runtime initialization.
+        try
+        {
+            _ = disposed.Render(0.0, 0.0);
+            throw new InvalidOperationException("Disposed render unexpectedly succeeded.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
         long before = GC.GetAllocatedBytesForCurrentThread();
         bool rejected = false;
         try
