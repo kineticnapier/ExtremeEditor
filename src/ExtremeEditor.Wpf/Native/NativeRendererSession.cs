@@ -260,7 +260,6 @@ internal sealed class NativeRendererSession : IDisposable
             if (result != 0)
                 decorationAssetFailures.Add(asset.ImagePath);
         }
-        LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
         RequireBackgroundAssetReplacementSuccess(
@@ -287,6 +286,9 @@ internal sealed class NativeRendererSession : IDisposable
         // Register its identity only after all required native asset uploads pass.
         if (useCache)
             NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
+        // Publish warnings only for a fully accepted scene. A later required
+        // background/icon upload may fail and leave the old scene active.
+        LastDecorationAssetFailures = decorationAssetFailures;
         totalWatch.Stop();
 
         if (NativeUploadDiagnostics.Enabled)
