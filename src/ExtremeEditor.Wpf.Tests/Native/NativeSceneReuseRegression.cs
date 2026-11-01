@@ -96,6 +96,7 @@ internal static class NativeSceneReuseRegression
         VerifyPreparedSceneCacheCommitOrder(session);
         VerifyBackgroundAssetReplacementFailure(session);
         VerifyDecorationAssetFailurePublication(session);
+        VerifyCachedDecorationWarnings(session);
 
         int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
         int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
@@ -194,6 +195,54 @@ internal static class NativeSceneReuseRegression
         Require(iconUpload >= 0 && iconUpload < cacheCommit && cacheCommit < warningPublish,
             "Decoration image warnings must only be published after required " +
             "background/icon uploads and scene-cache registration succeed.");
+    }
+
+    private static void VerifyCachedDecorationWarnings(string session)
+    {
+        // A cached tab can have non-fatal missing decoration images. Switching
+        // to another tab and back must restore its warning list, not erase it.
+        var warnings = new NativeSceneDecorationWarnings();
+        var original = new List<string> { "missing-a.png" };
+        warnings.Remember(11u, original);
+        original[0] = "mutated.png";
+        warnings.Remember(12u, ["missing-b.png"]);
+        Require(warnings.ForScene(11u).Count == 1 &&
+                warnings.ForScene(11u)[0] == "missing-a.png" &&
+                warnings.ForScene(12u).Count == 1 &&
+                warnings.ForScene(12u)[0] == "missing-b.png",
+            "Cached scene warnings must be independent and snapshot their inputs.");
+
+        warnings.Remember(12u, []);
+        Require(warnings.ForScene(12u).Count == 0 &&
+                warnings.ForScene(11u).Count == 1 &&
+                warnings.ForScene(0u).Count == 0 &&
+                warnings.ForScene(999u).Count == 0,
+            "A successful reload may clear one scene's warnings without affecting another.");
+
+        for (ulong key = 13u; key <= 25u; key++)
+            warnings.Remember(key, ["missing-new.png"]);
+        Require(warnings.ForScene(11u).Count == 0 &&
+                warnings.ForScene(25u).Count == 1,
+            "Warning history must remain bounded across many edited scenes.");
+        warnings.Clear();
+        Require(warnings.ForScene(25u).Count == 0,
+            "An uncached upload must discard stale scene warning history.");
+
+        int cacheHit = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
+        int cacheReturn = cacheHit < 0 ? -1 : session.IndexOf("return;", cacheHit, StringComparison.Ordinal);
+        Require(cacheHit >= 0 && cacheReturn > cacheHit &&
+                session[cacheHit..cacheReturn].Contains(
+                    "LastDecorationAssetFailures = _decorationWarnings.ForScene(snapshot.SceneCacheKey);",
+                    StringComparison.Ordinal),
+            "A native cache hit must restore that scene's decoration warnings.");
+        int warningCommit = session.IndexOf(
+            "LastDecorationAssetFailures = decorationAssetFailures;", StringComparison.Ordinal);
+        int warningRemember = session.IndexOf(
+            "_decorationWarnings.Remember(snapshot.SceneCacheKey, decorationAssetFailures);",
+            StringComparison.Ordinal);
+        Require(warningCommit >= 0 && warningRemember > warningCommit &&
+                session.Contains("_decorationWarnings.Clear();", StringComparison.Ordinal),
+            "Only a completed prepared upload may record warnings, and uncached uploads must clear them.");
     }
 
     private static void VerifyBackgroundAssetReplacementFailure(string session)
