@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Native;
 
@@ -9,6 +10,7 @@ internal static class ChartFrameRendererRegression
     public static void Run()
     {
         VerifyHeadlessDimensionLimits();
+        VerifyRejectedHeadlessRenderDoesNotAllocateFrame();
 
         string root = Path.Combine(Path.GetTempPath(), "ExtremeEditor.HeadlessRegression", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -68,6 +70,37 @@ internal static class ChartFrameRendererRegression
                 // Best-effort cleanup only; the regression result must not depend on temp cleanup.
             }
         }
+    }
+
+    private static void VerifyRejectedHeadlessRenderDoesNotAllocateFrame()
+    {
+        // A disposed managed shell needs no native handle or large allocation.
+        // The 1080p dimensions make a misplaced allocation visible in this test.
+        ConstructorInfo? constructor = typeof(NativeHeadlessRendererSession).GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(nint), typeof(int), typeof(int)],
+            modifiers: null);
+        if (constructor is null)
+            throw new InvalidOperationException("Headless session constructor was not found.");
+
+        var disposed = (NativeHeadlessRendererSession)constructor.Invoke(
+            [nint.Zero, 1920, 1080]);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool rejected = false;
+        try
+        {
+            _ = disposed.Render(0.0, 0.0);
+        }
+        catch (ObjectDisposedException)
+        {
+            rejected = true;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        if (!rejected || allocated >= 1_000_000)
+            throw new InvalidOperationException(
+                $"Disposed headless render must fail before allocating RGB24 data (allocated {allocated} bytes).");
     }
 
     private static void VerifyHeadlessDimensionLimits()
