@@ -229,8 +229,6 @@ internal sealed class NativeRendererSession : IDisposable
             if (geometriesHandle.IsAllocated) geometriesHandle.Free();
             if (floorsHandle.IsAllocated) floorsHandle.Free();
         }
-        if (useCache)
-            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         }
 
         phaseWatch.Stop();
@@ -287,6 +285,11 @@ internal sealed class NativeRendererSession : IDisposable
         }
         phaseWatch.Stop();
         TimeSpan iconAssetTime = phaseWatch.Elapsed;
+
+        // A partially uploaded scene must never become a cache hit on retry.
+        // Register its identity only after all required native asset uploads pass.
+        if (useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         totalWatch.Stop();
 
         if (NativeUploadDiagnostics.Enabled)
