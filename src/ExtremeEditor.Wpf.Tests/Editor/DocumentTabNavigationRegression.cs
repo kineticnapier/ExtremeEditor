@@ -54,6 +54,7 @@ internal static class DocumentTabNavigationRegression
         // so the standard WPF suite silently skipped native failure recovery.
         VerifyStopPlaybackNativeFailureOrdering();
         VerifyPreparedLevelStateIsAtomic();
+        VerifyPendingFrameAllFailureKeepsPreparedLevelUncommitted();
         VerifyDirectLevelStateIsAtomic();
         VerifyAssetReloadStateIsAtomic();
         VerifyNativeSelectionStateIsAtomic();
@@ -121,6 +122,60 @@ internal static class DocumentTabNavigationRegression
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
+    }
+
+    private static void VerifyPendingFrameAllFailureKeepsPreparedLevelUncommitted()
+    {
+        // A pending welcome-screen FrameAll is the final fallible native
+        // operation of prepared-level activation. Failure must not publish
+        // the new managed document or snapshot before tab rollback runs.
+        LevelDocument original = LevelDocument.CreateSynthetic(2);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(3);
+        PreparedNativeLevel originalPrepared = NativeLevelViewport.PrepareLevel(original);
+        PreparedNativeLevel replacementPrepared = NativeLevelViewport.PrepareLevel(replacement);
+        var viewport = new NativeLevelViewport();
+        viewport.SetPreparedLevelCore(original, originalPrepared, (_, _, _) => { });
+        viewport.FrameAll(); // No HWND: leaves the request pending.
+
+        FieldInfo? levelField = typeof(NativeLevelViewport).GetField(
+            "_level", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? pendingField = typeof(NativeLevelViewport).GetField(
+            "_frameAllPending", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(levelField is not null && pendingField is not null,
+            "Prepared-level rollback fields must be available.");
+
+        NativeLevelSnapshot? previousSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics previousMetrics = viewport.LastLevelUploadMetrics;
+        var failure = new InvalidOperationException("injected pending FrameAll failure");
+        Exception? caught = null;
+        bool sawStagedLevel = false;
+        try
+        {
+            viewport.SetPreparedLevelCore(replacement, replacementPrepared,
+                (_, _, _) => { },
+                applyPendingFrameAll: () =>
+                {
+                    sawStagedLevel = ReferenceEquals(levelField!.GetValue(viewport), replacement);
+                    throw failure;
+                });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(sawStagedLevel && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, previousSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(previousMetrics) &&
+                (bool)pendingField!.GetValue(viewport)!,
+            "Failed pending FrameAll must preserve the previous prepared scene and retry request.");
+
+        viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
+        Require(ReferenceEquals(levelField.GetValue(viewport), replacement) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot) &&
+                (bool)pendingField.GetValue(viewport)!,
+            "A successful retry must commit the new scene and keep FrameAll pending without an HWND.");
     }
 
     private static void VerifyDirectLevelStateIsAtomic()
