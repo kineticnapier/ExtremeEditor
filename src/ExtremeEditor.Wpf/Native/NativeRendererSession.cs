@@ -287,7 +287,7 @@ internal sealed class NativeRendererSession : IDisposable
         if (useCache)
             NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         // Publish warnings only for a fully accepted scene. A later required
-        // background/icon upload may fail and leave the old scene active.
+        // background/icon upload can fail before the caller restores its state.
         LastDecorationAssetFailures = decorationAssetFailures;
         totalWatch.Stop();
 
