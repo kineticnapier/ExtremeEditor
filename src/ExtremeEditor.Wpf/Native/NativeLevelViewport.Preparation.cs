@@ -278,8 +278,28 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void ReloadAssets()
     {
         _playbackAnchorGate.Invalidate();
+        ReloadAssetsCore(UploadPendingLevel);
+    }
+
+    // Keep the previous managed scene available if rebuilding or uploading
+    // refreshed assets fails. A partial native transfer still requires
+    // renderer recovery by the caller.
+    internal void ReloadAssetsCore(Func<NativeLevelUploadMetrics> upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
+        NativeLevelSnapshot? previousSnapshot = _snapshot;
+        NativeLevelUploadMetrics previousMetrics = LastLevelUploadMetrics;
         _snapshot = null;
-        LastLevelUploadMetrics = UploadPendingLevel();
+        try
+        {
+            LastLevelUploadMetrics = upload();
+        }
+        catch
+        {
+            _snapshot = previousSnapshot;
+            LastLevelUploadMetrics = previousMetrics;
+            throw;
+        }
     }
 
     private void SyncBackwardHudButton()
