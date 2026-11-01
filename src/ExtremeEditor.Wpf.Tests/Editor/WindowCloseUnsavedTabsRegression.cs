@@ -26,6 +26,20 @@ internal static class WindowCloseUnsavedTabsRegression
         VerifyCancelPreservesAllDirtyTabs();
         VerifySaveFailureAndNewEditCancelClose();
         VerifySuccessfulSaveAndDiscardAllowClose();
+        VerifyCloseRetryIsDeferred(window);
+    }
+
+    private static void VerifyCloseRetryIsDeferred(string window)
+    {
+        int methodStart = window.IndexOf("private async Task ConfirmWindowCloseAsync()", StringComparison.Ordinal);
+        int methodEnd = window.IndexOf("private void ExitClick(", methodStart, StringComparison.Ordinal);
+        if (methodStart < 0 || methodEnd < 0)
+            throw new InvalidOperationException("Window close confirmation method was not found.");
+        string method = window[methodStart..methodEnd];
+        if (!method.Contains("Dispatcher.BeginInvoke(", StringComparison.Ordinal) ||
+            !method.Contains("Close();", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "RED: discard must defer the second Close until the first WPF OnClosing returns.");
     }
 
     private static void VerifyCancelPreservesAllDirtyTabs()
