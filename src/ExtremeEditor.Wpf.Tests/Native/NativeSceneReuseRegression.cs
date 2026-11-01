@@ -198,7 +198,7 @@ internal static class NativeSceneReuseRegression
             "Prepared level upload must have a bounded implementation.");
         string preparedUpload = preparedSource[preparedStart..preparedEnd];
         int preparedStage = preparedUpload.IndexOf("_level = level;", StringComparison.Ordinal);
-        int preparedFrame = preparedUpload.IndexOf("ApplyPendingFrameAll();", StringComparison.Ordinal);
+        int preparedFrame = preparedUpload.IndexOf("(applyPendingFrameAll ?? ApplyPendingFrameAll)();", StringComparison.Ordinal);
         int preparedRollback = preparedUpload.IndexOf("_level = previousLevel;", StringComparison.Ordinal);
         int preparedCommit = preparedUpload.IndexOf("_snapshot = prepared.Snapshot;", StringComparison.Ordinal);
         Require(preparedStage >= 0 && preparedStage < preparedFrame &&
