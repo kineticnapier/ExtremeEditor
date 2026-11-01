@@ -156,7 +156,7 @@ public partial class MainWindow : Window
             _windowCloseApproved = true;
             // Discard can complete synchronously while OnClosing is still running.
             // Defer the second Close until WPF has finished cancelling the first.
-            Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
             {
                 if (!_isClosed)
                     Close();
