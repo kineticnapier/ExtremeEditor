@@ -20,13 +20,13 @@ internal static class SongReaderFactory
             if (reader.WaveFormat.Encoding is WaveFormatEncoding.Pcm or WaveFormatEncoding.IeeeFloat)
                 return reader;
 
-            if (reader.WaveFormat is WaveFormatExtensible extended &&
-                extended.SubFormat == PcmSubtype &&
-                extended.BitsPerSample is 16 or 24 or 32)
+            if (reader.WaveFormat.Encoding == WaveFormatEncoding.Extensible &&
+                reader.WaveFormat.BitsPerSample is 16 or 24 or 32 &&
+                TryGetPcmSubtype(path))
             {
                 // WAVE_FORMAT_EXTENSIBLE carries ordinary PCM bytes. Expose
                 // the corresponding PCM sample format without calling ACM.
-                return new PcmExtensibleWaveStream(reader, extended);
+                return new PcmExtensibleWaveStream(reader);
             }
 
             // Never silently fall back to ACM for an unsupported WAV subtype.
@@ -44,15 +44,46 @@ internal static class SongReaderFactory
         return new AudioFileReader(path);
     }
 
+    private static bool TryGetPcmSubtype(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+        if (reader.ReadUInt32() != 0x46464952) return false; // RIFF
+        reader.ReadUInt32();
+        if (reader.ReadUInt32() != 0x45564157) return false; // WAVE
+        while (stream.Position + 8 <= stream.Length)
+        {
+            uint chunk = reader.ReadUInt32();
+            uint length = reader.ReadUInt32();
+            long next = stream.Position + length + (length & 1);
+            if (next > stream.Length) return false;
+            if (chunk == 0x20746D66) // fmt 
+            {
+                if (length < 40) return false;
+                ushort encoding = reader.ReadUInt16();
+                stream.Position += 14; // remaining standard WAVEFORMATEX fields
+                ushort cbSize = reader.ReadUInt16();
+                if (encoding != 0xFFFE || cbSize < 22) return false;
+                ushort validBits = reader.ReadUInt16();
+                reader.ReadUInt32(); // channel mask
+                Guid subtype = new(reader.ReadBytes(16));
+                return subtype == PcmSubtype && validBits > 0 &&
+                       validBits <= 32;
+            }
+            stream.Position = next;
+        }
+        return false;
+    }
+
     private sealed class PcmExtensibleWaveStream : WaveStream
     {
         private readonly WaveFileReader _source;
         private readonly WaveFormat _format;
 
-        internal PcmExtensibleWaveStream(WaveFileReader source, WaveFormatExtensible format)
+        internal PcmExtensibleWaveStream(WaveFileReader source)
         {
             _source = source;
-            _format = new WaveFormat(format.SampleRate, format.BitsPerSample, format.Channels);
+            _format = new WaveFormat(source.WaveFormat.SampleRate, source.WaveFormat.BitsPerSample, source.WaveFormat.Channels);
         }
 
         public override WaveFormat WaveFormat => _format;
