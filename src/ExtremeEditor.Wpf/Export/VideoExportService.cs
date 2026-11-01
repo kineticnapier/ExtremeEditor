@@ -95,6 +95,18 @@ internal sealed class VideoExportService
         if (endAudio <= startAudio)
             throw new InvalidOperationException("Video export audio range is empty.");
 
+        // Validate the complete frame count before ffmpeg or audio output starts.
+        var videoPlan = new VideoExportPlan(
+            startChart,
+            endChart,
+            request.FramesPerSecond,
+            request.Width,
+            request.Height)
+        {
+            ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
+        };
+        int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
+
         string? songPath = source.SongPath;
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
@@ -144,16 +156,6 @@ internal sealed class VideoExportService
         frameRenderer.Load(level, timingMap);
         frameRenderer.SetCleanView(true);
 
-        var videoPlan = new VideoExportPlan(
-            startChart,
-            endChart,
-            request.FramesPerSecond,
-            request.Width,
-            request.Height)
-        {
-            ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
-        };
-        int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
         int writtenVideoFrames = 0;
 
         var framePipeline = new VideoExportFramePipeline(frameRenderer);
