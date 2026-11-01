@@ -170,6 +170,27 @@ internal static class VideoExportFoundationRegression
                 "A positive sub-frame export range must still produce one frame.");
         }
 
+        // The end boundary is exclusive, but a range just longer than one
+        // frame must include the second frame. The former 1e-12 epsilon
+        // incorrectly rounded this case down to one frame.
+        var exactBoundary = new VideoExportPlan(0.0, 1.0 / 60.0, 60, 1, 1);
+        if (VideoExportTimeline.CountFrames(exactBoundary) != 1 ||
+            VideoExportTimeline.Enumerate(exactBoundary).Count() != 1)
+        {
+            throw new InvalidOperationException(
+                "An exact one-frame interval must not include its end boundary.");
+        }
+
+        var justPastBoundary = new VideoExportPlan(0.0, 1.0 / 60.0 + 1e-14, 60, 1, 1);
+        VideoExportFrame[] frames = VideoExportTimeline.Enumerate(justPastBoundary).ToArray();
+        if (VideoExportTimeline.CountFrames(justPastBoundary) != 2 ||
+            frames.Length != 2 ||
+            !(frames[1].ChartTimeSeconds < justPastBoundary.EndChartTimeSeconds))
+        {
+            throw new InvalidOperationException(
+                "A frame strictly before the exclusive end boundary must not be discarded.");
+        }
+
         ExpectFrameCountRejected(new VideoExportPlan(0.0, 1_000_000_000.0, 60, 1, 1));
         ExpectFrameCountRejected(new VideoExportPlan(0.0, 1.0, 60, 1, 1)
         {
