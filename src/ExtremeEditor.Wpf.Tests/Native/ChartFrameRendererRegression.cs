@@ -8,6 +8,8 @@ internal static class ChartFrameRendererRegression
 {
     public static void Run()
     {
+        VerifyHeadlessDimensionLimits();
+
         string root = Path.Combine(Path.GetTempPath(), "ExtremeEditor.HeadlessRegression", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string chartPath = Path.Combine(root, "smoke.adofai");
@@ -66,5 +68,32 @@ internal static class ChartFrameRendererRegression
                 // Best-effort cleanup only; the regression result must not depend on temp cleanup.
             }
         }
+    }
+
+    private static void VerifyHeadlessDimensionLimits()
+    {
+        // This must fail before GetApiVersion/CreateHeadless: the internal
+        // factory does not necessarily have a NativeChartFrameRenderer caller.
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        TimingMap timingMap = TimingMapBuilder.Build(level);
+        ExpectHeadlessDimensionRejected(level, timingMap, int.MaxValue, 1);
+        ExpectHeadlessDimensionRejected(level, timingMap, 1, int.MaxValue);
+    }
+
+    private static void ExpectHeadlessDimensionRejected(
+        LevelDocument level, TimingMap timingMap, int width, int height)
+    {
+        try
+        {
+            using var session = NativeHeadlessRendererSession.Create(
+                level, timingMap, width, height);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Headless renderer accepted an impossible RGB24 frame: {width}x{height}.");
     }
 }
