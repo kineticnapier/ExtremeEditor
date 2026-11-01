@@ -175,32 +175,56 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
-        if (!CanSwitchDocumentTabs())
-        {
-            e.Handled = true;
-            return;
-        }
-
-        EnsureEditorSession();
-
-        var dialog = new OpenFileDialog
-        {
-            Filter = "ADOFAI levels (*.adofai)|*.adofai|All files (*.*)|*.*",
-            Title = "Open ADOFAI level"
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
-            if (existing is not null)
-                // Reopening an existing chart uses the same observed activation
-                // path as a tab click, so native failures reach the status bar.
-                RequestDocumentTabActivation(existing);
-            else
-                await LoadLevelAsync(dialog.FileName);
-        }
-
+        // WPF async-void handlers must observe failures from both synchronous
+        // setup (including the file dialog) and asynchronous chart loading.
         e.Handled = true;
+        await ObserveOpenCommandAsync(
+            async () =>
+            {
+                if (!CanSwitchDocumentTabs())
+                    return;
+
+                EnsureEditorSession();
+
+                var dialog = new OpenFileDialog
+                {
+                    Filter = "ADOFAI levels (*.adofai)|*.adofai|All files (*.*)|*.*",
+                    Title = "Open ADOFAI level"
+                };
+
+                if (dialog.ShowDialog(this) != true)
+                    return;
+
+                EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
+                if (existing is not null)
+                    // Reopening an existing chart uses the same observed activation
+                    // path as a tab click, so native failures reach the status bar.
+                    RequestDocumentTabActivation(existing);
+                else
+                    await LoadLevelAsync(dialog.FileName);
+            },
+            ex =>
+            {
+                if (!_isClosed)
+                    StatusText.Text = $"Could not open chart: {ex.Message}";
+            });
+    }
+
+    // Keep unexpected exceptions out of the WPF dispatcher, including
+    // failures thrown before the first await in the open command.
+    internal static async Task ObserveOpenCommandAsync(
+        Func<Task> open, Action<Exception> reportFailure)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        ArgumentNullException.ThrowIfNull(reportFailure);
+        try
+        {
+            await open();
+        }
+        catch (Exception ex)
+        {
+            reportFailure(ex);
+        }
     }
 
     private void CanExecuteOpen(object sender, CanExecuteRoutedEventArgs e)
