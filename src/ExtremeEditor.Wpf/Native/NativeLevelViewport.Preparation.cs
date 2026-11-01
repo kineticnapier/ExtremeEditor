@@ -194,6 +194,7 @@ public sealed partial class NativeLevelViewport : HwndHost
 
         LevelDocument? previousLevel = _level;
         NativeLevelSnapshot? previousSnapshot = _snapshot;
+        NativeLevelUploadMetrics previousMetrics = LastLevelUploadMetrics;
         int[] previousSelectedFloors = _selectedFloors;
         int previousPrimarySelection = _primarySelection;
         NativeCameraEvent[] previousCamera = _cameraTimeline;
@@ -234,6 +235,7 @@ public sealed partial class NativeLevelViewport : HwndHost
         {
             _level = previousLevel;
             _snapshot = previousSnapshot;
+            LastLevelUploadMetrics = previousMetrics;
             _selectedFloors = previousSelectedFloors;
             _primarySelection = previousPrimarySelection;
             _cameraTimeline = previousCamera;
