@@ -72,21 +72,20 @@ internal static class ChartFrameRendererRegression
 
     private static void VerifyHeadlessDimensionLimits()
     {
-        // This must fail before GetApiVersion/CreateHeadless: the internal
-        // factory does not necessarily have a NativeChartFrameRenderer caller.
-        LevelDocument level = LevelDocument.CreateSynthetic(2);
-        TimingMap timingMap = TimingMapBuilder.Build(level);
-        ExpectHeadlessDimensionRejected(level, timingMap, int.MaxValue, 1);
-        ExpectHeadlessDimensionRejected(level, timingMap, 1, int.MaxValue);
+        // Avoid calling native CreateHeadless with huge dimensions even if
+        // this validation regresses; only the pure guard is exercised here.
+        NativeHeadlessRendererSession.ValidateFrameDimensions(1920, 1080);
+        ExpectHeadlessDimensionRejected(0, 1);
+        ExpectHeadlessDimensionRejected(1, 0);
+        ExpectHeadlessDimensionRejected(int.MaxValue, 1);
+        ExpectHeadlessDimensionRejected(1, int.MaxValue);
     }
 
-    private static void ExpectHeadlessDimensionRejected(
-        LevelDocument level, TimingMap timingMap, int width, int height)
+    private static void ExpectHeadlessDimensionRejected(int width, int height)
     {
         try
         {
-            using var session = NativeHeadlessRendererSession.Create(
-                level, timingMap, width, height);
+            NativeHeadlessRendererSession.ValidateFrameDimensions(width, height);
         }
         catch (ArgumentOutOfRangeException)
         {
