@@ -94,6 +94,7 @@ internal static class NativeSceneReuseRegression
                 session.Contains("ReplaceBackgroundAssets(", StringComparison.Ordinal),
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
         VerifyPreparedSceneCacheCommitOrder(session);
+        VerifyBackgroundAssetReplacementFailure(session);
 
         int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
         int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
@@ -167,6 +168,46 @@ internal static class NativeSceneReuseRegression
             "A prepared scene must be registered for cache reuse only after " +
             "geometry, decorations, backgrounds and icons are uploaded; " +
             "ordinary unprepared uploads must still clear stale cache identities.");
+    }
+
+    private static void VerifyBackgroundAssetReplacementFailure(string session)
+    {
+        // A native error during background clearing must not be silently
+        // accepted. Exercise the shared result check without a native HWND.
+        NativeRendererSession.RequireBackgroundAssetReplacementSuccess(0);
+        foreach (int result in new[] { -1, 1 })
+        {
+            bool reported = false;
+            try
+            {
+                NativeRendererSession.RequireBackgroundAssetReplacementSuccess(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                reported = ex.Message.Contains(result.ToString(), StringComparison.Ordinal);
+            }
+
+            Require(reported,
+                "A failed native background asset replacement must report its result.");
+        }
+
+        int clearStart = session.IndexOf("internal void ClearBackgroundAssets()", StringComparison.Ordinal);
+        int clearEnd = session.IndexOf("internal void SetBackgroundTimeline(", clearStart, StringComparison.Ordinal);
+        Require(clearStart >= 0 && clearEnd > clearStart,
+            "Background asset clearing must remain available.");
+        string clear = session[clearStart..clearEnd];
+        Require(clear.Contains("RequireBackgroundAssetReplacementSuccess(", StringComparison.Ordinal) &&
+                clear.Contains("NativeRendererNative.ReplaceBackgroundAssets(_renderer, [])", StringComparison.Ordinal),
+            "Background clearing must check the native replacement result.");
+
+        int levelStart = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int levelEnd = session.IndexOf("internal void SetStaticDecorations(", levelStart, StringComparison.Ordinal);
+        Require(levelStart >= 0 && levelEnd > levelStart &&
+                session[levelStart..levelEnd].Contains(
+                    "RequireBackgroundAssetReplacementSuccess(", StringComparison.Ordinal),
+            "Full scene upload and background clearing must share the same error check.");
     }
 
     private static void VerifyNativeDpiExtents()
