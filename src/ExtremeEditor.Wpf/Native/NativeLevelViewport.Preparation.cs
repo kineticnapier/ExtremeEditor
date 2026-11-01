@@ -176,8 +176,38 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
+        SetLevelCore(level, () =>
+        {
+            LastLevelUploadMetrics = UploadPendingLevel();
+            ApplyPendingFrameAll();
+        });
+    }
+
+    // The direct (non-prepared) level path must also preserve its managed
+    // scene when a native upload fails. The native scene itself may still
+    // require recovery by the caller after a partial transfer.
+    internal void SetLevelCore(LevelDocument level, Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
-        bool changedDocument = !ReferenceEquals(_level, level);
+
+        LevelDocument? previousLevel = _level;
+        NativeLevelSnapshot? previousSnapshot = _snapshot;
+        int[] previousSelectedFloors = _selectedFloors;
+        int previousPrimarySelection = _primarySelection;
+        NativeCameraEvent[] previousCamera = _cameraTimeline;
+        NativeFlashEvent[] previousFlash = _flashTimeline;
+        NativeBloomEvent[] previousBloom = _bloomTimeline;
+        NativeScreenTileEvent[] previousScreenTile = _screenTileTimeline;
+        NativeFilterEvent[] previousFilter = _filterTimeline;
+        NativeBackgroundEvent[] previousBackground = _backgroundTimeline;
+        NativeTrackTransformEvent[] previousTrackTransform = _trackTransformTimeline;
+        NativeTrackVisualEvent[] previousTrackVisual = _trackVisualTimeline;
+        NativeTrackAnimationSegment[] previousTrackAnimation = _trackAnimationTimeline;
+        NativeTrackAnimationTiming[] previousTrackTimings = _trackAnimationTimings;
+
+        bool changedDocument = !ReferenceEquals(previousLevel, level);
         _level = level;
         _snapshot = null;
         if (changedDocument)
@@ -195,10 +225,29 @@ public sealed partial class NativeLevelViewport : HwndHost
             _trackAnimationTimeline = [];
             _trackAnimationTimings = [];
         }
-        LastLevelUploadMetrics = UploadPendingLevel();
-        // The host may have been created on the welcome screen, before a
-        // chart existed. Honor a FrameAll request once that first level arrives.
-        ApplyPendingFrameAll();
+
+        try
+        {
+            upload();
+        }
+        catch
+        {
+            _level = previousLevel;
+            _snapshot = previousSnapshot;
+            _selectedFloors = previousSelectedFloors;
+            _primarySelection = previousPrimarySelection;
+            _cameraTimeline = previousCamera;
+            _flashTimeline = previousFlash;
+            _bloomTimeline = previousBloom;
+            _screenTileTimeline = previousScreenTile;
+            _filterTimeline = previousFilter;
+            _backgroundTimeline = previousBackground;
+            _trackTransformTimeline = previousTrackTransform;
+            _trackVisualTimeline = previousTrackVisual;
+            _trackAnimationTimeline = previousTrackAnimation;
+            _trackAnimationTimings = previousTrackTimings;
+            throw;
+        }
     }
 
     internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
