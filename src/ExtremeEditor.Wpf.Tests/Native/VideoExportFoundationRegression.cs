@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -11,6 +12,7 @@ internal static class VideoExportFoundationRegression
         var failures = new List<string>();
         TryVerify("VE0 playback parity", VerifySharedPlaybackVisualContract, failures);
         TryVerify("VE1 export timeline", VerifyExportTimelineContract, failures);
+        TryVerify("VE1 frame-count boundaries", VerifyFrameCountBoundaries, failures);
 
         if (failures.Count != 0)
         {
@@ -156,6 +158,38 @@ internal static class VideoExportFoundationRegression
             throw new InvalidOperationException(
                 "Video export end time must be exclusive so the final frame never advances into the next range boundary.");
         }
+    }
+
+    private static void VerifyFrameCountBoundaries()
+    {
+        var shortPlan = new VideoExportPlan(0.0, 1e-14, 60, 1, 1);
+        if (VideoExportTimeline.CountFrames(shortPlan) != 1 ||
+            VideoExportTimeline.Enumerate(shortPlan).Count() != 1)
+        {
+            throw new InvalidOperationException(
+                "A positive sub-frame export range must still produce one frame.");
+        }
+
+        ExpectFrameCountRejected(new VideoExportPlan(0.0, 1_000_000_000.0, 60, 1, 1));
+        ExpectFrameCountRejected(new VideoExportPlan(0.0, 1.0, 60, 1, 1)
+        {
+            ChartRate = double.Epsilon
+        });
+    }
+
+    private static void ExpectFrameCountRejected(VideoExportPlan plan)
+    {
+        try
+        {
+            _ = VideoExportTimeline.CountFrames(plan);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "An unrepresentable video frame count must be rejected explicitly.");
     }
 
     private static void VerifyFrame(
