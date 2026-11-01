@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -646,6 +647,10 @@ public partial class MainWindow
                 ? Color.FromRgb(70, 79, 93) : Color.FromRgb(62, 69, 79));
             visual.Chrome.BorderThickness = isActive ? new Thickness(1, 1, 1, 0) : new Thickness(1);
             visual.Header.Text = tab.Header;
+            // The visible close glyph is only ×; expose a meaningful name
+            // and refresh it when Save As changes the document filename.
+            AutomationProperties.SetName(visual.Activate, $"Switch to {tab.DisplayName}");
+            AutomationProperties.SetName(visual.Close, $"Close {tab.DisplayName}");
             visual.Activate.ToolTip = tab.Document.SourcePath is null or "<synthetic>"
                 ? null : tab.Document.SourcePath;
             visual.Activate.Foreground = isActive
