@@ -154,6 +154,11 @@ internal static class DocumentTabNavigationRegression
         cameraField!.SetValue(viewport, camera);
         backgroundField!.SetValue(viewport, background);
         NativeLevelSnapshot? originalSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics originalMetrics = viewport.LastLevelUploadMetrics;
+        PropertyInfo? metricsProperty = typeof(NativeLevelViewport).GetProperty(
+            "LastLevelUploadMetrics", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(metricsProperty is not null,
+            "Direct level upload metrics must be available for regression checks.");
         int[] selected = (int[])floorsField!.GetValue(viewport)!;
         int primary = (int)primaryField!.GetValue(viewport)!;
 
@@ -165,6 +170,10 @@ internal static class DocumentTabNavigationRegression
             viewport.SetLevelCore(replacement, () =>
             {
                 targetWasStaged = ReferenceEquals(levelField!.GetValue(viewport), replacement);
+                // Simulate a successful upload followed by a failing FrameAll.
+                metricsProperty!.SetValue(viewport, new NativeLevelUploadMetrics(
+                    TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero,
+                    TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0));
                 throw failure;
             });
         }
@@ -176,6 +185,7 @@ internal static class DocumentTabNavigationRegression
         Require(targetWasStaged && ReferenceEquals(caught, failure) &&
                 ReferenceEquals(levelField!.GetValue(viewport), original) &&
                 ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(originalMetrics) &&
                 ReferenceEquals(floorsField.GetValue(viewport), selected) &&
                 (int)primaryField.GetValue(viewport)! == primary &&
                 ReferenceEquals(cameraField.GetValue(viewport), camera) &&
