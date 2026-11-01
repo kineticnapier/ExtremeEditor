@@ -54,6 +54,7 @@ internal static class DocumentTabNavigationRegression
         // so the standard WPF suite silently skipped native failure recovery.
         VerifyStopPlaybackNativeFailureOrdering();
         VerifyPreparedLevelStateIsAtomic();
+        VerifyDirectLevelStateIsAtomic();
         VerifyNativeSelectionStateIsAtomic();
         VerifyDirectPlaybackRefreshIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
@@ -119,6 +120,82 @@ internal static class DocumentTabNavigationRegression
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
+    }
+
+    private static void VerifyDirectLevelStateIsAtomic()
+    {
+        // The non-prepared SetLevel path must not publish the target document,
+        // clear the old selection or lose its timelines when native upload fails.
+        // Inject the failure without constructing a native HWND.
+        LevelDocument original = LevelDocument.CreateSynthetic(3);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(4);
+        var viewport = new NativeLevelViewport();
+        PreparedNativeLevel originalPrepared = NativeLevelViewport.PrepareLevel(original);
+        viewport.SetPreparedLevelCore(original, originalPrepared, (_, _, _) => { });
+        viewport.SetSelectionCore([1], 1, (_, _) => { });
+
+        FieldInfo? levelField = typeof(NativeLevelViewport).GetField(
+            "_level", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? floorsField = typeof(NativeLevelViewport).GetField(
+            "_selectedFloors", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? primaryField = typeof(NativeLevelViewport).GetField(
+            "_primarySelection", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? cameraField = typeof(NativeLevelViewport).GetField(
+            "_cameraTimeline", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? backgroundField = typeof(NativeLevelViewport).GetField(
+            "_backgroundTimeline", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(levelField is not null && floorsField is not null &&
+                primaryField is not null && cameraField is not null &&
+                backgroundField is not null,
+            "Direct level rollback fields must be available for regression checks.");
+
+        var camera = new NativeCameraEvent[1];
+        var background = new NativeBackgroundEvent[1];
+        cameraField!.SetValue(viewport, camera);
+        backgroundField!.SetValue(viewport, background);
+        NativeLevelSnapshot? originalSnapshot = viewport.SnapshotForDiagnostics;
+        int[] selected = (int[])floorsField!.GetValue(viewport)!;
+        int primary = (int)primaryField!.GetValue(viewport)!;
+
+        var failure = new InvalidOperationException("injected direct level upload failure");
+        Exception? caught = null;
+        bool targetWasStaged = false;
+        try
+        {
+            viewport.SetLevelCore(replacement, () =>
+            {
+                targetWasStaged = ReferenceEquals(levelField!.GetValue(viewport), replacement);
+                throw failure;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(targetWasStaged && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
+                ReferenceEquals(floorsField.GetValue(viewport), selected) &&
+                (int)primaryField.GetValue(viewport)! == primary &&
+                ReferenceEquals(cameraField.GetValue(viewport), camera) &&
+                ReferenceEquals(backgroundField.GetValue(viewport), background),
+            "A failed direct level replacement must restore the previous managed scene.");
+
+        caught = null;
+        try
+        {
+            viewport.SetLevelCore(original, () => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+        Require(ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
+                ReferenceEquals(floorsField.GetValue(viewport), selected),
+            "A failed same-document reload must preserve its existing snapshot and selection.");
     }
 
     private static void VerifyNativeSelectionStateIsAtomic()
