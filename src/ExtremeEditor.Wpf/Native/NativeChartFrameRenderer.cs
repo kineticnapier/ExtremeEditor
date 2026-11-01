@@ -1,4 +1,5 @@
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Native;
 
@@ -20,6 +21,10 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
             throw new ArgumentOutOfRangeException(nameof(width));
         if (height <= 0)
             throw new ArgumentOutOfRangeException(nameof(height));
+
+        // Direct renderer callers must not create an impossible RGB24 frame.
+        // VideoExportRequest validates this too, but this public API is independent.
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
 
         _width = width;
         _height = height;
