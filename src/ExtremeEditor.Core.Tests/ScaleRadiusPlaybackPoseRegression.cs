@@ -10,8 +10,7 @@ internal static class ScaleRadiusPlaybackPoseRegression
         LevelDocument level = LevelDocument.CreateSynthetic(3);
         level.InitialBpm = 60.0;
 
-        // ScaleRadius=200% on destination floor 1 means the first edge/orbit
-        // radius is doubled. Geometry already reflects that radius.
+        // Displaced geometry (including ScaleRadius) must not change planet spacing.
         level.Positions =
         [
             Vector2.Zero,
@@ -30,11 +29,11 @@ internal static class ScaleRadiusPlaybackPoseRegression
         PlaybackPose pose = timing.GetPose(level, sampleTime);
 
         float actualRadius = Vector2.Distance(pose.StationaryPlanet, pose.OrbitingPlanet);
-        const float expectedRadius = 3.0f;
+        const float expectedRadius = PathBuilder.DefaultLongTileSize;
         if (Math.Abs(actualRadius - expectedRadius) > 0.0001f)
         {
             throw new InvalidOperationException(
-                $"ScaleRadius playback orbit radius changed. expected={expectedRadius} actual={actualRadius}");
+                $"ScaleRadius unexpectedly changed the fixed planet orbit radius. expected={expectedRadius} actual={actualRadius}");
         }
     }
 }
