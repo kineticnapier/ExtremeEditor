@@ -231,7 +231,8 @@ public partial class MainWindow
             restorePrevious: () =>
             {
                 if (previous is null)
-                    return;
+                    throw new InvalidOperationException(
+                        "No previous native scene is available for recovery.");
 
                 // The target may have changed the renderer before throwing.
                 // Reapply the old level, timelines and selection, even when
