@@ -19,6 +19,7 @@ internal static class SavePathReservationRegression
         EditorDocumentTab first = NewTab();
         EditorDocumentTab second = NewTab();
         Require(tabs.Add(first) && tabs.Add(second, activate: false), "test tabs were not added.");
+        Require(!tabs.HasPendingSaves, "A new tab collection must have no pending saves.");
 
         string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-SaveReservation-{Guid.NewGuid():N}");
         string shared = Path.Combine(directory, "shared.adofai");
@@ -29,6 +30,8 @@ internal static class SavePathReservationRegression
         try
         {
             Require(tabs.HasPendingSave(first), "The saving tab must expose its pending save.");
+            Require(tabs.HasPendingSaves,
+                "A window close must be blocked while any tab owns a save reservation.");
             Require(!tabs.Remove(first),
                 "RED: a tab was removed while its Save As was still writing.");
             Require(ReferenceEquals(tabs.ActiveTab, first) && tabs.Tabs.Count == 2,
@@ -58,13 +61,19 @@ internal static class SavePathReservationRegression
         }
 
         Require(!tabs.HasPendingSave(first), "The completed save must clear its owner guard.");
+        Require(!tabs.HasPendingSaves,
+            "A completed save must allow the window to close again.");
         using (IDisposable? released = Reserve(reserve, tabs, second, shared))
         {
             Require(released is not null, "A completed/failed save must release its destination.");
             Require(!tabs.Remove(second), "RED: a second tab was removed during its pending save.");
+            Require(tabs.HasPendingSaves,
+                "A save in an inactive tab must still block window close.");
         }
 
         Require(!tabs.HasPendingSave(second), "The second save must release its owner guard.");
+        Require(!tabs.HasPendingSaves,
+            "The window close guard must clear after the final reservation ends.");
         Require(tabs.Remove(first), "A tab must be removable after its save finishes.");
         LevelDocument reopenedDocument = LevelDocument.CreateSynthetic(2);
         reopenedDocument.SourcePath = shared;
@@ -76,6 +85,11 @@ internal static class SavePathReservationRegression
         Require(closeSource.Contains("if (_documentTabs.HasPendingSave(tab))", StringComparison.Ordinal),
             "RED: CloseDocumentTab does not block closing a tab with an in-flight save.");
         string source = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.Editor.cs");
+        int closeGuard = source.IndexOf("if (_documentTabs.HasPendingSaves)", StringComparison.Ordinal);
+        int dirtyCloseCheck = source.IndexOf(
+            "if (_windowCloseApproved || !_documentTabs.Tabs.Any", StringComparison.Ordinal);
+        Require(closeGuard >= 0 && dirtyCloseCheck > closeGuard,
+            "RED: window close can bypass an in-flight save when the chart is clean.");
         Require(source.Contains("ReferenceEquals(_documentTabs.ActiveTab, saveTab)", StringComparison.Ordinal),
             "RED: async save completion does not verify which tab owns the visible title/status.");
     }
