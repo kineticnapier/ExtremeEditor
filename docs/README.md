@@ -3,6 +3,11 @@
 The repository root `README.md` is the source of truth for current startup,
 architecture, asset setup, build/test commands, and roadmap status.
 
+`DEVELOPMENT_STATUS_2026-10-14.md` is a dated snapshot of unfinished work and
+open RED specifications at the time `feature/video-export-foundation` was merged
+into `main`. It is more recent than the files below, but it is still a snapshot:
+verify it against the current code and `EditorVersion` before relying on it.
+
 `docs/superpowers/specs` and `docs/superpowers/plans` are retained as
 historical design and implementation snapshots. They document why earlier WPF,
 temporal/raster, and native-renderer decisions were made and preserve useful
