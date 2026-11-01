@@ -92,6 +92,8 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal NativeRgbFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
+        // Reject invalid requests before allocating a potentially large RGB24 frame.
+        ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
         int stride = checked(Width * 3);
         byte[] rgb = new byte[checked(stride * Height)];
         RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
@@ -103,12 +105,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         double visualTimeSeconds,
         byte[] rgb)
     {
-        if (_renderer == nint.Zero)
-            throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
-        if (!double.IsFinite(sceneTimeSeconds))
-            throw new ArgumentOutOfRangeException(nameof(sceneTimeSeconds));
-        if (!double.IsFinite(visualTimeSeconds))
-            throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
+        ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
 
         int stride = checked(Width * 3);
         ArgumentNullException.ThrowIfNull(rgb);
@@ -140,6 +137,16 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                 handle.Free();
         }
 
+    }
+
+    private void ValidateRenderRequest(double sceneTimeSeconds, double visualTimeSeconds)
+    {
+        if (_renderer == nint.Zero)
+            throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
+        if (!double.IsFinite(sceneTimeSeconds))
+            throw new ArgumentOutOfRangeException(nameof(sceneTimeSeconds));
+        if (!double.IsFinite(visualTimeSeconds))
+            throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
     }
 
     private void SetLevel(NativeLevelSnapshot snapshot)
