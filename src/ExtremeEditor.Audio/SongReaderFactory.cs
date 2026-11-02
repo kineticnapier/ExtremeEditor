@@ -87,7 +87,7 @@ internal static class SongReaderFactory
                 // A larger cbSize would claim bytes belonging to the next chunk.
                 if (encoding != 0xFFFE || cbSize < 22 || cbSize > length - 18) return false;
                 ushort validBits = reader.ReadUInt16();
-                reader.ReadUInt32(); // channel mask
+                uint channelMask = reader.ReadUInt32(); // channel mask
                 Guid subtype = new(reader.ReadBytes(16));
                 // Valid bits cannot exceed the storage width. Otherwise a
                 // malformed extensible header would be treated as ordinary PCM.
@@ -97,6 +97,9 @@ internal static class SongReaderFactory
                 return subtype == PcmSubtype && validBits > 0 &&
                        validBits <= containerBits && containerBits is 16 or 24 or 32 &&
                        channels > 0 && sampleRate > 0 &&
+                       // A nonzero speaker mask must describe exactly one speaker per channel.
+                       // Zero means the channel layout was not specified by the file.
+                       (channelMask == 0 || System.Numerics.BitOperations.PopCount(channelMask) == channels) &&
                        (uint)blockAlign == (uint)channels * (containerBits / 8u) &&
                        byteRate == (ulong)sampleRate * blockAlign;
             }
