@@ -30,6 +30,7 @@ internal static class VideoExportFfmpegEncoderRegression
                 "FfmpegVideoEncoder must accept an ffmpeg executable path.");
         }
 
+        VerifyYuv420pDimensionValidation(ffmpegType);
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
         VerifyCancellationDuringAudioFlushPreventsProcessStart(ffmpegType, constructor);
@@ -37,6 +38,50 @@ internal static class VideoExportFfmpegEncoderRegression
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifyDisposeWaitsForChildExitAndCleansStaging(ffmpegType, constructor);
         VerifySourceContract();
+    }
+
+    private static void VerifyYuv420pDimensionValidation(Type encoderType)
+    {
+        Type startInfoType = encoderType.Assembly.GetType("ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+            ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+        ConstructorInfo constructor = startInfoType.GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Single(ctor => ctor.GetParameters().Length == 6);
+        MethodInfo validate = startInfoType.GetMethod(
+                "Validate", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("VideoEncoderStartInfo.Validate is missing.");
+
+        (int Width, int Height, string? InvalidParameter)[] cases =
+        [
+            (2, 2, null),
+            (1920, 1080, null),
+            (3, 2, "Width"),
+            (2, 3, "Height"),
+            (0, 2, "Width"),
+            (2, 0, "Height")
+        ];
+        foreach (var (width, height, invalidParameter) in cases)
+        {
+            object info = constructor.Invoke(["test.mp4", width, height, 30, 44100, 2]);
+            if (invalidParameter is null)
+            {
+                validate.Invoke(info, null);
+                continue;
+            }
+
+            try
+            {
+                validate.Invoke(info, null);
+                throw new InvalidOperationException(
+                    $"H.264 dimensions {width}x{height} were unexpectedly accepted.");
+            }
+            catch (TargetInvocationException ex) when (
+                ex.InnerException is ArgumentOutOfRangeException argument &&
+                argument.ParamName == invalidParameter)
+            {
+                // Invalid dimensions must fail before ffmpeg is started.
+            }
+        }
     }
 
     private static void VerifyAtomicCommit(Type encoderType, ConstructorInfo constructor)
