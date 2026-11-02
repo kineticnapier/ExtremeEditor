@@ -97,9 +97,12 @@ internal static class SongReaderFactory
                 return subtype == PcmSubtype && validBits > 0 &&
                        validBits <= containerBits && containerBits is 16 or 24 or 32 &&
                        channels > 0 && sampleRate > 0 &&
-                       // A nonzero speaker mask must describe exactly one speaker per channel.
+                       // A nonzero speaker mask must describe exactly one defined speaker per channel.
+                       // Bits 18..31 are reserved in WAVEFORMATEXTENSIBLE dwChannelMask.
                        // Zero means the channel layout was not specified by the file.
-                       (channelMask == 0 || System.Numerics.BitOperations.PopCount(channelMask) == channels) &&
+                       (channelMask == 0 ||
+                        ((channelMask & ~0x0003FFFFu) == 0 &&
+                         System.Numerics.BitOperations.PopCount(channelMask) == channels)) &&
                        (uint)blockAlign == (uint)channels * (containerBits / 8u) &&
                        byteRate == (ulong)sampleRate * blockAlign;
             }
