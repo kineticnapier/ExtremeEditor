@@ -49,6 +49,11 @@ internal sealed record VideoExportRequest(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        // Reject dimensions that the configured libx264/yuv420p output cannot encode.
+        if ((Width & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Width), "H.264 yuv420p requires an even width.");
+        if ((Height & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Height), "H.264 yuv420p requires an even height.");
         _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
     }
 }
