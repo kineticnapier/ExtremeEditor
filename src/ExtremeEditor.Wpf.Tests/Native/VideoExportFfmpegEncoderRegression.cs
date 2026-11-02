@@ -32,6 +32,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
+        VerifyCancellationDuringAudioFlushPreventsProcessStart(ffmpegType, constructor);
         VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor);
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifySourceContract();
@@ -141,6 +142,87 @@ internal static class VideoExportFfmpegEncoderRegression
             ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
             stream?.Dispose();
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyCancellationDuringAudioFlushPreventsProcessStart(
+        Type encoderType, ConstructorInfo constructor)
+    {
+        // The stream deliberately ignores the cancellation token while flushing.
+        // The encoder must observe cancellation before it starts a subprocess.
+        string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-AudioCancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        using var cancellation = new CancellationTokenSource();
+        CancelDuringAudioFlushStream? stream = null;
+        try
+        {
+            Type startInfoType = encoderType.Assembly.GetType("ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+                ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+            ConstructorInfo startConstructor = startInfoType.GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Single(ctor => ctor.GetParameters().Length == 6);
+            object startInfo = startConstructor.Invoke([
+                Path.Combine(directory, "output.mp4"), 2, 2, 30, 44100, 2
+            ]);
+            FieldInfo startField = encoderType.GetField("_startInfo", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder start-info field is missing.");
+            FieldInfo audioField = encoderType.GetField("_audioStream", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder audio-stream field is missing.");
+            FieldInfo begunField = encoderType.GetField("_videoBegun", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder video-phase field is missing.");
+            FieldInfo processField = encoderType.GetField("_ffmpegProcess", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder process field is missing.");
+            MethodInfo beginVideo = encoderType.GetMethod("BeginVideoAsync", BindingFlags.Instance | BindingFlags.Public)
+                ?? throw new InvalidOperationException("Encoder video-phase entry is missing.");
+
+            stream = new CancelDuringAudioFlushStream(
+                Path.Combine(directory, "audio.f32le"), cancellation);
+            startField.SetValue(encoder, startInfo);
+            audioField.SetValue(encoder, stream);
+
+            try
+            {
+                object? result = beginVideo.Invoke(encoder, [cancellation.Token]);
+                if (result is not ValueTask task)
+                    throw new InvalidOperationException("BeginVideoAsync must return ValueTask.");
+                task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("Canceled audio flush unexpectedly started video.");
+            }
+            catch (OperationCanceledException ex) when (ex.CancellationToken == cancellation.Token)
+            {
+                // The cancellation after a successful flush must be propagated.
+            }
+
+            if (!stream.DisposedAsynchronously || audioField.GetValue(encoder) is not null)
+                throw new InvalidOperationException("Canceled audio flush leaked its stream.");
+            if (begunField.GetValue(encoder) is not false || processField.GetValue(encoder) is not null)
+                throw new InvalidOperationException("Canceled audio flush started or retained ffmpeg.");
+        }
+        finally
+        {
+            ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+            stream?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class CancelDuringAudioFlushStream(
+        string path, CancellationTokenSource cancellation)
+        : FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+    {
+        internal bool DisposedAsynchronously { get; private set; }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            return Task.CompletedTask;
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            DisposedAsynchronously = true;
+            return base.DisposeAsync();
         }
     }
 
