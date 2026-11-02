@@ -123,12 +123,18 @@ internal static class PcmWaveReaderRegression
             "Extensible PCM must reject a speaker mask with fewer speakers than channels.", channelMask: 1);
         VerifyMalformedExtensibleHeader(24, 22,
             "Extensible PCM must reject a speaker mask with more speakers than channels.", channelMask: 7);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject reserved speaker-position bits even when the bit count matches.",
+            channelMask: unchecked((int)0x80000001u));
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must accept a zero speaker mask (unspecified layout).",
+            channelMask: 0, expectPcm: true);
     }
 
     private static void VerifyMalformedExtensibleHeader(
         short validBits, short extensionSize, string message, int riffSize = 72,
         short channels = 2, int sampleRate = 48000, int byteRate = 288000,
-        short blockAlign = 6, int channelMask = 3)
+        short blockAlign = 6, int channelMask = 3, bool expectPcm = false)
     {
         string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
         try
@@ -155,7 +161,7 @@ internal static class PcmWaveReaderRegression
                 writer.Write(new byte[12]);
             }
 
-            if (SongReaderFactory.TryGetPcmSubtype(path))
+            if (SongReaderFactory.TryGetPcmSubtype(path) != expectPcm)
                 throw new InvalidOperationException(message);
         }
         finally { if (File.Exists(path)) File.Delete(path); }
