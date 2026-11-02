@@ -80,9 +80,14 @@ internal static class PcmWaveReaderRegression
             "Extensible PCM must reject valid bits larger than its container width.");
         VerifyMalformedExtensibleHeader(24, 23,
             "Extensible PCM must reject an extension length beyond its fmt chunk.");
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a fmt chunk outside the declared RIFF container.", riffSize: 4);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a RIFF container truncated by the file end.", riffSize: 76);
     }
 
-    private static void VerifyMalformedExtensibleHeader(short validBits, short extensionSize, string message)
+    private static void VerifyMalformedExtensibleHeader(
+        short validBits, short extensionSize, string message, int riffSize = 72)
     {
         string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
         try
@@ -90,7 +95,7 @@ internal static class PcmWaveReaderRegression
             using (var writer = new BinaryWriter(File.Create(path)))
             {
                 writer.Write("RIFF"u8.ToArray());
-                writer.Write(72);
+                writer.Write(riffSize);
                 writer.Write("WAVE"u8.ToArray());
                 writer.Write("fmt "u8.ToArray());
                 writer.Write(40);
