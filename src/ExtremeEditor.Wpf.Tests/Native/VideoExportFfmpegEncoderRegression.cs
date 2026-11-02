@@ -32,6 +32,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
+        VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor);
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifySourceContract();
     }
@@ -156,6 +157,55 @@ internal static class VideoExportFfmpegEncoderRegression
             DisposedAsynchronously = true;
             return base.DisposeAsync();
         }
+    }
+
+    private static void VerifyVideoDisposeFailureStillDisposesAudioStream(
+        Type encoderType, ConstructorInfo constructor)
+    {
+        // A failed video pipe disposal must not skip disposal of the audio file.
+        string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-VideoDispose-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        ThrowingAudioFlushStream? audio = null;
+        try
+        {
+            FieldInfo inputField = encoderType.GetField(
+                "_videoInput", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder video-input field is missing.");
+            FieldInfo audioField = encoderType.GetField(
+                "_audioStream", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder audio-stream field is missing.");
+
+            audio = new ThrowingAudioFlushStream(Path.Combine(directory, "audio.f32le"));
+            inputField.SetValue(encoder, new ThrowingVideoDisposeStream());
+            audioField.SetValue(encoder, audio);
+
+            try
+            {
+                ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+                throw new InvalidOperationException("Injected video disposal unexpectedly succeeded.");
+            }
+            catch (IOException ex) when (ex.Message == "injected video dispose failure")
+            {
+                // Preserve the video failure while still closing the audio stream.
+            }
+
+            if (!audio.DisposedAsynchronously)
+                throw new InvalidOperationException("Failed video disposal skipped audio stream disposal.");
+            if (inputField.GetValue(encoder) is not null || audioField.GetValue(encoder) is not null)
+                throw new InvalidOperationException("Failed video disposal retained encoder stream state.");
+        }
+        finally
+        {
+            audio?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class ThrowingVideoDisposeStream : MemoryStream
+    {
+        public override ValueTask DisposeAsync() =>
+            ValueTask.FromException(new IOException("injected video dispose failure"));
     }
 
     private static void VerifyFailedVideoCompletionTerminatesProcess(
