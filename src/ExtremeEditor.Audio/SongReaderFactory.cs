@@ -77,7 +77,10 @@ internal static class SongReaderFactory
             {
                 if (length < 40) return false;
                 ushort encoding = reader.ReadUInt16();
-                stream.Position += 12; // channels, sample rate, byte rate, block align
+                ushort channels = reader.ReadUInt16();
+                uint sampleRate = reader.ReadUInt32();
+                uint byteRate = reader.ReadUInt32();
+                ushort blockAlign = reader.ReadUInt16();
                 ushort containerBits = reader.ReadUInt16();
                 ushort cbSize = reader.ReadUInt16();
                 // The declared extension must fit inside the fmt chunk (16-byte base + 2-byte cbSize).
@@ -88,8 +91,14 @@ internal static class SongReaderFactory
                 Guid subtype = new(reader.ReadBytes(16));
                 // Valid bits cannot exceed the storage width. Otherwise a
                 // malformed extensible header would be treated as ordinary PCM.
+                // Extensible PCM must describe the same frame width and byte
+                // rate as its actual sample format. Otherwise the wrapper may
+                // expose inconsistent framing to the sample converter.
                 return subtype == PcmSubtype && validBits > 0 &&
-                       validBits <= containerBits && containerBits is 16 or 24 or 32;
+                       validBits <= containerBits && containerBits is 16 or 24 or 32 &&
+                       channels > 0 && sampleRate > 0 &&
+                       (uint)blockAlign == (uint)channels * (containerBits / 8u) &&
+                       byteRate == (ulong)sampleRate * blockAlign;
             }
             stream.Position = next;
         }
