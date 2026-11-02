@@ -9,10 +9,11 @@
 | #120 | `feature/segment-model-poc` → `main` | Draft。HEAD `6b417111`、148 commits、74 files。最新CIは成功。 | タブ、保存、音声、読込、Native描画・キャッシュ、動画出力、回帰テスト。 |
 | #121 | `docs/readme-sync-with-code` → `main` | 通常PR。HEAD `85921e9d`、2 commits、6 files。CI成功。 | README 5言語と `docs/README.md`。 |
 | #122 | `codex/docs-humanizer-skill` → `main` | 通常PR。HEAD `f1dc7d85`、1 commit、1 file。push CI成功。 | READMEとdocsの文体規則を定める `AGENTS.md`。 |
+| #123 | `codex/repository-maintenance-2026-11-02` → `main` | 通常PR。この整理記録を含む文書のみの変更。 | 開発状況の追記、ブランチ分類、運用方針。 |
 
-#121と#122に変更ファイルの重複はありません。#120も両文書PRとファイル重複はありません。ただし、#120にはsample-accurate hit-sound、統合音声グラフ、pitch、PlaySound関連の変更が含まれるため、#120を先に統合すると#121のRoadmapが古くなります。
+#120から#123までのPRに変更ファイルの重複はありません。ただし、#123は`DEVELOPMENT_STATUS_2026-10-14.md`に現在の状況を追記するため、#121側の「日付付きスナップショット」という説明は「元のスナップショットと、その後の更新を含む」旨へ調整する必要があります。また、#120にはsample-accurate hit-sound、統合音声グラフ、pitch、PlaySound関連の変更が含まれるため、#120を先に統合すると#121のRoadmapが古くなります。
 
-推奨順序は #122、#121、#120 です。#121は#120より前に統合します。#120はDraftのまま実機確認と最終差分監査を終えてから判断します。
+推奨順序は #122、#121、#123、#120 です。#121の開発状況文書に関する説明を調整し、#120より前に統合します。#120はDraftのまま実機確認と最終差分監査を終えてから判断します。
 
 ## PR #120の変更範囲
 
