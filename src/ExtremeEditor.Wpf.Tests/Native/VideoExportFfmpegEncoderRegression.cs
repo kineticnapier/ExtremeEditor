@@ -54,7 +54,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
             try
             {
-                commit.Invoke(encoder, null);
+                commit.Invoke(encoder, [CancellationToken.None]);
                 throw new InvalidOperationException("Missing temporary video unexpectedly replaced the destination.");
             }
             catch (TargetInvocationException ex) when (ex.InnerException is InvalidOperationException)
@@ -64,7 +64,22 @@ internal static class VideoExportFfmpegEncoderRegression
                 throw new InvalidOperationException("Failed video commit damaged the existing destination.");
 
             File.WriteAllText(temporary, "new-complete-video");
-            commit.Invoke(encoder, null);
+            using var canceled = new CancellationTokenSource();
+            canceled.Cancel();
+            try
+            {
+                commit.Invoke(encoder, [canceled.Token]);
+                throw new InvalidOperationException("Canceled video commit unexpectedly replaced the destination.");
+            }
+            catch (TargetInvocationException ex) when (
+                ex.InnerException is OperationCanceledException cancellation &&
+                cancellation.CancellationToken == canceled.Token)
+            {
+            }
+            if (File.ReadAllText(final) != "old-complete-video" || !File.Exists(temporary))
+                throw new InvalidOperationException("Canceled video commit modified the destination or removed staging.");
+
+            commit.Invoke(encoder, [CancellationToken.None]);
             if (File.ReadAllText(final) != "new-complete-video" || File.Exists(temporary))
                 throw new InvalidOperationException("Successful video commit was not an atomic replacement.");
         }
@@ -108,6 +123,8 @@ internal static class VideoExportFfmpegEncoderRegression
         }
         if (!source.Contains("ThrowIfCancellationRequested", StringComparison.Ordinal))
             failures.Add("encoder must observe cancellation");
+        if (!source.Contains("CommitVideoOutput(cancellationToken)", StringComparison.Ordinal))
+            failures.Add("final MP4 commit must receive the active cancellation token");
         if (source.Contains("List<byte[]>", StringComparison.Ordinal) ||
             source.Contains("List<float>", StringComparison.Ordinal))
         {
