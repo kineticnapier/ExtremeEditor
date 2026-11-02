@@ -109,6 +109,25 @@ internal static class ChartFrameRendererRegression
             throw new InvalidOperationException(
                 "Headless Load and Reset must preserve the requested clean-view mode.");
         }
+
+        // Both replacement paths create a native handle before setting the
+        // retained view mode. A failed configuration must dispose that new
+        // handle while leaving the old session installed.
+        foreach (string section in new[] { source[load..setClean], source[reset..dispose] })
+        {
+            int configure = section.IndexOf("next.SetCleanView(_cleanView);", StringComparison.Ordinal);
+            int catchBlock = section.IndexOf("catch", configure, StringComparison.Ordinal);
+            int cleanup = section.IndexOf("next.Dispose();", StringComparison.Ordinal);
+            int rethrow = section.IndexOf("throw;", StringComparison.Ordinal);
+            int swap = section.IndexOf("_session = next;", StringComparison.Ordinal);
+            if (configure < 0 || catchBlock <= configure || cleanup <= catchBlock ||
+                rethrow <= cleanup || swap <= rethrow ||
+                !section.Contains("try", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Headless replacement must dispose a failed new session before swapping.");
+            }
+        }
     }
 
     private static void VerifyRejectedHeadlessRenderDoesNotAllocateFrame()
