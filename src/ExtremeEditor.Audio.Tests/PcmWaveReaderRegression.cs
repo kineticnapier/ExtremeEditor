@@ -70,6 +70,31 @@ internal static class PcmWaveReaderRegression
             }
             finally { if (File.Exists(extensiblePath)) File.Delete(extensiblePath); }
             VerifyMalformedExtensibleHeader();
+            VerifyTruncatedRiffHeader();
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    private static void VerifyTruncatedRiffHeader()
+    {
+        // All prefixes of a 12-byte RIFF/WAVE header are malformed.
+        // The format probe should reject them, not throw EndOfStreamException.
+        byte[] header =
+        [
+            (byte)'R', (byte)'I', (byte)'F', (byte)'F',
+            72, 0, 0, 0,
+            (byte)'W', (byte)'A', (byte)'V', (byte)'E'
+        ];
+        string path = Path.Combine(Path.GetTempPath(), $"ee-short-riff-{Guid.NewGuid():N}.wav");
+        try
+        {
+            for (int length = 0; length < header.Length; length++)
+            {
+                File.WriteAllBytes(path, header.AsSpan(0, length).ToArray());
+                if (SongReaderFactory.TryGetPcmSubtype(path))
+                    throw new InvalidOperationException(
+                        $"A truncated RIFF header of {length} bytes was accepted.");
+            }
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
