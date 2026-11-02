@@ -76,6 +76,14 @@ internal static class PcmWaveReaderRegression
 
     private static void VerifyMalformedExtensibleHeader()
     {
+        VerifyMalformedExtensibleHeader(32, 22,
+            "Extensible PCM must reject valid bits larger than its container width.");
+        VerifyMalformedExtensibleHeader(24, 23,
+            "Extensible PCM must reject an extension length beyond its fmt chunk.");
+    }
+
+    private static void VerifyMalformedExtensibleHeader(short validBits, short extensionSize, string message)
+    {
         string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
         try
         {
@@ -92,8 +100,8 @@ internal static class PcmWaveReaderRegression
                 writer.Write(288000);
                 writer.Write((short)6);
                 writer.Write((short)24); // container width
-                writer.Write((short)22);
-                writer.Write((short)32); // invalid: valid bits exceed container width
+                writer.Write(extensionSize);
+                writer.Write(validBits);
                 writer.Write(3);
                 writer.Write(new Guid("00000001-0000-0010-8000-00aa00389b71").ToByteArray());
                 writer.Write("data"u8.ToArray());
@@ -102,8 +110,7 @@ internal static class PcmWaveReaderRegression
             }
 
             if (SongReaderFactory.TryGetPcmSubtype(path))
-                throw new InvalidOperationException(
-                    "Extensible PCM must reject valid bits larger than its container width.");
+                throw new InvalidOperationException(message);
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
