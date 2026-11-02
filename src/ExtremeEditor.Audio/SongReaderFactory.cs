@@ -73,7 +73,9 @@ internal static class SongReaderFactory
                 stream.Position += 12; // channels, sample rate, byte rate, block align
                 ushort containerBits = reader.ReadUInt16();
                 ushort cbSize = reader.ReadUInt16();
-                if (encoding != 0xFFFE || cbSize < 22) return false;
+                // The declared extension must fit inside the fmt chunk (16-byte base + 2-byte cbSize).
+                // A larger cbSize would claim bytes belonging to the next chunk.
+                if (encoding != 0xFFFE || cbSize < 22 || cbSize > length - 18) return false;
                 ushort validBits = reader.ReadUInt16();
                 reader.ReadUInt32(); // channel mask
                 Guid subtype = new(reader.ReadBytes(16));
