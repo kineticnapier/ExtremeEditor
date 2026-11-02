@@ -148,13 +148,16 @@ internal sealed class VideoExportService
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report(new VideoExportProgress("Video", 0, 0));
-        await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
 
+        // Prepare the native scene before starting ffmpeg. A missing native
+        // renderer or failed asset upload must not launch a child process.
         using var frameRenderer = new NativeChartFrameRenderer(
             request.Width,
             request.Height);
         frameRenderer.Load(level, timingMap);
         frameRenderer.SetCleanView(true);
+
+        await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
 
         int writtenVideoFrames = 0;
 
