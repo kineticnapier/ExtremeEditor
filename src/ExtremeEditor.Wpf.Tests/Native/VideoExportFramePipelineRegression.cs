@@ -76,6 +76,7 @@ internal static class VideoExportFramePipelineRegression
         VerifySourceContract();
         VerifyBorrowedFrameAwaitedBeforeReuse().GetAwaiter().GetResult();
         VerifyBorrowedFrameFailureStopsRendering().GetAwaiter().GetResult();
+        VerifyBorrowedFrameCancellationAfterLastConsumer().GetAwaiter().GetResult();
     }
 
 
@@ -163,6 +164,42 @@ internal static class VideoExportFramePipelineRegression
         if (renderer.BorrowedCalls != 1 || renderer.OwnedCalls != 0)
             throw new InvalidOperationException(
                 "The pipeline rendered another frame after its consumer failed.");
+    }
+
+    // Even when there is no next frame, cancellation requested by the last
+    // consumer must make the pipeline report cancellation rather than success.
+    private static async Task VerifyBorrowedFrameCancellationAfterLastConsumer()
+    {
+        using var renderer = new BorrowedFrameProbeRenderer();
+        using var cancellation = new CancellationTokenSource();
+        var pipeline = new VideoExportFramePipeline(renderer);
+        var plan = new VideoExportPlan(0.0, 1.0, 1, 1, 1);
+        int consumed = 0;
+
+        ValueTask Consume(VideoExportFrame frame, RenderedFrame rendered, CancellationToken token)
+        {
+            if (frame.Index != 0 || rendered.Rgb[0] != 1 || token != cancellation.Token)
+                throw new InvalidOperationException("Unexpected final frame during cancellation test.");
+
+            consumed++;
+            cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        try
+        {
+            await pipeline.RenderAsync(plan, Consume, cancellation.Token)
+                .ConfigureAwait(false);
+            throw new InvalidOperationException("Final-frame cancellation was ignored.");
+        }
+        catch (OperationCanceledException ex) when (ex.CancellationToken == cancellation.Token)
+        {
+            // Expected: cancellation is observed after the final consumer returns.
+        }
+
+        if (consumed != 1 || renderer.BorrowedCalls != 1 || renderer.OwnedCalls != 0)
+            throw new InvalidOperationException(
+                "Final-frame cancellation rendered or consumed an unexpected frame.");
     }
 
     private sealed class BorrowedFrameProbeRenderer : IChartFrameRenderer, IBorrowedChartFrameRenderer
