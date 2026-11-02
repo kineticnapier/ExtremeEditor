@@ -119,12 +119,16 @@ internal static class PcmWaveReaderRegression
             "Extensible PCM must reject a zero sample rate.", sampleRate: 0);
         VerifyMalformedExtensibleHeader(24, 22,
             "Extensible PCM must reject a zero channel count.", channels: 0);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a speaker mask with fewer speakers than channels.", channelMask: 1);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a speaker mask with more speakers than channels.", channelMask: 7);
     }
 
     private static void VerifyMalformedExtensibleHeader(
         short validBits, short extensionSize, string message, int riffSize = 72,
         short channels = 2, int sampleRate = 48000, int byteRate = 288000,
-        short blockAlign = 6)
+        short blockAlign = 6, int channelMask = 3)
     {
         string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
         try
@@ -144,7 +148,7 @@ internal static class PcmWaveReaderRegression
                 writer.Write((short)24); // container width
                 writer.Write(extensionSize);
                 writer.Write(validBits);
-                writer.Write(3);
+                writer.Write(channelMask);
                 writer.Write(new Guid("00000001-0000-0010-8000-00aa00389b71").ToByteArray());
                 writer.Write("data"u8.ToArray());
                 writer.Write(12);
