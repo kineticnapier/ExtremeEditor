@@ -30,6 +30,7 @@ internal static class VideoExportFfmpegEncoderRegression
         }
 
         VerifyAtomicCommit(ffmpegType, constructor);
+        VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
         VerifySourceContract();
     }
 
@@ -86,6 +87,72 @@ internal static class VideoExportFfmpegEncoderRegression
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyAudioFlushFailureDisposesStream(Type encoderType, ConstructorInfo constructor)
+    {
+        // No ffmpeg executable is needed: the injected audio flush fails before process startup.
+        string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-AudioFlush-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        ThrowingAudioFlushStream? stream = null;
+        try
+        {
+            Type startInfoType = encoderType.Assembly.GetType("ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+                ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+            ConstructorInfo startConstructor = startInfoType.GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Single(ctor => ctor.GetParameters().Length == 6);
+            object startInfo = startConstructor.Invoke([
+                Path.Combine(directory, "output.mp4"), 2, 2, 30, 44100, 2
+            ]);
+            FieldInfo startField = encoderType.GetField("_startInfo", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder start-info field is missing.");
+            FieldInfo audioField = encoderType.GetField("_audioStream", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder audio stream field is missing.");
+            MethodInfo beginVideo = encoderType.GetMethod("BeginVideoAsync", BindingFlags.Instance | BindingFlags.Public)
+                ?? throw new InvalidOperationException("Encoder video-phase entry is missing.");
+
+            stream = new ThrowingAudioFlushStream(Path.Combine(directory, "audio.f32le"));
+            startField.SetValue(encoder, startInfo);
+            audioField.SetValue(encoder, stream);
+            try
+            {
+                object? result = beginVideo.Invoke(encoder, [CancellationToken.None]);
+                if (result is not ValueTask task)
+                    throw new InvalidOperationException("BeginVideoAsync must return ValueTask.");
+                task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("Injected audio flush unexpectedly succeeded.");
+            }
+            catch (IOException ex) when (ex.Message == "injected audio flush failure")
+            {
+                // Preserve the original flush failure, while releasing the detached stream.
+            }
+
+            if (!stream.DisposedAsynchronously || audioField.GetValue(encoder) is not null)
+                throw new InvalidOperationException("Failed audio flush leaked the detached file stream.");
+        }
+        finally
+        {
+            ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+            stream?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class ThrowingAudioFlushStream(string path)
+        : FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+    {
+        internal bool DisposedAsynchronously { get; private set; }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            Task.FromException(new IOException("injected audio flush failure"));
+
+        public override ValueTask DisposeAsync()
+        {
+            DisposedAsynchronously = true;
+            return base.DisposeAsync();
         }
     }
 
