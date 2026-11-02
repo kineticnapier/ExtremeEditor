@@ -75,6 +75,7 @@ internal static class VideoExportFramePipelineRegression
 
         VerifySourceContract();
         VerifyBorrowedFrameAwaitedBeforeReuse().GetAwaiter().GetResult();
+        VerifyBorrowedFrameFailureStopsRendering().GetAwaiter().GetResult();
     }
 
 
@@ -128,6 +129,40 @@ internal static class VideoExportFramePipelineRegression
         await run.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
         if (renderer.BorrowedCalls != 2 || renderer.OwnedCalls != 0 || consumed != 2)
             throw new InvalidOperationException("Pipeline did not consume exactly two borrowed frames in order.");
+    }
+
+    // If the asynchronous encoder fails, the pipeline must not reuse the
+    // borrowed frame for a later render or hide the original exception.
+    private static async Task VerifyBorrowedFrameFailureStopsRendering()
+    {
+        using var renderer = new BorrowedFrameProbeRenderer();
+        var pipeline = new VideoExportFramePipeline(renderer);
+        var plan = new VideoExportPlan(0.0, 2.0, 1, 1, 1);
+        var failure = new InvalidOperationException("injected frame consumer failure");
+
+        async ValueTask Consume(VideoExportFrame frame, RenderedFrame rendered, CancellationToken token)
+        {
+            if (frame.Index != 0 || rendered.Rgb[0] != 1)
+                throw new InvalidOperationException("Unexpected frame before consumer failure.");
+
+            await Task.Yield();
+            throw failure;
+        }
+
+        try
+        {
+            await pipeline.RenderAsync(plan, Consume, CancellationToken.None)
+                .ConfigureAwait(false);
+            throw new InvalidOperationException("The pipeline swallowed the consumer failure.");
+        }
+        catch (InvalidOperationException ex) when (ReferenceEquals(ex, failure))
+        {
+            // Expected: preserve the exact failure from the asynchronous consumer.
+        }
+
+        if (renderer.BorrowedCalls != 1 || renderer.OwnedCalls != 0)
+            throw new InvalidOperationException(
+                "The pipeline rendered another frame after its consumer failed.");
     }
 
     private sealed class BorrowedFrameProbeRenderer : IChartFrameRenderer, IBorrowedChartFrameRenderer
