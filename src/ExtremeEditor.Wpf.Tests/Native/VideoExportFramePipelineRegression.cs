@@ -290,6 +290,21 @@ internal static class VideoExportFramePipelineRegression
         if (service.Contains("VideoExportTimeline.Build", StringComparison.Ordinal))
             failures.Add("progress counting must not build every frame object");
 
+        // A failed native scene load must not launch an ffmpeg child process.
+        // This is a source-order guard; actual native failure injection is separate.
+        int nativeLoad = service.IndexOf(
+            "frameRenderer.Load(level, timingMap);", StringComparison.Ordinal);
+        int cleanView = service.IndexOf(
+            "frameRenderer.SetCleanView(true);", StringComparison.Ordinal);
+        int ffmpegStart = service.IndexOf(
+            "await mux.BeginVideoAsync(cancellationToken)", StringComparison.Ordinal);
+        if (nativeLoad < 0 || cleanView < nativeLoad ||
+            ffmpegStart < cleanView)
+        {
+            failures.Add(
+                "native renderer load and clean-view setup must finish before ffmpeg starts");
+        }
+
         if (failures.Count != 0)
         {
             throw new InvalidOperationException(
