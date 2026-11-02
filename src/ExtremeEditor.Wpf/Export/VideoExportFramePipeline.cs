@@ -34,6 +34,8 @@ internal sealed class VideoExportFramePipeline
 
             cancellationToken.ThrowIfCancellationRequested();
             await consumer(frame, rendered, cancellationToken).ConfigureAwait(false);
+            // Cancellation during the final consumer must not complete the pipeline successfully.
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 }
