@@ -1024,6 +1024,8 @@ internal static class Program
             AssetExtractorPackagingRegression.Run();
             // CI must exercise the focused video export and background suites too.
             VideoExportFoundationRegression.Run();
+            ChartFrameRendererRegression.Run();
+            Console.WriteLine("PASS: headless chart frame renderer regression suite.");
             VideoExportRgb24BufferRegression.Run();
             VideoExportFramePipelineRegression.Run();
             VideoExportOfflineAudioRegression.Run();
