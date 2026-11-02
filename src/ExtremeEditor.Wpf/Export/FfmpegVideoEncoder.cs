@@ -286,10 +286,17 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _disposed = true;
         try
         {
-            if (_videoInput is not null)
-                await _videoInput.DisposeAsync().ConfigureAwait(false);
-            if (_audioStream is not null)
-                await _audioStream.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                if (_videoInput is not null)
+                    await _videoInput.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                // A failed video pipe disposal must not leave the audio file open.
+                if (_audioStream is not null)
+                    await _audioStream.DisposeAsync().ConfigureAwait(false);
+            }
         }
         finally
         {
