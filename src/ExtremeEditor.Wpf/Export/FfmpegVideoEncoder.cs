@@ -252,7 +252,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                     $"ffmpeg exited with code {process.ExitCode}: {stderr.Trim()}");
             }
 
-            CommitVideoOutput();
+            CommitVideoOutput(cancellationToken);
             _completed = true;
         }
         finally
@@ -338,8 +338,12 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _videoTempPath = null;
     }
 
-    private void CommitVideoOutput()
+    private void CommitVideoOutput(CancellationToken cancellationToken)
     {
+        // Cancellation may arrive after ffmpeg exits while its output is finalized.
+        // Do not replace a completed destination with a canceled export.
+        cancellationToken.ThrowIfCancellationRequested();
+
         string temporary = _videoTempPath
             ?? throw new InvalidOperationException("Video temporary path is unavailable.");
         string destination = _finalOutputPath
