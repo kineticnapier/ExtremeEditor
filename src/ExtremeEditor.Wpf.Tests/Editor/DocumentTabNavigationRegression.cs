@@ -172,9 +172,9 @@ internal static class DocumentTabNavigationRegression
             "Failed pending FrameAll must preserve the previous prepared scene and retry request.");
 
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
-        Require(ReferenceEquals(levelField.GetValue(viewport), replacement) &&
+        Require(ReferenceEquals(levelField!.GetValue(viewport), replacement) &&
                 ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot) &&
-                (bool)pendingField.GetValue(viewport)!,
+                (bool)pendingField!.GetValue(viewport)!,
             "A successful retry must commit the new scene and keep FrameAll pending without an HWND.");
     }
 
