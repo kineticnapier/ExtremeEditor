@@ -35,6 +35,7 @@ internal static class VideoExportFfmpegEncoderRegression
         VerifyCancellationDuringAudioFlushPreventsProcessStart(ffmpegType, constructor);
         VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor);
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
+        VerifyDisposeWaitsForChildExitAndCleansStaging(ffmpegType, constructor);
         VerifySourceContract();
     }
 
@@ -357,6 +358,69 @@ internal static class VideoExportFfmpegEncoderRegression
                 observer.WaitForExit(5000);
             }
             ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    // Cleanup must wait for the killed process to release file handles before
+    // attempting to remove temporary media. No real ffmpeg binary is needed.
+    private static void VerifyDisposeWaitsForChildExitAndCleansStaging(
+        Type encoderType, ConstructorInfo constructor)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-VideoCleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string audio = Path.Combine(directory, "audio.f32le");
+        string video = Path.Combine(directory, "video.tmp.mp4");
+        File.WriteAllText(audio, "temporary audio");
+        File.WriteAllText(video, "temporary video");
+
+        using Process child = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/d /c ping -n 30 127.0.0.1 >nul",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("Could not start video cleanup test child.");
+        using Process observer = Process.GetProcessById(child.Id);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        try
+        {
+            if (observer.HasExited)
+                throw new InvalidOperationException("Video cleanup test child exited too early.");
+
+            FieldInfo processField = encoderType.GetField(
+                "_ffmpegProcess", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder process field is missing.");
+            FieldInfo audioPathField = encoderType.GetField(
+                "_audioTempPath", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder audio staging path is missing.");
+            FieldInfo videoPathField = encoderType.GetField(
+                "_videoTempPath", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder video staging path is missing.");
+
+            processField.SetValue(encoder, child);
+            audioPathField.SetValue(encoder, audio);
+            videoPathField.SetValue(encoder, video);
+            ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+            if (!observer.HasExited)
+                throw new InvalidOperationException(
+                    "Encoder disposal returned before its child process exited.");
+            if (File.Exists(audio) || File.Exists(video))
+                throw new InvalidOperationException(
+                    "Encoder disposal left temporary media after process exit.");
+        }
+        finally
+        {
+            if (!observer.HasExited)
+            {
+                observer.Kill(entireProcessTree: true);
+                observer.WaitForExit(5000);
+            }
+            Directory.Delete(directory, recursive: true);
         }
     }
 
