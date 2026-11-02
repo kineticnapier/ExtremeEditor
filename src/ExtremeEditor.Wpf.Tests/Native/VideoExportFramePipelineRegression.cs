@@ -1,6 +1,8 @@
 using System.IO;
 using System.Reflection;
 using System.Threading;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Tests;
@@ -72,6 +74,86 @@ internal static class VideoExportFramePipelineRegression
         }
 
         VerifySourceContract();
+        VerifyBorrowedFrameAwaitedBeforeReuse().GetAwaiter().GetResult();
+    }
+
+
+    // The borrowed RGB array is shared between frames. An asynchronous
+    // consumer must finish using it before the pipeline requests another.
+    private static async Task VerifyBorrowedFrameAwaitedBeforeReuse()
+    {
+        using var renderer = new BorrowedFrameProbeRenderer();
+        var pipeline = new VideoExportFramePipeline(renderer);
+        var plan = new VideoExportPlan(0.0, 2.0, 1, 1, 1);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int consumed = 0;
+
+        async ValueTask Consume(VideoExportFrame frame, RenderedFrame rendered, CancellationToken token)
+        {
+            if (frame.Index == 0)
+            {
+                if (rendered.Rgb[0] != 1)
+                    throw new InvalidOperationException("First borrowed RGB frame was incorrect.");
+
+                entered.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+
+                if (rendered.Rgb[0] != 1)
+                    throw new InvalidOperationException("Borrowed RGB was overwritten before the consumer finished.");
+            }
+            else if (frame.Index == 1 && rendered.Rgb[0] != 2)
+            {
+                throw new InvalidOperationException("Second borrowed RGB frame was incorrect.");
+            }
+
+            consumed++;
+        }
+
+        Task run = pipeline.RenderAsync(plan, Consume, CancellationToken.None).AsTask();
+        try
+        {
+            Task first = await Task.WhenAny(entered.Task, run)
+                .WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            if (first == run)
+                await run.ConfigureAwait(false);
+            if (renderer.BorrowedCalls != 1)
+                throw new InvalidOperationException("Pipeline rendered the next borrowed frame while its consumer was suspended.");
+        }
+        finally
+        {
+            release.TrySetResult(true);
+        }
+
+        await run.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        if (renderer.BorrowedCalls != 2 || renderer.OwnedCalls != 0 || consumed != 2)
+            throw new InvalidOperationException("Pipeline did not consume exactly two borrowed frames in order.");
+    }
+
+    private sealed class BorrowedFrameProbeRenderer : IChartFrameRenderer, IBorrowedChartFrameRenderer
+    {
+        private readonly byte[] _rgb = new byte[3];
+        internal int BorrowedCalls { get; private set; }
+        internal int OwnedCalls { get; private set; }
+
+        public void Load(string adofaiPath) => throw new NotSupportedException();
+        public void Reset() => throw new NotSupportedException();
+        public RenderedFrame Render(double chartTimeSeconds) =>
+            Render(chartTimeSeconds, chartTimeSeconds);
+
+        public RenderedFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
+        {
+            OwnedCalls++;
+            throw new InvalidOperationException("The pipeline used the allocating render path.");
+        }
+
+        public RenderedFrame RenderBorrowed(double sceneTimeSeconds, double visualTimeSeconds)
+        {
+            _rgb[0] = checked((byte)++BorrowedCalls);
+            return new RenderedFrame(1, 1, _rgb);
+        }
+
+        public void Dispose() { }
     }
 
     private static void VerifySourceContract()
