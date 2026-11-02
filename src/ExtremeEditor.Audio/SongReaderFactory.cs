@@ -58,14 +58,18 @@ internal static class SongReaderFactory
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream);
         if (reader.ReadUInt32() != 0x46464952) return false; // RIFF
-        reader.ReadUInt32();
+        uint riffSize = reader.ReadUInt32();
         if (reader.ReadUInt32() != 0x45564157) return false; // WAVE
-        while (stream.Position + 8 <= stream.Length)
+        // RIFF size excludes its initial 8 bytes. Do not accept fmt chunks
+        // outside the declared RIFF container, even if the file has trailing data.
+        long riffEnd = 8L + riffSize;
+        if (riffSize < 4 || riffEnd > stream.Length) return false;
+        while (stream.Position + 8 <= riffEnd)
         {
             uint chunk = reader.ReadUInt32();
             uint length = reader.ReadUInt32();
             long next = stream.Position + length + (length & 1);
-            if (next > stream.Length) return false;
+            if (next > riffEnd) return false;
             if (chunk == 0x20746D66) // fmt 
             {
                 if (length < 40) return false;
