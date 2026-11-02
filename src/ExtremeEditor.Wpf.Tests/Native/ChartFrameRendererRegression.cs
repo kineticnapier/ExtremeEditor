@@ -10,6 +10,7 @@ internal static class ChartFrameRendererRegression
     public static void Run()
     {
         VerifyHeadlessDimensionLimits();
+        VerifyCleanViewPersistenceContract();
         VerifyRejectedHeadlessRenderDoesNotAllocateFrame();
         VerifyRejectedBorrowedRenderDoesNotAllocateFrame();
 
@@ -37,7 +38,7 @@ internal static class ChartFrameRendererRegression
                 }
                 """);
 
-            using IChartFrameRenderer renderer = new NativeChartFrameRenderer();
+            using var renderer = new NativeChartFrameRenderer();
             renderer.Load(chartPath);
 
             RenderedFrame first = renderer.Render(0.25);
@@ -53,6 +54,15 @@ internal static class ChartFrameRendererRegression
             RenderedFrame reset = renderer.Render(0.25);
             if (!first.Rgb.AsSpan().SequenceEqual(reset.Rgb))
                 throw new InvalidOperationException("Reset changed deterministic frame output.");
+
+            // A Reset replaces the native session, but must preserve the
+            // requested clean view used by headless export callers.
+            renderer.SetCleanView(true);
+            RenderedFrame cleanBeforeReset = renderer.Render(0.25);
+            renderer.Reset();
+            RenderedFrame cleanAfterReset = renderer.Render(0.25);
+            if (!cleanBeforeReset.Rgb.AsSpan().SequenceEqual(cleanAfterReset.Rgb))
+                throw new InvalidOperationException("Reset changed clean-view frame output.");
 
             ChartFramePngWriter.Save(first, pngPath);
             byte[] png = File.ReadAllBytes(pngPath);
@@ -70,6 +80,34 @@ internal static class ChartFrameRendererRegression
             {
                 // Best-effort cleanup only; the regression result must not depend on temp cleanup.
             }
+        }
+    }
+
+    private static void VerifyCleanViewPersistenceContract()
+    {
+        // Rendering alone may not reveal a lost clean-view flag if no floor is
+        // selected. Verify that both session replacement paths reapply it.
+        DirectoryInfo? root = new(Environment.CurrentDirectory);
+        while (root is not null &&
+               !File.Exists(Path.Combine(root.FullName, "src", "ExtremeEditor.Wpf",
+                   "Native", "NativeChartFrameRenderer.cs")))
+            root = root.Parent;
+        if (root is null)
+            throw new InvalidOperationException("Could not locate NativeChartFrameRenderer source.");
+
+        string source = File.ReadAllText(Path.Combine(root.FullName, "src",
+            "ExtremeEditor.Wpf", "Native", "NativeChartFrameRenderer.cs"));
+        int load = source.IndexOf("public void Load(LevelDocument level, TimingMap timingMap)", StringComparison.Ordinal);
+        int setClean = source.IndexOf("public void SetCleanView(bool enabled)", StringComparison.Ordinal);
+        int reset = source.IndexOf("public void Reset()", StringComparison.Ordinal);
+        int dispose = source.IndexOf("public void Dispose()", StringComparison.Ordinal);
+        if (load < 0 || setClean <= load || reset <= setClean || dispose <= reset ||
+            !source[load..setClean].Contains("next.SetCleanView(_cleanView);", StringComparison.Ordinal) ||
+            !source[setClean..reset].Contains("_cleanView = enabled;", StringComparison.Ordinal) ||
+            !source[reset..dispose].Contains("next.SetCleanView(_cleanView);", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Headless Load and Reset must preserve the requested clean-view mode.");
         }
     }
 
