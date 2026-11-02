@@ -14,6 +14,8 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
     private LevelDocument? _level;
     private TimingMap? _timingMap;
     private byte[]? _reusableRgb;
+    // The view mode belongs to the facade, not a replaceable native session.
+    private bool _cleanView;
 
     public NativeChartFrameRenderer(int width = DefaultWidth, int height = DefaultHeight)
     {
@@ -57,6 +59,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
             _width,
             _height);
 
+        next.SetCleanView(_cleanView);
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         _level = level;
@@ -72,6 +75,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
         NativeHeadlessRendererSession session = _session
             ?? throw new InvalidOperationException("No chart is loaded.");
         session.SetCleanView(enabled);
+        _cleanView = enabled;
     }
 
     public RenderedFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
@@ -107,6 +111,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
             _timingMap,
             _width,
             _height);
+        next.SetCleanView(_cleanView);
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         previous?.Dispose();
