@@ -145,7 +145,7 @@ internal static class VideoExportFramePipelineRegression
             if (frame.Index != 0 || rendered.Rgb[0] != 1)
                 throw new InvalidOperationException("Unexpected frame before consumer failure.");
 
-            await Task.Yield();
+            await Task.Delay(1).ConfigureAwait(false);
             throw failure;
         }
 
