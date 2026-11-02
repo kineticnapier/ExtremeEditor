@@ -178,6 +178,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         catch
         {
+            // Process.Start may succeed before stream setup fails.
+            // Never leave a started ffmpeg process running without an owner.
+            if (_ffmpegProcess is not null)
+                TryKill(_ffmpegProcess);
             DisposeProcessState();
             throw;
         }
@@ -265,6 +269,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         finally
         {
+            // Flush, pipe close, or waiting for ffmpeg can fail before it exits.
+            // Process.Dispose only releases the handle; it does not stop ffmpeg.
+            if (!_completed)
+                TryKill(process);
             DisposeProcessState();
             DeleteTemporaryFiles();
         }
