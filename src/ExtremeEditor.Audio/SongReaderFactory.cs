@@ -17,34 +17,43 @@ internal static class SongReaderFactory
         if (string.Equals(ext, ".wav", StringComparison.OrdinalIgnoreCase))
         {
             var reader = new WaveFileReader(path);
-            if (reader.WaveFormat.Encoding is WaveFormatEncoding.Pcm or WaveFormatEncoding.IeeeFloat)
-                return reader;
-
-            if (reader.WaveFormat.Encoding == WaveFormatEncoding.Extensible &&
-                reader.WaveFormat.BitsPerSample is 16 or 24 or 32 &&
-                TryGetPcmSubtype(path))
+            try
             {
-                // WAVE_FORMAT_EXTENSIBLE carries ordinary PCM bytes. Expose
-                // the corresponding PCM sample format without calling ACM.
-                return new PcmExtensibleWaveStream(reader);
-            }
+                if (reader.WaveFormat.Encoding is WaveFormatEncoding.Pcm or WaveFormatEncoding.IeeeFloat)
+                    return reader;
 
-            // Never silently fall back to ACM for an unsupported WAV subtype.
-            // Report the actual format so we can diagnose a specific file.
-            string detail = reader.WaveFormat is WaveFormatExtensible other
-                ? $" subtype={other.SubFormat}"
-                : string.Empty;
-            string format = reader.WaveFormat.Encoding.ToString();
-            string type = reader.WaveFormat.GetType().Name;
-            reader.Dispose();
-            throw new NotSupportedException(
-                $"WAV decoding unsupported: encoding={format} type={type}{detail}");
+                if (reader.WaveFormat.Encoding == WaveFormatEncoding.Extensible &&
+                    reader.WaveFormat.BitsPerSample is 16 or 24 or 32 &&
+                    TryGetPcmSubtype(path))
+                {
+                    // WAVE_FORMAT_EXTENSIBLE carries ordinary PCM bytes. Expose
+                    // the corresponding PCM sample format without calling ACM.
+                    return new PcmExtensibleWaveStream(reader);
+                }
+
+                // Never silently fall back to ACM for an unsupported WAV subtype.
+                // Report the actual format so we can diagnose a specific file.
+                string detail = reader.WaveFormat is WaveFormatExtensible other
+                    ? $" subtype={other.SubFormat}"
+                    : string.Empty;
+                string format = reader.WaveFormat.Encoding.ToString();
+                string type = reader.WaveFormat.GetType().Name;
+                throw new NotSupportedException(
+                    $"WAV decoding unsupported: encoding={format} type={type}{detail}");
+            }
+            catch
+            {
+                // Includes failures while inspecting the extensible header.
+                // Returning either reader above transfers ownership to the caller.
+                reader.Dispose();
+                throw;
+            }
         }
 
         return new AudioFileReader(path);
     }
 
-    private static bool TryGetPcmSubtype(string path)
+    internal static bool TryGetPcmSubtype(string path)
     {
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream);
@@ -61,14 +70,17 @@ internal static class SongReaderFactory
             {
                 if (length < 40) return false;
                 ushort encoding = reader.ReadUInt16();
-                stream.Position += 14; // remaining standard WAVEFORMATEX fields
+                stream.Position += 12; // channels, sample rate, byte rate, block align
+                ushort containerBits = reader.ReadUInt16();
                 ushort cbSize = reader.ReadUInt16();
                 if (encoding != 0xFFFE || cbSize < 22) return false;
                 ushort validBits = reader.ReadUInt16();
                 reader.ReadUInt32(); // channel mask
                 Guid subtype = new(reader.ReadBytes(16));
+                // Valid bits cannot exceed the storage width. Otherwise a
+                // malformed extensible header would be treated as ordinary PCM.
                 return subtype == PcmSubtype && validBits > 0 &&
-                       validBits <= 32;
+                       validBits <= containerBits && containerBits is 16 or 24 or 32;
             }
             stream.Position = next;
         }
