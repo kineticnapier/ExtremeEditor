@@ -185,7 +185,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             // Process.Start may succeed before stream setup fails.
             // Never leave a started ffmpeg process running without an owner.
             if (_ffmpegProcess is not null)
+            {
                 TryKill(_ffmpegProcess);
+                await TryWaitForExitAsync(_ffmpegProcess).ConfigureAwait(false);
+            }
             DisposeProcessState();
             throw;
         }
@@ -276,7 +279,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             // Flush, pipe close, or waiting for ffmpeg can fail before it exits.
             // Process.Dispose only releases the handle; it does not stop ffmpeg.
             if (!_completed)
+            {
                 TryKill(process);
+                await TryWaitForExitAsync(process).ConfigureAwait(false);
+            }
             DisposeProcessState();
             DeleteTemporaryFiles();
         }
@@ -307,7 +313,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             _videoInput = null;
             _audioStream = null;
             if (_ffmpegProcess is not null)
+            {
                 TryKill(_ffmpegProcess);
+                await TryWaitForExitAsync(_ffmpegProcess).ConfigureAwait(false);
+            }
             DisposeProcessState();
             DeleteTemporaryFiles();
         }
@@ -418,6 +427,22 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         catch
         {
             // Cancellation/disposal should retain its original exception.
+        }
+    }
+
+    // Wait for a terminated encoder to release its output file handles before
+    // deleting staging files. A bounded best-effort wait preserves the original
+    // cancellation or encoding exception when process cleanup itself fails.
+    private static async Task TryWaitForExitAsync(Process process)
+    {
+        try
+        {
+            await process.WaitForExitAsync(CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Process exit may fail or time out; cleanup remains best-effort.
         }
     }
 
