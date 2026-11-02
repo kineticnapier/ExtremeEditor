@@ -140,6 +140,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             }
         }
 
+        // A cancellation during the audio flush may not be observed by a stream
+        // that completes FlushAsync successfully. Do not start ffmpeg afterward.
+        cancellationToken.ThrowIfCancellationRequested();
+
         string audioPath = _audioTempPath
             ?? throw new InvalidOperationException("Audio temporary path is unavailable.");
 
