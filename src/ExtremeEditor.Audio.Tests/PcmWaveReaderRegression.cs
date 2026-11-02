@@ -109,10 +109,22 @@ internal static class PcmWaveReaderRegression
             "Extensible PCM must reject a fmt chunk outside the declared RIFF container.", riffSize: 4);
         VerifyMalformedExtensibleHeader(24, 22,
             "Extensible PCM must reject a RIFF container truncated by the file end.", riffSize: 76);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a block alignment inconsistent with its channels and bit depth.",
+            blockAlign: 4);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a byte rate inconsistent with its sample rate and block alignment.",
+            byteRate: 12345);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a zero sample rate.", sampleRate: 0);
+        VerifyMalformedExtensibleHeader(24, 22,
+            "Extensible PCM must reject a zero channel count.", channels: 0);
     }
 
     private static void VerifyMalformedExtensibleHeader(
-        short validBits, short extensionSize, string message, int riffSize = 72)
+        short validBits, short extensionSize, string message, int riffSize = 72,
+        short channels = 2, int sampleRate = 48000, int byteRate = 288000,
+        short blockAlign = 6)
     {
         string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
         try
@@ -125,10 +137,10 @@ internal static class PcmWaveReaderRegression
                 writer.Write("fmt "u8.ToArray());
                 writer.Write(40);
                 writer.Write((ushort)0xFFFE);
-                writer.Write((short)2);
-                writer.Write(48000);
-                writer.Write(288000);
-                writer.Write((short)6);
+                writer.Write(channels);
+                writer.Write(sampleRate);
+                writer.Write(byteRate);
+                writer.Write(blockAlign);
                 writer.Write((short)24); // container width
                 writer.Write(extensionSize);
                 writer.Write(validBits);
