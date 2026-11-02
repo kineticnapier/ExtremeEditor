@@ -57,6 +57,8 @@ internal static class PcmWaveReaderRegression
                     writer.Write(12);
                     writer.Write(new byte[] { 0,0,0, 0,0,0, 0,0,64, 0,0,192 });
                 }
+                if (!SongReaderFactory.TryGetPcmSubtype(extensiblePath))
+                    throw new InvalidOperationException("Valid extensible PCM24 header was rejected.");
                 using WaveStream extended = SongReaderFactory.Open(extensiblePath);
                 if (extended.WaveFormat.Encoding != WaveFormatEncoding.Pcm)
                     throw new InvalidOperationException("Extensible PCM24 was not normalized to direct PCM.");
@@ -67,6 +69,41 @@ internal static class PcmWaveReaderRegression
                     throw new InvalidOperationException("Extensible PCM24 sample values changed.");
             }
             finally { if (File.Exists(extensiblePath)) File.Delete(extensiblePath); }
+            VerifyMalformedExtensibleHeader();
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    private static void VerifyMalformedExtensibleHeader()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"ee-invalid-extensible-{Guid.NewGuid():N}.wav");
+        try
+        {
+            using (var writer = new BinaryWriter(File.Create(path)))
+            {
+                writer.Write("RIFF"u8.ToArray());
+                writer.Write(72);
+                writer.Write("WAVE"u8.ToArray());
+                writer.Write("fmt "u8.ToArray());
+                writer.Write(40);
+                writer.Write((ushort)0xFFFE);
+                writer.Write((short)2);
+                writer.Write(48000);
+                writer.Write(288000);
+                writer.Write((short)6);
+                writer.Write((short)24); // container width
+                writer.Write((short)22);
+                writer.Write((short)32); // invalid: valid bits exceed container width
+                writer.Write(3);
+                writer.Write(new Guid("00000001-0000-0010-8000-00aa00389b71").ToByteArray());
+                writer.Write("data"u8.ToArray());
+                writer.Write(12);
+                writer.Write(new byte[12]);
+            }
+
+            if (SongReaderFactory.TryGetPcmSubtype(path))
+                throw new InvalidOperationException(
+                    "Extensible PCM must reject valid bits larger than its container width.");
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
