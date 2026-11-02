@@ -59,7 +59,17 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
             _width,
             _height);
 
-        next.SetCleanView(_cleanView);
+        // A newly created native session must be released if applying the
+        // retained view mode fails before it can replace the active session.
+        try
+        {
+            next.SetCleanView(_cleanView);
+        }
+        catch
+        {
+            next.Dispose();
+            throw;
+        }
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         _level = level;
@@ -111,7 +121,17 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
             _timingMap,
             _width,
             _height);
-        next.SetCleanView(_cleanView);
+        // A newly created native session must be released if applying the
+        // retained view mode fails before it can replace the active session.
+        try
+        {
+            next.SetCleanView(_cleanView);
+        }
+        catch
+        {
+            next.Dispose();
+            throw;
+        }
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         previous?.Dispose();
