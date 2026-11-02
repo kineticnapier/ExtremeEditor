@@ -29,6 +29,8 @@
 
 最新のpull request CIでは、Core・Audio・WPF Full、Native CTest、WPF Release build、portable publishと成果物検査が成功しています。テスト追加はAudio、Core、WPF、Nativeの各領域にあります。明確な未登録回帰やCI失敗は、今回の静的監査では見つかりませんでした。
 
+`git diff --check` は `src/ExtremeEditor.Audio/SongReaderFactory.cs:76` の末尾空白で失敗します。定期監査が同じbranchを更新中のため、この監査から競合するコード変更は加えず、PR #120のレビューに修正依頼を記録しました。
+
 統合前にWindows実機で確認する項目:
 
 - WAV、pitch、PlaySound、ヒット音の聴感と同期
