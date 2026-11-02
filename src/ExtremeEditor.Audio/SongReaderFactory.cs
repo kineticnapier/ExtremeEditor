@@ -57,6 +57,9 @@ internal static class SongReaderFactory
     {
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream);
+        // A truncated RIFF header is not an extensible PCM file. Avoid
+        // leaking EndOfStreamException from a format probe.
+        if (stream.Length < 12) return false;
         if (reader.ReadUInt32() != 0x46464952) return false; // RIFF
         uint riffSize = reader.ReadUInt32();
         if (reader.ReadUInt32() != 0x45564157) return false; // WAVE
