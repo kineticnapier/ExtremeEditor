@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 
@@ -31,6 +32,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
+        VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifySourceContract();
     }
 
@@ -156,6 +158,82 @@ internal static class VideoExportFfmpegEncoderRegression
         }
     }
 
+    private static void VerifyFailedVideoCompletionTerminatesProcess(
+        Type encoderType, ConstructorInfo constructor)
+    {
+        // Windows CI runs this behavioral test without requiring an ffmpeg binary.
+        // A child that is still running when the pipe flush fails must be killed.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        FieldInfo processField = encoderType.GetField(
+            "_ffmpegProcess", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Encoder process field is missing.");
+        FieldInfo inputField = encoderType.GetField(
+            "_videoInput", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Encoder video-input field is missing.");
+        FieldInfo begunField = encoderType.GetField(
+            "_videoBegun", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Encoder video-phase field is missing.");
+        MethodInfo complete = encoderType.GetMethod(
+            "CompleteAsync", BindingFlags.Instance | BindingFlags.Public)
+            ?? throw new InvalidOperationException("Encoder completion method is missing.");
+
+        using Process child = Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/d /c ping -n 30 127.0.0.1 >nul",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("Could not start video cleanup test child.");
+        using Process observer = Process.GetProcessById(child.Id);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        try
+        {
+            if (observer.HasExited)
+                throw new InvalidOperationException("Video cleanup test child exited too early.");
+
+            begunField.SetValue(encoder, true);
+            processField.SetValue(encoder, child);
+            inputField.SetValue(encoder, new ThrowingVideoFlushStream());
+            try
+            {
+                object? result = complete.Invoke(encoder, [CancellationToken.None]);
+                if (result is not ValueTask task)
+                    throw new InvalidOperationException("CompleteAsync must return ValueTask.");
+                task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("Injected video flush unexpectedly succeeded.");
+            }
+            catch (IOException ex) when (ex.Message == "injected video flush failure")
+            {
+                // Completion must preserve the original exception and stop ffmpeg.
+            }
+
+            if (!observer.WaitForExit(5000))
+                throw new InvalidOperationException("Failed video completion left ffmpeg running.");
+            if (processField.GetValue(encoder) is not null ||
+                inputField.GetValue(encoder) is not null)
+            {
+                throw new InvalidOperationException("Failed video completion retained process state.");
+            }
+        }
+        finally
+        {
+            if (!observer.HasExited)
+            {
+                observer.Kill(entireProcessTree: true);
+                observer.WaitForExit(5000);
+            }
+            ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private sealed class ThrowingVideoFlushStream : MemoryStream
+    {
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            Task.FromException(new IOException("injected video flush failure"));
+    }
+
     private static void VerifySourceContract()
     {
         string root = FindRepoRoot();
@@ -192,6 +270,11 @@ internal static class VideoExportFfmpegEncoderRegression
             failures.Add("encoder must observe cancellation");
         if (!source.Contains("CommitVideoOutput(cancellationToken)", StringComparison.Ordinal))
             failures.Add("final MP4 commit must receive the active cancellation token");
+        if (!source.Contains("TryKill(_ffmpegProcess)", StringComparison.Ordinal) ||
+            !source.Contains("TryKill(process)", StringComparison.Ordinal))
+        {
+            failures.Add("ffmpeg must be terminated when startup or completion fails");
+        }
         if (source.Contains("List<byte[]>", StringComparison.Ordinal) ||
             source.Contains("List<float>", StringComparison.Ordinal))
         {
