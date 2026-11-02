@@ -128,8 +128,16 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _audioStream = null;
         if (audio is not null)
         {
-            await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
-            await audio.DisposeAsync().ConfigureAwait(false);
+            // Even a canceled or failed flush must close the detached stream.
+            // DisposeAsync cannot find it once _audioStream has been cleared.
+            try
+            {
+                await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await audio.DisposeAsync().ConfigureAwait(false);
+            }
         }
 
         string audioPath = _audioTempPath
