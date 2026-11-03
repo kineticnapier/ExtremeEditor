@@ -214,7 +214,10 @@ inline bool BuildScreenFilterColorMatrix(
         for (int channel = 0; channel < 3; ++channel)
         {
             invert.m[channel][channel] = -1.0f;
-            invert.m[4][channel] = 1.0f;
+            // In premultiplied-alpha space the correct form is A - channel,
+            // not 1 - channel. Opaque final frames produce the same RGB while
+            // transparent inputs retain valid premultiplied colour values.
+            invert.m[3][channel] = 1.0f;
         }
         matrix = ComposeColorMatrices(matrix, invert);
         any = true;

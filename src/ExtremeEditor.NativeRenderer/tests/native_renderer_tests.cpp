@@ -1,6 +1,7 @@
 #include "extreme_editor_renderer.h"
 #include "extreme_editor_headless.h"
 #include "icon_assets.h"
+#include "screen_filter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,29 @@
 
 int main()
 {
+    {
+        EeFilterEvent events[2]{};
+        events[0].start_time = 0.0;
+        events[0].duration_seconds = 4.0;
+        events[0].filter = ee::FilterGrayscale;
+        events[0].target_intensity = 1.0f;
+        events[0].enabled = 1u;
+        events[1].start_time = 2.0;
+        events[1].duration_seconds = 2.0;
+        events[1].filter = ee::FilterGrayscale;
+        events[1].target_intensity = 0.0f;
+        events[1].enabled = 1u;
+        events[1].source_index = 1u;
+        const ee::FilterVisualState interrupted = ee::ResolveScreenFilters(
+            events, 2u, 3.0, nullptr);
+        if (!interrupted.entries[ee::FilterGrayscale].enabled ||
+            std::abs(interrupted.entries[ee::FilterGrayscale].intensity - 0.5f) > 0.00001f)
+        {
+            std::cerr << "SetFilter tween interruption did not complete the prior tween.\n";
+            return 1;
+        }
+    }
+
     // The reverse-direction HUD setter was added in v24. Later API versions
     // are additive and must continue to satisfy this ABI regression.
     constexpr uint32_t reverse_direction_hud_minimum_api_version = 24u;
@@ -336,6 +360,161 @@ int main()
     if (first != rewind)
     {
         std::cerr << "Rewinding to the same explicit time changed RGB output.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Keep the scene still so comparisons at different chart times isolate only
+    // SetFilter. Track glow remains pinned to the same visual_time below.
+    if (ee_renderer_set_playback_timeline(headless, nullptr, 0u) != EE_OK)
+    {
+        std::cerr << "Could not clear playback before screen-filter pixel tests.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    const auto render_filter_frame = [&](double time, std::vector<std::uint8_t>& output)
+    {
+        return ee_renderer_render_rgb(
+            headless, time, 0.25, output.data(), frame_bytes, row_stride) == EE_OK;
+    };
+    const auto require_pixels_near = [&](const std::vector<std::uint8_t>& actual,
+                                         const std::vector<std::uint8_t>& source,
+                                         float grayscale,
+                                         bool invert,
+                                         const char* message)
+    {
+        for (std::size_t i = 0; i + 2u < actual.size(); i += 3u)
+        {
+            const float r = source[i];
+            const float g = source[i + 1u];
+            const float b = source[i + 2u];
+            const float luma = 0.299f * r + 0.587f * g + 0.114f * b;
+            const float expected[3] =
+            {
+                r + (luma - r) * grayscale,
+                g + (luma - g) * grayscale,
+                b + (luma - b) * grayscale
+            };
+            for (std::size_t channel = 0; channel < 3u; ++channel)
+            {
+                const float filtered = invert ? 255.0f - expected[channel] : expected[channel];
+                if (std::abs(static_cast<float>(actual[i + channel]) - filtered) > 2.0f)
+                {
+                    std::cerr << message << " at byte " << i + channel
+                              << ": expected " << filtered
+                              << ", actual " << static_cast<unsigned>(actual[i + channel]) << ".\n";
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    // SetFilter must be a final-frame operation: these checks exercise the real
+    // offscreen D2D/D3D render target and RGB readback, not only matrix helpers.
+    std::vector<std::uint8_t> filter_baseline(frame_bytes);
+    std::vector<std::uint8_t> filter_frame(frame_bytes);
+    if (ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline))
+    {
+        std::cerr << "Headless filter baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeFilterEvent grayscale{};
+    grayscale.start_time = 1.0;
+    grayscale.duration_seconds = 2.0;
+    grayscale.filter = 0u;
+    grayscale.target_intensity = 1.0f;
+    grayscale.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &grayscale, 1u) != EE_OK ||
+        !render_filter_frame(0.5, filter_frame) || filter_frame != filter_baseline ||
+        !render_filter_frame(1.0, filter_frame) || filter_frame != filter_baseline ||
+        !render_filter_frame(2.0, filter_frame) ||
+        !require_pixels_near(filter_frame, filter_baseline, 0.5f, false,
+            "Grayscale 50% pixel mismatch") ||
+        !render_filter_frame(3.0, filter_frame) ||
+        !require_pixels_near(filter_frame, filter_baseline, 1.0f, false,
+            "Grayscale 100% pixel mismatch"))
+    {
+        std::cerr << "Headless Grayscale timeline did not affect final pixels correctly.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Render out of order to prove seeking reconstructs filter state.
+    if (!render_filter_frame(1.0, filter_frame) || filter_frame != filter_baseline)
+    {
+        std::cerr << "Seeking backward did not reconstruct Grayscale 0%.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeFilterEvent overlap[2]{};
+    overlap[0].start_time = 0.0;
+    overlap[0].filter = 0u;
+    overlap[0].target_intensity = 1.0f;
+    overlap[0].enabled = 1u;
+    overlap[1].start_time = 0.0;
+    overlap[1].filter = 2u;
+    overlap[1].enabled = 1u;
+    overlap[1].source_index = 1u;
+    if (ee_renderer_set_filter_timeline(headless, overlap, 2u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_near(filter_frame, filter_baseline, 1.0f, true,
+            "Combined Grayscale and Invert pixel mismatch"))
+    {
+        std::cerr << "Overlapping screen filters did not compose correctly.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    overlap[1].flags = EE_FILTER_DISABLE_OTHERS;
+    if (ee_renderer_set_filter_timeline(headless, overlap, 2u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_near(filter_frame, filter_baseline, 0.0f, true,
+            "disableOthers Invert pixel mismatch"))
+    {
+        std::cerr << "SetFilter disableOthers did not disable Grayscale.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    overlap[1].enabled = 0u;
+    overlap[1].flags = 0u;
+    if (ee_renderer_set_filter_timeline(headless, overlap + 1u, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) || filter_frame != filter_baseline)
+    {
+        std::cerr << "Disabled Invert changed headless pixels.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeFlashEvent foreground_flash{};
+    foreground_flash.start_color = 0x204060u;
+    foreground_flash.end_color = 0x204060u;
+    foreground_flash.start_opacity = 0.45f;
+    foreground_flash.end_opacity = 0.45f;
+    foreground_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    if (ee_renderer_set_flash_timeline(headless, &foreground_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline))
+    {
+        std::cerr << "Foreground Flash baseline for screen filters failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    EeFilterEvent invert{};
+    invert.filter = ee::FilterInvert;
+    invert.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &invert, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_near(filter_frame, filter_baseline, 0.0f, true,
+            "Foreground Flash and Invert pixel mismatch"))
+    {
+        std::cerr << "Screen filter was not applied after foreground Flash.\n";
         destroy_headless();
         return 1;
     }

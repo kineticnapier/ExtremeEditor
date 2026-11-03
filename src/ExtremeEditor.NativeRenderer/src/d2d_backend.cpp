@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <functional>
 
 namespace ee
@@ -308,9 +309,74 @@ void D2DBackend::ReleaseTargetBitmap() noexcept
     if (d3d_context_)
         d3d_context_->OMSetRenderTargets(0, nullptr, nullptr);
     target_bitmap_.Reset();
+    screen_filter_source_.Reset();
+    screen_filter_effect_.Reset();
     depth_stencil_view_.Reset();
     depth_texture_.Reset();
     render_target_view_.Reset();
+}
+
+bool D2DBackend::EnsureScreenFilterResources() noexcept
+{
+    if (!d2d_context_ || !target_bitmap_)
+        return false;
+    if (!screen_filter_source_)
+    {
+        const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_NONE,
+            target_bitmap_->GetPixelFormat());
+        if (FAILED(d2d_context_->CreateBitmap(
+                D2D1::SizeU(width_, height_),
+                nullptr,
+                0u,
+                &properties,
+                screen_filter_source_.GetAddressOf())))
+            return false;
+    }
+    if (!screen_filter_effect_ &&
+        FAILED(d2d_context_->CreateEffect(
+            CLSID_D2D1ColorMatrix,
+            screen_filter_effect_.GetAddressOf())))
+        return false;
+    return true;
+}
+
+HRESULT D2DBackend::ApplyScreenFilter() noexcept
+{
+    ScreenColorMatrix matrix;
+    if (!BuildScreenFilterColorMatrix(filter_state_, matrix))
+        return S_OK;
+    if (!EnsureScreenFilterResources())
+        return E_FAIL;
+
+    HRESULT hr = screen_filter_source_->CopyFromBitmap(
+        nullptr, target_bitmap_.Get(), nullptr);
+    if (FAILED(hr))
+        return hr;
+
+    D2D1_MATRIX_5X4_F d2d_matrix{};
+    static_assert(sizeof(d2d_matrix) == sizeof(matrix.m));
+    std::memcpy(&d2d_matrix, matrix.m, sizeof(d2d_matrix));
+    screen_filter_effect_->SetInput(0u, screen_filter_source_.Get());
+    if (FAILED(screen_filter_effect_->SetValue(
+            D2D1_COLORMATRIX_PROP_COLOR_MATRIX, d2d_matrix)) ||
+        FAILED(screen_filter_effect_->SetValue(
+            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
+        FAILED(screen_filter_effect_->SetValue(
+            D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT,
+            TRUE)))
+        return E_FAIL;
+
+    d2d_context_->BeginDraw();
+    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+    d2d_context_->DrawImage(
+        screen_filter_effect_.Get(),
+        nullptr,
+        nullptr,
+        D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+        D2D1_COMPOSITE_MODE_SOURCE_COPY);
+    return d2d_context_->EndDraw();
 }
 
 bool D2DBackend::Resize(std::uint32_t width, std::uint32_t height) noexcept
@@ -878,6 +944,10 @@ HRESULT D2DBackend::RenderFrame(
     hr = EndD2DDraw();
     if (hr == S_FALSE)
         return S_OK;
+    if (FAILED(hr))
+        return hr;
+
+    hr = ApplyScreenFilter();
     if (FAILED(hr))
         return hr;
 

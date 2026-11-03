@@ -860,37 +860,12 @@ FilterVisualState ResolveFilterStateAtTime(
     const std::vector<EeFilterEvent>* events,
     double chart_time) noexcept
 {
-    FilterVisualState result;
-    if (events == nullptr)
-        return result;
-
-    for (const EeFilterEvent& item : *events)
-    {
-        if (item.start_time > chart_time)
-            break;
-        if (item.filter >= 41u)
-            continue;
-
-        if ((item.flags & EE_FILTER_DISABLE_OTHERS) != 0u)
-        {
-            for (std::uint32_t i = 0u; i < 41u; ++i)
-            {
-                if (i != item.filter)
-                    result.entries[i].enabled = false;
-            }
-        }
-
-        const double raw = item.duration_seconds <= 1e-9
-            ? 1.0
-            : (chart_time - item.start_time) / item.duration_seconds;
-        const double progress = ApplyFlashEase(item.ease, raw);
-        FilterVisualEntry& entry = result.entries[item.filter];
-        entry.intensity = entry.intensity +
-            (item.target_intensity - entry.intensity) * static_cast<float>(progress);
-        entry.enabled = item.enabled != 0u;
-        entry.applied_value = ApplyFilterIntensity(item.filter, entry.intensity);
-    }
-
+    const EeFilterEvent* data = events != nullptr && !events->empty() ? events->data() : nullptr;
+    const std::size_t count = events != nullptr ? events->size() : 0u;
+    FilterVisualState result = ResolveScreenFilters(data, count, chart_time, ApplyFlashEase);
+    for (std::uint32_t filter = 0u; filter < FilterCount; ++filter)
+        result.entries[filter].applied_value =
+            ApplyFilterIntensity(filter, result.entries[filter].intensity);
     return result;
 }
 

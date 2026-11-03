@@ -7,6 +7,7 @@
 #include "level_scene.h"
 #include "position_track_drag.h"
 #include "scene_local_cache.h"
+#include "screen_filter.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
@@ -61,18 +62,6 @@ struct ScreenTileVisualState
     bool enabled = false;
     float tile_x = 1.0f;
     float tile_y = 1.0f;
-};
-
-struct FilterVisualEntry
-{
-    bool enabled = false;
-    float intensity = 0.0f;
-    float applied_value = 0.0f;
-};
-
-struct FilterVisualState
-{
-    FilterVisualEntry entries[41]{};
 };
 
 struct RenderFrameStats
@@ -289,6 +278,8 @@ private:
         float zoom,
         float camera_rotation) noexcept;
     HRESULT EndD2DDraw() noexcept;
+    HRESULT ApplyScreenFilter() noexcept;
+    bool EnsureScreenFilterResources() noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -314,6 +305,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2d_context_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> target_bitmap_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> screen_filter_source_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> screen_filter_effect_;
     Microsoft::WRL::ComPtr<ID2D1Effect> decoration_color_effect_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
