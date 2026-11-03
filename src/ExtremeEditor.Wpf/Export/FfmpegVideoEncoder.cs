@@ -244,9 +244,18 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         {
             if (_videoInput is not null)
             {
-                await _videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await _videoInput.DisposeAsync().ConfigureAwait(false);
+                // A failed or canceled flush must still dispose the video pipe.
+                // Detach first so the outer cleanup does not dispose it twice.
+                Stream videoInput = _videoInput;
                 _videoInput = null;
+                try
+                {
+                    await videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await videoInput.DisposeAsync().ConfigureAwait(false);
+                }
             }
 
             try
