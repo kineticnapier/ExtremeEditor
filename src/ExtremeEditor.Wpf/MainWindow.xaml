@@ -40,13 +40,6 @@
             <StatusBarItem HorizontalContentAlignment="Stretch"
                            Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType={x:Type StatusBar}}}">
                 <DockPanel LastChildFill="True">
-                    <TextBlock x:Name="PlaybackFpsText"
-                               DockPanel.Dock="Right"
-                               Text="FPS --"
-                               Margin="12,0,8,0"
-                               Foreground="{StaticResource MutedTextBrush}"
-                               FontFamily="Consolas"
-                               ToolTip="Playback UI frame rate" />
                     <TextBlock x:Name="StatusText"
                                TextTrimming="CharacterEllipsis" />
                 </DockPanel>
