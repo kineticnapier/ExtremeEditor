@@ -48,8 +48,8 @@ public sealed partial class NativeLevelViewport
         result.Snapshot.StaticDecorations = decorationData.Instances;
         result.Snapshot.DecorationAssets = decorationData.Assets;
         result.Snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
-        var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(level);
         BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(level);
+        var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(level, initialBackground);
         result.Snapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
             backgroundIds.TryGetValue(initialBackground.Image, out uint backgroundId) ? backgroundId : 0u);
         result.Snapshot.BackgroundAssets = backgroundAssets;

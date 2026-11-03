@@ -36,6 +36,15 @@ internal static class WpfLevelLoader
             loadPath = normalizedPath;
         }
 
+        // Native preparation reads the background settings right after load.
+        // Warm that cache alongside parsing; a failure here is reported by
+        // the later read that actually needs the value.
+        Task backgroundPreload = Task.Run(() =>
+        {
+            try { BackgroundSourceReader.ReadInitial(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException) { }
+        }, CancellationToken.None);
+
         try
         {
             try
@@ -92,6 +101,7 @@ internal static class WpfLevelLoader
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);
         indexWatch.Stop();
+        await backgroundPreload.ConfigureAwait(false);
 
         return new WpfLevelLoadResult(
             loaded.Document,
@@ -106,13 +116,38 @@ internal static class WpfLevelLoader
         string path,
         CancellationToken cancellationToken)
     {
-        LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
-            .ConfigureAwait(false);
-        return (
-            loaded,
-            TrackVisualSourceReader.Load(path, cancellationToken),
-            TrackTransformSourceReader.Load(path, cancellationToken),
-            ScaleRadiusSourceReader.Load(path, cancellationToken),
-            CameraSourceReader.Load(path, cancellationToken));
+        // The narrow renderer passes are independent, read-only streaming scans
+        // of the same file and touch no shared document state, so they run
+        // alongside the core loader instead of after it.
+        Task<TrackVisualSourceBundle> visuals = Task.Run(
+            () => TrackVisualSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<TrackTransformSourceData> transforms = Task.Run(
+            () => TrackTransformSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<ScaleRadiusSourceData> scaleRadius = Task.Run(
+            () => ScaleRadiusSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<CameraSourceData> camera = Task.Run(
+            () => CameraSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<LoadResult> core = AdoFaiLoader.LoadFlatAsync(path, cancellationToken);
+
+        // Wait for every pass before reporting, so no scan still holds the file
+        // when a caller retries with a normalized copy. Rethrow the first
+        // failure in the original sequential order.
+        Task[] passes = [core, visuals, transforms, scaleRadius, camera];
+        try
+        {
+            await Task.WhenAll(passes).ConfigureAwait(false);
+        }
+        catch
+        {
+            foreach (Task pass in passes)
+                _ = pass.Exception; // mark every failure observed
+            foreach (Task pass in passes)
+            {
+                if (pass.IsFaulted || pass.IsCanceled)
+                    await pass.ConfigureAwait(false);
+            }
+            throw;
+        }
+        return (core.Result, visuals.Result, transforms.Result, scaleRadius.Result, camera.Result);
     }
 }

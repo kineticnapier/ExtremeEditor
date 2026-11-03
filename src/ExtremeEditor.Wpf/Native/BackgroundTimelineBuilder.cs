@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
 
@@ -43,14 +44,50 @@ internal readonly record struct NativeBackgroundAsset(uint Id, string ImagePath)
 
 internal static class BackgroundSourceReader
 {
+    private const int RecentReadCapacity = 4;
+    private static readonly object RecentReadsGate = new();
+    private static readonly List<(byte[] ContentHash, BackgroundSourceState State)> RecentReads = [];
+
+    // The settings live after angleData in most charts, so finding them means
+    // a validating scan of the whole file. Load prepares the level and the
+    // playback timelines separately, and later rebuilds read again; reuse the
+    // result while the file content is byte-for-byte unchanged. The key is
+    // the content hash, not file times, so a same-size rewrite within one
+    // file-time tick is still read again.
     internal static BackgroundSourceState ReadInitial(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
-        if (string.IsNullOrWhiteSpace(level.SourcePath) || !File.Exists(level.SourcePath))
+        NativeLevelUpdateDiagnostics.RecordBackgroundSourceRead();
+        return ReadInitial(level.SourcePath);
+    }
+
+    internal static BackgroundSourceState ReadInitial(string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
             return ReadRoot(null);
 
-        JsonObject root = ExtremeEditor.Wpf.LooseAdoFaiJson.ParseObject(level.SourcePath);
-        return ReadRoot(root["settings"] as JsonObject);
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        byte[] contentHash = SHA256.HashData(bytes);
+        lock (RecentReadsGate)
+        {
+            foreach ((byte[] hash, BackgroundSourceState cached) in RecentReads)
+            {
+                if (hash.AsSpan().SequenceEqual(contentHash))
+                    return cached;
+            }
+        }
+
+        // Only "settings" is needed. A whole-document parse would materialize
+        // every angleData entry, which dominates on very large charts.
+        JsonNode? settings = ExtremeEditor.Wpf.LooseAdoFaiJson.ParseRootProperty(bytes, "settings");
+        BackgroundSourceState state = ReadRoot(settings as JsonObject);
+        lock (RecentReadsGate)
+        {
+            RecentReads.Add((contentHash, state));
+            if (RecentReads.Count > RecentReadCapacity)
+                RecentReads.RemoveAt(0);
+        }
+        return state;
     }
 
     internal static BackgroundSourceState ReadRoot(JsonObject? settings) => new(
@@ -184,7 +221,14 @@ internal static class BackgroundAssetResolver
             ActiveImage(before), ActiveImage(after));
     }
 
-    internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(LevelDocument level)
+    internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(LevelDocument level) =>
+        Build(level, BackgroundSourceReader.ReadInitial(level));
+
+    // Callers that also need the initial background pass the state they read,
+    // so one preparation reads the chart's settings once.
+    internal static (NativeBackgroundAsset[] Assets, Dictionary<string, uint> Ids) Build(
+        LevelDocument level,
+        BackgroundSourceState initial)
     {
         var ids = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         var assets = new List<NativeBackgroundAsset>();
@@ -202,7 +246,7 @@ internal static class BackgroundAssetResolver
             assets.Add(new NativeBackgroundAsset(id, Path.GetFullPath(fullPath)));
         }
 
-        Add(BackgroundSourceReader.ReadInitial(level).Image);
+        Add(initial.Image);
         foreach (LevelAction action in level.ActionStore.Actions)
         {
             if (!action.Active || action.EventType != "CustomBackground")
@@ -227,7 +271,7 @@ internal static class BackgroundTimelineBuilder
             static action => string.Equals(action.EventType, "CustomBackground", StringComparison.Ordinal));
 
         BackgroundSourceState state = BackgroundSourceReader.ReadInitial(level);
-        var (_, imageIds) = BackgroundAssetResolver.Build(level);
+        var (_, imageIds) = BackgroundAssetResolver.Build(level, state);
         uint ResolveImageId(string image) => imageIds.TryGetValue(image, out uint id) ? id : 0u;
         var result = new List<NativeBackgroundEvent>
         {

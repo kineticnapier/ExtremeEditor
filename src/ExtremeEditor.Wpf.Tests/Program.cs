@@ -934,6 +934,32 @@ internal static class Program
                 return 0;
             }
 
+            if (Environment.GetEnvironmentVariable(LoadPathBenchmark.PathVariable) is { Length: > 0 } benchPath)
+            {
+                LoadPathBenchmark.Run(benchPath);
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_VISUAL_PACKING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackVisualResolvePackingRegression.Run();
+                Console.WriteLine("PASS: track visual run packing regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_BACKGROUND_SOURCE_READ_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                BackgroundSourceReadRegression.Run();
+                Console.WriteLine("PASS: background settings read regression is valid.");
+                return 0;
+            }
+
             if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_FLASH_INCREMENTAL_EDIT_ONLY"),
                 "1",
@@ -955,6 +981,8 @@ internal static class Program
             PositionTrackDragRegression.Run();
             TwirlToggleRegression.Run();
             FlashIncrementalEditRegression.Run();
+            BackgroundSourceReadRegression.Run();
+            TrackVisualResolvePackingRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             AdoFaiHistoryShortcutRegression.Run();

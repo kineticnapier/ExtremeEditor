@@ -17,8 +17,11 @@ internal static class LooseAdoFaiJson
     internal static JsonObject ParseObject(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        return ParseNormalizedObject(NormalizeToUtf8(File.ReadAllBytes(sourcePath)));
+    }
 
-        byte[] normalized = NormalizeToUtf8(File.ReadAllBytes(sourcePath));
+    private static JsonObject ParseNormalizedObject(byte[] normalized)
+    {
         return JsonNode.Parse(
                    normalized,
                    new JsonNodeOptions { PropertyNameCaseInsensitive = false },
@@ -28,6 +31,65 @@ internal static class LooseAdoFaiJson
                        CommentHandling = JsonCommentHandling.Skip
                    }) as JsonObject
                ?? throw new InvalidDataException("ADOFAI root must be a JSON object.");
+    }
+
+    // Returns one property of the root object without materializing the rest
+    // of the chart. The reader still validates every skipped value, so input
+    // that ParseObject rejects is rejected here with the same exception. Rare
+    // shapes (a non-object root, a repeated property) defer to ParseObject so
+    // their result is exactly the whole-document one.
+    internal static JsonNode? ParseRootProperty(string sourcePath, string propertyName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        return ParseRootProperty(File.ReadAllBytes(sourcePath), propertyName);
+    }
+
+    internal static JsonNode? ParseRootProperty(byte[] fileBytes, string propertyName)
+    {
+        ArgumentNullException.ThrowIfNull(fileBytes);
+        ArgumentException.ThrowIfNullOrEmpty(propertyName);
+
+        byte[] normalized = NormalizeToUtf8(fileBytes);
+        var reader = new Utf8JsonReader(normalized, new JsonReaderOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip
+        });
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+            return ParseNormalizedObject(normalized)[propertyName];
+
+        int start = -1;
+        int length = 0;
+        int matches = 0;
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            bool match = reader.ValueTextEquals(propertyName);
+            reader.Read();
+            int valueStart = checked((int)reader.TokenStartIndex);
+            reader.Skip();
+            if (match)
+            {
+                matches++;
+                start = valueStart;
+                length = checked((int)reader.BytesConsumed) - valueStart;
+            }
+        }
+        // Anything but whitespace or comments after the root value throws, as
+        // it does for the whole-document parse.
+        reader.Read();
+
+        if (matches == 0)
+            return null;
+        if (matches > 1)
+            return ParseNormalizedObject(normalized)[propertyName];
+        return JsonNode.Parse(
+            normalized.AsSpan(start, length),
+            new JsonNodeOptions { PropertyNameCaseInsensitive = false },
+            new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
     }
 
     internal static string CreateNormalizedTempCopy(string sourcePath)

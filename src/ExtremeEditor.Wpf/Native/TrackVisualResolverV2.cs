@@ -855,34 +855,35 @@ internal static class TrackVisualResolver
 
         TrackVisualSourceData source = TrackVisualMetadataCache.Get(level);
         List<TrackVisualSourceEvent> live = BuildLiveEvents(level, source.Events);
-        var styles = new TrackVisualStyle[floorCount];
         TrackVisualStyle persistent = source.InitialStyle;
+        double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
 
-        var colorEvents = live
+        // Only ColorTrack floors change the static style. Every floor between
+        // them shares the persistent style, so pack it (string parsing) once
+        // per run and fill the run, instead of packing every floor.
+        (int Floor, TrackVisualSourceEvent[] Events)[] colorEvents = live
             .Where(static item => item.Active && item.EventType == "ColorTrack")
             .GroupBy(static item => item.Floor)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.OrderBy(static item => item.SourceIndex).ToArray());
+            .Select(static group => (group.Key, group.OrderBy(static item => item.SourceIndex).ToArray()))
+            .Where(item => (uint)item.Key < (uint)floorCount)
+            .OrderBy(static item => item.Key)
+            .ToArray();
 
-        for (int floor = 0; floor < floorCount; floor++)
+        int cursor = 0;
+        foreach ((int eventFloor, TrackVisualSourceEvent[] events) in colorEvents)
         {
+            output.AsSpan(cursor, eventFloor - cursor).Fill(Pack(persistent, pitch));
             TrackVisualStyle floorStyle = persistent;
-            if (colorEvents.TryGetValue(floor, out TrackVisualSourceEvent[]? events))
+            foreach (TrackVisualSourceEvent item in events)
             {
-                foreach (TrackVisualSourceEvent item in events)
-                {
-                    floorStyle = ApplyStyle(floorStyle, item, floor);
-                    if (!item.JustThisTile)
-                        persistent = floorStyle;
-                }
+                floorStyle = ApplyStyle(floorStyle, item, eventFloor);
+                if (!item.JustThisTile)
+                    persistent = floorStyle;
             }
-            styles[floor] = floorStyle;
+            output[eventFloor] = Pack(floorStyle, pitch);
+            cursor = eventFloor + 1;
         }
-
-        double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
-        for (int floor = 0; floor < floorCount; floor++)
-            output[floor] = Pack(styles[floor], pitch);
+        output.AsSpan(cursor).Fill(Pack(persistent, pitch));
         return output;
     }
 
