@@ -31,6 +31,7 @@ internal static class VideoExportFfmpegEncoderRegression
         }
 
         VerifyYuv420pDimensionValidation(ffmpegType);
+        VerifyAudioChunkFrameAlignment(ffmpegType, constructor);
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: false);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: true);
@@ -142,6 +143,72 @@ internal static class VideoExportFfmpegEncoderRegression
         }
         finally
         {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyAudioChunkFrameAlignment(Type encoderType, ConstructorInfo constructor)
+    {
+        // No ffmpeg process is required: only the temporary PCM file is written.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-AudioFrames-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        try
+        {
+            Type startInfoType = encoderType.Assembly.GetType(
+                "ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+                ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+            ConstructorInfo startConstructor = startInfoType.GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Single(ctor => ctor.GetParameters().Length == 6);
+            object startInfo = startConstructor.Invoke([
+                Path.Combine(directory, "output.mp4"), 2, 2, 30, 44100, 2
+            ]);
+            MethodInfo begin = encoderType.GetMethod("BeginAsync")
+                ?? throw new InvalidOperationException("Encoder BeginAsync is missing.");
+            MethodInfo write = encoderType.GetMethod("WriteAudioChunkAsync")
+                ?? throw new InvalidOperationException("Encoder WriteAudioChunkAsync is missing.");
+            FieldInfo audioField = encoderType.GetField(
+                "_audioStream", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Encoder audio stream is missing.");
+
+            if (begin.Invoke(encoder, [startInfo, CancellationToken.None]) is not ValueTask beginTask)
+                throw new InvalidOperationException("BeginAsync must return ValueTask.");
+            beginTask.GetAwaiter().GetResult();
+
+            var valid = new ExtremeEditor.Audio.OfflineAudioChunk(
+                0, 44100, 2, [0.1f, 0.2f, 0.3f, 0.4f]);
+            if (write.Invoke(encoder, [valid, CancellationToken.None]) is not ValueTask validTask)
+                throw new InvalidOperationException("WriteAudioChunkAsync must return ValueTask.");
+            validTask.GetAwaiter().GetResult();
+
+            var audio = audioField.GetValue(encoder) as FileStream
+                ?? throw new InvalidOperationException("Encoder audio file is missing.");
+            long expectedLength = 4 * sizeof(float);
+            if (audio.Position != expectedLength)
+                throw new InvalidOperationException("Valid stereo audio frames were not written.");
+
+            var incomplete = new ExtremeEditor.Audio.OfflineAudioChunk(
+                2, 44100, 2, [0.5f, 0.6f, 0.7f]);
+            try
+            {
+                if (write.Invoke(encoder, [incomplete, CancellationToken.None]) is not ValueTask invalidTask)
+                    throw new InvalidOperationException("WriteAudioChunkAsync must return ValueTask.");
+                invalidTask.GetAwaiter().GetResult();
+                throw new InvalidOperationException("Incomplete stereo frame was accepted.");
+            }
+            catch (ArgumentException ex) when (ex.ParamName == "chunk")
+            {
+                // The invalid chunk must be rejected without changing the PCM stream.
+            }
+
+            if (audio.Position != expectedLength)
+                throw new InvalidOperationException("Rejected audio chunk wrote partial PCM data.");
+        }
+        finally
+        {
+            ((IAsyncDisposable)encoder).DisposeAsync().AsTask().GetAwaiter().GetResult();
             Directory.Delete(directory, recursive: true);
         }
     }
