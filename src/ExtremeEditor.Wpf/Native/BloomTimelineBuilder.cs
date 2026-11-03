@@ -25,7 +25,8 @@ internal static class BloomTimelineBuilder
 
     private static NativeBloomEvent ToNative(VfxOccurrence occurrence)
     {
-        JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
+        // Edited values win; otherwise the values loaded from the chart.
+        JsonObject? properties = MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent);
         return new NativeBloomEvent
         {
             StartTime = occurrence.StartTime,

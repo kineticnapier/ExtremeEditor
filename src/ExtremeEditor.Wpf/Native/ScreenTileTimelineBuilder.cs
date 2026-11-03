@@ -24,7 +24,8 @@ internal static class ScreenTileTimelineBuilder
 
     private static NativeScreenTileEvent ToNative(VfxOccurrence occurrence)
     {
-        (float x, float y) = ReadTile(occurrence.SourceEvent.PropertyOverrides);
+        // Edited values win; otherwise the values loaded from the chart.
+        (float x, float y) = ReadTile(MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent));
         double duration = Math.Max(0.0, occurrence.DurationSeconds ?? 0.0);
         bool identity = Math.Abs(x - 1f) <= 1e-6f && Math.Abs(y - 1f) <= 1e-6f;
         uint flags = duration <= 1e-9

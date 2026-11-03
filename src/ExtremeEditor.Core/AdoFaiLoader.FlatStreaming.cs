@@ -566,6 +566,36 @@ public static partial class AdoFaiLoader
                 case FlatActionField.ScalingRatio when TryReadDouble(ref reader, out double scalingRatio):
                     _action.ScalingRatio = scalingRatio;
                     break;
+                case FlatActionField.Plane:
+                    _action.Plane = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.StartColor:
+                    _action.StartColor = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.EndColor:
+                    _action.EndColor = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.StartOpacity when TryReadDouble(ref reader, out double startOpacity):
+                    _action.StartOpacity = startOpacity;
+                    break;
+                case FlatActionField.EndOpacity when TryReadDouble(ref reader, out double endOpacity):
+                    _action.EndOpacity = endOpacity;
+                    break;
+                case FlatActionField.Threshold when TryReadDouble(ref reader, out double threshold):
+                    _action.Threshold = threshold;
+                    break;
+                case FlatActionField.Intensity when TryReadDouble(ref reader, out double intensity):
+                    _action.Intensity = intensity;
+                    break;
+                case FlatActionField.Enabled:
+                    _action.Enabled = ReadBool(ref reader, true);
+                    break;
+                case FlatActionField.Filter:
+                    _action.Filter = ReadPooledString(ref reader);
+                    break;
+                case FlatActionField.DisableOthers:
+                    _action.DisableOthers = ReadBool(ref reader, false);
+                    break;
             }
         }
 
@@ -602,10 +632,12 @@ public static partial class AdoFaiLoader
                 case FlatActionField.PivotOffset: _action.PivotOffset = value; break;
                 case FlatActionField.ParallaxOffset: _action.ParallaxOffset = value; break;
                 case FlatActionField.Parallax: _action.Parallax = value; break;
+                case FlatActionField.Tile: _action.Tile = value; break;
             }
         }
 
         private static bool IsMoveArrayField(FlatActionField field) => field is
+            FlatActionField.Tile or
             FlatActionField.Position or
             FlatActionField.PositionOffset or
             FlatActionField.Scale or
@@ -681,7 +713,7 @@ public static partial class AdoFaiLoader
                     ? BuildMoveProperties(_action)
                     : string.Equals(type, "CustomBackground", StringComparison.Ordinal)
                         ? BuildBackgroundProperties(_action)
-                        : null,
+                        : BuildScreenEffectProperties(type, _action),
                 PropertyOverrides = string.Equals(type, "CustomBackground", StringComparison.Ordinal)
                     ? BuildBackgroundProperties(_action)
                     : null,
@@ -722,6 +754,45 @@ public static partial class AdoFaiLoader
             Add(properties, "lockRot", action.LockRot);
             Add(properties, "loopBG", action.LoopBg);
             Add(properties, "scalingRatio", action.ScalingRatio);
+            return properties;
+        }
+
+        // Flash, Bloom, SetFilter and ScreenTile keep only the values their
+        // timeline builders read, so a chart with many other events does not
+        // duplicate their JSON. Editing an event still replaces these through
+        // PropertyOverrides; saving never reads them.
+        private static JsonObject? BuildScreenEffectProperties(string type, FlatActionBuilder action)
+        {
+            var properties = new JsonObject();
+            switch (type)
+            {
+                case "Flash":
+                    Add(properties, "plane", action.Plane);
+                    Add(properties, "startColor", action.StartColor);
+                    Add(properties, "startOpacity", action.StartOpacity);
+                    Add(properties, "endColor", action.EndColor);
+                    Add(properties, "endOpacity", action.EndOpacity);
+                    break;
+                case "Bloom":
+                    Add(properties, "enabled", action.Enabled);
+                    Add(properties, "threshold", action.Threshold);
+                    Add(properties, "intensity", action.Intensity);
+                    Add(properties, "color", action.Color);
+                    break;
+                case "SetFilter":
+                    Add(properties, "filter", action.Filter);
+                    Add(properties, "enabled", action.Enabled);
+                    Add(properties, "intensity", action.Intensity);
+                    Add(properties, "disableOthers", action.DisableOthers);
+                    break;
+                case "ScreenTile":
+                    Add(properties, "tile", action.Tile);
+                    break;
+                default:
+                    return null;
+            }
+            Add(properties, "ease", action.Ease);
+            Add(properties, "eventTag", action.EventTag);
             return properties;
         }
 
@@ -858,6 +929,17 @@ public static partial class AdoFaiLoader
             if (reader.ValueTextEquals("lockRot"u8)) return FlatActionField.LockRot;
             if (reader.ValueTextEquals("loopBG"u8)) return FlatActionField.LoopBg;
             if (reader.ValueTextEquals("scalingRatio"u8)) return FlatActionField.ScalingRatio;
+            if (reader.ValueTextEquals("plane"u8)) return FlatActionField.Plane;
+            if (reader.ValueTextEquals("startColor"u8)) return FlatActionField.StartColor;
+            if (reader.ValueTextEquals("endColor"u8)) return FlatActionField.EndColor;
+            if (reader.ValueTextEquals("startOpacity"u8)) return FlatActionField.StartOpacity;
+            if (reader.ValueTextEquals("endOpacity"u8)) return FlatActionField.EndOpacity;
+            if (reader.ValueTextEquals("threshold"u8)) return FlatActionField.Threshold;
+            if (reader.ValueTextEquals("intensity"u8)) return FlatActionField.Intensity;
+            if (reader.ValueTextEquals("enabled"u8)) return FlatActionField.Enabled;
+            if (reader.ValueTextEquals("filter"u8)) return FlatActionField.Filter;
+            if (reader.ValueTextEquals("disableOthers"u8)) return FlatActionField.DisableOthers;
+            if (reader.ValueTextEquals("tile"u8)) return FlatActionField.Tile;
             return FlatActionField.Unknown;
         }
 
@@ -917,7 +999,9 @@ public static partial class AdoFaiLoader
             AngleOffset, Duration, Tag, EventTag, Ease, RelativeTo, Position,
             PositionOffset, Rotation, RotationOffset, Scale, Opacity, PivotOffset,
             ParallaxOffset, Color, BgImage, ImageColor, Parallax, BgDisplayMode,
-            ImageSmoothing, LockRot, LoopBg, ScalingRatio
+            ImageSmoothing, LockRot, LoopBg, ScalingRatio, Plane, StartColor,
+            EndColor, StartOpacity, EndOpacity, Threshold, Intensity, Enabled,
+            Filter, DisableOthers, Tile
         }
 
         private struct FlatActionBuilder
@@ -957,6 +1041,17 @@ public static partial class AdoFaiLoader
             public bool? LockRot;
             public bool? LoopBg;
             public double? ScalingRatio;
+            public string? Plane;
+            public string? StartColor;
+            public string? EndColor;
+            public double? StartOpacity;
+            public double? EndOpacity;
+            public double? Threshold;
+            public double? Intensity;
+            public bool? Enabled;
+            public string? Filter;
+            public bool? DisableOthers;
+            public MovePair? Tile;
         }
 
         private readonly record struct MovePair(double? X, double? Y);

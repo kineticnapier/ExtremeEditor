@@ -41,7 +41,8 @@ internal static class FilterTimelineBuilder
 
     private static NativeFilterEvent ToNative(VfxOccurrence occurrence)
     {
-        JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
+        // Edited values win; otherwise the values loaded from the chart.
+        JsonObject? properties = MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent);
         string name = ReadString(properties, "filter", "Grayscale");
         uint filter = FilterIds.TryGetValue(name, out uint id) ? id : uint.MaxValue;
 

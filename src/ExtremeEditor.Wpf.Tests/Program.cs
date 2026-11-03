@@ -961,6 +961,16 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VFX_SOURCE_PROPERTIES_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VfxSourcePropertiesRegression.Run();
+                Console.WriteLine("PASS: loaded VFX source properties regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_FLASH_INCREMENTAL_EDIT_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -981,6 +991,7 @@ internal static class Program
             PositionTrackDragRegression.Run();
             TwirlToggleRegression.Run();
             FlashIncrementalEditRegression.Run();
+            VfxSourcePropertiesRegression.Run();
             BackgroundSourceReadRegression.Run();
             TrackVisualResolvePackingRegression.Run();
             EditorSelectionStateRegression.Run();

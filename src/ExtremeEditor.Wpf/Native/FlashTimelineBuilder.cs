@@ -19,7 +19,8 @@ internal static class FlashTimelineBuilder
 
     private static NativeFlashEvent ToNative(VfxOccurrence o)
     {
-        JsonObject? p = o.SourceEvent.PropertyOverrides;
+        // Edited values win; otherwise the values loaded from the chart.
+        JsonObject? p = MoveDecorationsTargeting.GetProperties(o.SourceEvent);
         return new NativeFlashEvent
         {
             StartTime = o.StartTime,
