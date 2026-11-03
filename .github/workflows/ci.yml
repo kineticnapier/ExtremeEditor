@@ -20,6 +20,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed lines for whitespace errors
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          } else {
+            git diff --check HEAD^ HEAD
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "git diff --check found whitespace errors."
+          }
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
