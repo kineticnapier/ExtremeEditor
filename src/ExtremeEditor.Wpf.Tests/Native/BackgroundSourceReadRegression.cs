@@ -18,6 +18,7 @@ internal static class BackgroundSourceReadRegression
         try
         {
             VerifyMatchesWholeDocumentRead(directory);
+            VerifyNonFiniteBackgroundNumbersFallBack(directory);
             VerifyReadDoesNotScaleWithAngleData(directory);
             VerifyOneReadPerPreparation(directory);
             VerifyRepeatedReadReusesUnchangedContent(directory);
@@ -101,6 +102,37 @@ internal static class BackgroundSourceReadRegression
         if (BackgroundSourceReader.ReadInitial(CreateLevel(Path.Combine(directory, "missing.adofai"))) !=
             BackgroundSourceReader.ReadRoot(null))
             throw new InvalidOperationException("A missing chart file must keep the default background.");
+    }
+
+    private static void VerifyNonFiniteBackgroundNumbersFallBack(string directory)
+    {
+        string path = Path.Combine(directory, "nonfinite.adofai");
+        File.WriteAllText(path, """
+            {"settings":{"scalingRatio":"NaN","parallax":[1e100,-1e100]}}
+            """);
+        BackgroundSourceState initial = BackgroundSourceReader.ReadInitial(CreateLevel(path));
+        if (initial.ScalingRatio != 100f || initial.ParallaxX != 100f || initial.ParallaxY != 100f)
+            throw new InvalidOperationException($"Non-finite initial background settings were not rejected: {initial}.");
+
+        File.WriteAllText(path, """
+            {"settings":{"scalingRatio":1e100,"parallax":[25,75]}}
+            """);
+        BackgroundSourceState overflow = BackgroundSourceReader.ReadInitial(CreateLevel(path));
+        if (overflow.ScalingRatio != 100f || overflow.ParallaxX != 25f || overflow.ParallaxY != 75f)
+            throw new InvalidOperationException($"Overflowing initial background settings were not rejected: {overflow}.");
+
+        JsonObject properties = JsonNode.Parse("""
+            {"scalingRatio":"Infinity","parallax":[1e100,40]}
+            """) as JsonObject ?? throw new InvalidOperationException("Invalid regression fixture.");
+        BackgroundSourceState updated = BackgroundSourceReader.ApplyEvent(overflow, properties);
+        if (updated.ScalingRatio != 100f || updated.ParallaxX != 100f || updated.ParallaxY != 40f)
+            throw new InvalidOperationException($"Non-finite CustomBackground settings were not rejected: {updated}.");
+
+        NativeBackgroundState native = BackgroundNativeEncoding.Encode(updated);
+        if (!float.IsFinite(native.ScalingRatio) ||
+            !float.IsFinite(native.ParallaxX) ||
+            !float.IsFinite(native.ParallaxY))
+            throw new InvalidOperationException("Non-finite background values reached the native renderer.");
     }
 
     private static void VerifyReadDoesNotScaleWithAngleData(string directory)
