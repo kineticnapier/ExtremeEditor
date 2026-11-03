@@ -35,7 +35,8 @@ internal static class VideoExportFfmpegEncoderRegression
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: false);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: true);
         VerifyCancellationDuringAudioFlushPreventsProcessStart(ffmpegType, constructor);
-        VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor);
+        VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor, throwOnAudioDispose: false);
+        VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor, throwOnAudioDispose: true);
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifyDisposeWaitsForChildExitAndCleansStaging(ffmpegType, constructor);
         VerifySourceContract();
@@ -293,9 +294,9 @@ internal static class VideoExportFfmpegEncoderRegression
     }
 
     private static void VerifyVideoDisposeFailureStillDisposesAudioStream(
-        Type encoderType, ConstructorInfo constructor)
+        Type encoderType, ConstructorInfo constructor, bool throwOnAudioDispose)
     {
-        // A failed video pipe disposal must not skip disposal of the audio file.
+        // Preserve the video failure even if closing the audio file also fails.
         string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-VideoDispose-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
@@ -309,7 +310,8 @@ internal static class VideoExportFfmpegEncoderRegression
                 "_audioStream", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException("Encoder audio-stream field is missing.");
 
-            audio = new ThrowingAudioFlushStream(Path.Combine(directory, "audio.f32le"));
+            audio = new ThrowingAudioFlushStream(
+                Path.Combine(directory, "audio.f32le"), throwOnDispose: throwOnAudioDispose);
             inputField.SetValue(encoder, new ThrowingVideoDisposeStream());
             audioField.SetValue(encoder, audio);
 
@@ -320,7 +322,7 @@ internal static class VideoExportFfmpegEncoderRegression
             }
             catch (IOException ex) when (ex.Message == "injected video dispose failure")
             {
-                // Preserve the video failure while still closing the audio stream.
+                // The first failure must win whether audio disposal succeeds or fails.
             }
 
             if (!audio.DisposedAsynchronously)
