@@ -248,13 +248,27 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 // Detach first so the outer cleanup does not dispose it twice.
                 Stream videoInput = _videoInput;
                 _videoInput = null;
+                Exception? flushFailure = null;
                 try
                 {
                     await videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
                 }
+                catch (Exception ex)
+                {
+                    flushFailure = ex;
+                    throw;
+                }
                 finally
                 {
-                    await videoInput.DisposeAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await videoInput.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch when (flushFailure is not null)
+                    {
+                        // Keep the original flush/cancellation failure if disposal
+                        // also fails. The outer finally still stops ffmpeg.
+                    }
                 }
             }
 
