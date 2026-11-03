@@ -71,6 +71,9 @@ internal static class LoadPathBenchmark
                     $"run {run + 1}: afterUpload private={self.PrivateMemorySize64 / 1048576.0:F0}MiB " +
                     $"managedHeap={GC.GetTotalMemory(false) / 1048576.0:F0}MiB " +
                     $"floors={prepared.Snapshot.Floors.Length:N0} " +
+                    $"animationSegments={playback.TrackAnimationTimeline.Length} " +
+                    $"[{string.Join(",", playback.TrackAnimationTimeline.Take(4).Select(x => $"{x.StartFloor}-{x.EndFloor}:{x.AppearType}/{x.DisappearType}"))}] " +
+                    $"animationTimings={playback.TrackAnimationTimings.Length:N0} " +
                     $"floorBytes={(long)prepared.Snapshot.Floors.Length * System.Runtime.InteropServices.Marshal.SizeOf<NativeFloor>() / 1048576.0:F0}MiB");
             }
             session.Dispose();

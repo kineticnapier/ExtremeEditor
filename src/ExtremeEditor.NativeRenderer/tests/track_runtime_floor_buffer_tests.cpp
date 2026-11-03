@@ -104,8 +104,16 @@ int main()
     segment.pitch = 1.0f;
     Check(scene->SetTrackAnimationTimeline(&segment, 1u, timings.data(), floor_count),
         "animation timeline was rejected");
-    Check(scene->RuntimeFloorBuffers().owned_floor_buffer_bytes > 0u,
-        "active animation timeline has no per-floor state");
+    const std::size_t active_bytes = scene->RuntimeFloorBuffers().owned_floor_buffer_bytes;
+    Check(active_bytes > 0u, "active animation timeline has no per-floor state");
+    // The last output of a floor is only compared on its transform fields
+    // (nine 32-bit values). Only the move-resolved floors need full EeFloor
+    // entries; timings, segment lookup, floor state and the output flag are
+    // what else an active timeline needs per floor.
+    const std::size_t per_floor_limit = sizeof(EeFloor) + 9u * sizeof(std::uint32_t) +
+        sizeof(EeTrackAnimationTiming) + sizeof(std::size_t) + sizeof(ee::TrackAnimationFloorState) + 1u;
+    Check(active_bytes <= per_floor_limit * floor_count,
+        "active animation keeps a full EeFloor copy of every last output");
 
     Check(scene->SetTrackAnimationTimeline(nullptr, 0u, timings.data(), floor_count),
         "timings without segments were rejected");

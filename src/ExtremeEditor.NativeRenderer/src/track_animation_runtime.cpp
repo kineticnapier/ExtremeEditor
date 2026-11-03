@@ -57,7 +57,7 @@ void TrackAnimationRuntime::ReleaseFloorBuffers() noexcept
     std::vector<std::size_t>().swap(segment_by_floor_);
     std::vector<TrackAnimationFloorState>().swap(floor_states_);
     std::vector<EeFloor>().swap(move_resolved_floors_);
-    std::vector<EeFloor>().swap(last_outputs_);
+    std::vector<TransformState>().swap(last_outputs_);
     std::vector<bool>().swap(has_last_output_);
     active_ = false;
 }
@@ -69,7 +69,7 @@ std::size_t TrackAnimationRuntime::OwnedFloorBufferBytes() const noexcept
            segment_by_floor_.capacity() * sizeof(std::size_t) +
            floor_states_.capacity() * sizeof(TrackAnimationFloorState) +
            move_resolved_floors_.capacity() * sizeof(EeFloor) +
-           last_outputs_.capacity() * sizeof(EeFloor) +
+           last_outputs_.capacity() * sizeof(TransformState) +
            has_last_output_.capacity() / 8u;
 }
 
@@ -104,7 +104,9 @@ bool TrackAnimationRuntime::SetTimeline(
         segment_by_floor_.assign(BaseFloors().size(), NoSegment);
         floor_states_.assign(BaseFloors().size(), TrackAnimationFloorState{});
         move_resolved_floors_ = BaseFloors();
-        last_outputs_ = BaseFloors();
+        last_outputs_.resize(BaseFloors().size());
+        for (std::size_t i = 0; i < last_outputs_.size(); ++i)
+            last_outputs_[i] = TransformState::Of(BaseFloors()[i]);
         has_last_output_.assign(BaseFloors().size(), false);
 
         std::stable_sort(
@@ -300,7 +302,7 @@ void TrackAnimationRuntime::Reindex(
     cells[new_key].push_back(floor);
 }
 
-bool TrackAnimationRuntime::SameTransformState(const EeFloor& left, const EeFloor& right) noexcept
+bool TrackAnimationRuntime::SameTransformState(const EeFloor& left, const TransformState& right) noexcept
 {
     return left.x == right.x && left.y == right.y &&
            left.entry_angle == right.entry_angle && left.icon_angle == right.icon_angle &&
@@ -586,7 +588,7 @@ void TrackAnimationRuntime::Update(
             floors[i].track_sorting_offset = 0;
             Reindex(static_cast<std::uint32_t>(i), old.x, old.y, floors[i].x, floors[i].y, cells);
             floor_states_[i] = TrackAnimationFloorState{};
-            last_outputs_[i] = floors[i];
+            last_outputs_[i] = TransformState::Of(floors[i]);
             has_last_output_[i] = true;
             continue;
         }
@@ -607,7 +609,7 @@ void TrackAnimationRuntime::Update(
         Reindex(static_cast<std::uint32_t>(i), old.x, old.y, resolved.x, resolved.y, cells);
         floors[i] = resolved;
         floor_states_[i] = state;
-        last_outputs_[i] = resolved;
+        last_outputs_[i] = TransformState::Of(resolved);
         has_last_output_[i] = true;
     }
 }
@@ -693,7 +695,7 @@ void TrackAnimationRuntime::UpdateVisible(
         Reindex(floor, old.x, old.y, resolved.x, resolved.y, cells);
         floors[floor] = resolved;
         floor_states_[floor] = state;
-        last_outputs_[floor] = resolved;
+        last_outputs_[floor] = TransformState::Of(resolved);
         has_last_output_[floor] = true;
     }
 }
