@@ -133,6 +133,27 @@ internal static class BackgroundSourceReadRegression
             !float.IsFinite(native.ParallaxX) ||
             !float.IsFinite(native.ParallaxY))
             throw new InvalidOperationException("Non-finite background values reached the native renderer.");
+
+        // A caller may construct a state without passing through the JSON
+        // reader. The native encoding boundary must also reject such values.
+        BackgroundSourceState direct = updated with
+        {
+            ParallaxX = float.NaN,
+            ParallaxY = float.PositiveInfinity,
+            ScalingRatio = float.NegativeInfinity
+        };
+        NativeBackgroundState encoded = BackgroundNativeEncoding.Encode(direct);
+        if (encoded.ParallaxX != 100f || encoded.ParallaxY != 100f || encoded.ScalingRatio != 100f)
+            throw new InvalidOperationException("Direct non-finite background state reached the native renderer.");
+
+        NativeBackgroundState finite = BackgroundNativeEncoding.Encode(updated with
+        {
+            ParallaxX = 25f,
+            ParallaxY = 75f,
+            ScalingRatio = 40f
+        });
+        if (finite.ParallaxX != 25f || finite.ParallaxY != 75f || finite.ScalingRatio != 40f)
+            throw new InvalidOperationException("Finite background state changed during native encoding.");
     }
 
     private static void VerifyReadDoesNotScaleWithAngleData(string directory)
