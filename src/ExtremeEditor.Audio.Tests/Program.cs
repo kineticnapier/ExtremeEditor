@@ -24,6 +24,7 @@ RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
+RunNonFiniteHitSoundVolumeChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -121,6 +122,52 @@ static void RunNonFiniteSongVolumeChecks()
     {
         new OfflineAudioRenderPlan(level, timing, timeline, null, 0.0, 1.0, volume)
             .Validate();
+    }
+}
+
+static void RunNonFiniteHitSoundVolumeChecks()
+{
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 0.001),
+        Floor(2, 0.002),
+        Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    foreach (double invalidVolume in new[]
+    {
+        double.NaN, double.PositiveInfinity, double.NegativeInfinity
+    })
+    {
+        LevelDocument level = CreateLevel(4, new Dictionary<int, LevelAction[]>
+        {
+            [2] = [new LevelAction(2, "SetHitsound", true, null, null, null, null)
+            {
+                HitSoundVolumePercent = invalidVolume
+            }],
+            [3] = [new LevelAction(3, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Kick",
+                HitSoundVolumePercent = invalidVolume
+            }]
+        });
+        HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+        var provider = new SampleAccurateHitSoundProvider(
+            format, level, timing, timeline, clips, 8);
+        var samples = new float[8];
+        provider.Read(samples, 0, samples.Length);
+
+        if (samples.Any(sample => !float.IsFinite(sample)))
+            throw new InvalidOperationException("Non-finite hit-sound volume leaked into PCM.");
+        Near(0.5, samples[2], "normal hit-sound volume remains unchanged");
+        Near(0.0, samples[4], "invalid SetHitsound volume is muted");
+        Near(0.0, samples[6], "invalid PlaySound volume is muted");
     }
 }
 
