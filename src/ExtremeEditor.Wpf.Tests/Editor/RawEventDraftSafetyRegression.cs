@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
@@ -10,6 +11,7 @@ internal static class RawEventDraftSafetyRegression
 {
     internal static void Run()
     {
+        VerifyInvariantRawEventNumbers();
         PropertyInfo drafts = typeof(EditorDocumentTab).GetProperty(
             "PendingRawEventJson",
             BindingFlags.Instance | BindingFlags.NonPublic)
@@ -83,6 +85,31 @@ internal static class RawEventDraftSafetyRegression
             invalidLiveDraftRejected = true;
         }
         Require(invalidLiveDraftRejected, "restored event's invalid draft must block Save.");
+    }
+
+    private static void VerifyInvariantRawEventNumbers()
+    {
+        CultureInfo original = CultureInfo.CurrentCulture;
+        try
+        {
+            // In de-DE, the old double.TryParse treated a dot as a
+            // thousands separator, turning the string "1.5" into 15.
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            double? textValue = MainWindow.ReadRawEventDouble(JsonNode.Parse("\"1.5\""));
+            Require(textValue is double parsed && Math.Abs(parsed - 1.5) < 1e-12,
+                "Raw JSON decimal strings must not depend on the Windows locale.");
+            double? numericValue = MainWindow.ReadRawEventDouble(JsonNode.Parse("1.5"));
+            Require(numericValue is double number && Math.Abs(number - 1.5) < 1e-12,
+                "Raw JSON numeric values must remain unchanged.");
+            Require(MainWindow.ReadRawEventDouble(JsonNode.Parse("\"1,5\"")) is null,
+                "Localized decimal strings must not be silently reinterpreted.");
+            Require(MainWindow.ReadRawEventDouble(JsonNode.Parse("\"NaN\"")) is null,
+                "Non-finite raw event numbers must be rejected.");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     private static string ReadSource(string relativePath)
