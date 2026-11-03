@@ -344,6 +344,14 @@ internal static class VideoExportFfmpegEncoderRegression
         if (!OperatingSystem.IsWindows())
             return;
 
+        // Check both a failed flush alone and a flush whose cleanup also fails.
+        VerifyFailedVideoCompletionCase(encoderType, constructor, throwOnDispose: false);
+        VerifyFailedVideoCompletionCase(encoderType, constructor, throwOnDispose: true);
+    }
+
+    private static void VerifyFailedVideoCompletionCase(
+        Type encoderType, ConstructorInfo constructor, bool throwOnDispose)
+    {
         FieldInfo processField = encoderType.GetField(
             "_ffmpegProcess", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Encoder process field is missing.");
@@ -373,7 +381,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
             begunField.SetValue(encoder, true);
             processField.SetValue(encoder, child);
-            var failingStream = new ThrowingVideoFlushStream();
+            var failingStream = new ThrowingVideoFlushStream(throwOnDispose);
             inputField.SetValue(encoder, failingStream);
             try
             {
@@ -473,17 +481,19 @@ internal static class VideoExportFfmpegEncoderRegression
         }
     }
 
-    private sealed class ThrowingVideoFlushStream : MemoryStream
+    private sealed class ThrowingVideoFlushStream(bool throwOnDispose = false) : MemoryStream
     {
         public bool DisposedAsynchronously { get; private set; }
 
         public override Task FlushAsync(CancellationToken cancellationToken) =>
             Task.FromException(new IOException("injected video flush failure"));
 
-        public override ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
             DisposedAsynchronously = true;
-            return base.DisposeAsync();
+            await base.DisposeAsync().ConfigureAwait(false);
+            if (throwOnDispose)
+                throw new IOException("injected video dispose failure");
         }
     }
 
