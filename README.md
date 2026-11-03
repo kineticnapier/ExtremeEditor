@@ -101,7 +101,8 @@ Playback pose and orbit radius are currently computed on both sides of that
 boundary: `TimingMap.GetPose()` in C# and `CalculatePlaybackVisual()` in C++.
 The two must agree. Any open disagreement between them is tracked in
 [`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md),
-which is a dated snapshot, so check it against the current code.
+which preserves the 2026-10-14 snapshot and appends later dated updates. Check
+the relevant entry's date against the current code.
 
 ## Solution layout
 
@@ -223,7 +224,8 @@ Next:
 
 Known unfinished work is listed in
 [`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md).
-That file is a dated snapshot, so check it against the current code.
+The file preserves the 2026-10-14 snapshot and appends later dated updates.
+Check the relevant entry's date against the current code.
 
 Detailed documents under `docs/superpowers` are historical design and
 implementation snapshots. See `docs/README.md` before using them; their
