@@ -1,6 +1,7 @@
 #include "extreme_editor_renderer.h"
 #include "extreme_editor_headless.h"
 #include "icon_assets.h"
+#include "screen_bloom.h"
 #include "screen_filter.h"
 
 #include <algorithm>
@@ -729,6 +730,202 @@ int main()
             "disableOthers Contrast pixel mismatch"))
     {
         std::cerr << "Contrast disableOthers did not disable Sepia.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Bloom follows the stock VideoBloom image effect: additive composite
+    // src + tint * 0.5 * intensity * blur(threshold(src)). A uniform opaque
+    // frame blurs to itself, so expected pixels follow from the formula.
+    EeFlashEvent uniform_flash{};
+    uniform_flash.start_color = 0x404040u;
+    uniform_flash.end_color = 0x404040u;
+    uniform_flash.start_opacity = 1.0f;
+    uniform_flash.end_opacity = 1.0f;
+    uniform_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    const auto require_uniform = [&](const std::vector<std::uint8_t>& frame,
+                                     float r, float g, float b,
+                                     const char* message)
+    {
+        const float expected[3] = {r, g, b};
+        for (std::size_t i = 0; i + 2u < frame.size(); i += 3u)
+        {
+            for (std::size_t channel = 0; channel < 3u; ++channel)
+            {
+                const float want = std::clamp(expected[channel], 0.0f, 255.0f);
+                if (std::abs(static_cast<float>(frame[i + channel]) - want) > 2.0f)
+                {
+                    std::cerr << message << " at byte " << i + channel
+                              << ": expected " << want
+                              << ", actual " << static_cast<unsigned>(frame[i + channel]) << ".\n";
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    const auto bloom_frame = [&](const EeBloomEvent* events, std::uint32_t count, double time)
+    {
+        return ee_renderer_set_bloom_timeline(headless, events, count) == EE_OK &&
+               render_filter_frame(time, filter_frame);
+    };
+    if (ee_renderer_set_flash_timeline(headless, &uniform_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !bloom_frame(nullptr, 0u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Frame without Bloom changed"))
+    {
+        std::cerr << "Bloom baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeBloomEvent bloom{};
+    bloom.enabled = 1u;
+    bloom.threshold = 0.0f;
+    bloom.intensity = 1.0f;
+    bloom.tint = 0xffffffu;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom 100% pixel mismatch"))
+    {
+        std::cerr << "Bloom did not brighten the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = 0.5f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 80.0f, 80.0f, 80.0f, "Bloom 50% pixel mismatch"))
+    {
+        std::cerr << "Bloom intensity did not scale the glow.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = -1.0f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 32.0f, 32.0f, 32.0f, "Bloom -100% pixel mismatch"))
+    {
+        std::cerr << "Negative Bloom intensity did not darken the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = 1.0f;
+    bloom.tint = 0xff0000u;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 64.0f, 64.0f, "Red Bloom pixel mismatch"))
+    {
+        std::cerr << "Bloom colour did not tint the glow.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.tint = 0xffffffu;
+    bloom.threshold = 0.3f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom above-threshold pixel mismatch"))
+    {
+        std::cerr << "Bloom threshold above the frame luma still glowed.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.threshold = 0.2f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom below-threshold pixel mismatch"))
+    {
+        std::cerr << "Bloom threshold below the frame luma did not glow.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.threshold = 0.0f;
+    bloom.enabled = 0u;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Disabled Bloom changed pixels"))
+    {
+        std::cerr << "Disabled Bloom changed the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Tween from intensity 0 to 1 over [1, 3], then seek back before it.
+    EeBloomEvent tween[2]{};
+    tween[0].enabled = 1u;
+    tween[0].tint = 0xffffffu;
+    tween[1] = tween[0];
+    tween[1].start_time = 1.0;
+    tween[1].duration_seconds = 2.0;
+    tween[1].intensity = 1.0f;
+    tween[1].source_index = 1;
+    if (!bloom_frame(tween, 2u, 0.5) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom before tween changed pixels") ||
+        !bloom_frame(tween, 2u, 2.0) ||
+        !require_uniform(filter_frame, 80.0f, 80.0f, 80.0f, "Bloom mid-tween pixel mismatch") ||
+        !bloom_frame(tween, 2u, 3.0) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom after tween pixel mismatch") ||
+        !bloom_frame(tween, 2u, 0.5) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom seek back pixel mismatch"))
+    {
+        std::cerr << "Bloom duration, ease or seek did not follow the timeline.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Bloom runs before SetFilter: Invert of the bloomed 96 is 159.
+    EeFilterEvent bloom_invert{};
+    bloom_invert.filter = ee::FilterInvert;
+    bloom_invert.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &bloom_invert, 1u) != EE_OK ||
+        !bloom_frame(&bloom, 0u, 0.25) ||
+        !bloom_frame(tween, 2u, 3.0) ||
+        !require_uniform(filter_frame, 159.0f, 159.0f, 159.0f, "Bloom then Invert pixel mismatch"))
+    {
+        std::cerr << "Bloom and SetFilter did not compose in order.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK ||
+        ee_renderer_set_flash_timeline(headless, nullptr, 0u) != EE_OK)
+    {
+        std::cerr << "Could not clear Bloom test timelines.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // VideoBloom blurs at a 198 px height; its spread is about 6 frame pixels
+    // at both 1080 and 180 px.
+    if (std::abs(ee::VideoBloomBlurSigmaPixels(1080u) - 6.24f) > 0.05f ||
+        std::abs(ee::VideoBloomBlurSigmaPixels(180u) - 6.2f) > 0.1f ||
+        ee::VideoBloomBlurSigmaPixels(0u) != 0.0f)
+    {
+        std::cerr << "VideoBloom blur spread differs: 1080="
+                  << ee::VideoBloomBlurSigmaPixels(1080u)
+                  << " 180=" << ee::VideoBloomBlurSigmaPixels(180u) << ".\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // On the real scene the glow is a blur, not a per-pixel gain. With
+    // intensity 10 a per-pixel model would give exactly 6x the frame; near
+    // the scene's edges the blurred glow must differ from that.
+    EeBloomEvent scene_bloom{};
+    scene_bloom.enabled = 1u;
+    scene_bloom.intensity = 10.0f;
+    scene_bloom.tint = 0xffffffu;
+    // Look at the two coloured floors so the frame has hard edges.
+    if (ee_renderer_set_editor_camera(headless, 0.75f, 0.0f, 64.0f) != EE_OK ||
+        ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline) ||
+        ee_renderer_set_bloom_timeline(headless, &scene_bloom, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame))
+    {
+        std::cerr << "Scene Bloom render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    bool spread = false;
+    for (std::size_t i = 0; i < filter_frame.size() && !spread; ++i)
+        spread = std::abs(static_cast<float>(filter_frame[i]) - filter_baseline[i] * 6.0f) > 8.0f &&
+                 filter_frame[i] < 250u;
+    if (!spread || ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK)
+    {
+        std::cerr << "Bloom glow did not spread to neighbouring pixels.\n";
         destroy_headless();
         return 1;
     }

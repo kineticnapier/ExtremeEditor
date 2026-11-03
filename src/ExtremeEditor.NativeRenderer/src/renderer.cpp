@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "screen_bloom.h"
 #include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
@@ -543,9 +544,11 @@ BloomVisualState ResolveBloomAtTime(
         if (item.start_time > chart_time)
             break;
 
-        const float start_threshold = previous ? previous->threshold : item.threshold;
-        const float start_intensity = previous ? previous->intensity : item.intensity;
-        const std::uint32_t start_tint = previous ? previous->tint : item.tint;
+        // Each event kills the running tweens with completion and tweens from
+        // there; before the first event VideoBloom holds its defaults.
+        const float start_threshold = previous ? previous->threshold : BloomDefaultThreshold;
+        const float start_intensity = previous ? previous->intensity : BloomDefaultIntensity;
+        const std::uint32_t start_tint = previous ? previous->tint : BloomDefaultTint;
         const double raw = item.duration_seconds <= 1e-9
             ? 1.0
             : (chart_time - item.start_time) / item.duration_seconds;
