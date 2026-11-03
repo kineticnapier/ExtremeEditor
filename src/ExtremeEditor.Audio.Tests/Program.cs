@@ -158,6 +158,12 @@ static void RunNonFiniteHitSoundVolumeChecks()
             }]
         });
         HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+        Near(0.0, timeline.GetStateAtFloor(2).Volume,
+            "non-finite SetHitsound state is normalized at timeline construction");
+        LevelDocument invalidInitial = CreateLevel(2, defaultVolumePercent: invalidVolume);
+        Near(0.0, HitSoundTimelineBuilder.Build(invalidInitial).InitialState.Volume,
+            "non-finite initial hit-sound state is normalized");
+
         var provider = new SampleAccurateHitSoundProvider(
             format, level, timing, timeline, clips, 8);
         var samples = new float[8];
@@ -483,7 +489,8 @@ static FloorTiming Floor(int floor, double entry) =>
 static LevelDocument CreateLevel(
     int floors,
     IReadOnlyDictionary<int, LevelAction[]>? actions = null,
-    string defaultHitSound = "Kick") => new()
+    string defaultHitSound = "Kick",
+    double defaultVolumePercent = 100.0) => new()
 {
     SourcePath = "<test>",
     Angles = new double[Math.Max(0, floors - 1)],
@@ -504,7 +511,7 @@ static LevelDocument CreateLevel(
     CountdownTicks = 0,
     SeparateCountdownTime = false,
     DefaultHitSound = defaultHitSound,
-    HitSoundVolumePercent = 100,
+    HitSoundVolumePercent = defaultVolumePercent,
     Bounds = default
 };
 
