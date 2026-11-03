@@ -21,6 +21,7 @@ internal static class FlashIncrementalEditRegression
         {
             VerifyFlashEditsMatchFullRebuild();
             VerifyMissingIconAssetFallsBackToFullLevel();
+            VerifyFailedFlashUploadDoesNotCommitManagedState();
             VerifyLargeLevelFlashEditDoesNotScaleWithFloors();
         });
     }
@@ -334,6 +335,75 @@ internal static class FlashIncrementalEditRegression
         }
         if (counts.FlashTimelineUpdateRequests != 0)
             throw new InvalidOperationException("Flash fallback also applied a partial Flash update.");
+    }
+
+    // A failed native upload must not publish the new managed icon or Flash
+    // timeline. NativeActionEditUpdate then takes the full-scene fallback.
+    private static void VerifyFailedFlashUploadDoesNotCommitManagedState()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(16);
+        level.ReplaceActions([CreateFlash(10, sourceIndex: 0, startOpacity: 100)]);
+        using var viewport = new NativeLevelViewport();
+        viewport.SetPreparedLevel(level, NativeLevelViewport.PrepareLevel(level));
+        TimingMap timing = FlatTimingMapBuilder.Build(level);
+        viewport.SetPreparedPlayback(NativeLevelViewport.PreparePlayback(level, timing));
+
+        NativeLevelSnapshot snapshot = viewport.SnapshotForDiagnostics
+            ?? throw new InvalidOperationException("Flash failure test has no snapshot.");
+        NativeFloor previousFloor = snapshot.Floors[5];
+        NativeFlashEvent[] previousTimeline = viewport.FlashTimelineForDiagnostics;
+
+        level.ReplaceActions(
+        [
+            CreateFlash(5, sourceIndex: 1, startOpacity: 50),
+            CreateFlash(10, sourceIndex: 0, startOpacity: 100)
+        ]);
+        if (!FloorIconResolver.TryResolveFloor(level, snapshot, 5, out NativeFloorIconState icon))
+            throw new InvalidOperationException("Flash failure test could not resolve its icon.");
+        NativeFlashEvent[] nextTimeline = FlashTimelineBuilder.Build(level, timing);
+
+        bool timelineCalled = false;
+        bool accepted = viewport.TryCommitFlashTimelineUpdate(
+            5, icon, nextTimeline,
+            (_, _) => false,
+            _ => timelineCalled = true);
+        if (accepted || timelineCalled)
+            throw new InvalidOperationException("Rejected icon upload reached the Flash upload.");
+        AssertUnchanged("rejected icon");
+
+        accepted = viewport.TryCommitFlashTimelineUpdate(
+            5, icon, nextTimeline,
+            (_, _) => true,
+            _ => throw new InvalidOperationException("Injected Flash upload failure."));
+        if (accepted)
+            throw new InvalidOperationException("Failed Flash timeline upload was accepted.");
+        AssertUnchanged("failed timeline");
+
+        accepted = viewport.TryCommitFlashTimelineUpdate(
+            5, icon, nextTimeline,
+            (_, _) => true,
+            _ => { });
+        if (!accepted ||
+            !ReferenceEquals(nextTimeline, viewport.FlashTimelineForDiagnostics) ||
+            snapshot.Floors[5].IconId != icon.IconId ||
+            snapshot.Floors[5].IconFlags != icon.IconFlags ||
+            snapshot.Floors[5].IconAngle != icon.IconAngle)
+        {
+            throw new InvalidOperationException("Successful Flash upload did not commit managed state.");
+        }
+
+        void AssertUnchanged(string scenario)
+        {
+            NativeFloor current = snapshot.Floors[5];
+            if (!ReferenceEquals(previousTimeline, viewport.FlashTimelineForDiagnostics) ||
+                current.IconId != previousFloor.IconId ||
+                current.IconFlags != previousFloor.IconFlags ||
+                current.IconAngle != previousFloor.IconAngle)
+            {
+                throw new InvalidOperationException(
+                    $"Flash {scenario} changed managed state before both native uploads succeeded.");
+            }
+        }
     }
 
     private static void VerifyLargeLevelFlashEditDoesNotScaleWithFloors()
