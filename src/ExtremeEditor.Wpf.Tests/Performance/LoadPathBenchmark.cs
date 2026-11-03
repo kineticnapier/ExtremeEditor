@@ -40,7 +40,8 @@ internal static class LoadPathBenchmark
                 return result;
             }
 
-            if (run == 0)
+            bool breakdown = Environment.GetEnvironmentVariable("EXTREMEEDITOR_LOAD_BENCH_BREAKDOWN") == "1";
+            if (breakdown && run == 0)
             {
                 Stage("pass.core (AdoFaiLoader)", () => AdoFaiLoader.LoadFlatAsync(path).GetAwaiter().GetResult());
                 Stage("pass.trackVisual", () => TrackVisualSourceReader.Load(path, default));
@@ -57,23 +58,37 @@ internal static class LoadPathBenchmark
             Stage("hitSoundTimeline", () => HitSoundTimelineBuilder.Build(level));
             PreparedNativeLevel prepared = Stage("prepareLevel (native)", () => NativeLevelViewport.PrepareLevel(level));
             double editorReady = total.Elapsed.TotalMilliseconds;
-            Stage("preparePlayback (native)", () => NativeLevelViewport.PreparePlayback(level, timing));
+            PreparedNativePlayback playback = Stage(
+                "preparePlayback (native)", () => NativeLevelViewport.PreparePlayback(level, timing));
             double playbackManaged = total.Elapsed.TotalMilliseconds;
+            NativeHeadlessRendererSession session = Stage(
+                "native upload (level+timelines)",
+                () => NativeHeadlessRendererSession.CreateFromPrepared(() => prepared, () => playback, 64, 64));
             total.Stop();
+            using (Process self = Process.GetCurrentProcess())
+            {
+                Console.WriteLine(
+                    $"run {run + 1}: afterUpload private={self.PrivateMemorySize64 / 1048576.0:F0}MiB " +
+                    $"managedHeap={GC.GetTotalMemory(false) / 1048576.0:F0}MiB " +
+                    $"floors={prepared.Snapshot.Floors.Length:N0} " +
+                    $"floorBytes={(long)prepared.Snapshot.Floors.Length * System.Runtime.InteropServices.Marshal.SizeOf<NativeFloor>() / 1048576.0:F0}MiB");
+            }
+            session.Dispose();
             NativeLevelSnapshot snapshot = prepared.Snapshot;
 
-            // Breakdown only; these repeat work already counted above.
-            Stage("  snapshot (flat builder)", () => FlatNativeLevelSnapshotBuilder.BuildProfiled(level).Snapshot);
-            Stage("  staticDecorations", () => StaticDecorationSnapshotBuilder.Build(level));
-            Stage("  backgroundInitial", () => BackgroundSourceReader.ReadInitial(level));
-            Stage("  tl.playback", () => NativePlaybackTimelineBuilder.Build(timing));
-            NativeCameraEvent[] camera = Stage("  tl.camera", () => FaithfulNativeCameraTimelineBuilder.Build(level, timing));
-            Stage("  tl.background", () => BackgroundTimelineBuilder.Build(level, timing));
-            StaticTrackTransform[] statics = Stage("  tl.trackTransformStatic", () => TrackTransformResolver.ResolveStatic(level));
-            Stage("  tl.trackTransformMove", () => TrackTransformResolver.BuildMoveTimeline(level, timing, statics));
-            Stage("  tl.trackVisual", () => TrackVisualTimelineBuilder.Build(level, timing));
-            Stage("  tl.trackAnimation", () => TrackAnimationTimelineBuilder.Build(level, timing));
-            GC.KeepAlive(camera);
+            if (breakdown)
+            {
+                // These repeat work already counted above.
+                Stage("  snapshot (flat builder)", () => FlatNativeLevelSnapshotBuilder.BuildProfiled(level).Snapshot);
+                Stage("  backgroundInitial", () => BackgroundSourceReader.ReadInitial(level));
+                Stage("  tl.playback", () => NativePlaybackTimelineBuilder.Build(timing));
+                Stage("  tl.camera", () => FaithfulNativeCameraTimelineBuilder.Build(level, timing));
+                Stage("  tl.background", () => BackgroundTimelineBuilder.Build(level, timing));
+                StaticTrackTransform[] statics = Stage("  tl.trackTransformStatic", () => TrackTransformResolver.ResolveStatic(level));
+                Stage("  tl.trackTransformMove", () => TrackTransformResolver.BuildMoveTimeline(level, timing, statics));
+                Stage("  tl.trackVisual", () => TrackVisualTimelineBuilder.Build(level, timing));
+                Stage("  tl.trackAnimation", () => TrackAnimationTimelineBuilder.Build(level, timing));
+            }
 
             GC.KeepAlive(snapshot);
             foreach ((string name, double ms, double alloc) in stages)
@@ -87,6 +102,7 @@ internal static class LoadPathBenchmark
             }
             Add("= editor-ready managed", editorReady, 0);
             Add("= playback managed", playbackManaged, 0);
+            Add("= through native upload", total.Elapsed.TotalMilliseconds, 0);
             Console.WriteLine(
                 $"run {run + 1}: editorReadyManaged={editorReady:F0}ms playbackManaged={playbackManaged:F0}ms " +
                 $"heap={GC.GetGCMemoryInfo().HeapSizeBytes / 1024d / 1024d:F0}MiB " +

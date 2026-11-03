@@ -61,9 +61,11 @@ std::shared_ptr<LevelScene> LevelScene::Create(
     scene->RebuildCells();
     const auto cells_finished = std::chrono::steady_clock::now();
     const auto transform_base_started = std::chrono::steady_clock::now();
-    scene->track_transforms_.ResetBase(scene->floors);
-    scene->track_visuals_.ResetBase(scene->floors);
-    scene->track_animations_.ResetBase(scene->floors);
+    // One immutable copy of the uploaded floors serves every track runtime.
+    auto base = std::make_shared<const std::vector<EeFloor>>(scene->floors);
+    scene->track_transforms_.ResetBase(base);
+    scene->track_visuals_.ResetBase(base);
+    scene->track_animations_.ResetBase(std::move(base));
     const auto finished = std::chrono::steady_clock::now();
     if (NativeUploadDiagnosticsEnabled())
     {
@@ -84,6 +86,19 @@ std::shared_ptr<LevelScene> LevelScene::Create(
             scene->cells.size());
     }
     return scene;
+}
+
+LevelScene::RuntimeFloorBufferReport LevelScene::RuntimeFloorBuffers() const noexcept
+{
+    RuntimeFloorBufferReport report;
+    report.transform_base = track_transforms_.BaseData();
+    report.visual_base = track_visuals_.BaseData();
+    report.animation_base = track_animations_.BaseData();
+    report.owned_floor_buffer_bytes =
+        track_transforms_.OwnedFloorBufferBytes() +
+        track_visuals_.OwnedFloorBufferBytes() +
+        track_animations_.OwnedFloorBufferBytes();
+    return report;
 }
 
 const LevelScene* LevelScene::CurrentRuntimeScene() noexcept

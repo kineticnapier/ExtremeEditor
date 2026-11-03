@@ -33,6 +33,24 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(timingMap);
         ValidateFrameDimensions(width, height);
+        return CreateFromPrepared(
+            () => NativeLevelViewport.PrepareLevel(level),
+            () => NativeLevelViewport.PreparePlayback(level, timingMap),
+            width,
+            height);
+    }
+
+    // Uploads already prepared data. The preparations run after the native
+    // renderer exists, matching Create's order of failures.
+    internal static NativeHeadlessRendererSession CreateFromPrepared(
+        Func<PreparedNativeLevel> prepareLevel,
+        Func<PreparedNativePlayback> preparePlayback,
+        int width = DefaultWidth,
+        int height = DefaultHeight)
+    {
+        ArgumentNullException.ThrowIfNull(prepareLevel);
+        ArgumentNullException.ThrowIfNull(preparePlayback);
+        ValidateFrameDimensions(width, height);
 
         uint apiVersion = NativeRendererNative.GetApiVersion();
         if (apiVersion != ExpectedBaseApiVersion)
@@ -55,8 +73,8 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         var session = new NativeHeadlessRendererSession(renderer, width, height);
         try
         {
-            PreparedNativeLevel levelData = NativeLevelViewport.PrepareLevel(level);
-            PreparedNativePlayback playback = NativeLevelViewport.PreparePlayback(level, timingMap);
+            PreparedNativeLevel levelData = prepareLevel();
+            PreparedNativePlayback playback = preparePlayback();
             session.SetLevel(levelData.Snapshot);
             session.SetPlayback(playback);
             NativeRendererNative.SetFollowPlayer(renderer, 1);

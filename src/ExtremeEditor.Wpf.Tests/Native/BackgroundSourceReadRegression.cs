@@ -167,21 +167,27 @@ internal static class BackgroundSourceReadRegression
         LevelDocument level = CreateLevel(path);
         BackgroundSourceReader.ReadInitial(level);
 
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var scanWatch = System.Diagnostics.Stopwatch.StartNew();
-        LooseAdoFaiJson.ParseRootProperty(path, "settings");
-        scanWatch.Stop();
-        watch.Restart();
-        BackgroundSourceState cached = BackgroundSourceReader.ReadInitial(level);
-        watch.Stop();
+        // Count full scans instead of timing them: the suites run in
+        // parallel, so elapsed times are not a reliable signal.
+        long Scans(Func<BackgroundSourceState> read, out BackgroundSourceState state)
+        {
+            NativeLevelUpdateDiagnostics.EnableAndReset();
+            try
+            {
+                state = read();
+                return NativeLevelUpdateDiagnostics.Read().BackgroundSettingsScans;
+            }
+            finally
+            {
+                NativeLevelUpdateDiagnostics.Disable();
+            }
+        }
+
+        long repeatedScans = Scans(() => BackgroundSourceReader.ReadInitial(level), out BackgroundSourceState cached);
         if (cached.Color != "102030")
             throw new InvalidOperationException($"Repeated background read returned {cached}.");
-        if (watch.Elapsed.TotalMilliseconds * 2 > scanWatch.Elapsed.TotalMilliseconds)
-        {
-            throw new InvalidOperationException(
-                $"Repeated background read of unchanged content rescanned the chart: " +
-                $"{watch.Elapsed.TotalMilliseconds:F1}ms vs scan {scanWatch.Elapsed.TotalMilliseconds:F1}ms.");
-        }
+        if (repeatedScans != 0)
+            throw new InvalidOperationException("Repeated background read of unchanged content rescanned the chart.");
 
         string text = File.ReadAllText(path);
         string changed = text.Replace("\"backgroundColor\": \"102030\"", "\"backgroundColor\": \"405060\"", StringComparison.Ordinal);
@@ -190,7 +196,9 @@ internal static class BackgroundSourceReadRegression
         DateTime lastWrite = File.GetLastWriteTimeUtc(path);
         File.WriteAllText(path, changed, new UTF8Encoding(false));
         File.SetLastWriteTimeUtc(path, lastWrite);
-        BackgroundSourceState reread = BackgroundSourceReader.ReadInitial(level);
+        long changedScans = Scans(() => BackgroundSourceReader.ReadInitial(level), out BackgroundSourceState reread);
+        if (changedScans != 1)
+            throw new InvalidOperationException($"Changed content was scanned {changedScans} times (expected 1).");
         if (reread.Color != "405060")
             throw new InvalidOperationException($"Same-size, same-time content change returned stale background {reread}.");
     }

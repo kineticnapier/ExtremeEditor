@@ -79,6 +79,7 @@ internal static class BackgroundSourceReader
 
         // Only "settings" is needed. A whole-document parse would materialize
         // every angleData entry, which dominates on very large charts.
+        NativeLevelUpdateDiagnostics.RecordBackgroundSettingsScan();
         JsonNode? settings = ExtremeEditor.Wpf.LooseAdoFaiJson.ParseRootProperty(bytes, "settings");
         BackgroundSourceState state = ReadRoot(settings as JsonObject);
         lock (RecentReadsGate)

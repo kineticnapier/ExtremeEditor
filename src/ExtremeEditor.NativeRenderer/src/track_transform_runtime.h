@@ -1,6 +1,7 @@
 #pragma once
 
 #include "extreme_editor_renderer.h"
+#include "floor_base.h"
 
 #include <chrono>
 #include <cstddef>
@@ -44,6 +45,9 @@ public:
     using CellMap = std::unordered_map<std::int64_t, std::vector<std::uint32_t>>;
 
     void ResetBase(const std::vector<EeFloor>& floors) noexcept;
+    void ResetBase(FloorBase base) noexcept;
+    const EeFloor* BaseData() const noexcept;
+    std::size_t OwnedFloorBufferBytes() const noexcept;
     bool SetTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept;
@@ -91,7 +95,9 @@ private:
         TrackTransformUpdateMetrics* metrics = nullptr) noexcept;
 
     mutable std::mutex mutex_;
-    std::vector<EeFloor> base_floors_;
+    const std::vector<EeFloor>& BaseFloors() const noexcept { return FloorsOf(base_); }
+
+    FloorBase base_;
     std::vector<FloorTrack> tracks_;
     std::vector<std::size_t> visual_track_by_floor_;
     std::vector<std::size_t> active_track_indices_;

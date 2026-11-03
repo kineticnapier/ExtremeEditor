@@ -1,6 +1,7 @@
 #pragma once
 
 #include "extreme_editor_renderer.h"
+#include "floor_base.h"
 #include "track_transform_runtime.h"
 
 #include <chrono>
@@ -26,6 +27,9 @@ class TrackAnimationRuntime
 {
 public:
     void ResetBase(const std::vector<EeFloor>& floors) noexcept;
+    void ResetBase(FloorBase base) noexcept;
+    const EeFloor* BaseData() const noexcept;
+    std::size_t OwnedFloorBufferBytes() const noexcept;
     bool SetTimeline(
         const EeTrackAnimationSegment* segments,
         std::uint32_t segment_count,
@@ -86,7 +90,10 @@ private:
         double chart_time) const noexcept;
 
     mutable std::recursive_mutex mutex_;
-    std::vector<EeFloor> base_floors_;
+    void ReleaseFloorBuffers() noexcept;
+    const std::vector<EeFloor>& BaseFloors() const noexcept { return FloorsOf(base_); }
+
+    FloorBase base_;
     std::vector<EeTrackAnimationSegment> segments_;
     std::vector<EeTrackAnimationTiming> timings_;
     std::vector<std::size_t> segment_by_floor_;

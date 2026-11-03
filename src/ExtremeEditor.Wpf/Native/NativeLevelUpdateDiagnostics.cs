@@ -11,7 +11,8 @@ internal readonly record struct NativeLevelUpdateDiagnosticCounts(
     long ActionEditRoutingInvocations,
     long FlashTimelineUpdateRequests,
     long PlaybackSetupBuilds,
-    long BackgroundSourceReads);
+    long BackgroundSourceReads,
+    long BackgroundSettingsScans);
 
 internal static class NativeLevelUpdateDiagnostics
 {
@@ -25,6 +26,7 @@ internal static class NativeLevelUpdateDiagnostics
     private static long _flashTimelineUpdateRequests;
     private static long _playbackSetupBuilds;
     private static long _backgroundSourceReads;
+    private static long _backgroundSettingsScans;
 
     internal static void EnableAndReset()
     {
@@ -37,6 +39,7 @@ internal static class NativeLevelUpdateDiagnostics
         Interlocked.Exchange(ref _flashTimelineUpdateRequests, 0);
         Interlocked.Exchange(ref _playbackSetupBuilds, 0);
         Interlocked.Exchange(ref _backgroundSourceReads, 0);
+        Interlocked.Exchange(ref _backgroundSettingsScans, 0);
         Volatile.Write(ref _enabled, 1);
     }
 
@@ -49,7 +52,8 @@ internal static class NativeLevelUpdateDiagnostics
         Interlocked.Read(ref _actionEditRoutingInvocations),
         Interlocked.Read(ref _flashTimelineUpdateRequests),
         Interlocked.Read(ref _playbackSetupBuilds),
-        Interlocked.Read(ref _backgroundSourceReads));
+        Interlocked.Read(ref _backgroundSourceReads),
+        Interlocked.Read(ref _backgroundSettingsScans));
 
     internal static void Disable() => Volatile.Write(ref _enabled, 0);
 
@@ -102,5 +106,11 @@ internal static class NativeLevelUpdateDiagnostics
     {
         if (Volatile.Read(ref _enabled) != 0)
             Interlocked.Increment(ref _backgroundSourceReads);
+    }
+
+    internal static void RecordBackgroundSettingsScan()
+    {
+        if (Volatile.Read(ref _enabled) != 0)
+            Interlocked.Increment(ref _backgroundSettingsScans);
     }
 }

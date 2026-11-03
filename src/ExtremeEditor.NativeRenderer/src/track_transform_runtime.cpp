@@ -44,8 +44,13 @@ double ElapsedMilliseconds(
 
 void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexcept
 {
+    ResetBase(std::make_shared<const std::vector<EeFloor>>(floors));
+}
+
+void TrackTransformRuntime::ResetBase(FloorBase base) noexcept
+{
     std::lock_guard lock(mutex_);
-    base_floors_ = floors;
+    base_ = std::move(base);
     tracks_.clear();
     visual_track_by_floor_.clear();
     active_track_indices_.clear();
@@ -57,6 +62,18 @@ void TrackTransformRuntime::ResetBase(const std::vector<EeFloor>& floors) noexce
     anchor_chart_time_ = 0.0;
     chart_rate_ = 1.0;
     anchor_steady_ = std::chrono::steady_clock::now();
+}
+
+const EeFloor* TrackTransformRuntime::BaseData() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return BaseFloors().data();
+}
+
+std::size_t TrackTransformRuntime::OwnedFloorBufferBytes() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return visual_track_by_floor_.capacity() * sizeof(std::size_t);
 }
 
 bool TrackTransformRuntime::SetTimeline(
@@ -73,7 +90,7 @@ bool TrackTransformRuntime::SetTimeline(
         for (std::uint32_t i = 0; i < event_count; ++i)
         {
             const EeTrackTransformEvent& item = events[i];
-            if (item.floor < 0 || static_cast<std::size_t>(item.floor) >= base_floors_.size())
+            if (item.floor < 0 || static_cast<std::size_t>(item.floor) >= BaseFloors().size())
                 continue;
             ordered.push_back(item);
         }
@@ -118,7 +135,15 @@ bool TrackTransformRuntime::SetTimeline(
                 return a_start < b_start;
             });
 
-        std::vector<std::size_t> visual_lookup(base_floors_.size(), NoTrack);
+        // Only visual-only tracks are looked up by floor. Without any, an
+        // empty lookup answers "no track" for every floor, exactly like a
+        // floor-sized table of NoTrack entries.
+        const bool any_visual_only = std::any_of(
+            next.begin(), next.end(),
+            [](const FloorTrack& track) { return !track.has_position && track.has_visual; });
+        std::vector<std::size_t> visual_lookup;
+        if (any_visual_only)
+            visual_lookup.assign(BaseFloors().size(), NoTrack);
         for (std::size_t i = 0; i < next.size(); ++i)
         {
             const FloorTrack& track = next[i];
@@ -161,7 +186,7 @@ void TrackTransformRuntime::SetPlaybackAnchor(
 void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells) noexcept
 {
     std::lock_guard lock(mutex_);
-    if (base_floors_.size() != floors.size())
+    if (BaseFloors().size() != floors.size())
         return;
 
     for (const FloorTrack& track : tracks_)
@@ -170,7 +195,7 @@ void TrackTransformRuntime::Restore(std::vector<EeFloor>& floors, CellMap& cells
             continue;
         const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
         const EeFloor& old = floors[floor];
-        const EeFloor& base = base_floors_[floor];
+        const EeFloor& base = BaseFloors()[floor];
         ReindexFloor(floor, old.x, old.y, base.x, base.y, cells);
         floors[floor] = base;
     }
@@ -195,7 +220,7 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
     std::lock_guard lock(mutex_);
     metrics.total_track_count = static_cast<std::uint32_t>(
         std::min<std::size_t>(tracks_.size(), UINT32_MAX));
-    if (base_floors_.size() != floors.size())
+    if (BaseFloors().size() != floors.size())
         return finish();
 
     if (!active_ || tracks_.empty())
@@ -208,7 +233,7 @@ TrackTransformUpdateMetrics TrackTransformRuntime::Update(
                     continue;
                 const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
                 const EeFloor old = floors[floor];
-                const EeFloor& base = base_floors_[floor];
+                const EeFloor& base = BaseFloors()[floor];
                 ReindexFloor(floor, old.x, old.y, base.x, base.y, cells, &metrics);
                 const auto apply_started = std::chrono::steady_clock::now();
                 floors[floor] = base;
@@ -285,7 +310,7 @@ bool TrackTransformRuntime::EvaluateVisualForFloor(
     EeFloor& value) noexcept
 {
     std::lock_guard lock(mutex_);
-    if (!active_ || floor >= base_floors_.size() || floor >= visual_track_by_floor_.size())
+    if (!active_ || floor >= BaseFloors().size() || floor >= visual_track_by_floor_.size())
         return false;
 
     const std::size_t track_index = visual_track_by_floor_[floor];
@@ -296,7 +321,7 @@ bool TrackTransformRuntime::EvaluateVisualForFloor(
     if (track.has_position || !track.has_visual || track.events.empty())
         return false;
 
-    const EeFloor& base = base_floors_[floor];
+    const EeFloor& base = BaseFloors()[floor];
     value.entry_angle = base.entry_angle;
     value.icon_angle = base.icon_angle;
     value.transform_scale_x = base.transform_scale_x;
@@ -394,7 +419,7 @@ void TrackTransformRuntime::ResolveTrackAtTime(
         return;
 
     const std::uint32_t floor_index = static_cast<std::uint32_t>(track.floor);
-    const EeFloor& base = base_floors_[floor_index];
+    const EeFloor& base = BaseFloors()[floor_index];
     const EeFloor old = floors[floor_index];
     EeFloor resolved = base;
 
@@ -520,7 +545,7 @@ void TrackTransformRuntime::RebuildRuntimeState(
             continue;
         const std::uint32_t floor = static_cast<std::uint32_t>(track.floor);
         const EeFloor old = floors[floor];
-        const EeFloor& base = base_floors_[floor];
+        const EeFloor& base = BaseFloors()[floor];
         ReindexFloor(floor, old.x, old.y, base.x, base.y, cells, metrics);
         const auto apply_started = std::chrono::steady_clock::now();
         floors[floor] = base;
