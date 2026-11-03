@@ -73,7 +73,7 @@ internal static class SongReaderFactory
             uint length = reader.ReadUInt32();
             long next = stream.Position + length + (length & 1);
             if (next > riffEnd) return false;
-            if (chunk == 0x20746D66) // fmt 
+            if (chunk == 0x20746D66) // fmt chunk
             {
                 if (length < 40) return false;
                 ushort encoding = reader.ReadUInt16();
