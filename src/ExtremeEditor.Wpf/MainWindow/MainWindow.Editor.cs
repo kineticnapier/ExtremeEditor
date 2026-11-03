@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -727,13 +728,21 @@ public partial class MainWindow
         return obj[name] is JsonValue value && value.TryGetValue(out string? result) ? result : null;
     }
 
-    private static double? GetDouble(JsonObject obj, string name)
+    private static double? GetDouble(JsonObject obj, string name) =>
+        ReadRawEventDouble(obj[name]);
+
+    // JSON numbers use a dot regardless of the Windows display culture.
+    // Do not let a locale-specific thousands separator change a string value.
+    internal static double? ReadRawEventDouble(JsonNode? node)
     {
-        if (obj[name] is not JsonValue value)
+        if (node is not JsonValue value)
             return null;
-        if (value.TryGetValue(out double result))
-            return result;
-        return value.TryGetValue(out string? text) && double.TryParse(text, out result) ? result : null;
+        if (value.TryGetValue(out double number))
+            return double.IsFinite(number) ? number : null;
+        return value.TryGetValue(out string? text) &&
+               double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number) &&
+               double.IsFinite(number)
+            ? number : null;
     }
 
     private static bool GetBool(JsonObject obj, string name, bool fallback)
