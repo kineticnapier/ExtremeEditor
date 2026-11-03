@@ -57,6 +57,9 @@ internal static class VideoExportFfmpegEncoderRegression
         [
             (2, 2, null),
             (1920, 1080, null),
+            (8192, 8192, null), // Large but representable RGB24 buffer; no allocation.
+            (32768, 32768, "Width"), // 3 GiB RGB24 frame cannot fit byte[].
+            (2, int.MaxValue - 1, "Width"), // Reject oversized height before ffmpeg.
             (3, 2, "Width"),
             (2, 3, "Height"),
             (0, 2, "Width"),
