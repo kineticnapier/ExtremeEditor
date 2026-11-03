@@ -519,6 +519,132 @@ int main()
         return 1;
     }
 
+    // Sepia and Contrast follow the stock CameraFilterPackLegacy shaders:
+    //   sepia:    c' = c + I * (dot(c, w) - c) + I * (0.437, 0.171, 0.078)
+    //   contrast: c' = (c - 0.5) * C + 0.5, C = intensity + 1
+    // with w = (0.222, 0.707, 0.071); output is clamped by the 8-bit target.
+    const auto require_pixels_mapped = [&](const std::vector<std::uint8_t>& actual,
+                                           const std::vector<std::uint8_t>& source,
+                                           auto&& map,
+                                           const char* message)
+    {
+        for (std::size_t i = 0; i + 2u < actual.size(); i += 3u)
+        {
+            float rgb[3] = {source[i] / 255.0f, source[i + 1u] / 255.0f, source[i + 2u] / 255.0f};
+            map(rgb);
+            for (std::size_t channel = 0; channel < 3u; ++channel)
+            {
+                const float expected = std::clamp(rgb[channel], 0.0f, 1.0f) * 255.0f;
+                if (std::abs(static_cast<float>(actual[i + channel]) - expected) > 2.0f)
+                {
+                    std::cerr << message << " at byte " << i + channel
+                              << ": expected " << expected
+                              << ", actual " << static_cast<unsigned>(actual[i + channel]) << ".\n";
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    const auto sepia = [](float intensity)
+    {
+        return [intensity](float* c)
+        {
+            const float luma = 0.222f * c[0] + 0.707f * c[1] + 0.071f * c[2];
+            const float tint[3] = {0.437f, 0.171f, 0.078f};
+            for (int k = 0; k < 3; ++k)
+                c[k] = c[k] + intensity * (luma - c[k]) + intensity * tint[k];
+        };
+    };
+    const auto contrast = [](float intensity)
+    {
+        return [intensity](float* c)
+        {
+            for (int k = 0; k < 3; ++k)
+                c[k] = (c[k] - 0.5f) * (intensity + 1.0f) + 0.5f;
+        };
+    };
+
+    if (ee_renderer_set_flash_timeline(headless, nullptr, 0u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline))
+    {
+        std::cerr << "Sepia/Contrast baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeFilterEvent sepia_event{};
+    sepia_event.start_time = 1.0;
+    sepia_event.duration_seconds = 2.0;
+    sepia_event.filter = 1u;
+    sepia_event.target_intensity = 1.0f;
+    sepia_event.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &sepia_event, 1u) != EE_OK ||
+        !render_filter_frame(0.5, filter_frame) || filter_frame != filter_baseline ||
+        !render_filter_frame(2.0, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline, sepia(0.5f), "Sepia 50% pixel mismatch") ||
+        !render_filter_frame(3.0, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline, sepia(1.0f), "Sepia 100% pixel mismatch") ||
+        !render_filter_frame(0.5, filter_frame) || filter_frame != filter_baseline)
+    {
+        std::cerr << "Headless Sepia timeline did not affect final pixels correctly.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeFilterEvent contrast_event{};
+    contrast_event.filter = 33u;
+    contrast_event.target_intensity = 0.5f;
+    contrast_event.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &contrast_event, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline, contrast(0.5f), "Contrast 150% pixel mismatch"))
+    {
+        std::cerr << "Headless Contrast did not affect final pixels correctly.\n";
+        destroy_headless();
+        return 1;
+    }
+    contrast_event.target_intensity = 0.0f;
+    if (ee_renderer_set_filter_timeline(headless, &contrast_event, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline, contrast(0.0f), "Contrast 100% pixel mismatch"))
+    {
+        std::cerr << "Contrast at intensity 0 changed pixels.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Composition follows ascending Filter id: Sepia (1) before Contrast (33).
+    EeFilterEvent sepia_contrast[2]{};
+    sepia_contrast[0].filter = 1u;
+    sepia_contrast[0].target_intensity = 0.5f;
+    sepia_contrast[0].enabled = 1u;
+    sepia_contrast[1].filter = 33u;
+    sepia_contrast[1].target_intensity = 0.25f;
+    sepia_contrast[1].enabled = 1u;
+    sepia_contrast[1].source_index = 1;
+    if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline,
+            [&](float* c) { sepia(0.5f)(c); contrast(0.25f)(c); },
+            "Sepia then Contrast pixel mismatch"))
+    {
+        std::cerr << "Sepia and Contrast did not compose in Filter id order.\n";
+        destroy_headless();
+        return 1;
+    }
+    sepia_contrast[1].flags = EE_FILTER_DISABLE_OTHERS;
+    if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame) ||
+        !require_pixels_mapped(filter_frame, filter_baseline, contrast(0.25f),
+            "disableOthers Contrast pixel mismatch"))
+    {
+        std::cerr << "Contrast disableOthers did not disable Sepia.\n";
+        destroy_headless();
+        return 1;
+    }
+
     destroy_headless();
     std::cout << "PASS: native renderer ABI + deterministic headless RGB smoke test.\n";
     return 0;

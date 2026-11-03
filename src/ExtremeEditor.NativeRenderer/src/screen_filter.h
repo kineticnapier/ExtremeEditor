@@ -17,7 +17,9 @@ namespace ee
 {
 inline constexpr std::uint32_t FilterCount = 41u;
 inline constexpr std::uint32_t FilterGrayscale = 0u;
+inline constexpr std::uint32_t FilterSepia = 1u;
 inline constexpr std::uint32_t FilterInvert = 2u;
+inline constexpr std::uint32_t FilterContrast = 33u;
 
 struct FilterVisualEntry
 {
@@ -178,7 +180,9 @@ inline constexpr float GrayscaleWeightG = 0.587f;
 inline constexpr float GrayscaleWeightB = 0.114f;
 
 // Combines the enabled filters that are a per-pixel colour transform into
-// one matrix. Returns false when none is enabled, so the frame is left
+// one matrix, in ascending Filter id order. Stock applies each filter as its
+// own camera pass in component order, which the game assemblies do not
+// reveal, and an 8-bit pass would clamp between filters; one matrix does not. Returns false when none is enabled, so the frame is left
 // untouched. Filters that sample neighbouring pixels need their own passes
 // and are not handled here.
 inline bool BuildScreenFilterColorMatrix(
@@ -206,6 +210,30 @@ inline bool BuildScreenFilterColorMatrix(
         any = true;
     }
 
+    // CameraFilterPackLegacy/Color_Sepia, decoded from the stock shader:
+    //   c' = c + I * (dot(c, (0.222, 0.707, 0.071)) - c) + I * (0.437, 0.171, 0.078)
+    // SetFilter passes intensity unchanged as _Intensity.
+    const FilterVisualEntry& sepia = state.entries[FilterSepia];
+    if (sepia.enabled)
+    {
+        const float amount = sepia.intensity;
+        const float weights[3] = {0.222f, 0.707f, 0.071f};
+        const float tint[3] = {0.437f, 0.171f, 0.078f};
+        ScreenColorMatrix tone = ScreenColorMatrix::Identity();
+        for (int out = 0; out < 3; ++out)
+        {
+            for (int input = 0; input < 3; ++input)
+            {
+                const float identity = input == out ? 1.0f : 0.0f;
+                tone.m[input][out] = identity + (weights[input] - identity) * amount;
+            }
+            // Constant terms ride on the alpha row, as for Invert below.
+            tone.m[3][out] = tint[out] * amount;
+        }
+        matrix = ComposeColorMatrices(matrix, tone);
+        any = true;
+    }
+
     // Stock SetFilter has no intensity parameter for Invert: enabling it
     // inverts fully whatever the intensity.
     if (state.entries[FilterInvert].enabled)
@@ -220,6 +248,22 @@ inline bool BuildScreenFilterColorMatrix(
             invert.m[3][channel] = 1.0f;
         }
         matrix = ComposeColorMatrices(matrix, invert);
+        any = true;
+    }
+
+    // CameraFilterPackLegacy/Color_Contrast: c' = (c - 0.5) * C + 0.5, where
+    // SetFilter sets C = intensity + 1.
+    const FilterVisualEntry& contrast = state.entries[FilterContrast];
+    if (contrast.enabled)
+    {
+        const float scale = contrast.intensity + 1.0f;
+        ScreenColorMatrix stretch = ScreenColorMatrix::Identity();
+        for (int channel = 0; channel < 3; ++channel)
+        {
+            stretch.m[channel][channel] = scale;
+            stretch.m[3][channel] = 0.5f * (1.0f - scale);
+        }
+        matrix = ComposeColorMatrices(matrix, stretch);
         any = true;
     }
 
