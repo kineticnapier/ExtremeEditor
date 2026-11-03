@@ -32,7 +32,8 @@ internal static class VideoExportFfmpegEncoderRegression
 
         VerifyYuv420pDimensionValidation(ffmpegType);
         VerifyAtomicCommit(ffmpegType, constructor);
-        VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor);
+        VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: false);
+        VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: true);
         VerifyCancellationDuringAudioFlushPreventsProcessStart(ffmpegType, constructor);
         VerifyVideoDisposeFailureStillDisposesAudioStream(ffmpegType, constructor);
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
@@ -140,7 +141,8 @@ internal static class VideoExportFfmpegEncoderRegression
         }
     }
 
-    private static void VerifyAudioFlushFailureDisposesStream(Type encoderType, ConstructorInfo constructor)
+    private static void VerifyAudioFlushFailureDisposesStream(
+        Type encoderType, ConstructorInfo constructor, bool throwOnDispose)
     {
         // No ffmpeg executable is needed: the injected audio flush fails before process startup.
         string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-AudioFlush-{Guid.NewGuid():N}");
@@ -164,7 +166,8 @@ internal static class VideoExportFfmpegEncoderRegression
             MethodInfo beginVideo = encoderType.GetMethod("BeginVideoAsync", BindingFlags.Instance | BindingFlags.Public)
                 ?? throw new InvalidOperationException("Encoder video-phase entry is missing.");
 
-            stream = new ThrowingAudioFlushStream(Path.Combine(directory, "audio.f32le"));
+            stream = new ThrowingAudioFlushStream(
+                Path.Combine(directory, "audio.f32le"), throwOnDispose);
             startField.SetValue(encoder, startInfo);
             audioField.SetValue(encoder, stream);
             try
@@ -272,7 +275,7 @@ internal static class VideoExportFfmpegEncoderRegression
         }
     }
 
-    private sealed class ThrowingAudioFlushStream(string path)
+    private sealed class ThrowingAudioFlushStream(string path, bool throwOnDispose = false)
         : FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)
     {
         internal bool DisposedAsynchronously { get; private set; }
@@ -280,10 +283,12 @@ internal static class VideoExportFfmpegEncoderRegression
         public override Task FlushAsync(CancellationToken cancellationToken) =>
             Task.FromException(new IOException("injected audio flush failure"));
 
-        public override ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
             DisposedAsynchronously = true;
-            return base.DisposeAsync();
+            await base.DisposeAsync().ConfigureAwait(false);
+            if (throwOnDispose)
+                throw new IOException("injected audio dispose failure");
         }
     }
 
