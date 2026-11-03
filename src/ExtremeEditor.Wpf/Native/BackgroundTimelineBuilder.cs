@@ -197,9 +197,11 @@ internal static class BackgroundNativeEncoding
             ImageColor = Color(source.ImageColor, 0xffffffffu),
             ImageId = imageId,
             DisplayMode = mode,
-            ParallaxX = source.ParallaxX,
-            ParallaxY = source.ParallaxY,
-            ScalingRatio = source.ScalingRatio,
+            // Keep the native ABI boundary finite even for states supplied
+            // directly by callers rather than parsed from chart JSON.
+            ParallaxX = float.IsFinite(source.ParallaxX) ? source.ParallaxX : 100f,
+            ParallaxY = float.IsFinite(source.ParallaxY) ? source.ParallaxY : 100f,
+            ScalingRatio = float.IsFinite(source.ScalingRatio) ? source.ScalingRatio : 100f,
             Flags = (source.ImageSmoothing ? 1u : 0u) |
                     (source.LockRotation ? 2u : 0u) |
                     (source.Loop ? 4u : 0u)
