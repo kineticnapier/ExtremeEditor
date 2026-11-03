@@ -130,13 +130,26 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         {
             // Even a canceled or failed flush must close the detached stream.
             // DisposeAsync cannot find it once _audioStream has been cleared.
+            Exception? flushFailure = null;
             try
             {
                 await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
+            catch (Exception ex)
+            {
+                flushFailure = ex;
+                throw;
+            }
             finally
             {
-                await audio.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    await audio.DisposeAsync().ConfigureAwait(false);
+                }
+                catch when (flushFailure is not null)
+                {
+                    // Keep the original flush/cancellation error if disposal also fails.
+                }
             }
         }
 
