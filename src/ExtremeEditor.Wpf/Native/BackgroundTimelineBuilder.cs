@@ -137,11 +137,15 @@ internal static class BackgroundSourceReader
         if (source?[name] is not JsonValue value)
             return fallback;
         if (value.TryGetValue(out double number))
-            return (float)number;
+        {
+            float converted = (float)number;
+            return float.IsFinite(converted) ? converted : fallback;
+        }
         if (value.TryGetValue(out int integer))
             return integer;
         return value.TryGetValue(out string? text) &&
-               float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float result)
+               float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float result) &&
+               float.IsFinite(result)
             ? result : fallback;
     }
 
@@ -157,7 +161,10 @@ internal static class BackgroundSourceReader
         if (node is not JsonValue value)
             return fallback;
         if (value.TryGetValue(out double result))
-            return (float)result;
+        {
+            float converted = (float)result;
+            return float.IsFinite(converted) ? converted : fallback;
+        }
         if (value.TryGetValue(out int integer))
             return integer;
         return fallback;
