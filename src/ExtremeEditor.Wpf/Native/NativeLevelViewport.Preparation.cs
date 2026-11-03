@@ -293,13 +293,45 @@ public sealed partial class NativeLevelViewport : HwndHost
 
         NativeFlashEvent[] flashTimeline = FlashTimelineBuilder.Build(level, timingMap);
         _playbackAnchorGate.Invalidate();
-        // Keep the managed icon in step with the native one before the
-        // timeline upload, which may still throw.
-        if (_session is not null && !_session.UpdateFloorIcons(iconFloor, [icon]))
-            return false;
-        icon.ApplyTo(ref _snapshot.Floors[iconFloor]);
+        return TryCommitFlashTimelineUpdate(
+            iconFloor,
+            icon,
+            flashTimeline,
+            (floor, state) => _session is null || _session.UpdateFloorIcons(floor, [state]),
+            events => _session?.SetFlashTimeline(events));
+    }
 
-        _session?.SetFlashTimeline(flashTimeline);
+    // The native icon upload can succeed before the Flash timeline upload
+    // fails. Commit neither managed value until both uploads have succeeded.
+    // A false result makes the caller replace the full native scene and
+    // rebuild playback, reconciling any partial native update.
+    internal bool TryCommitFlashTimelineUpdate(
+        int iconFloor,
+        NativeFloorIconState icon,
+        NativeFlashEvent[] flashTimeline,
+        Func<int, NativeFloorIconState, bool> uploadIcon,
+        Action<NativeFlashEvent[]> uploadFlash)
+    {
+        ArgumentNullException.ThrowIfNull(flashTimeline);
+        ArgumentNullException.ThrowIfNull(uploadIcon);
+        ArgumentNullException.ThrowIfNull(uploadFlash);
+        if (_snapshot is null || (uint)iconFloor >= (uint)_snapshot.Floors.Length)
+            return false;
+
+        try
+        {
+            if (!uploadIcon(iconFloor, icon))
+                return false;
+            uploadFlash(flashTimeline);
+        }
+        catch (InvalidOperationException)
+        {
+            // Native timeline setters throw on a failed upload or disposed
+            // renderer. The caller's full replacement handles recovery.
+            return false;
+        }
+
+        icon.ApplyTo(ref _snapshot.Floors[iconFloor]);
         _flashTimeline = flashTimeline;
         NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(iconFloor);
         NativeLevelUpdateDiagnostics.RecordFlashTimelineUpdateRequest();
