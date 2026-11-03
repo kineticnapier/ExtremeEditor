@@ -373,7 +373,8 @@ internal static class VideoExportFfmpegEncoderRegression
 
             begunField.SetValue(encoder, true);
             processField.SetValue(encoder, child);
-            inputField.SetValue(encoder, new ThrowingVideoFlushStream());
+            var failingStream = new ThrowingVideoFlushStream();
+            inputField.SetValue(encoder, failingStream);
             try
             {
                 object? result = complete.Invoke(encoder, [CancellationToken.None]);
@@ -387,6 +388,9 @@ internal static class VideoExportFfmpegEncoderRegression
                 // Completion must preserve the original exception and stop ffmpeg.
             }
 
+            if (!failingStream.DisposedAsynchronously)
+                throw new InvalidOperationException(
+                    "Failed video flush skipped asynchronous video pipe disposal.");
             if (!observer.WaitForExit(5000))
                 throw new InvalidOperationException("Failed video completion left ffmpeg running.");
             if (processField.GetValue(encoder) is not null ||
@@ -471,8 +475,16 @@ internal static class VideoExportFfmpegEncoderRegression
 
     private sealed class ThrowingVideoFlushStream : MemoryStream
     {
+        public bool DisposedAsynchronously { get; private set; }
+
         public override Task FlushAsync(CancellationToken cancellationToken) =>
             Task.FromException(new IOException("injected video flush failure"));
+
+        public override ValueTask DisposeAsync()
+        {
+            DisposedAsynchronously = true;
+            return base.DisposeAsync();
+        }
     }
 
     private static void VerifySourceContract()
