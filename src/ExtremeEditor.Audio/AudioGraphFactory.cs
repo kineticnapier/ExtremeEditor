@@ -141,6 +141,10 @@ internal static class AudioGraphFactory
         double songPitch = 1.0)
     {
         ArgumentNullException.ThrowIfNull(song);
+        // Math.Clamp preserves NaN; reject non-finite values before constructing
+        // the playback graph so neither preview nor offline audio emits NaN PCM.
+        if (!double.IsFinite(songVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(songVolumePercent));
 
         SampleAccurateHitSoundProvider? hitSounds = null;
         HitSoundRenderMetrics renderMetrics = default;
