@@ -3,7 +3,10 @@ namespace ExtremeEditor.Core;
 public readonly record struct HitSoundState(string Name, double Volume)
 {
     public static HitSoundState FromLevel(LevelDocument level) =>
-        new(level.DefaultHitSound, Math.Clamp(level.HitSoundVolumePercent * 0.01, 0.0, 1.0));
+        new(level.DefaultHitSound, NormalizeVolumePercent(level.HitSoundVolumePercent));
+
+    internal static double NormalizeVolumePercent(double percent) =>
+        double.IsFinite(percent) ? Math.Clamp(percent * 0.01, 0.0, 1.0) : 0.0;
 }
 
 public readonly record struct HitSoundStateChange(int Floor, HitSoundState State);
@@ -83,7 +86,7 @@ public static class HitSoundTimelineBuilder
 
                 if (action.HitSoundVolumePercent is double volumePercent)
                 {
-                    volume = Math.Clamp(volumePercent * 0.01, 0.0, 1.0);
+                    volume = HitSoundState.NormalizeVolumePercent(volumePercent);
                     changed = true;
                 }
             }
