@@ -35,6 +35,41 @@ int main()
             return 1;
         }
     }
+    {
+        ee::FilterVisualState state;
+        if (ee::HasScreenFilterPasses(state) ||
+            ee::BuildScreenFilterPasses(state).count != 0u)
+        {
+            std::cerr << "Disabled screen filters produced render passes.\n";
+            return 1;
+        }
+        state.entries[ee::FilterContrast].enabled = true;
+        state.entries[ee::FilterInvert].enabled = true;
+        state.entries[ee::FilterGrayscale].enabled = true;
+        state.entries[ee::FilterSepia].enabled = true;
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(state);
+        const std::uint32_t expected_order[] =
+        {
+            ee::FilterGrayscale,
+            ee::FilterSepia,
+            ee::FilterInvert,
+            ee::FilterContrast
+        };
+        if (passes.count != std::size(expected_order))
+        {
+            std::cerr << "Enabled screen filters did not produce four independent passes.\n";
+            return 1;
+        }
+        for (std::size_t index = 0u; index < passes.count; ++index)
+        {
+            if (passes.items[index].filter != expected_order[index] ||
+                passes.items[index].kind != ee::ScreenFilterPassKind::ColorMatrix)
+            {
+                std::cerr << "Screen filter pass order changed at index " << index << ".\n";
+                return 1;
+            }
+        }
+    }
 
     // The reverse-direction HUD setter was added in v24. Later API versions
     // are additive and must continue to satisfy this ABI regression.
@@ -647,29 +682,50 @@ int main()
         return 1;
     }
 
-    // Composition follows ascending Filter id: Sepia (1) before Contrast (33).
+    // Independent passes follow ascending Filter id: Sepia (1) before Contrast
+    // (33), with the 8-bit render target clamping between passes.
+    EeFlashEvent white_flash{};
+    white_flash.start_color = 0xffffffu;
+    white_flash.end_color = 0xffffffu;
+    white_flash.start_opacity = 1.0f;
+    white_flash.end_opacity = 1.0f;
+    white_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    if (ee_renderer_set_flash_timeline(headless, &white_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline))
+    {
+        std::cerr << "Independent-pass baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
     EeFilterEvent sepia_contrast[2]{};
     sepia_contrast[0].filter = 1u;
     sepia_contrast[0].target_intensity = 0.5f;
     sepia_contrast[0].enabled = 1u;
     sepia_contrast[1].filter = 33u;
-    sepia_contrast[1].target_intensity = 0.25f;
+    sepia_contrast[1].target_intensity = -0.75f;
     sepia_contrast[1].enabled = 1u;
     sepia_contrast[1].source_index = 1;
     if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
         !render_filter_frame(0.25, filter_frame) ||
         !require_pixels_mapped(filter_frame, filter_baseline,
-            [&](float* c) { sepia(0.5f)(c); contrast(0.25f)(c); },
+            [&](float* c)
+            {
+                sepia(0.5f)(c);
+                for (int k = 0; k < 3; ++k)
+                    c[k] = std::clamp(c[k], 0.0f, 1.0f);
+                contrast(-0.75f)(c);
+            },
             "Sepia then Contrast pixel mismatch"))
     {
-        std::cerr << "Sepia and Contrast did not compose in Filter id order.\n";
+        std::cerr << "Sepia and Contrast did not run as independent Filter id passes.\n";
         destroy_headless();
         return 1;
     }
     sepia_contrast[1].flags = EE_FILTER_DISABLE_OTHERS;
     if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
         !render_filter_frame(0.25, filter_frame) ||
-        !require_pixels_mapped(filter_frame, filter_baseline, contrast(0.25f),
+        !require_pixels_mapped(filter_frame, filter_baseline, contrast(-0.75f),
             "disableOthers Contrast pixel mismatch"))
     {
         std::cerr << "Contrast disableOthers did not disable Sepia.\n";

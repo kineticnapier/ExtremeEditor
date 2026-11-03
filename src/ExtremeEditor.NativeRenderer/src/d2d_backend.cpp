@@ -343,40 +343,52 @@ bool D2DBackend::EnsureScreenFilterResources() noexcept
 
 HRESULT D2DBackend::ApplyScreenFilter() noexcept
 {
-    ScreenColorMatrix matrix;
-    if (!BuildScreenFilterColorMatrix(filter_state_, matrix))
+    // Keep the no-filter frame path to four bool reads: do not construct the
+    // fixed pass buffer or touch Direct2D post-processing resources.
+    if (!HasScreenFilterPasses(filter_state_))
         return S_OK;
+    const ScreenFilterPassList passes = BuildScreenFilterPasses(filter_state_);
     if (!EnsureScreenFilterResources())
         return E_FAIL;
 
-    HRESULT hr = screen_filter_source_->CopyFromBitmap(
-        nullptr, target_bitmap_.Get(), nullptr);
-    if (FAILED(hr))
-        return hr;
+    for (std::size_t index = 0u; index < passes.count; ++index)
+    {
+        const ScreenFilterPass& pass = passes.items[index];
+        if (pass.kind != ScreenFilterPassKind::ColorMatrix)
+            return E_NOTIMPL;
 
-    D2D1_MATRIX_5X4_F d2d_matrix{};
-    static_assert(sizeof(d2d_matrix) == sizeof(matrix.m));
-    std::memcpy(&d2d_matrix, matrix.m, sizeof(d2d_matrix));
-    screen_filter_effect_->SetInput(0u, screen_filter_source_.Get());
-    if (FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_COLOR_MATRIX, d2d_matrix)) ||
-        FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
-            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
-        FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT,
-            TRUE)))
-        return E_FAIL;
+        HRESULT hr = screen_filter_source_->CopyFromBitmap(
+            nullptr, target_bitmap_.Get(), nullptr);
+        if (FAILED(hr))
+            return hr;
 
-    d2d_context_->BeginDraw();
-    d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-    d2d_context_->DrawImage(
-        screen_filter_effect_.Get(),
-        nullptr,
-        nullptr,
-        D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-        D2D1_COMPOSITE_MODE_SOURCE_COPY);
-    return d2d_context_->EndDraw();
+        D2D1_MATRIX_5X4_F d2d_matrix{};
+        static_assert(sizeof(d2d_matrix) == sizeof(pass.color_matrix.m));
+        std::memcpy(&d2d_matrix, pass.color_matrix.m, sizeof(d2d_matrix));
+        screen_filter_effect_->SetInput(0u, screen_filter_source_.Get());
+        if (FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_COLOR_MATRIX, d2d_matrix)) ||
+            FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+                D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
+            FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT,
+                TRUE)))
+            return E_FAIL;
+
+        d2d_context_->BeginDraw();
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+        d2d_context_->DrawImage(
+            screen_filter_effect_.Get(),
+            nullptr,
+            nullptr,
+            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            D2D1_COMPOSITE_MODE_SOURCE_COPY);
+        hr = d2d_context_->EndDraw();
+        if (FAILED(hr))
+            return hr;
+    }
+    return S_OK;
 }
 
 bool D2DBackend::Resize(std::uint32_t width, std::uint32_t height) noexcept
