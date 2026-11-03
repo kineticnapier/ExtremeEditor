@@ -105,6 +105,7 @@ public:
     LRESULT HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 
 private:
+    void ApplyPendingFloorIconsLocked() noexcept;
     void RenderLoop() noexcept;
     void StopRenderThread(bool shutdown_diagnostic = false) noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
@@ -179,8 +180,14 @@ private:
     std::uint64_t icon_assets_version_ = 0;
     std::uint64_t static_decorations_version_ = 0;
     std::uint64_t decoration_assets_version_ = 0;
-    std::uint32_t pending_icon_start_floor_ = 0;
-    std::vector<EeFloorIconState> pending_icon_states_;
+    struct PendingFloorIconBatch
+    {
+        std::uint32_t start_floor = 0;
+        std::vector<EeFloorIconState> states;
+    };
+    // Every batch submitted since the last frame, applied in order. A single
+    // slot would drop an earlier batch for different floors.
+    std::vector<PendingFloorIconBatch> pending_icon_batches_;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
     EeEditorActionCallback editor_action_callback_ = nullptr;

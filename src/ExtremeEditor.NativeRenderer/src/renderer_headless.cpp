@@ -110,22 +110,7 @@ bool Renderer::RenderHeadlessRgb(
         if (!state || !scene_)
             return false;
 
-        if (!pending_icon_states_.empty())
-        {
-            for (std::size_t i = 0; i < pending_icon_states_.size(); ++i)
-            {
-                const std::size_t floor_index = static_cast<std::size_t>(pending_icon_start_floor_) + i;
-                if (floor_index >= scene_->floors.size())
-                    break;
-                EeFloor& floor = scene_->floors[floor_index];
-                const EeFloorIconState& icon = pending_icon_states_[i];
-                floor.icon_id = icon.icon_id;
-                floor.icon_flags = icon.icon_flags;
-                floor.icon_angle = icon.icon_angle;
-            }
-            pending_icon_states_.clear();
-            ++scene_version_;
-        }
+        ApplyPendingFloorIconsLocked();
 
         scene = scene_;
         icon_assets = icon_assets_;

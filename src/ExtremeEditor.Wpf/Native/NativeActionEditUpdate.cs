@@ -6,6 +6,7 @@ internal enum NativeActionEditKind
 {
     NoNativeChange,
     FloorIconsFrom,
+    FlashTimeline,
     FullLevel
 }
 
@@ -15,38 +16,50 @@ internal readonly record struct NativeActionEditPlan(
 
 internal static class NativeActionEditUpdate
 {
-    internal static void Apply(
+    internal static NativeActionEditKind Apply(
         NativeLevelViewport viewport,
         LevelDocument level,
-        LevelAction before,
-        LevelAction after)
+        LevelAction? before,
+        LevelAction? after,
+        TimingMap? timingMap = null)
     {
         ArgumentNullException.ThrowIfNull(viewport);
         ArgumentNullException.ThrowIfNull(level);
-        ArgumentNullException.ThrowIfNull(before);
-        ArgumentNullException.ThrowIfNull(after);
 
         NativeLevelUpdateDiagnostics.RecordActionEditRoutingInvocation();
         NativeActionEditPlan plan = CreatePlan(before, after);
         switch (plan.Kind)
         {
             case NativeActionEditKind.NoNativeChange:
-                return;
+                return plan.Kind;
             case NativeActionEditKind.FloorIconsFrom:
                 if (viewport.TryUpdateFloorIconsFrom(level, plan.StartFloor))
-                    return;
+                    return plan.Kind;
                 viewport.SetLevel(level);
-                return;
+                return NativeActionEditKind.FullLevel;
+            case NativeActionEditKind.FlashTimeline:
+                // The Flash route keeps the caller's timing map, hit sounds and
+                // every other timeline. Without a current timing map, or when the
+                // floor icon cannot be resolved against the uploaded assets, keep
+                // the full replacement; the caller then rebuilds playback too.
+                if (timingMap is not null &&
+                    viewport.TryUpdateFlashTimeline(level, timingMap, plan.StartFloor))
+                    return plan.Kind;
+                viewport.SetLevel(level);
+                return NativeActionEditKind.FullLevel;
             default:
                 viewport.SetLevel(level);
-                return;
+                return NativeActionEditKind.FullLevel;
         }
     }
 
-    internal static NativeActionEditPlan CreatePlan(LevelAction before, LevelAction after)
+    internal static NativeActionEditPlan CreatePlan(LevelAction? before, LevelAction? after)
     {
-        ArgumentNullException.ThrowIfNull(before);
-        ArgumentNullException.ThrowIfNull(after);
+        if (IsFlashOnlyEdit(before, after))
+            return new NativeActionEditPlan(NativeActionEditKind.FlashTimeline, (after ?? before)!.Floor);
+
+        if (before is null || after is null)
+            return new NativeActionEditPlan(NativeActionEditKind.FullLevel);
 
         if (IsSetHitsoundAudioPropertyOnlyEdit(before, after))
             return new NativeActionEditPlan(NativeActionEditKind.NoNativeChange);
@@ -56,6 +69,25 @@ internal static class NativeActionEditUpdate
 
         return new NativeActionEditPlan(NativeActionEditKind.FullLevel);
     }
+
+    // Flash events feed only the Flash timeline and the floor icon. They do not
+    // change angleData, timing, hit sounds or any other native timeline. A
+    // floor move touches two icons and stays on the full path.
+    private static bool IsFlashOnlyEdit(LevelAction? before, LevelAction? after)
+    {
+        if (before is null && after is null)
+            return false;
+        if (before is not null && !IsFlash(before))
+            return false;
+        if (after is not null && !IsFlash(after))
+            return false;
+        return before is null || after is null ||
+               (before.Floor == after.Floor && before.SourceIndex == after.SourceIndex);
+    }
+
+    private static bool IsFlash(LevelAction action) =>
+        string.Equals(action.EventType, "Flash", StringComparison.Ordinal) &&
+        action.Kind == LevelActionKind.Unknown;
 
     private static bool IsTwirlActiveOnlyEdit(LevelAction before, LevelAction after) =>
         string.Equals(before.EventType, "Twirl", StringComparison.Ordinal) &&

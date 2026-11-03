@@ -144,7 +144,7 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     cached_background_assets_ = cache_previous ? background_assets_ : nullptr;
     current_scene_cache_key_ = 0u;
     scene_ = std::move(scene);
-    pending_icon_states_.clear();
+    pending_icon_batches_.clear();
     delete_hud_button_ = -1; // WPF will refresh this after updating the selected floor.
 
     if (!had_scene)
@@ -194,7 +194,7 @@ bool Renderer::TryActivateCachedLevel(std::uint64_t scene_key) noexcept
 
     // Match SetLevel's activation contract; tab-specific selections, assets
     // and playback timelines are restored by WPF after scene activation.
-    pending_icon_states_.clear();
+    pending_icon_batches_.clear();
     delete_hud_button_ = -1;
     if (!had_scene)
     {
@@ -241,14 +241,40 @@ bool Renderer::UpdateFloorIcons(
             return false;
         }
 
-        pending_icon_start_floor_ = start_floor;
-        pending_icon_states_.assign(states, states + state_count);
+        pending_icon_batches_.push_back(PendingFloorIconBatch{
+            start_floor,
+            std::vector<EeFloorIconState>(states, states + state_count)});
         return true;
     }
     catch (...)
     {
         return false;
     }
+}
+
+// Caller holds scene_mutex_ and has checked scene_. Batches were validated
+// against the scene they were queued for; SetLevel clears them on replacement.
+void Renderer::ApplyPendingFloorIconsLocked() noexcept
+{
+    if (pending_icon_batches_.empty())
+        return;
+
+    for (const PendingFloorIconBatch& batch : pending_icon_batches_)
+    {
+        for (std::size_t i = 0; i < batch.states.size(); ++i)
+        {
+            const std::size_t floor_index = static_cast<std::size_t>(batch.start_floor) + i;
+            if (floor_index >= scene_->floors.size())
+                break;
+            EeFloor& floor = scene_->floors[floor_index];
+            const EeFloorIconState& state = batch.states[i];
+            floor.icon_id = state.icon_id;
+            floor.icon_flags = state.icon_flags;
+            floor.icon_angle = state.icon_angle;
+        }
+    }
+    pending_icon_batches_.clear();
+    ++scene_version_;
 }
 
 void Renderer::FrameAll() noexcept
@@ -1338,19 +1364,8 @@ void Renderer::RenderLoop() noexcept
         std::chrono::steady_clock::time_point anchor_steady;
         {
             std::lock_guard lock(scene_mutex_);
-            if (scene_ && !pending_icon_states_.empty())
-            {
-                for (std::size_t i = 0; i < pending_icon_states_.size(); ++i)
-                {
-                    EeFloor& floor = scene_->floors[pending_icon_start_floor_ + i];
-                    const EeFloorIconState& state = pending_icon_states_[i];
-                    floor.icon_id = state.icon_id;
-                    floor.icon_flags = state.icon_flags;
-                    floor.icon_angle = state.icon_angle;
-                }
-                pending_icon_states_.clear();
-                ++scene_version_;
-            }
+            if (scene_)
+                ApplyPendingFloorIconsLocked();
             scene = scene_;
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;

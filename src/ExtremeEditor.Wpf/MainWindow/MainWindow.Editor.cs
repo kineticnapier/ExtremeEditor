@@ -314,7 +314,7 @@ public partial class MainWindow
             RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
         }
         else
-            RefreshEditorAfterMutation(primary);
+            RefreshEditorAfterMutation(primary, actionChange: editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -337,7 +337,7 @@ public partial class MainWindow
             RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
         }
         else
-            RefreshEditorAfterMutation(primary);
+            RefreshEditorAfterMutation(primary, actionChange: editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -481,7 +481,7 @@ public partial class MainWindow
         int[] selection = _selection.SelectedFloors.ToArray();
         int primary = _selection.PrimaryFloor;
         editor.AddAction(primary, type);
-        RefreshEditorAfterMutation(primary, selection);
+        RefreshEditorAfterMutation(primary, selection, editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -496,7 +496,7 @@ public partial class MainWindow
         int[] selection = _selection.SelectedFloors.ToArray();
         int primary = _selection.PrimaryFloor;
         editor.DeleteAction(item.Action);
-        RefreshEditorAfterMutation(primary, selection);
+        RefreshEditorAfterMutation(primary, selection, editor.TakeLastActionChange());
         if (EventList.Items.Count > 0)
             EventList.SelectedIndex = Math.Clamp(selectedIndex, 0, EventList.Items.Count - 1);
         e.Handled = true;
@@ -521,7 +521,7 @@ public partial class MainWindow
             editor.ReplaceAction(item.Action, updated);
             if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
                 AcceptDisplayedRawEventDraft(activeTab, item.Action.SourceIndex);
-            RefreshEditorAfterMutation(updated.Floor, selection, item.Action, updated);
+            RefreshEditorAfterMutation(updated.Floor, selection, editor.TakeLastActionChange());
         }
         catch (Exception ex)
         {
@@ -559,8 +559,7 @@ public partial class MainWindow
     private void RefreshEditorAfterMutation(
         int preferredPrimary,
         IEnumerable<int>? preferredSelection = null,
-        LevelAction? actionBefore = null,
-        LevelAction? actionAfter = null)
+        EditorActionChange? actionChange = null)
     {
         if (_level is null)
             return;
@@ -571,18 +570,25 @@ public partial class MainWindow
         selection = selection.Select(floor => Math.Clamp(floor, 0, maxFloor)).Distinct().ToArray();
         int primary = Math.Clamp(preferredPrimary, 0, maxFloor);
 
-        if (actionBefore is not null && actionAfter is not null)
-            NativeActionEditUpdate.Apply(NativeViewport, _level, actionBefore, actionAfter);
+        NativeActionEditKind nativeEdit = NativeActionEditKind.FullLevel;
+        if (actionChange is EditorActionChange change)
+            nativeEdit = NativeActionEditUpdate.Apply(
+                NativeViewport, _level, change.Before, change.After, _timingMap);
         else
             NativeViewport.SetLevel(_level);
         _selection.SetFloorCount(_level.FloorCount);
         _selection.SetSelection(selection, primary);
 
-        WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
-        _timingMap = playback.TimingMap;
-        _hitSoundTimeline = playback.HitSoundTimeline;
-        _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
-        NativeViewport.SetPlaybackTimeline(_timingMap);
+        // A Flash edit keeps timing and hit sounds, and the viewport already
+        // refreshed its Flash timeline. Every other edit rebuilds playback.
+        if (nativeEdit != NativeActionEditKind.FlashTimeline)
+        {
+            WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
+            _timingMap = playback.TimingMap;
+            _hitSoundTimeline = playback.HitSoundTimeline;
+            _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
+            NativeViewport.SetPlaybackTimeline(_timingMap);
+        }
 
         RefreshInspector();
         UpdateEditorStatus();

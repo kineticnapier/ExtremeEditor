@@ -8,7 +8,9 @@ internal readonly record struct NativeLevelUpdateDiagnosticCounts(
     long FlatSnapshotBuilds,
     long FloorIconUpdateRequests,
     int LastFloorIconUpdateStartFloor,
-    long ActionEditRoutingInvocations);
+    long ActionEditRoutingInvocations,
+    long FlashTimelineUpdateRequests,
+    long PlaybackSetupBuilds);
 
 internal static class NativeLevelUpdateDiagnostics
 {
@@ -19,6 +21,8 @@ internal static class NativeLevelUpdateDiagnostics
     private static long _floorIconUpdateRequests;
     private static int _lastFloorIconUpdateStartFloor = -1;
     private static long _actionEditRoutingInvocations;
+    private static long _flashTimelineUpdateRequests;
+    private static long _playbackSetupBuilds;
 
     internal static void EnableAndReset()
     {
@@ -28,6 +32,8 @@ internal static class NativeLevelUpdateDiagnostics
         Interlocked.Exchange(ref _floorIconUpdateRequests, 0);
         Interlocked.Exchange(ref _lastFloorIconUpdateStartFloor, -1);
         Interlocked.Exchange(ref _actionEditRoutingInvocations, 0);
+        Interlocked.Exchange(ref _flashTimelineUpdateRequests, 0);
+        Interlocked.Exchange(ref _playbackSetupBuilds, 0);
         Volatile.Write(ref _enabled, 1);
     }
 
@@ -37,7 +43,9 @@ internal static class NativeLevelUpdateDiagnostics
         Interlocked.Read(ref _flatSnapshotBuilds),
         Interlocked.Read(ref _floorIconUpdateRequests),
         Volatile.Read(ref _lastFloorIconUpdateStartFloor),
-        Interlocked.Read(ref _actionEditRoutingInvocations));
+        Interlocked.Read(ref _actionEditRoutingInvocations),
+        Interlocked.Read(ref _flashTimelineUpdateRequests),
+        Interlocked.Read(ref _playbackSetupBuilds));
 
     internal static void Disable() => Volatile.Write(ref _enabled, 0);
 
@@ -72,5 +80,17 @@ internal static class NativeLevelUpdateDiagnostics
     {
         if (Volatile.Read(ref _enabled) != 0)
             Interlocked.Increment(ref _actionEditRoutingInvocations);
+    }
+
+    internal static void RecordFlashTimelineUpdateRequest()
+    {
+        if (Volatile.Read(ref _enabled) != 0)
+            Interlocked.Increment(ref _flashTimelineUpdateRequests);
+    }
+
+    internal static void RecordPlaybackSetupBuild()
+    {
+        if (Volatile.Read(ref _enabled) != 0)
+            Interlocked.Increment(ref _playbackSetupBuilds);
     }
 }

@@ -438,7 +438,7 @@ public partial class MainWindow
 
         int[] selection = _selection.SelectedFloors.ToArray();
         editor.AddAction(primary, eventType);
-        RefreshEditorAfterMutation(primary, selection);
+        RefreshEditorAfterMutation(primary, selection, editor.TakeLastActionChange());
 
         EventList.SelectedItem = EventList.Items
             .Cast<EventListItem>()

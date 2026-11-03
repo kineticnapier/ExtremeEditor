@@ -76,7 +76,9 @@ public static class VfxTimelineBuilder
         ArgumentNullException.ThrowIfNull(timing);
         ArgumentNullException.ThrowIfNull(includeEvent);
         double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
-        double[] entryBeats = BuildEntryBeats(timing);
+        // Entry beats are a floor-sized prefix sum. Only floor-style
+        // RepeatEvents expansion reads them, so most timelines never build it.
+        var entryBeats = new Lazy<double[]>(() => BuildEntryBeats(timing));
         var occurrences = new List<VfxOccurrence>();
         var repeats = new List<VfxRepeatDescriptor>();
         var repeatsByFloorAndTag = new Dictionary<(int Floor, string Tag), VfxRepeatDescriptor>();
@@ -159,7 +161,7 @@ public static class VfxTimelineBuilder
         VfxRepeatDescriptor repeat,
         TimingMap timing,
         double pitch,
-        IReadOnlyList<double> entryBeats,
+        Lazy<double[]> entryBeats,
         List<VfxOccurrence> destination)
     {
         int count = repeat.RepeatType == VfxRepeatType.Beat
@@ -193,7 +195,7 @@ public static class VfxTimelineBuilder
             else
             {
                 repeatAngleOffset =
-                    (entryBeats[indexedFloor] - entryBeats[source.Floor]) * 180.0;
+                    (entryBeats.Value[indexedFloor] - entryBeats.Value[source.Floor]) * 180.0;
             }
 
             double effectiveAngleOffset = originalAngleOffset + repeatAngleOffset;

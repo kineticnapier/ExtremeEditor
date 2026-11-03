@@ -934,6 +934,16 @@ internal static class Program
                 return 0;
             }
 
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_FLASH_INCREMENTAL_EDIT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                FlashIncrementalEditRegression.Run();
+                Console.WriteLine("PASS: incremental Flash action-edit regression is valid.");
+                return 0;
+            }
+
             FocusedTestDispatchRegression.Run();
             SongSettingsAudioAsyncRegression.Run();
             IncrementalActionPropertyEditRegression.Run();
@@ -944,6 +954,7 @@ internal static class Program
             EditorFloorClipboardRegression.Run();
             PositionTrackDragRegression.Run();
             TwirlToggleRegression.Run();
+            FlashIncrementalEditRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             AdoFaiHistoryShortcutRegression.Run();

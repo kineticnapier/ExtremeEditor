@@ -147,6 +147,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
     internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
     internal NativeLevelSnapshot? SnapshotForDiagnostics => _snapshot;
+    internal NativeFlashEvent[] FlashTimelineForDiagnostics => _flashTimeline;
 
     public bool FollowPlayer
     {
@@ -272,6 +273,36 @@ public sealed partial class NativeLevelViewport : HwndHost
             resolved.CcwBeforeFloorSuffix.Length);
         _level = level;
         NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(startFloor);
+        return true;
+    }
+
+    // A Flash edit changes only the Flash timeline and, at most, the icon of
+    // the edited floor. Rebuild those from the unchanged timing map instead of
+    // replacing the floor-sized snapshot and every playback timeline.
+    internal bool TryUpdateFlashTimeline(LevelDocument level, TimingMap timingMap, int iconFloor)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timingMap);
+        if (_snapshot is null ||
+            !ReferenceEquals(_level, level) ||
+            timingMap.Floors.Count != level.FloorCount ||
+            !FloorIconResolver.TryResolveFloor(level, _snapshot, iconFloor, out NativeFloorIconState icon))
+        {
+            return false;
+        }
+
+        NativeFlashEvent[] flashTimeline = FlashTimelineBuilder.Build(level, timingMap);
+        _playbackAnchorGate.Invalidate();
+        // Keep the managed icon in step with the native one before the
+        // timeline upload, which may still throw.
+        if (_session is not null && !_session.UpdateFloorIcons(iconFloor, [icon]))
+            return false;
+        icon.ApplyTo(ref _snapshot.Floors[iconFloor]);
+
+        _session?.SetFlashTimeline(flashTimeline);
+        _flashTimeline = flashTimeline;
+        NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(iconFloor);
+        NativeLevelUpdateDiagnostics.RecordFlashTimelineUpdateRequest();
         return true;
     }
 

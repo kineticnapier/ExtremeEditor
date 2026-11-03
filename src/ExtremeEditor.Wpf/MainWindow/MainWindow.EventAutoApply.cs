@@ -145,6 +145,20 @@ public partial class MainWindow
 
         StopPlayback();
 
+        // Flash edits update only the Flash timeline and the edited floor's
+        // icon. A failed fast path has already replaced the native level and
+        // continues below, where the Flash edit refreshes playback timelines.
+        if (EnsureEditorSession()?.TakeLastActionChange() is EditorActionChange change &&
+            NativeActionEditUpdate.CreatePlan(change.Before, change.After).Kind ==
+                NativeActionEditKind.FlashTimeline &&
+            NativeActionEditUpdate.Apply(NativeViewport, _level, change.Before, change.After, _timingMap) ==
+                NativeActionEditKind.FlashTimeline)
+        {
+            UpdateEditorStatus();
+            CommandManager.InvalidateRequerySuggested();
+            return;
+        }
+
         bool timingChanged = AffectsEditorTiming(before) || AffectsEditorTiming(after);
         bool cameraChanged = IsCameraEvent(before.EventType) || IsCameraEvent(after.EventType);
         bool hitSoundChanged = timingChanged ||
