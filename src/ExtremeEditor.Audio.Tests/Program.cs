@@ -23,6 +23,7 @@ RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
 RunSongPitchRateChecks();
+RunNonFiniteSongVolumeChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -80,6 +81,47 @@ static void RunClockChecks()
     double audio = PlaybackClock.ChartToAudioTime(level, 2.0);
     Near(0.25, audio, "separate countdown chart-to-audio");
     Near(2.0, PlaybackClock.AudioToChartTime(level, audio), "clock round trip");
+}
+
+static void RunNonFiniteSongVolumeChecks()
+{
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 1.0)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+
+    foreach (double volume in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+    {
+        var plan = new OfflineAudioRenderPlan(level, timing, timeline, null, 0.0, 1.0, volume);
+        try
+        {
+            plan.Validate();
+            throw new InvalidOperationException("Non-finite offline song volume was accepted.");
+        }
+        catch (ArgumentOutOfRangeException ex) when (
+            ex.ParamName == nameof(OfflineAudioRenderPlan.SongVolumePercent))
+        {
+            // Invalid volume must be rejected before any PCM rendering begins.
+        }
+
+        var song = new AudioGraphFactory.FiniteSilentSampleProvider(format) { TotalFrames = 1_000 };
+        try
+        {
+            _ = AudioGraphFactory.Build(
+                song, null, null, null, null, 1_000, volume, 1.0, false);
+            throw new InvalidOperationException("Non-finite audio graph volume was accepted.");
+        }
+        catch (ArgumentOutOfRangeException ex) when (ex.ParamName == "songVolumePercent")
+        {
+            // Preview and export must not propagate NaN into audio samples.
+        }
+    }
+
+    foreach (double volume in new[] { 0.0, 100.0 })
+    {
+        new OfflineAudioRenderPlan(level, timing, timeline, null, 0.0, 1.0, volume)
+            .Validate();
+    }
 }
 
 static void RunSongPitchRateChecks()
