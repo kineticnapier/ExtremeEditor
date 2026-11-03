@@ -99,6 +99,16 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 nameof(chunk));
         }
 
+        ArgumentNullException.ThrowIfNull(chunk.Samples);
+        // Partial interleaved frames shift subsequent channel boundaries.
+        // Reject malformed chunks before writing any PCM bytes.
+        if (chunk.Samples.Length % startInfo.AudioChannels != 0)
+        {
+            throw new ArgumentException(
+                "Audio chunk must contain complete sample frames.",
+                nameof(chunk));
+        }
+
         int byteCount = checked(chunk.Samples.Length * sizeof(float));
         byte[] bytes = ArrayPool<byte>.Shared.Rent(byteCount);
         try
