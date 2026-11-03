@@ -173,11 +173,11 @@ inline ScreenColorMatrix ComposeColorMatrices(
     return result;
 }
 
-// Rec. 601 luma weights. The stock grayscale shader is compiled into the
-// game's resources and was not decoded, so the exact weights are unverified.
-inline constexpr float GrayscaleWeightR = 0.299f;
-inline constexpr float GrayscaleWeightG = 0.587f;
-inline constexpr float GrayscaleWeightB = 0.114f;
+// Luma weights of CameraFilterPackLegacy/Color_GrayScale and Color_Sepia,
+// decoded from the stock pixel shaders in the game's resources.assets.
+inline constexpr float GrayscaleWeightR = 0.222f;
+inline constexpr float GrayscaleWeightG = 0.707f;
+inline constexpr float GrayscaleWeightB = 0.071f;
 
 // Combines the enabled filters that are a per-pixel colour transform into
 // one matrix, in ascending Filter id order. Stock applies each filter as its
@@ -217,7 +217,7 @@ inline bool BuildScreenFilterColorMatrix(
     if (sepia.enabled)
     {
         const float amount = sepia.intensity;
-        const float weights[3] = {0.222f, 0.707f, 0.071f};
+        const float weights[3] = {GrayscaleWeightR, GrayscaleWeightG, GrayscaleWeightB};
         const float tint[3] = {0.437f, 0.171f, 0.078f};
         ScreenColorMatrix tone = ScreenColorMatrix::Identity();
         for (int out = 0; out < 3; ++out)

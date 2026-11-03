@@ -389,7 +389,8 @@ int main()
             const float r = source[i];
             const float g = source[i + 1u];
             const float b = source[i + 2u];
-            const float luma = 0.299f * r + 0.587f * g + 0.114f * b;
+            // CameraFilterPackLegacy/Color_GrayScale weights, decoded from the stock shader.
+            const float luma = 0.222f * r + 0.707f * g + 0.071f * b;
             const float expected[3] =
             {
                 r + (luma - r) * grayscale,
@@ -517,6 +518,37 @@ int main()
         std::cerr << "Screen filter was not applied after foreground Flash.\n";
         destroy_headless();
         return 1;
+    }
+
+    // A saturated colour separates the stock grayscale weights from other
+    // luma conventions: pure green becomes 0.707 * 255.
+    EeFlashEvent green_flash{};
+    green_flash.start_color = 0x00ff00u;
+    green_flash.end_color = 0x00ff00u;
+    green_flash.start_opacity = 1.0f;
+    green_flash.end_opacity = 1.0f;
+    green_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    EeFilterEvent full_grayscale{};
+    full_grayscale.filter = ee::FilterGrayscale;
+    full_grayscale.target_intensity = 1.0f;
+    full_grayscale.enabled = 1u;
+    if (ee_renderer_set_flash_timeline(headless, &green_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, &full_grayscale, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame))
+    {
+        std::cerr << "Green Flash grayscale render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    for (std::size_t i = 0; i < filter_frame.size(); ++i)
+    {
+        if (std::abs(static_cast<float>(filter_frame[i]) - 0.707f * 255.0f) > 2.0f)
+        {
+            std::cerr << "Grayscale of pure green is " << static_cast<unsigned>(filter_frame[i])
+                      << ", expected stock weight 0.707.\n";
+            destroy_headless();
+            return 1;
+        }
     }
 
     // Sepia and Contrast follow the stock CameraFilterPackLegacy shaders:
