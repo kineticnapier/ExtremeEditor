@@ -27,6 +27,9 @@ public sealed record OfflineAudioRenderPlan(
             throw new ArgumentOutOfRangeException(nameof(EndAudioTimeSeconds));
         if (ChunkFrames <= 0)
             throw new ArgumentOutOfRangeException(nameof(ChunkFrames));
+        // Non-finite volume would propagate NaN into the exported PCM samples.
+        if (!double.IsFinite(SongVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
 }
 
