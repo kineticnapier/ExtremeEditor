@@ -7,7 +7,9 @@ ExtremeEditor は、非常に大規模な A Dance of Fire and Ice
 製品版アプリケーションは WPF とネイティブ C++ ビューポートで構成されており、
 Unity、UMM、Harmony、Workbench への実行時依存はありません。
 
-現在のバージョンは `0.0.484-prototype` です。既定の開発ブランチは `main` です。
+現在のバージョンは `src/ExtremeEditor.Core/EditorVersion.cs` で定義されています。
+この文書が古くならないよう、番号はここには書きません。
+既定の開発ブランチは `main` です。
 WinForms から WPF への移行と、旧 WinForms ホストの削除は完了しています。
 
 ## リリース
@@ -15,8 +17,10 @@ WinForms から WPF への移行と、旧 WinForms ホストの削除は完了�
 公開ビルドは現在 **alpha 品質** です。最初の公開リリース系列は
 `v0.1.0-alpha.*` です。
 
-リリース ZIP は Windows x64 向けの自己完結型ビルドとして公開する想定で、
-.NET ランタイムを別途インストールする必要はありません。
+リリース ZIP は Windows x64 向けの自己完結型ビルドとして公開する予定で、
+その場合は .NET ランタイムを別途インストールする必要はありません。
+ただし、現在 CI が生成するポータブル版は自己完結型では**ありません**
+（`.github/workflows/ci.yml` の `--self-contained false`）。実行には .NET 8 Desktop Runtime が必要です。
 ExtremeEditor は ADOFAI のゲームアセットを再配布しません。アセットセットアップでは、
 合法的にインストールされたローカルの ADOFAI から読み込みます。
 
@@ -93,6 +97,30 @@ ExtremeEditor.NativeRenderer.dll (C++)
 オーディオ、選択状態は C# が管理します。C++ は製品版ビューポートの描画、
 カリング、ヒットテスト、カメラ操作、ネイティブ入力を担当します。
 両者の間では不変なネイティブスナップショットをフラットな P/Invoke 境界で渡します。
+
+ただし、再生時の惑星の姿勢と公転半径は、現状その境界の両側で計算されています。
+C# 側の `TimingMap.GetPose()` と、C++ 側の `CalculatePlaybackVisual()` です。
+両者は一致している必要があります。食い違いが残っている場合は
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md) で管理しています。
+この文書は日付付きのスナップショットなので、現在のコードと照らして確認してください。
+
+## ソリューション構成
+
+`.sln` ファイルはなく、`src/` 以下の各プロジェクトを個別の `.csproj`
+（ネイティブレンダラーは CMake）でビルドします。
+
+| プロジェクト | 役割 |
+| --- | --- |
+| `ExtremeEditor.Wpf` | 製品版 WPF アプリと、ネイティブビューポートのマネージド側。 |
+| `ExtremeEditor.NativeRenderer` | C++ レンダラー DLL（D3D11 / DXGI / Direct2D）。CMake でビルド。ヘッドレス描画の export も持つ。 |
+| `ExtremeEditor.Core` | レベルドキュメント、`.adofai` 読込、タイミングマップ、共通の編集モデル。UI には依存しない。 |
+| `ExtremeEditor.Audio` | 曲とヒット音の再生、オフラインレンダリング。 |
+| `ExtremeEditor.Rendering` | 床ジオメトリ、スプライト/テクスチャのメタデータ、アセットキャッシュ型、WPF プロジェクトが使う GDI レンダラー。 |
+| `ExtremeEditor.AssetExtractor` | ローカルの ADOFAI からアセットを抽出する独立した実行ファイル（アセットセットアップ参照）。 |
+| `ExtremeEditor.Headless` | ネイティブレンダラーで譜面の1フレームを PNG に描画するコマンドラインツール。動画出力の基盤の一部で、開発中。 |
+| `ExtremeEditor.Bench` | ヘッドレスの Core ベンチマーク。 |
+| `ExtremeEditor.AssetIndexer` | ADOFAI の Unity アセットとアセンブリを調査する開発者向けツール。アプリには同梱しない。 |
+| `*.Tests` | Core、Audio、Wpf、AssetExtractor の回帰テスト。 |
 
 `src/ExtremeEditor.Wpf/LevelViewport*.cs` は、旧 WPF の temporal/raster 描画経路との
 比較および回帰テスト用に意図的に残されています。
@@ -182,6 +210,10 @@ ExtremeEditor はまだ本家エディタの完全な byte-for-byte 代替では
 - 旧 WinForms ホストの削除
 - README と移行ドキュメントの整理
 - UI 整理と診断表示の簡素化
+
+未完了の作業は
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md) にまとめています。
+この文書は日付付きのスナップショットなので、現在のコードと照らして確認してください。
 
 詳細な設計・実装資料は `docs/superpowers` 以下にありますが、これらは過去時点のスナップショットです。
 利用前に `docs/README.md` を参照してください。そこにあるチェックリストやコマンドは
