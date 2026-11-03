@@ -297,10 +297,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             if (endFrame <= 0 || startFrame >= totalFrames)
                 continue;
 
-            float volume = (float)Math.Clamp(
-                (action.HitSoundVolumePercent ?? 100.0) * 0.01,
-                0.0,
-                1.0);
+            double requestedVolume = action.HitSoundVolumePercent ?? 100.0;
+            // Malformed chart volume must not poison the shared PCM bus with NaN.
+            float volume = double.IsFinite(requestedVolume)
+                ? (float)Math.Clamp(requestedVolume * 0.01, 0.0, 1.0)
+                : 0f;
             hits.Add(new ScheduledHit(clip, startFrame, volume));
             sourceHitCount++;
         }
@@ -314,7 +315,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         out RenderedHitSound? clip,
         out float volume)
     {
-        volume = (float)Math.Clamp(state.Volume, 0.0, 1.0);
+        // Math.Clamp(NaN, ...) remains NaN; treat malformed chart state as muted.
+        volume = double.IsFinite(state.Volume)
+            ? (float)Math.Clamp(state.Volume, 0.0, 1.0)
+            : 0f;
         if (string.Equals(state.Name, "None", StringComparison.OrdinalIgnoreCase))
         {
             clip = null;
