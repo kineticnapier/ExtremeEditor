@@ -231,7 +231,7 @@ internal static class FilterStateEvaluator
         return filter switch
         {
             3 => ScaleFinite(0.212f, intensity),
-            7 => MathF.Round(ScaleFinite(5f, intensity)),
+            7 => MathF.Round(ScaleFinite(5f, intensity), MidpointRounding.AwayFromZero),
             8 => ScaleFinite(0.5f, intensity),
             10 => 0.9f + ScaleFinite(0.1f, intensity),
             11 => ScaleFinite(3f, intensity),
