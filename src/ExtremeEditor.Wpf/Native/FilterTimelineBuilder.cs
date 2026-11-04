@@ -168,22 +168,36 @@ internal static class FilterStateEvaluator
         return result;
     }
 
-    internal static float ApplyFilterIntensity(uint filter, float intensity) => filter switch
+    internal static float ApplyFilterIntensity(uint filter, float intensity)
     {
-        3 => 0.212f * intensity,
-        7 => MathF.Round(5f * intensity),
-        8 => 0.5f * intensity,
-        10 => 0.9f + 0.1f * intensity,
-        11 => 3f * intensity,
-        13 => 4f * intensity,
-        14 => 10f * intensity,
-        16 => 32f * intensity,
-        17 => 0.375f * intensity,
-        19 => 0.04f * intensity - 0.02f,
-        27 => 2f * intensity,
-        31 => 20f * intensity,
-        33 => 1f + intensity,
-        38 => 2.4f * intensity,
-        _ => intensity
-    };
+        if (!float.IsFinite(intensity))
+            return 0f;
+
+        return filter switch
+        {
+            3 => ScaleFinite(0.212f, intensity),
+            7 => MathF.Round(ScaleFinite(5f, intensity)),
+            8 => ScaleFinite(0.5f, intensity),
+            10 => 0.9f + ScaleFinite(0.1f, intensity),
+            11 => ScaleFinite(3f, intensity),
+            13 => ScaleFinite(4f, intensity),
+            14 => ScaleFinite(10f, intensity),
+            16 => ScaleFinite(32f, intensity),
+            17 => ScaleFinite(0.375f, intensity),
+            19 => ScaleFinite(0.04f, intensity) - 0.02f,
+            27 => ScaleFinite(2f, intensity),
+            31 => ScaleFinite(20f, intensity),
+            33 => 1f + intensity,
+            38 => ScaleFinite(2.4f, intensity),
+            _ => intensity
+        };
+    }
+
+    private static float ScaleFinite(float multiplier, float intensity)
+    {
+        // Widen before multiplication: finite float inputs may overflow float
+        // when a filter applies its effect-specific multiplier.
+        double scaled = (double)multiplier * intensity;
+        return (float)Math.Clamp(scaled, -(double)float.MaxValue, (double)float.MaxValue);
+    }
 }
