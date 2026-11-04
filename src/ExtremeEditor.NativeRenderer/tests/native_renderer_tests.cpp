@@ -24,7 +24,7 @@ int main()
             {
                 if (!std::isfinite(ee::ApplyFilterIntensity(filter, intensity)))
                 {
-                    std::cerr << "SetFilter native effect scaling overflowed.\\n";
+                    std::cerr << "SetFilter native effect scaling overflowed.\n";
                     return 1;
                 }
             }
@@ -40,7 +40,7 @@ int main()
             std::abs(ee::ApplyFilterIntensity(19u, 0.5f)) > 1e-6f ||
             ee::ApplyFilterIntensity(16u, std::numeric_limits<float>::infinity()) != 0.0f)
         {
-            std::cerr << "SetFilter native effect scaling or LED rounding regressed.\\n";
+            std::cerr << "SetFilter native effect scaling or LED rounding regressed.\n";
             return 1;
         }
     }
