@@ -3,8 +3,10 @@
 #include "extreme_editor_renderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 // SetFilter state and screen-space colour filters.
 //
@@ -132,10 +134,15 @@ inline FilterVisualState ResolveScreenFilters(
         if (!tween.active)
             continue;
         const double raw = std::clamp((chart_time - tween.start) / tween.duration, 0.0, 1.0);
-        const double progress = ease != nullptr ? ease(tween.ease, raw) : raw;
+        const double eased = ease != nullptr ? ease(tween.ease, raw) : raw;
+        // Back/elastic easing can overshoot the endpoints. Keep that motion,
+        // but never narrow an out-of-range double to an infinite float.
+        const double progress = std::isfinite(eased) ? eased : raw;
+        const double value = static_cast<double>(tween.from) +
+            (static_cast<double>(tween.to) - tween.from) * progress;
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
         result.entries[filter].intensity = static_cast<float>(
-            static_cast<double>(tween.from) +
-            (static_cast<double>(tween.to) - tween.from) * progress);
+            std::clamp(value, -limit, limit));
     }
     return result;
 }
