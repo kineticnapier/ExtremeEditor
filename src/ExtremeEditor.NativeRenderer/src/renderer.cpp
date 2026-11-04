@@ -1,3 +1,4 @@
+#include "bloom_interpolation.h"
 #include "renderer.h"
 #include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
@@ -549,13 +550,14 @@ BloomVisualState ResolveBloomAtTime(
         const double raw = item.duration_seconds <= 1e-9
             ? 1.0
             : (chart_time - item.start_time) / item.duration_seconds;
-        const double progress = ApplyFlashEase(item.ease, raw);
+        const double eased = ApplyFlashEase(item.ease, raw);
+        const double progress = std::isfinite(eased) ? eased : 0.0;
 
         result.enabled = item.enabled != 0u;
-        result.threshold = start_threshold +
-            (item.threshold - start_threshold) * static_cast<float>(progress);
-        result.intensity = start_intensity +
-            (item.intensity - start_intensity) * static_cast<float>(progress);
+        result.threshold = ee::InterpolateBloomFinite(
+            start_threshold, item.threshold, progress);
+        result.intensity = ee::InterpolateBloomFinite(
+            start_intensity, item.intensity, progress);
         result.tint = LerpBloomColor(start_tint, item.tint, progress);
         previous = &item;
     }
