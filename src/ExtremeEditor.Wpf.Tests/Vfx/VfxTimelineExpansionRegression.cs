@@ -34,6 +34,7 @@ internal static class VfxTimelineExpansionRegression
         VerifyHugeFloorRepeatStopsAtChartEnd();
         VerifyBeatRepeatExpansionBudgetBoundary();
         VerifyBeatRepeatBudgetAccumulatesAcrossSources();
+        VerifyUnresolvedCrossFloorRepeatBudget();
     }
 
     private static void VerifyExtremeBeatRepeatRejected()
@@ -144,6 +145,59 @@ internal static class VfxTimelineExpansionRegression
 
         throw new InvalidOperationException(
             "RepeatEvents must apply the expansion budget across all matching sources.");
+    }
+
+    private static void VerifyUnresolvedCrossFloorRepeatBudget()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "orphan"),
+            CreateVfx(1, 2, 0, "orphan extra"),
+            CreateRepeat(2, 1, "Beat", "orphan", active: true,
+                repetitions: 1, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        // An unused cross-floor RepeatEvents retains one unresolved
+        // association. Its exact tag must not match a multi-tag string.
+        VfxOccurrence[] unresolved = VfxTimelineBuilder.Build(level).Occurrences
+            .Where(item => item.RepeatSourceIndex == 1).ToArray();
+        if (unresolved.Length != 1 ||
+            unresolved[0].SourceIndex != 0 ||
+            unresolved[0].RepeatIteration != -1 ||
+            unresolved[0].RepeatPlacementIsResolved)
+        {
+            throw new InvalidOperationException(
+                "Cross-floor RepeatEvents must preserve exact-tag unresolved association semantics.");
+        }
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "bulk"),
+            CreateRepeat(1, 1, "Beat", "bulk", active: true,
+                repetitions: 199_999, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false),
+            CreateVfx(1, 2, 0, "orphan"),
+            CreateRepeat(2, 3, "Beat", "orphan", active: true,
+                repetitions: 1, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 3", StringComparison.Ordinal) &&
+            ex.Message.Contains("200000", StringComparison.Ordinal) &&
+            ex.Message.Contains("unresolved cross-floor association", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "Unresolved cross-floor RepeatEvents must share the executable expansion budget.");
     }
 
     private static LevelDocument CreateFixture()
