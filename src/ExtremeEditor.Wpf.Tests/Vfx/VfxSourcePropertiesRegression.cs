@@ -229,7 +229,10 @@ internal static class VfxSourcePropertiesRegression
 
         if (FilterStateEvaluator.ApplyFilterIntensity(16, float.MaxValue) != float.MaxValue ||
             FilterStateEvaluator.ApplyFilterIntensity(31, -float.MaxValue) != -float.MaxValue ||
-            FilterStateEvaluator.ApplyFilterIntensity(7, 0.5f) != 2f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, 0.5f) != 3f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, -0.5f) != -3f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, 0.1f) != 1f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, -0.1f) != -1f ||
             Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(10, 0.5f) - 0.95f) > 1e-6f ||
             Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(19, 0.5f)) > 1e-6f)
         {
