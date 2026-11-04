@@ -40,6 +40,7 @@ internal static class VfxSourcePropertiesRegression
             VerifyEditOverridesLoadedValues(path);
             VerifyNonFiniteVisualParametersFallback();
             VerifyFiniteInterpolationWithOpposingExtremes();
+            VerifyBloomEaseAndFiniteOvershoot();
             VerifyFiniteFilterEffectScaling();
             VerifyFilterInterruptionMatchesNative();
             VerifyFilterNonlinearEaseMatchesNative();
@@ -210,6 +211,65 @@ internal static class VfxSourcePropertiesRegression
         if (!float.IsFinite(tile.TileX) || !float.IsFinite(tile.TileY) ||
             Math.Abs(tile.TileX) > 1e30f || Math.Abs(tile.TileY) > 1e30f)
             throw new InvalidOperationException("ScreenTile interpolation overflowed finite endpoints.");
+    }
+
+    private static void VerifyBloomEaseAndFiniteOvershoot()
+    {
+        NativeBloomState eased = BloomStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeBloomEvent
+                {
+                    StartTime = 0, DurationSeconds = 4, Enabled = 1,
+                    Threshold = 1f, Intensity = 1f,
+                    Ease = NativeCameraEvent.EaseInQuad
+                }
+            }, 1.0);
+        if (!eased.Enabled || Math.Abs(eased.Threshold - 0.0625f) > 1e-6f ||
+            Math.Abs(eased.Intensity - 0.0625f) > 1e-6f)
+            throw new InvalidOperationException("Bloom ignored its native InQuad easing.");
+
+        const float large = 2e38f;
+        NativeBloomEvent[] opposing =
+        [
+            new NativeBloomEvent
+            {
+                StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                Threshold = -large, Intensity = large
+            },
+            new NativeBloomEvent
+            {
+                StartTime = 1, DurationSeconds = 2, Enabled = 1,
+                Threshold = large, Intensity = -large
+            }
+        ];
+        NativeBloomState midpoint = BloomStateEvaluator.Evaluate(opposing, 2.0);
+        if (!float.IsFinite(midpoint.Threshold) || !float.IsFinite(midpoint.Intensity) ||
+            Math.Abs(midpoint.Threshold) > 1e30f || Math.Abs(midpoint.Intensity) > 1e30f)
+            throw new InvalidOperationException("Bloom overflowed finite opposing endpoints.");
+
+        NativeBloomEvent[] overshoot =
+        [
+            new NativeBloomEvent
+            {
+                StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                Threshold = -float.MaxValue, Intensity = float.MaxValue
+            },
+            new NativeBloomEvent
+            {
+                StartTime = 1, DurationSeconds = 2, Enabled = 1,
+                Threshold = float.MaxValue, Intensity = -float.MaxValue,
+                Ease = NativeCameraEvent.EaseOutBack
+            }
+        ];
+        NativeBloomState beyond = BloomStateEvaluator.Evaluate(overshoot, 2.5);
+        if (beyond.Threshold != float.MaxValue || beyond.Intensity != -float.MaxValue)
+            throw new InvalidOperationException("Bloom overshoot was not saturated to finite values.");
+
+        NativeBloomState invalidClock = BloomStateEvaluator.Evaluate(overshoot, double.NaN);
+        if (invalidClock.Enabled || invalidClock.Threshold != 0f ||
+            invalidClock.Intensity != 0f || invalidClock.Tint != 0xffffffu)
+            throw new InvalidOperationException("NaN Bloom clock changed the default state.");
     }
 
     private static void VerifyFiniteFilterEffectScaling()
