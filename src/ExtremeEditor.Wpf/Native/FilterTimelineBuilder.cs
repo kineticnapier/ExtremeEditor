@@ -129,30 +129,80 @@ internal static class FilterTimelineBuilder
 
 internal static class FilterStateEvaluator
 {
+    // Match the native filter timeline: a new event completes the prior tween,
+    // while a disabled filter begins its next tween at its stock default.
     internal static NativeFilterState[] Evaluate(IReadOnlyList<NativeFilterEvent> events, double chartTime)
     {
+        ArgumentNullException.ThrowIfNull(events);
+
         var intensity = new float[41];
         var enabled = new bool[41];
+        var tweenFrom = new float[41];
+        var activeTweens = new NativeFilterEvent?[41];
+        for (int i = 0; i < intensity.Length; i++)
+            intensity[i] = DefaultIntensity(i);
 
-        foreach (NativeFilterEvent item in events)
+        if (!double.IsNaN(chartTime))
         {
-            if (item.StartTime > chartTime || item.Filter >= 41)
-                continue;
-
-            int index = checked((int)item.Filter);
-            if ((item.Flags & NativeFilterEvent.FlagDisableOthers) != 0)
+            foreach (NativeFilterEvent item in events)
             {
-                for (int i = 0; i < enabled.Length; i++)
-                    if (i != index)
-                        enabled[i] = false;
+                if (!double.IsFinite(item.StartTime) ||
+                    !double.IsFinite(item.DurationSeconds) ||
+                    !float.IsFinite(item.TargetIntensity) ||
+                    item.StartTime > chartTime || item.Filter >= 41)
+                    continue;
+
+                int index = checked((int)item.Filter);
+                if (activeTweens[index] is NativeFilterEvent interrupted)
+                {
+                    intensity[index] = interrupted.TargetIntensity;
+                    enabled[index] = interrupted.Enabled != 0;
+                    activeTweens[index] = null;
+                }
+
+                if (item.DurationSeconds <= 1e-9)
+                {
+                    intensity[index] = item.TargetIntensity;
+                    enabled[index] = item.Enabled != 0;
+                }
+                else
+                {
+                    if (!enabled[index])
+                        intensity[index] = DefaultIntensity(index);
+                    tweenFrom[index] = intensity[index];
+                    activeTweens[index] = item;
+                    enabled[index] = item.Enabled != 0;
+                }
+
+                if ((item.Flags & NativeFilterEvent.FlagDisableOthers) != 0)
+                {
+                    for (int other = 0; other < enabled.Length; other++)
+                    {
+                        if (other == index)
+                            continue;
+                        if (activeTweens[other] is NativeFilterEvent pending)
+                        {
+                            intensity[other] = pending.TargetIntensity;
+                            activeTweens[other] = null;
+                        }
+                        enabled[other] = false;
+                    }
+                }
             }
 
-            double progress = item.DurationSeconds <= 1e-9
-                ? 1.0
-                : Math.Clamp((chartTime - item.StartTime) / item.DurationSeconds, 0.0, 1.0);
-            intensity[index] = (float)((double)intensity[index] +
-                ((double)item.TargetIntensity - intensity[index]) * progress);
-            enabled[index] = item.Enabled != 0;
+            for (int i = 0; i < activeTweens.Length; i++)
+            {
+                if (activeTweens[i] is not NativeFilterEvent tween)
+                    continue;
+                // This diagnostic evaluator uses linear interpolation. The
+                // native renderer additionally applies each event's ease.
+                double progress = Math.Clamp(
+                    (chartTime - tween.StartTime) / tween.DurationSeconds, 0.0, 1.0);
+                double value = (double)tweenFrom[i] +
+                    ((double)tween.TargetIntensity - tweenFrom[i]) * progress;
+                intensity[i] = (float)Math.Clamp(
+                    value, -(double)float.MaxValue, (double)float.MaxValue);
+            }
         }
 
         var result = new NativeFilterState[41];
@@ -160,13 +210,18 @@ internal static class FilterStateEvaluator
         {
             uint filter = checked((uint)i);
             result[i] = new NativeFilterState(
-                filter,
-                enabled[i],
-                intensity[i],
-                ApplyFilterIntensity(filter, intensity[i]));
+                filter, enabled[i], intensity[i], ApplyFilterIntensity(filter, intensity[i]));
         }
         return result;
     }
+
+    private static float DefaultIntensity(int filter) => filter switch
+    {
+        7 or 9 => 1f,
+        13 => 0.01f,
+        18 or 19 => 0.5f,
+        _ => 0f
+    };
 
     internal static float ApplyFilterIntensity(uint filter, float intensity)
     {
