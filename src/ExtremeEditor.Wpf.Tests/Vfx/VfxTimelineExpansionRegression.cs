@@ -31,6 +31,7 @@ internal static class VfxTimelineExpansionRegression
         VerifyDeterministicEnumeration(first, second);
         VerifySourceWasNotMutated(level, before);
         VerifyExtremeBeatRepeatRejected();
+        VerifyNonFiniteRepeatInputsRejected();
         VerifyHugeFloorRepeatStopsAtChartEnd();
         VerifyBeatRepeatExpansionBudgetBoundary();
         VerifyBeatRepeatBudgetAccumulatesAcrossSources();
@@ -61,6 +62,54 @@ internal static class VfxTimelineExpansionRegression
 
         throw new InvalidOperationException(
             "An excessive Beat RepeatEvents must fail before allocating occurrences.");
+    }
+
+    private static void VerifyNonFiniteRepeatInputsRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        foreach (string interval in new[] { "Infinity", "NaN" })
+        {
+            LevelAction repeat = CreateRepeat(1, 1, "Beat", "bad-interval",
+                active: true, repetitions: 1, interval: null, floorCount: null,
+                executeOnCurrentFloor: false);
+            repeat.PropertyOverrides!["interval"] = interval;
+            level.ReplaceActions([CreateVfx(1, 0, 0, "bad-interval"), repeat]);
+
+            try
+            {
+                _ = VfxTimelineBuilder.Build(level);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("source index 1", StringComparison.Ordinal) &&
+                ex.Message.Contains("non-finite interval", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"RepeatEvents must reject the non-finite interval '{interval}'.");
+        }
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "overflow"),
+            CreateRepeat(1, 1, "Beat", "overflow", active: true,
+                repetitions: 1, interval: double.MaxValue, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 1", StringComparison.Ordinal) &&
+            ex.Message.Contains("non-finite angle offset", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "RepeatEvents must reject finite intervals whose angle multiplication overflows.");
     }
 
     private static void VerifyHugeFloorRepeatStopsAtChartEnd()
