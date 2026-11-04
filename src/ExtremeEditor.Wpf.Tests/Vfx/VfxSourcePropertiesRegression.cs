@@ -220,11 +220,16 @@ internal static class VfxSourcePropertiesRegression
             {
                 new NativeBloomEvent
                 {
-                    StartTime = 0, DurationSeconds = 4, Enabled = 1,
+                    StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                    Threshold = 0f, Intensity = 0f
+                },
+                new NativeBloomEvent
+                {
+                    StartTime = 1, DurationSeconds = 4, Enabled = 1,
                     Threshold = 1f, Intensity = 1f,
                     Ease = NativeCameraEvent.EaseInQuad
                 }
-            }, 1.0);
+            }, 2.0);
         if (!eased.Enabled || Math.Abs(eased.Threshold - 0.0625f) > 1e-6f ||
             Math.Abs(eased.Intensity - 0.0625f) > 1e-6f)
             throw new InvalidOperationException("Bloom ignored its native InQuad easing.");
