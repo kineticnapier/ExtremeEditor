@@ -208,6 +208,12 @@ public static class VfxTimelineBuilder
         double interval = repeat.RepeatType == VfxRepeatType.Beat
             ? repeat.Interval ?? 0
             : -1;
+        if (!double.IsFinite(interval))
+        {
+            throw new InvalidOperationException(
+                $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                "has a non-finite interval.");
+        }
         bool beatStyle = interval > 0;
         double originalAngleOffset = source.AngleOffset ?? 0;
 
@@ -252,6 +258,12 @@ public static class VfxTimelineBuilder
             }
 
             double effectiveAngleOffset = originalAngleOffset + repeatAngleOffset;
+            if (!double.IsFinite(repeatAngleOffset) || !double.IsFinite(effectiveAngleOffset))
+            {
+                throw new InvalidOperationException(
+                    $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                    "produced a non-finite angle offset.");
+            }
             destination.Add(CreateOccurrence(
                 source,
                 timing,
