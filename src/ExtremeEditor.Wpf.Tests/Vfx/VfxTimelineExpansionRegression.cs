@@ -32,6 +32,8 @@ internal static class VfxTimelineExpansionRegression
         VerifySourceWasNotMutated(level, before);
         VerifyExtremeBeatRepeatRejected();
         VerifyHugeFloorRepeatStopsAtChartEnd();
+        VerifyBeatRepeatExpansionBudgetBoundary();
+        VerifyBeatRepeatBudgetAccumulatesAcrossSources();
     }
 
     private static void VerifyExtremeBeatRepeatRejected()
@@ -75,6 +77,73 @@ internal static class VfxTimelineExpansionRegression
             .Where(item => item.SourceIndex == 0).ToArray();
         AssertSequenceEqual([1, 2], occurrences.Select(item => item.Floor),
             "Floor RepeatEvents must stop at the last floor even with a huge count.");
+    }
+
+    private static void VerifyBeatRepeatExpansionBudgetBoundary()
+    {
+        // The exact limit must remain valid; the next occurrence must be rejected.
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "limit"),
+            CreateRepeat(1, 1, "Beat", "limit", active: true,
+                repetitions: 199_999, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        VfxTimeline accepted = VfxTimelineBuilder.Build(level);
+        if (ForSource(accepted, 0).Length != 200_000)
+            throw new InvalidOperationException("RepeatEvents must accept exactly 200,000 occurrences.");
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "limit"),
+            CreateRepeat(1, 1, "Beat", "limit", active: true,
+                repetitions: 200_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("200001", StringComparison.Ordinal) &&
+            ex.Message.Contains("200000", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("RepeatEvents must reject 200,001 occurrences.");
+    }
+
+    private static void VerifyBeatRepeatBudgetAccumulatesAcrossSources()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "first"),
+            CreateRepeat(1, 1, "Beat", "first", active: true,
+                repetitions: 100_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false),
+            CreateVfx(1, 2, 0, "second"),
+            CreateRepeat(1, 3, "Beat", "second", active: true,
+                repetitions: 100_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 3", StringComparison.Ordinal) &&
+            ex.Message.Contains("100001", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "RepeatEvents must apply the expansion budget across all matching sources.");
     }
 
     private static LevelDocument CreateFixture()
