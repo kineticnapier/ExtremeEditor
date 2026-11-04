@@ -59,15 +59,20 @@ int main()
 
         const ee::FilterVisualState valid = ee::ResolveScreenFilters(
             malformed, 6u, 1.0, nullptr);
+        const ee::FilterVisualState only_invalid = ee::ResolveScreenFilters(
+            malformed, 5u, 1.0, nullptr);
         const ee::FilterVisualState invalid_clock = ee::ResolveScreenFilters(
             malformed, 6u, nan, nullptr);
         if (!valid.entries[ee::FilterGrayscale].enabled ||
             valid.entries[ee::FilterGrayscale].intensity != 0.75f ||
+            only_invalid.entries[ee::FilterGrayscale].enabled ||
+            only_invalid.entries[ee::FilterGrayscale].intensity !=
+                ee::FilterDefaultIntensity(ee::FilterGrayscale) ||
             invalid_clock.entries[ee::FilterGrayscale].enabled ||
             invalid_clock.entries[ee::FilterGrayscale].intensity !=
                 ee::FilterDefaultIntensity(ee::FilterGrayscale))
         {
-            std::cerr << "SetFilter propagated non-finite event data or clock.\\n";
+            std::cerr << "SetFilter propagated non-finite event data or clock.\n";
             return 1;
         }
     }
