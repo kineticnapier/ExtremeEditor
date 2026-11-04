@@ -128,18 +128,50 @@ public static class VfxTimelineBuilder
         // GREEN-A exposed cross-floor tag association before concrete stock
         // expansion was known. Preserve that non-executable association shape
         // without treating it as a resolved RepeatEvents occurrence.
+        //
+        // Index exact event-tag strings once, rather than scanning every source
+        // for each unused RepeatEvents. Exact matching and source order are
+        // preserved, including tags containing spaces.
+        Dictionary<string, List<LevelAction>>? sourcesByExactTag = null;
         foreach (VfxRepeatDescriptor repeat in repeats)
         {
             if (usedRepeats.Contains(repeat) || string.IsNullOrEmpty(repeat.Tag))
                 continue;
 
-            foreach (LevelAction source in sourceActions)
+            if (sourcesByExactTag is null)
             {
-                string? eventTag = MoveDecorationsTargeting.GetEventTag(source);
-                if (source.Floor == repeat.Floor ||
-                    !string.Equals(eventTag, repeat.Tag, StringComparison.Ordinal))
+                sourcesByExactTag = new Dictionary<string, List<LevelAction>>(StringComparer.Ordinal);
+                foreach (LevelAction source in sourceActions)
                 {
+                    string? eventTag = MoveDecorationsTargeting.GetEventTag(source);
+                    if (string.IsNullOrEmpty(eventTag))
+                        continue;
+                    if (!sourcesByExactTag.TryGetValue(eventTag, out List<LevelAction>? taggedSources))
+                    {
+                        taggedSources = [];
+                        sourcesByExactTag.Add(eventTag, taggedSources);
+                    }
+                    taggedSources.Add(source);
+                }
+            }
+
+            if (!sourcesByExactTag.TryGetValue(repeat.Tag, out List<LevelAction>? matches) ||
+                matches is null)
+                continue;
+
+            foreach (LevelAction source in matches)
+            {
+                if (source.Floor == repeat.Floor)
                     continue;
+
+                // Unresolved associations also allocate occurrences. They must
+                // share the same limit as executable Beat/Floor expansions.
+                if (repeatedOccurrences >= MaxRepeatedOccurrencesPerTimeline)
+                {
+                    throw new InvalidOperationException(
+                        $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                        $"would exceed the timeline limit of {MaxRepeatedOccurrencesPerTimeline} " +
+                        "occurrences with an unresolved cross-floor association.");
                 }
 
                 occurrences.Add(CreateOccurrence(
@@ -150,6 +182,7 @@ public static class VfxTimelineBuilder
                     repeatIteration: -1,
                     repeatAngleOffset: 0,
                     placementResolved: false));
+                repeatedOccurrences++;
             }
         }
 
