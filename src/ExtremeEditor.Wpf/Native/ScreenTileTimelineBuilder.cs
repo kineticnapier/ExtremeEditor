@@ -131,8 +131,8 @@ internal static class ScreenTileStateEvaluator
                 1.0);
             if ((item.Flags & NativeScreenTileEvent.FlagEnableBeforeTween) != 0)
                 enabled = true;
-            x = (float)(x + (item.TargetX - x) * progress);
-            y = (float)(y + (item.TargetY - y) * progress);
+            x = (float)((double)x + ((double)item.TargetX - x) * progress);
+            y = (float)((double)y + ((double)item.TargetY - y) * progress);
             if (progress >= 1.0 &&
                 (item.Flags & NativeScreenTileEvent.FlagDisableOnComplete) != 0)
             {
