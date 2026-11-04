@@ -186,21 +186,12 @@ internal static class BackgroundSourceReadRegression
         LevelDocument level = WpfLevelLoader.Load(path).Document;
         TimingMap timing = FlatTimingMapBuilder.Build(level);
 
-        NativeLevelUpdateDiagnostics.EnableAndReset();
-        long levelReads;
-        long playbackReads;
-        try
-        {
-            NativeLevelViewport.PrepareLevel(level);
-            levelReads = NativeLevelUpdateDiagnostics.Read().BackgroundSourceReads;
-            NativeLevelUpdateDiagnostics.EnableAndReset();
-            NativeLevelViewport.PreparePlayback(level, timing);
-            playbackReads = NativeLevelUpdateDiagnostics.Read().BackgroundSourceReads;
-        }
-        finally
-        {
-            NativeLevelUpdateDiagnostics.Disable();
-        }
+        // The global diagnostics also count background work from unrelated
+        // tasks. Measure only reads performed in each preparation's context.
+        long levelReads = NativeLevelUpdateDiagnostics.CountBackgroundSourceReads(
+            () => { NativeLevelViewport.PrepareLevel(level); });
+        long playbackReads = NativeLevelUpdateDiagnostics.CountBackgroundSourceReads(
+            () => { NativeLevelViewport.PreparePlayback(level, timing); });
 
         if (levelReads != 1 || playbackReads != 1)
         {
