@@ -14,6 +14,37 @@
 
 int main()
 {
+    // Extreme finite filter intensities must not overflow during the
+    // effect-specific scaling performed after ResolveScreenFilters.
+    {
+        const float limit = std::numeric_limits<float>::max();
+        for (std::uint32_t filter = 0u; filter < ee::FilterCount; ++filter)
+        {
+            for (float intensity : {limit, -limit})
+            {
+                if (!std::isfinite(ee::ApplyFilterIntensity(filter, intensity)))
+                {
+                    std::cerr << "SetFilter native effect scaling overflowed.\\n";
+                    return 1;
+                }
+            }
+        }
+
+        if (ee::ApplyFilterIntensity(16u, limit) != limit ||
+            ee::ApplyFilterIntensity(31u, -limit) != -limit ||
+            ee::ApplyFilterIntensity(7u, 0.5f) != 3.0f ||
+            ee::ApplyFilterIntensity(7u, -0.5f) != -3.0f ||
+            ee::ApplyFilterIntensity(7u, 0.1f) != 1.0f ||
+            ee::ApplyFilterIntensity(7u, -0.1f) != -1.0f ||
+            std::abs(ee::ApplyFilterIntensity(10u, 0.5f) - 0.95f) > 1e-6f ||
+            std::abs(ee::ApplyFilterIntensity(19u, 0.5f)) > 1e-6f ||
+            ee::ApplyFilterIntensity(16u, std::numeric_limits<float>::infinity()) != 0.0f)
+        {
+            std::cerr << "SetFilter native effect scaling or LED rounding regressed.\\n";
+            return 1;
+        }
+    }
+
     {
         EeFilterEvent events[2]{};
         events[0].start_time = 0.0;
