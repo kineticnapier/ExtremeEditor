@@ -175,6 +175,17 @@ inline ScreenColorMatrix ComposeColorMatrices(
             float value = row == 4 ? next.m[4][column] : 0.0f;
             for (int k = 0; k < 4; ++k)
                 value += first.m[row][k] * next.m[k][column];
+            // Preserve the usual float arithmetic, but recompute in double
+            // when a product or sum overflows (or cancels infinities to NaN).
+            if (!std::isfinite(value))
+            {
+                double precise = row == 4 ? static_cast<double>(next.m[4][column]) : 0.0;
+                for (int k = 0; k < 4; ++k)
+                    precise += static_cast<double>(first.m[row][k]) * next.m[k][column];
+                const double limit = static_cast<double>(std::numeric_limits<float>::max());
+                value = static_cast<float>(std::isnan(precise) ? 0.0 :
+                    std::clamp(precise, -limit, limit));
+            }
             result.m[row][column] = value;
         }
     }
