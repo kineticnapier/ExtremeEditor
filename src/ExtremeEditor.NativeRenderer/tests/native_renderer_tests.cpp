@@ -36,6 +36,39 @@ int main()
         }
     }
 
+    // Finite but opposite-sign SetFilter targets must not overflow during
+    // interpolation. The old float subtraction yielded Infinity (and NaN
+    // at progress zero), even though the expected midpoint is zero.
+    {
+        EeFilterEvent extreme[2]{};
+        extreme[0].start_time = 0.0;
+        extreme[0].filter = ee::FilterGrayscale;
+        extreme[0].target_intensity = -2e38f;
+        extreme[0].enabled = 1u;
+        extreme[1].start_time = 1.0;
+        extreme[1].duration_seconds = 2.0;
+        extreme[1].filter = ee::FilterGrayscale;
+        extreme[1].target_intensity = 2e38f;
+        extreme[1].enabled = 1u;
+        extreme[1].source_index = 1u;
+
+        const float at_start = ee::ResolveScreenFilters(
+            extreme, 2u, 1.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        const float at_midpoint = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        const float at_end = ee::ResolveScreenFilters(
+            extreme, 2u, 3.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        if (!std::isfinite(at_start) || !std::isfinite(at_midpoint) ||
+            !std::isfinite(at_end) ||
+            std::abs(at_start + 2e38f) > 1e30f ||
+            std::abs(at_midpoint) > 1e30f ||
+            std::abs(at_end - 2e38f) > 1e30f)
+        {
+            std::cerr << "SetFilter native tween overflowed finite endpoints.\\n";
+            return 1;
+        }
+    }
+
     // The reverse-direction HUD setter was added in v24. Later API versions
     // are additive and must continue to satisfy this ABI regression.
     constexpr uint32_t reverse_direction_hud_minimum_api_version = 24u;
