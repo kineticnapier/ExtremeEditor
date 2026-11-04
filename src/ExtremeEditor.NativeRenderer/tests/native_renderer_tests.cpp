@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 int main()
@@ -65,6 +66,49 @@ int main()
             std::abs(at_end - 2e38f) > 1e30f)
         {
             std::cerr << "SetFilter native tween overflowed finite endpoints.\n";
+            return 1;
+        }
+    }
+
+    // Nonlinear easing can overshoot a finite float endpoint. The Native
+    // timeline must preserve ordinary overshoot while keeping the result finite.
+    {
+        EeFilterEvent extreme[2]{};
+        extreme[0].start_time = 0.0;
+        extreme[0].filter = ee::FilterGrayscale;
+        extreme[0].target_intensity = -2e38f;
+        extreme[0].enabled = 1u;
+        extreme[1].start_time = 1.0;
+        extreme[1].duration_seconds = 2.0;
+        extreme[1].filter = ee::FilterGrayscale;
+        extreme[1].target_intensity = 2e38f;
+        extreme[1].enabled = 1u;
+        extreme[1].source_index = 1u;
+
+        const float upper = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return 2.0; })
+            .entries[ee::FilterGrayscale].intensity;
+        const float lower = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return -1.0; })
+            .entries[ee::FilterGrayscale].intensity;
+        const float nan_ease = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return std::numeric_limits<double>::quiet_NaN(); })
+            .entries[ee::FilterGrayscale].intensity;
+        const float infinite_ease = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return std::numeric_limits<double>::infinity(); })
+            .entries[ee::FilterGrayscale].intensity;
+        if (!std::isfinite(upper) || !std::isfinite(lower) ||
+            !std::isfinite(nan_ease) || !std::isfinite(infinite_ease) ||
+            upper != std::numeric_limits<float>::max() ||
+            lower != -std::numeric_limits<float>::max() ||
+            std::abs(nan_ease) > 1e30f ||
+            std::abs(infinite_ease) > 1e30f)
+        {
+            std::cerr << "SetFilter easing overflowed or propagated a non-finite result.\\n";
             return 1;
         }
     }
