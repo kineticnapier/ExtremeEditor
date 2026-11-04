@@ -32,6 +32,7 @@ internal static class VfxTimelineExpansionRegression
         VerifySourceWasNotMutated(level, before);
         VerifyExtremeBeatRepeatRejected();
         VerifyNonFiniteRepeatInputsRejected();
+        VerifyNonFiniteSourceEventValuesRejected();
         VerifyHugeFloorRepeatStopsAtChartEnd();
         VerifyBeatRepeatExpansionBudgetBoundary();
         VerifyBeatRepeatBudgetAccumulatesAcrossSources();
@@ -110,6 +111,59 @@ internal static class VfxTimelineExpansionRegression
 
         throw new InvalidOperationException(
             "RepeatEvents must reject finite intervals whose angle multiplication overflows.");
+    }
+
+    private static void VerifyNonFiniteSourceEventValuesRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        foreach ((double angle, double duration, string expected) in new[]
+        {
+            (double.PositiveInfinity, 1.25, "non-finite angle offset"),
+            (0.0, double.NaN, "non-finite duration")
+        })
+        {
+            level.ReplaceActions(
+            [
+                new LevelAction(1, "MoveDecorations", true, null, null, null, null)
+                {
+                    SourceIndex = 0,
+                    AngleOffset = angle,
+                    Duration = duration
+                }
+            ]);
+            RequireRejected(expected);
+        }
+
+        // Both source fields are finite, but converting an enormous duration
+        // at a very low pitch can still overflow the computed duration.
+        level.PitchPercent = 0.0001;
+        level.ReplaceActions(
+        [
+            new LevelAction(1, "MoveDecorations", true, null, null, null, null)
+            {
+                SourceIndex = 0,
+                AngleOffset = 0,
+                Duration = double.MaxValue
+            }
+        ]);
+        RequireRejected("non-finite time value");
+
+        void RequireRejected(string expected)
+        {
+            try
+            {
+                _ = VfxTimelineBuilder.Build(level);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("source index 0", StringComparison.Ordinal) &&
+                ex.Message.Contains(expected, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"VFX timeline must reject {expected} before creating an occurrence.");
+        }
     }
 
     private static void VerifyHugeFloorRepeatStopsAtChartEnd()
