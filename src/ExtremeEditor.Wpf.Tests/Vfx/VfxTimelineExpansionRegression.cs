@@ -30,6 +30,51 @@ internal static class VfxTimelineExpansionRegression
         VerifyStockOrdering(first.Occurrences);
         VerifyDeterministicEnumeration(first, second);
         VerifySourceWasNotMutated(level, before);
+        VerifyExtremeBeatRepeatRejected();
+        VerifyHugeFloorRepeatStopsAtChartEnd();
+    }
+
+    private static void VerifyExtremeBeatRepeatRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "huge"),
+            CreateRepeat(1, 1, "Beat", "huge", active: true,
+                repetitions: int.MaxValue, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("RepeatEvents", StringComparison.Ordinal) &&
+            ex.Message.Contains("source index 1", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "An excessive Beat RepeatEvents must fail before allocating occurrences.");
+    }
+
+    private static void VerifyHugeFloorRepeatStopsAtChartEnd()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "bounded"),
+            CreateRepeat(1, 1, "Floor", "bounded", active: true,
+                repetitions: null, interval: null, floorCount: int.MaxValue,
+                executeOnCurrentFloor: true)
+        ]);
+
+        VfxOccurrence[] occurrences = VfxTimelineBuilder.Build(level).Occurrences
+            .Where(item => item.SourceIndex == 0).ToArray();
+        AssertSequenceEqual([1, 2], occurrences.Select(item => item.Floor),
+            "Floor RepeatEvents must stop at the last floor even with a huge count.");
     }
 
     private static LevelDocument CreateFixture()

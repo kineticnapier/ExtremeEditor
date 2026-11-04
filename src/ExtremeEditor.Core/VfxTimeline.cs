@@ -57,6 +57,9 @@ public sealed record VfxTimeline(
 
 public static class VfxTimelineBuilder
 {
+    // A malformed RepeatEvents must not exhaust memory during timeline preparation.
+    // Exceeding the budget fails explicitly instead of silently dropping effects.
+    private const int MaxRepeatedOccurrencesPerTimeline = 200_000;
     public static VfxTimeline Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
@@ -108,6 +111,7 @@ public static class VfxTimelineBuilder
         }
 
         var usedRepeats = new HashSet<VfxRepeatDescriptor>();
+        int repeatedOccurrences = 0;
         foreach (LevelAction action in sourceActions)
         {
             VfxRepeatDescriptor? repeat = FindMatchingRepeat(action, repeatsByFloorAndTag);
@@ -118,7 +122,7 @@ public static class VfxTimelineBuilder
             }
 
             usedRepeats.Add(repeat);
-            ExpandOccurrences(action, repeat, timing, pitch, entryBeats, occurrences);
+            ExpandOccurrences(action, repeat, timing, pitch, entryBeats, occurrences, ref repeatedOccurrences);
         }
 
         // GREEN-A exposed cross-floor tag association before concrete stock
@@ -162,7 +166,8 @@ public static class VfxTimelineBuilder
         TimingMap timing,
         double pitch,
         Lazy<double[]> entryBeats,
-        List<VfxOccurrence> destination)
+        List<VfxOccurrence> destination,
+        ref int repeatedOccurrences)
     {
         int count = repeat.RepeatType == VfxRepeatType.Beat
             ? Math.Max(0, repeat.Repetitions ?? 0)
@@ -172,6 +177,21 @@ public static class VfxTimelineBuilder
             : -1;
         bool beatStyle = interval > 0;
         double originalAngleOffset = source.AngleOffset ?? 0;
+
+        // Count the expansion before allocating. Beat repeats remain on one
+        // floor, so the usual floor-boundary break cannot bound their size.
+        if ((uint)source.Floor >= (uint)timing.Floors.Count)
+            return;
+        long requested = beatStyle
+            ? (long)count + 1
+            : Math.Min((long)count + 1, (long)timing.Floors.Count - source.Floor);
+        if (requested > MaxRepeatedOccurrencesPerTimeline - repeatedOccurrences)
+        {
+            throw new InvalidOperationException(
+                $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                $"would expand to {requested} occurrences; the timeline limit is " +
+                $"{MaxRepeatedOccurrencesPerTimeline}. Reduce repetitions or split the effect.");
+        }
 
         for (int iteration = 0; iteration <= count; iteration++)
         {
@@ -209,6 +229,7 @@ public static class VfxTimelineBuilder
                 iteration,
                 repeatAngleOffset,
                 placementResolved: true));
+            repeatedOccurrences++;
         }
     }
 
