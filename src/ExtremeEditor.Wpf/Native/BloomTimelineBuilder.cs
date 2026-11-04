@@ -150,8 +150,8 @@ internal static class BloomStateEvaluator
 
             state = new NativeBloomState(
                 item.Enabled != 0,
-                (float)(startThreshold + (item.Threshold - startThreshold) * progress),
-                (float)(startIntensity + (item.Intensity - startIntensity) * progress),
+                (float)((double)startThreshold + ((double)item.Threshold - startThreshold) * progress),
+                (float)((double)startIntensity + ((double)item.Intensity - startIntensity) * progress),
                 LerpColor(startTint, item.Tint, progress));
             previous = item;
         }
