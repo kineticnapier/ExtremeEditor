@@ -64,13 +64,15 @@ internal static class BloomTimelineBuilder
 
     private static float ReadPercent(JsonObject? properties, string name, float fallback)
     {
-        if (properties?[name] is not JsonValue value)
-            return fallback / 100f;
-        if (value.TryGetValue(out double number))
-            return (float)(number / 100.0);
-        if (value.TryGetValue(out string? text) &&
-            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
-            return (float)(number / 100.0);
+        if (properties?[name] is JsonValue value &&
+            (value.TryGetValue(out double number) ||
+             (value.TryGetValue(out string? text) &&
+              double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))))
+        {
+            double scaled = number / 100.0;
+            if (double.IsFinite(scaled) && Math.Abs(scaled) <= float.MaxValue)
+                return (float)scaled;
+        }
         return fallback / 100f;
     }
 
