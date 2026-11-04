@@ -150,8 +150,8 @@ internal static class FilterStateEvaluator
             double progress = item.DurationSeconds <= 1e-9
                 ? 1.0
                 : Math.Clamp((chartTime - item.StartTime) / item.DurationSeconds, 0.0, 1.0);
-            intensity[index] = (float)(intensity[index] +
-                (item.TargetIntensity - intensity[index]) * progress);
+            intensity[index] = (float)((double)intensity[index] +
+                ((double)item.TargetIntensity - intensity[index]) * progress);
             enabled[index] = item.Enabled != 0;
         }
 
