@@ -41,6 +41,7 @@ internal static class VfxSourcePropertiesRegression
             VerifyNonFiniteVisualParametersFallback();
             VerifyFiniteInterpolationWithOpposingExtremes();
             VerifyFiniteFilterEffectScaling();
+            VerifyFilterInterruptionMatchesNative();
         }
         finally
         {
@@ -250,6 +251,75 @@ internal static class VfxSourcePropertiesRegression
             throw new InvalidOperationException(
                 "SetFilter state evaluation passed an overflowing applied value to native.");
         }
+    }
+
+    private static void VerifyFilterInterruptionMatchesNative()
+    {
+        // The native renderer completes the interrupted tween to its target
+        // before beginning the next one, rather than sampling it at chartTime.
+        NativeFilterState interrupted = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = 1f, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 2, DurationSeconds = 2,
+                    Filter = 0, TargetIntensity = 0f, Enabled = 1
+                }
+            }, 3.0)[0];
+        if (!interrupted.Enabled || Math.Abs(interrupted.Intensity - 0.5f) > 1e-6f)
+            throw new InvalidOperationException(
+                $"SetFilter interruption differed from native: {interrupted.Intensity} (expected 0.5).");
+
+        // LED starts at the stock default of 1 when it was disabled.
+        NativeFilterState led = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 2,
+                    Filter = 7, TargetIntensity = 0f, Enabled = 1
+                }
+            }, 1.0)[7];
+        if (!led.Enabled || Math.Abs(led.Intensity - 0.5f) > 1e-6f)
+            throw new InvalidOperationException("SetFilter tween did not start from the stock default.");
+
+        // disableOthers completes pending tweens before disabling them.
+        NativeFilterState[] disabled = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = 1f, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 2, DurationSeconds = 0,
+                    Filter = 1, TargetIntensity = 0.25f, Enabled = 1,
+                    Flags = NativeFilterEvent.FlagDisableOthers
+                }
+            }, 3.0);
+        if (disabled[0].Enabled || disabled[0].Intensity != 1f ||
+            !disabled[1].Enabled || disabled[1].Intensity != 0.25f)
+            throw new InvalidOperationException("SetFilter disableOthers did not complete the prior tween.");
+
+        // Invalid native inputs must not poison valid events or a default state.
+        NativeFilterState[] invalidClock = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 7, TargetIntensity = 0f, Enabled = 1
+                }
+            }, double.NaN);
+        if (invalidClock[7].Enabled || invalidClock[7].Intensity != 1f)
+            throw new InvalidOperationException("SetFilter invalid clock did not preserve defaults.");
     }
 
     private readonly record struct Timelines(
