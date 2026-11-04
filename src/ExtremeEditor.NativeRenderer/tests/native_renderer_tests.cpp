@@ -64,7 +64,7 @@ int main()
             std::abs(at_midpoint) > 1e30f ||
             std::abs(at_end - 2e38f) > 1e30f)
         {
-            std::cerr << "SetFilter native tween overflowed finite endpoints.\\n";
+            std::cerr << "SetFilter native tween overflowed finite endpoints.\n";
             return 1;
         }
     }
