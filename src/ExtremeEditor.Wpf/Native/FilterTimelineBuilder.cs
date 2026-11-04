@@ -194,10 +194,10 @@ internal static class FilterStateEvaluator
             {
                 if (activeTweens[i] is not NativeFilterEvent tween)
                     continue;
-                // This diagnostic evaluator uses linear interpolation. The
-                // native renderer additionally applies each event's ease.
-                double progress = Math.Clamp(
-                    (chartTime - tween.StartTime) / tween.DurationSeconds, 0.0, 1.0);
+                // Match the native filter timeline, including Back/Elastic
+                // overshoot, before narrowing the result to a finite float.
+                double raw = (chartTime - tween.StartTime) / tween.DurationSeconds;
+                double progress = NativeFilterEaseEvaluator.Evaluate(tween.Ease, raw);
                 double value = (double)tweenFrom[i] +
                     ((double)tween.TargetIntensity - tweenFrom[i]) * progress;
                 intensity[i] = (float)Math.Clamp(
