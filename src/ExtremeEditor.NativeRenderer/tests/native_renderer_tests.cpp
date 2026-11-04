@@ -113,6 +113,68 @@ int main()
         }
     }
 
+    // Extreme but finite colour-filter intensities can overflow the float
+    // products in matrix composition, including Inf - Inf cancellation.
+    {
+        ee::ScreenColorMatrix first = ee::ScreenColorMatrix::Identity();
+        ee::ScreenColorMatrix next = ee::ScreenColorMatrix::Identity();
+        first.m[0][0] = 2.0f;
+        first.m[3][0] = 0.25f;
+        next.m[0][0] = 3.0f;
+        next.m[3][0] = 0.5f;
+        const ee::ScreenColorMatrix ordinary = ee::ComposeColorMatrices(first, next);
+        if (ordinary.m[0][0] != 6.0f || ordinary.m[3][0] != 1.25f)
+        {
+            std::cerr << "SetFilter colour matrix changed ordinary composition.\\n";
+            return 1;
+        }
+
+        const float limit = std::numeric_limits<float>::max();
+        first = ee::ScreenColorMatrix::Identity();
+        next = ee::ScreenColorMatrix::Identity();
+        first.m[0][0] = limit;
+        next.m[0][0] = limit;
+        const ee::ScreenColorMatrix overflow = ee::ComposeColorMatrices(first, next);
+        if (!std::isfinite(overflow.m[0][0]) || overflow.m[0][0] != limit)
+        {
+            std::cerr << "SetFilter colour matrix overflowed finite coefficients.\\n";
+            return 1;
+        }
+
+        first.m[0][1] = -limit;
+        next.m[1][0] = limit;
+        const ee::ScreenColorMatrix cancellation = ee::ComposeColorMatrices(first, next);
+        if (!std::isfinite(cancellation.m[0][0]) ||
+            std::abs(cancellation.m[0][0]) > 1e30f)
+        {
+            std::cerr << "SetFilter colour matrix produced NaN after cancellation.\\n";
+            return 1;
+        }
+
+        ee::FilterVisualState filters{};
+        filters.entries[ee::FilterSepia].enabled = true;
+        filters.entries[ee::FilterSepia].intensity = limit;
+        filters.entries[ee::FilterContrast].enabled = true;
+        filters.entries[ee::FilterContrast].intensity = limit;
+        ee::ScreenColorMatrix combined{};
+        if (!ee::BuildScreenFilterColorMatrix(filters, combined))
+        {
+            std::cerr << "SetFilter extreme colour matrix was not built.\\n";
+            return 1;
+        }
+        for (int row = 0; row < 5; ++row)
+        {
+            for (int column = 0; column < 4; ++column)
+            {
+                if (!std::isfinite(combined.m[row][column]))
+                {
+                    std::cerr << "SetFilter combined colour matrix contains non-finite coefficients.\\n";
+                    return 1;
+                }
+            }
+        }
+    }
+
     // The reverse-direction HUD setter was added in v24. Later API versions
     // are additive and must continue to satisfy this ABI regression.
     constexpr uint32_t reverse_direction_hud_minimum_api_version = 24u;
