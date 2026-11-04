@@ -108,7 +108,7 @@ int main()
             std::abs(nan_ease) > 1e30f ||
             std::abs(infinite_ease) > 1e30f)
         {
-            std::cerr << "SetFilter easing overflowed or propagated a non-finite result.\\n";
+            std::cerr << "SetFilter easing overflowed or propagated a non-finite result.\n";
             return 1;
         }
     }
