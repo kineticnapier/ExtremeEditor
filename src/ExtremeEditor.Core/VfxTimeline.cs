@@ -291,8 +291,28 @@ public static class VfxTimelineBuilder
     {
         int floor = effectiveFloor ?? action.Floor;
         double? angleOffset = effectiveAngleOffset ?? action.AngleOffset;
+        if (angleOffset is double offset && !double.IsFinite(offset))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "has a non-finite angle offset.");
+        }
+        if (action.Duration is double duration && !double.IsFinite(duration))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "has a non-finite duration.");
+        }
+
         double startTime = ResolveStartTime(timing, floor, angleOffset ?? 0);
         double? durationSeconds = ResolveDurationSeconds(timing, floor, pitch, action.Duration);
+        if (!double.IsFinite(startTime) ||
+            (durationSeconds is double seconds && !double.IsFinite(seconds)))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "produced a non-finite time value.");
+        }
         return new VfxOccurrence(
             floor,
             action.SourceIndex,
