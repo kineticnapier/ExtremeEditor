@@ -40,6 +40,7 @@ internal static class VfxSourcePropertiesRegression
             VerifyEditOverridesLoadedValues(path);
             VerifyNonFiniteVisualParametersFallback();
             VerifyFiniteInterpolationWithOpposingExtremes();
+            VerifyFiniteFilterEffectScaling();
         }
         finally
         {
@@ -207,6 +208,48 @@ internal static class VfxSourcePropertiesRegression
         if (!float.IsFinite(tile.TileX) || !float.IsFinite(tile.TileY) ||
             Math.Abs(tile.TileX) > 1e30f || Math.Abs(tile.TileY) > 1e30f)
             throw new InvalidOperationException("ScreenTile interpolation overflowed finite endpoints.");
+    }
+
+    private static void VerifyFiniteFilterEffectScaling()
+    {
+        // An effect-specific multiplier must not overflow an otherwise finite
+        // intensity before the value reaches the native renderer.
+        foreach (float extreme in new[] { float.MaxValue, -float.MaxValue })
+        {
+            for (uint filter = 0; filter < 41; filter++)
+            {
+                float applied = FilterStateEvaluator.ApplyFilterIntensity(filter, extreme);
+                if (!float.IsFinite(applied))
+                    throw new InvalidOperationException(
+                        $"SetFilter {filter} produced a non-finite value from {extreme}.");
+            }
+        }
+
+        if (FilterStateEvaluator.ApplyFilterIntensity(16, float.MaxValue) != float.MaxValue ||
+            FilterStateEvaluator.ApplyFilterIntensity(31, -float.MaxValue) != -float.MaxValue ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, 0.5f) != 2f ||
+            Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(10, 0.5f) - 0.95f) > 1e-6f ||
+            Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(19, 0.5f)) > 1e-6f)
+        {
+            throw new InvalidOperationException(
+                "SetFilter finite saturation or normal intensity conversion regressed.");
+        }
+
+        NativeFilterState state = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 16, TargetIntensity = float.MaxValue, Enabled = 1
+                }
+            }, 0.0)[16];
+        if (!state.Enabled || !float.IsFinite(state.Intensity) ||
+            state.AppliedValue != float.MaxValue)
+        {
+            throw new InvalidOperationException(
+                "SetFilter state evaluation passed an overflowing applied value to native.");
+        }
     }
 
     private readonly record struct Timelines(
