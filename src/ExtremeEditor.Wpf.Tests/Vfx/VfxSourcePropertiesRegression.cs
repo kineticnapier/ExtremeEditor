@@ -42,6 +42,7 @@ internal static class VfxSourcePropertiesRegression
             VerifyFiniteInterpolationWithOpposingExtremes();
             VerifyFiniteFilterEffectScaling();
             VerifyFilterInterruptionMatchesNative();
+            VerifyFilterNonlinearEaseMatchesNative();
         }
         finally
         {
@@ -251,6 +252,79 @@ internal static class VfxSourcePropertiesRegression
             throw new InvalidOperationException(
                 "SetFilter state evaluation passed an overflowing applied value to native.");
         }
+    }
+
+    private static void VerifyFilterNonlinearEaseMatchesNative()
+    {
+        // Independent reference values from the native ApplyFlashEase formulas.
+        var samples = new (uint Ease, double Time, double Expected)[]
+        {
+            (NativeCameraEvent.EaseInQuad, 0.25, 0.0625),
+            (NativeCameraEvent.EaseOutQuad, 0.25, 0.4375),
+            (NativeCameraEvent.EaseInOutSine, 0.25, (1.0 - Math.Cos(Math.PI / 4.0)) / 2.0),
+            (NativeCameraEvent.EaseOutBounce, 0.5, 0.765625)
+        };
+        foreach (var (ease, time, expected) in samples)
+        {
+            NativeFilterState state = FilterStateEvaluator.Evaluate(
+                new[]
+                {
+                    new NativeFilterEvent
+                    {
+                        StartTime = 0, DurationSeconds = 4,
+                        Filter = 0, TargetIntensity = 1f, Enabled = 1, Ease = ease
+                    }
+                }, 4.0 * time)[0];
+            if (!state.Enabled || Math.Abs(state.Intensity - expected) > 1e-6)
+                throw new InvalidOperationException(
+                    $"SetFilter ease {ease} differed from native at {time}: {state.Intensity} (expected {expected}).");
+        }
+
+        uint[] allEases =
+        [
+            NativeCameraEvent.EaseLinear,
+            NativeCameraEvent.EaseInSine, NativeCameraEvent.EaseOutSine, NativeCameraEvent.EaseInOutSine,
+            NativeCameraEvent.EaseInQuad, NativeCameraEvent.EaseOutQuad, NativeCameraEvent.EaseInOutQuad,
+            NativeCameraEvent.EaseInCubic, NativeCameraEvent.EaseOutCubic, NativeCameraEvent.EaseInOutCubic,
+            NativeCameraEvent.EaseInQuart, NativeCameraEvent.EaseOutQuart, NativeCameraEvent.EaseInOutQuart,
+            NativeCameraEvent.EaseInQuint, NativeCameraEvent.EaseOutQuint, NativeCameraEvent.EaseInOutQuint,
+            NativeCameraEvent.EaseInExpo, NativeCameraEvent.EaseOutExpo, NativeCameraEvent.EaseInOutExpo,
+            NativeCameraEvent.EaseInCirc, NativeCameraEvent.EaseOutCirc, NativeCameraEvent.EaseInOutCirc,
+            NativeCameraEvent.EaseInBack, NativeCameraEvent.EaseOutBack, NativeCameraEvent.EaseInOutBack,
+            NativeCameraEvent.EaseInElastic, NativeCameraEvent.EaseOutElastic, NativeCameraEvent.EaseInOutElastic,
+            NativeCameraEvent.EaseInBounce, NativeCameraEvent.EaseOutBounce, NativeCameraEvent.EaseInOutBounce
+        ];
+        foreach (uint ease in allEases)
+        {
+            foreach (double time in new[] { 0.0, 0.37, 1.0 })
+            {
+                double value = NativeFilterEaseEvaluator.Evaluate(ease, time);
+                if (!double.IsFinite(value) ||
+                    (time == 0.0 && Math.Abs(value) > 1e-10) ||
+                    (time == 1.0 && Math.Abs(value - 1.0) > 1e-10))
+                {
+                    throw new InvalidOperationException(
+                        $"SetFilter ease {ease} returned an invalid endpoint or value at {time}: {value}.");
+                }
+            }
+        }
+
+        double back = NativeFilterEaseEvaluator.Evaluate(NativeCameraEvent.EaseOutBack, 0.75);
+        if (back <= 1.0 || NativeFilterEaseEvaluator.Evaluate(uint.MaxValue, 0.25) != 0.25)
+            throw new InvalidOperationException("SetFilter overshoot or unknown-ease fallback regressed.");
+
+        NativeFilterState saturated = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = float.MaxValue, Enabled = 1,
+                    Ease = NativeCameraEvent.EaseOutBack
+                }
+            }, 3.0)[0];
+        if (saturated.Intensity != float.MaxValue)
+            throw new InvalidOperationException("SetFilter eased overshoot exceeded the finite float range.");
     }
 
     private static void VerifyFilterInterruptionMatchesNative()
