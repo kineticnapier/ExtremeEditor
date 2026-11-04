@@ -535,7 +535,7 @@ BloomVisualState ResolveBloomAtTime(
     double chart_time) noexcept
 {
     BloomVisualState result;
-    if (events == nullptr || events->empty())
+    if (events == nullptr || events->empty() || std::isnan(chart_time))
         return result;
 
     const EeBloomEvent* previous = nullptr;
