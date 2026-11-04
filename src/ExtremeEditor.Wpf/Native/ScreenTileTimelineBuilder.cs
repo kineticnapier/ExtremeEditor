@@ -57,10 +57,10 @@ internal static class ScreenTileTimelineBuilder
     {
         if (node is JsonValue value)
         {
-            if (value.TryGetValue(out double number))
-                return (float)number;
-            if (value.TryGetValue(out string? text) &&
-                double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+            if ((value.TryGetValue(out double number) ||
+                 (value.TryGetValue(out string? text) &&
+                  double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))) &&
+                double.IsFinite(number) && Math.Abs(number) <= float.MaxValue)
                 return (float)number;
         }
         return fallback;
