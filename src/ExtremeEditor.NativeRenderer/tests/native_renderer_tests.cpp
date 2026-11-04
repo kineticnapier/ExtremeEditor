@@ -125,7 +125,7 @@ int main()
         const ee::ScreenColorMatrix ordinary = ee::ComposeColorMatrices(first, next);
         if (ordinary.m[0][0] != 6.0f || ordinary.m[3][0] != 1.25f)
         {
-            std::cerr << "SetFilter colour matrix changed ordinary composition.\\n";
+            std::cerr << "SetFilter colour matrix changed ordinary composition.\n";
             return 1;
         }
 
@@ -137,7 +137,7 @@ int main()
         const ee::ScreenColorMatrix overflow = ee::ComposeColorMatrices(first, next);
         if (!std::isfinite(overflow.m[0][0]) || overflow.m[0][0] != limit)
         {
-            std::cerr << "SetFilter colour matrix overflowed finite coefficients.\\n";
+            std::cerr << "SetFilter colour matrix overflowed finite coefficients.\n";
             return 1;
         }
 
@@ -147,7 +147,7 @@ int main()
         if (!std::isfinite(cancellation.m[0][0]) ||
             std::abs(cancellation.m[0][0]) > 1e30f)
         {
-            std::cerr << "SetFilter colour matrix produced NaN after cancellation.\\n";
+            std::cerr << "SetFilter colour matrix produced NaN after cancellation.\n";
             return 1;
         }
 
@@ -159,7 +159,7 @@ int main()
         ee::ScreenColorMatrix combined{};
         if (!ee::BuildScreenFilterColorMatrix(filters, combined))
         {
-            std::cerr << "SetFilter extreme colour matrix was not built.\\n";
+            std::cerr << "SetFilter extreme colour matrix was not built.\n";
             return 1;
         }
         for (int row = 0; row < 5; ++row)
@@ -168,7 +168,7 @@ int main()
             {
                 if (!std::isfinite(combined.m[row][column]))
                 {
-                    std::cerr << "SetFilter combined colour matrix contains non-finite coefficients.\\n";
+                    std::cerr << "SetFilter combined colour matrix contains non-finite coefficients.\n";
                     return 1;
                 }
             }
