@@ -37,6 +37,41 @@ int main()
         }
     }
 
+    // Malformed native event values must not contaminate the state of a
+    // later valid event; an invalid evaluation clock returns defaults.
+    {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double infinity = std::numeric_limits<double>::infinity();
+        EeFilterEvent malformed[6]{};
+        for (EeFilterEvent& event : malformed)
+        {
+            event.filter = ee::FilterGrayscale;
+            event.enabled = 1u;
+            event.target_intensity = 1.0f;
+        }
+        malformed[0].start_time = nan;
+        malformed[1].duration_seconds = nan;
+        malformed[2].duration_seconds = infinity;
+        malformed[3].target_intensity = std::numeric_limits<float>::quiet_NaN();
+        malformed[4].target_intensity = std::numeric_limits<float>::infinity();
+        malformed[5].start_time = 0.5;
+        malformed[5].target_intensity = 0.75f;
+
+        const ee::FilterVisualState valid = ee::ResolveScreenFilters(
+            malformed, 6u, 1.0, nullptr);
+        const ee::FilterVisualState invalid_clock = ee::ResolveScreenFilters(
+            malformed, 6u, nan, nullptr);
+        if (!valid.entries[ee::FilterGrayscale].enabled ||
+            valid.entries[ee::FilterGrayscale].intensity != 0.75f ||
+            invalid_clock.entries[ee::FilterGrayscale].enabled ||
+            invalid_clock.entries[ee::FilterGrayscale].intensity !=
+                ee::FilterDefaultIntensity(ee::FilterGrayscale))
+        {
+            std::cerr << "SetFilter propagated non-finite event data or clock.\\n";
+            return 1;
+        }
+    }
+
     // Finite but opposite-sign SetFilter targets must not overflow during
     // interpolation. The old float subtraction yielded Infinity (and NaN
     // at progress zero), even though the expected midpoint is zero.
