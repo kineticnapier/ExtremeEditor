@@ -28,6 +28,32 @@ internal static class NativeLevelUpdateDiagnostics
     private static long _backgroundSourceReads;
     private static long _backgroundSettingsScans;
 
+    // Global diagnostics can include unrelated asynchronous work. A scoped
+    // counter measures only reads in the preparation's execution context.
+    private sealed class BackgroundReadCounter
+    {
+        internal long Value;
+    }
+
+    private static readonly AsyncLocal<BackgroundReadCounter?> ScopedBackgroundReads = new();
+
+    internal static long CountBackgroundSourceReads(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        BackgroundReadCounter? previous = ScopedBackgroundReads.Value;
+        var counter = new BackgroundReadCounter();
+        ScopedBackgroundReads.Value = counter;
+        try
+        {
+            action();
+            return Interlocked.Read(ref counter.Value);
+        }
+        finally
+        {
+            ScopedBackgroundReads.Value = previous;
+        }
+    }
+
     internal static void EnableAndReset()
     {
         Interlocked.Exchange(ref _fullLevelReplacementRequests, 0);
@@ -104,6 +130,9 @@ internal static class NativeLevelUpdateDiagnostics
 
     internal static void RecordBackgroundSourceRead()
     {
+        BackgroundReadCounter? scoped = ScopedBackgroundReads.Value;
+        if (scoped is not null)
+            Interlocked.Increment(ref scoped.Value);
         if (Volatile.Read(ref _enabled) != 0)
             Interlocked.Increment(ref _backgroundSourceReads);
     }
