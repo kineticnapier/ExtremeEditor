@@ -834,28 +834,6 @@ bool Renderer::SetFilterTimeline(
     }
 }
 
-float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
-{
-    switch (filter)
-    {
-    case 3u: return 0.212f * intensity;
-    case 7u: return std::round(5.0f * intensity);
-    case 8u: return 0.5f * intensity;
-    case 10u: return 0.9f + 0.1f * intensity;
-    case 11u: return 3.0f * intensity;
-    case 13u: return 4.0f * intensity;
-    case 14u: return 10.0f * intensity;
-    case 16u: return 32.0f * intensity;
-    case 17u: return 0.375f * intensity;
-    case 19u: return 0.04f * intensity - 0.02f;
-    case 27u: return 2.0f * intensity;
-    case 31u: return 20.0f * intensity;
-    case 33u: return 1.0f + intensity;
-    case 38u: return 2.4f * intensity;
-    default: return intensity;
-    }
-}
-
 FilterVisualState ResolveFilterStateAtTime(
     const std::vector<EeFilterEvent>* events,
     double chart_time) noexcept
