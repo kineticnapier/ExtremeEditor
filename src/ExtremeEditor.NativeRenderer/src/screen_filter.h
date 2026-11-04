@@ -76,6 +76,10 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::uint32_t i = 0u; i < FilterCount; ++i)
         result.entries[i].intensity = FilterDefaultIntensity(i);
 
+    // An invalid clock cannot establish a meaningful filter state.
+    if (std::isnan(chart_time))
+        return result;
+
     // Kill(complete: true) jumps a running tween to its end and applies it.
     const auto complete = [&](std::uint32_t filter) noexcept
     {
@@ -90,6 +94,11 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::size_t index = 0; index < event_count; ++index)
     {
         const EeFilterEvent& item = events[index];
+        // Keep malformed native input from poisoning later, valid events.
+        if (!std::isfinite(item.start_time) ||
+            !std::isfinite(item.duration_seconds) ||
+            !std::isfinite(item.target_intensity))
+            continue;
         if (item.start_time > chart_time)
             break;
         if (item.filter >= FilterCount)
