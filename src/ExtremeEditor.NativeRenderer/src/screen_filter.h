@@ -49,6 +49,40 @@ inline float FilterDefaultIntensity(std::uint32_t filter) noexcept
     }
 }
 
+// Keep the native effect-specific scaling finite for extreme but valid chart
+// values. Match FilterStateEvaluator.ApplyFilterIntensity in WPF.
+inline float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
+{
+    if (!std::isfinite(intensity))
+        return 0.0f;
+
+    const auto scale_finite = [intensity](float multiplier) noexcept
+    {
+        const double scaled = static_cast<double>(multiplier) * intensity;
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
+        return static_cast<float>(std::clamp(scaled, -limit, limit));
+    };
+
+    switch (filter)
+    {
+    case 3u: return scale_finite(0.212f);
+    case 7u: return std::round(scale_finite(5.0f));
+    case 8u: return scale_finite(0.5f);
+    case 10u: return 0.9f + scale_finite(0.1f);
+    case 11u: return scale_finite(3.0f);
+    case 13u: return scale_finite(4.0f);
+    case 14u: return scale_finite(10.0f);
+    case 16u: return scale_finite(32.0f);
+    case 17u: return scale_finite(0.375f);
+    case 19u: return scale_finite(0.04f) - 0.02f;
+    case 27u: return scale_finite(2.0f);
+    case 31u: return scale_finite(20.0f);
+    case 33u: return 1.0f + intensity;
+    case 38u: return scale_finite(2.4f);
+    default: return intensity;
+    }
+}
+
 using FilterEaseFunction = double (*)(std::uint32_t ease, double progress);
 
 // Evaluates the SetFilter timeline at chart_time. events are ordered by
