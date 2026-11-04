@@ -38,6 +38,7 @@ internal static class VfxSourcePropertiesRegression
 
             VerifyLoadedValuesReachTimelines(path);
             VerifyEditOverridesLoadedValues(path);
+            VerifyNonFiniteVisualParametersFallback();
         }
         finally
         {
@@ -84,6 +85,66 @@ internal static class VfxSourcePropertiesRegression
         NativeFlashEvent result = FlashTimelineBuilder.Build(level, timing).Single();
         if (result.StartColor != 0x0000ffu || result.Plane != NativeFlashEvent.PlaneBackground)
             throw new InvalidOperationException("An edited Flash did not take precedence over the loaded values.");
+    }
+
+    private static void VerifyNonFiniteVisualParametersFallback()
+    {
+        // Malformed or overflowing visual values must not cross the native ABI
+        // as NaN/Infinity. Existing defaults remain authoritative.
+        LevelDocument level = LevelDocument.CreateSynthetic(6);
+        level.ReplaceActions(
+        [
+            new LevelAction(1, "Flash", true, null, null, null, null)
+            {
+                SourceIndex = 0,
+                PropertyOverrides = new JsonObject
+                {
+                    ["startOpacity"] = "NaN",
+                    ["endOpacity"] = "Infinity"
+                }
+            },
+            new LevelAction(2, "Bloom", true, null, null, null, null)
+            {
+                SourceIndex = 1,
+                PropertyOverrides = new JsonObject
+                {
+                    ["threshold"] = "NaN",
+                    ["intensity"] = "Infinity"
+                }
+            },
+            new LevelAction(3, "SetFilter", true, null, null, null, null)
+            {
+                SourceIndex = 2,
+                PropertyOverrides = new JsonObject
+                {
+                    ["filter"] = "Invert",
+                    ["intensity"] = "1e100"
+                }
+            },
+            new LevelAction(4, "ScreenTile", true, null, null, null, null)
+            {
+                SourceIndex = 3,
+                PropertyOverrides = new JsonObject
+                {
+                    ["tile"] = new JsonArray { double.MaxValue, "NaN" }
+                }
+            }
+        ]);
+
+        TimingMap timing = FlatTimingMapBuilder.Build(level);
+        NativeFlashEvent flash = FlashTimelineBuilder.Build(level, timing).Single();
+        NativeBloomEvent bloom = BloomTimelineBuilder.Build(level, timing).Single();
+        NativeFilterEvent filter = FilterTimelineBuilder.Build(level, timing).Single();
+        NativeScreenTileEvent tile = ScreenTileTimelineBuilder.Build(level, timing).Single();
+
+        if (flash.StartOpacity != 1f || flash.EndOpacity != 0f ||
+            bloom.Threshold != 0f || bloom.Intensity != 0f ||
+            filter.TargetIntensity != 1f ||
+            tile.TargetX != 1f || tile.TargetY != 1f)
+        {
+            throw new InvalidOperationException(
+                "Non-finite or float-overflowing VFX parameters must use finite defaults.");
+        }
     }
 
     private readonly record struct Timelines(
