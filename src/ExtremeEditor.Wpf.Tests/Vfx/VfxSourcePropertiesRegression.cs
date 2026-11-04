@@ -39,6 +39,7 @@ internal static class VfxSourcePropertiesRegression
             VerifyLoadedValuesReachTimelines(path);
             VerifyEditOverridesLoadedValues(path);
             VerifyNonFiniteVisualParametersFallback();
+            VerifyFiniteInterpolationWithOpposingExtremes();
         }
         finally
         {
@@ -145,6 +146,67 @@ internal static class VfxSourcePropertiesRegression
             throw new InvalidOperationException(
                 "Non-finite or float-overflowing VFX parameters must use finite defaults.");
         }
+    }
+
+    private static void VerifyFiniteInterpolationWithOpposingExtremes()
+    {
+        // Two finite float endpoints can overflow when subtracted as floats.
+        // At the halfway point the expected result is zero, not Infinity.
+        const float large = 2e38f;
+        NativeBloomState bloom = BloomStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeBloomEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Threshold = large, Intensity = -large, Enabled = 1
+                },
+                new NativeBloomEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    Threshold = -large, Intensity = large, Enabled = 1
+                }
+            }, 2.0);
+        if (!float.IsFinite(bloom.Threshold) || !float.IsFinite(bloom.Intensity) ||
+            Math.Abs(bloom.Threshold) > 1e30f || Math.Abs(bloom.Intensity) > 1e30f)
+            throw new InvalidOperationException("Bloom interpolation overflowed finite endpoints.");
+
+        NativeFilterState filter = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 0, TargetIntensity = -large, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    Filter = 0, TargetIntensity = large, Enabled = 1
+                }
+            }, 2.0)[0];
+        if (!float.IsFinite(filter.Intensity) || !float.IsFinite(filter.AppliedValue) ||
+            Math.Abs(filter.Intensity) > 1e30f)
+            throw new InvalidOperationException("SetFilter interpolation overflowed finite endpoints.");
+
+        NativeScreenTileState tile = ScreenTileStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeScreenTileEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    TargetX = large, TargetY = -large
+                },
+                new NativeScreenTileEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    TargetX = -large, TargetY = large,
+                    Flags = NativeScreenTileEvent.FlagEnableBeforeTween
+                }
+            }, 2.0);
+        if (!float.IsFinite(tile.TileX) || !float.IsFinite(tile.TileY) ||
+            Math.Abs(tile.TileX) > 1e30f || Math.Abs(tile.TileY) > 1e30f)
+            throw new InvalidOperationException("ScreenTile interpolation overflowed finite endpoints.");
     }
 
     private readonly record struct Timelines(
