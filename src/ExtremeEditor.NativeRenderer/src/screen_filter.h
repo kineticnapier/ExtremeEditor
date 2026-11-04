@@ -134,7 +134,8 @@ inline FilterVisualState ResolveScreenFilters(
         const double raw = std::clamp((chart_time - tween.start) / tween.duration, 0.0, 1.0);
         const double progress = ease != nullptr ? ease(tween.ease, raw) : raw;
         result.entries[filter].intensity = static_cast<float>(
-            tween.from + (tween.to - tween.from) * progress);
+            static_cast<double>(tween.from) +
+            (static_cast<double>(tween.to) - tween.from) * progress);
     }
     return result;
 }
