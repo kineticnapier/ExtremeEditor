@@ -1,5 +1,6 @@
 #include "floor_instanced_renderer.h"
 #include "floor_draw_depth.h"
+#include "floor_transform.h"
 #include "track_visual.h"
 
 #include <d3dcompiler.h>
@@ -40,11 +41,12 @@ struct VSInput
     float2 localPosition : POSITION;
     float2 localUv : TEXCOORD0;
     float2 worldPosition : INSTANCEPOS;
-    float2 rotation : INSTANCEROT;
+    float2 baseRotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
     float4 color : INSTANCECOLOR;
     // xy = floor scale, z = opacity, w = AnimateTrack Extend mesh fraction.
     float4 transform : INSTANCETRANSFORM;
+    float2 transformRotation : INSTANCETRANSFORMROT;
 };
 
 struct VSOutput
@@ -69,13 +71,18 @@ float TrackGlow(float payload)
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    float c = input.rotation.x;
-    float s = input.rotation.y;
     float2 extendedLocal = float2(input.localPosition.x * saturate(input.transform.w), input.localPosition.y);
-    float2 scaledLocal = extendedLocal * input.transform.xy;
+    float bc = input.baseRotation.x;
+    float bs = input.baseRotation.y;
+    float2 shapedLocal = float2(
+        bc * extendedLocal.x - bs * extendedLocal.y,
+        bs * extendedLocal.x + bc * extendedLocal.y);
+    float2 scaledLocal = shapedLocal * input.transform.xy;
+    float tc = input.transformRotation.x;
+    float ts = input.transformRotation.y;
     float2 localWorld = float2(
-        c * scaledLocal.x - s * scaledLocal.y,
-        s * scaledLocal.x + c * scaledLocal.y);
+        tc * scaledLocal.x - ts * scaledLocal.y,
+        ts * scaledLocal.x + tc * scaledLocal.y);
     float2 delta = input.worldPosition - camera + localWorld;
     float cc = cameraRotation.x;
     float cs = cameraRotation.y;
@@ -292,7 +299,8 @@ bool FloorInstancedRenderer::EnsureCameraPipeline() noexcept
         {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 8, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCECOLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 20, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCETRANSFORM", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCETRANSFORM", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCETRANSFORMROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 52, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(current->CreateInputLayout(
             elements,
@@ -357,12 +365,19 @@ bool FloorInstancedRenderer::DrawCamera(
         if (opacity <= 0.0001f || std::abs(scale_x) <= 0.0001f || std::abs(scale_y) <= 0.0001f)
             continue;
 
+        const FloorLocalTransform transform = ResolveFloorLocalTransform(
+            floor.entry_angle,
+            floor.transform_rotation,
+            scale_x,
+            scale_y,
+            transformed);
+
         const ResolvedTrackVisual visual = ResolveTrackVisual(floor, floor_index, track_time);
         grouped_instances_[floor.geometry_id].push_back(InstanceData{
             floor.x,
             floor.y,
-            std::cos(floor.entry_angle),
-            std::sin(floor.entry_angle),
+            transform.base_cosine,
+            transform.base_sine,
             FloorDrawDepth(floor_index, floor.track_sorting_offset, scene.floors.size()),
             visual.r,
             visual.g,
@@ -371,7 +386,9 @@ bool FloorInstancedRenderer::DrawCamera(
             scale_x,
             scale_y,
             opacity,
-            std::clamp(floor.track_extend_anim, 0.0f, 1.0f)});
+            std::clamp(floor.track_extend_anim, 0.0f, 1.0f),
+            transform.transform_cosine,
+            transform.transform_sine});
         ++valid_instances;
     }
 

@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "floor_transform.h"
 #include "shutdown_diagnostics.h"
 
 #include <algorithm>
@@ -769,13 +770,22 @@ void D2DBackend::DrawSceneOverlays(
 
         const float center_x = (floor.x - camera_x) * zoom + screen_center_x;
         const float center_y = (camera_y - floor.y) * zoom + screen_center_y;
-        const float cosine = std::cos(floor.entry_angle);
-        const float sine = std::sin(floor.entry_angle);
+        // Same R(transform) * S * R(base entry) order as the floor shader, so
+        // the selection outline follows an anisotropically scaled floor.
+        const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
+        const FloorLocalTransform transform = ResolveFloorLocalTransform(
+            floor.entry_angle,
+            floor.transform_rotation,
+            floor.transform_scale_x,
+            floor.transform_scale_y,
+            transformed);
+        const FloorScreenTransform screen_transform =
+            ResolveFloorScreenTransform(transform, 0.0f, zoom);
         d2d_context_->SetTransform(D2D1::Matrix3x2F(
-            zoom * cosine,
-            -zoom * sine,
-            -zoom * sine,
-            -zoom * cosine,
+            screen_transform.m11,
+            screen_transform.m12,
+            screen_transform.m21,
+            screen_transform.m22,
             center_x,
             center_y));
 
