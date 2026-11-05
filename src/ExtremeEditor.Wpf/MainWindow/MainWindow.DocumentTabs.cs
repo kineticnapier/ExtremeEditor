@@ -17,6 +17,9 @@ public partial class MainWindow
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
     private int _tabActivationGeneration;
+    // A failed native rollback can leave the active tab's renderer out of sync.
+    // Do not skip a same-tab activation until a full scene upload succeeds.
+    private bool _nativeSceneRecoveryFailed;
     private EditorDocumentTab? _pendingTabNavigationTarget;
     private EditorDocumentTab? _lastScrolledDocumentTab;
 
@@ -129,8 +132,8 @@ public partial class MainWindow
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
             !_documentTabs.Tabs.Contains(tab))
             return false;
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
-            ReferenceEquals(_level, tab.Document))
+        if (CanSkipDocumentTabActivation(
+                _documentTabs.ActiveTab, tab, _level, _nativeSceneRecoveryFailed))
         {
             HideWelcomePage();
             return true;
@@ -265,17 +268,23 @@ public partial class MainWindow
             });
         if (!uploaded)
         {
+            // A failed rollback means the old tab is still active in WPF,
+            // but its native scene may be partially overwritten. Clicking
+            // that same tab must retry the full level/timeline transfer.
+            _nativeSceneRecoveryFailed = restoreError is not null;
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
                 _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
                     _pendingTabNavigationTarget, tab);
                 string recovery = restoreError is null
                     ? string.Empty
-                    : $" Renderer recovery also failed: {restoreError.Message}";
+                    : $" Renderer recovery also failed: {restoreError.Message}. Select the active tab again to retry.";
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {uploadError!.Message}.{recovery}";
             }
             return false;
         }
+
+        _nativeSceneRecoveryFailed = false;
 
         // The old playback was stopped inside the guarded upload transaction.
         // Only now commit the new editor, document, audio and selection state.
@@ -347,6 +356,17 @@ public partial class MainWindow
                 _pendingTabNavigationTarget, tab);
         return true;
     }
+
+    // A matching active tab is not sufficient to skip an upload after native
+    // rollback failed: managed state may still be old while the HWND is not.
+    internal static bool CanSkipDocumentTabActivation(
+        EditorDocumentTab? activeTab,
+        EditorDocumentTab targetTab,
+        LevelDocument? activeLevel,
+        bool nativeRecoveryFailed) =>
+        !nativeRecoveryFailed &&
+        ReferenceEquals(activeTab, targetTab) &&
+        ReferenceEquals(activeLevel, targetTab.Document);
 
     // The upload may fail after changing only part of the shared native scene.
     // Keep the managed tab unchanged and attempt to restore the old scene.
