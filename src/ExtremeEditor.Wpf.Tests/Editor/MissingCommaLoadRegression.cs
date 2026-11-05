@@ -187,10 +187,10 @@ internal static class MissingCommaLoadRegression
         byte[] original = Utf8(source);
         byte[] normalized = LooseAdoFaiJson.NormalizeToUtf8(
             original, out IReadOnlyList<JsonRepair> repairs);
-        Require(repairs.Count == 1 &&
+        Require(repairs.Count == 1 && repairs[0].Line == 6 &&
                 Encoding.UTF8.GetString(normalized).Contains(
                     "\"first\\rsecond\"", StringComparison.Ordinal),
-            "CR-terminated comments hid a missing comma or raw string CR.");
+            "CR-terminated comments hid a missing comma, reported the wrong line or missed a raw string CR.");
 
         string path = Path.Combine(directory, "cr-only-comments.adofai");
         File.WriteAllBytes(path, original);
