@@ -61,6 +61,7 @@ internal static class DocumentTabNavigationRegression
         VerifyDirectPlaybackRefreshIsAtomic();
         VerifyPreparedPlaybackStateIsAtomic();
         VerifyNativeUploadRollback();
+        VerifyNativeRecoveryRetryGate();
         VerifyActivationFailureObservation();
         VerifyNativeHostInitializationCleanup();
         VerifyNativeSessionConstructionCleanup();
@@ -471,6 +472,38 @@ internal static class DocumentTabNavigationRegression
             new NativeTrackAnimationSegment[count],
             new NativeTrackAnimationTiming[count],
             buildTime);
+
+    private static void VerifyNativeRecoveryRetryGate()
+    {
+        // The first native transfer can fail and rollback can fail too.
+        // WPF still considers the previous tab active; clicking it again
+        // must not be treated as an already-completed activation.
+        LevelDocument original = LevelDocument.CreateSynthetic(2);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(3);
+        var tab = new EditorDocumentTab(original, new EditorSession(original));
+        var other = new EditorDocumentTab(replacement, new EditorSession(replacement));
+
+        Require(MainWindow.CanSkipDocumentTabActivation(tab, tab, original, false),
+            "A healthy already-active tab should not upload its scene again.");
+        Require(!MainWindow.CanSkipDocumentTabActivation(tab, tab, original, true),
+            "Failed native rollback must force a same-tab upload retry.");
+        Require(!MainWindow.CanSkipDocumentTabActivation(tab, other, original, false) &&
+                !MainWindow.CanSkipDocumentTabActivation(tab, tab, replacement, false),
+            "Changing the tab or document must still require a native upload.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int failure = activate.IndexOf("_nativeSceneRecoveryFailed = restoreError is not null;",
+            StringComparison.Ordinal);
+        int success = activate.IndexOf("_nativeSceneRecoveryFailed = false;",
+            StringComparison.Ordinal);
+        Require(activate.Contains("CanSkipDocumentTabActivation(", StringComparison.Ordinal) &&
+                failure >= 0 && success > failure &&
+                activate.Contains("Select the active tab again to retry.", StringComparison.Ordinal),
+            "Activation must mark failed recovery, allow retry, and clear the flag only after upload.");
+    }
 
     private static void VerifyNativeUploadRollback()
     {
