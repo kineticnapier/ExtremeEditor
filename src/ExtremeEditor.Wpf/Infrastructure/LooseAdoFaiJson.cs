@@ -195,9 +195,12 @@ internal static class LooseAdoFaiJson
                 else if (value < 0x20)
                 {
                     hasRawStringControls = true;
-                    if (value == (byte)'\n')
+                    if (value == (byte)'\r' || value == (byte)'\n')
                     {
-                        line++;
+                        // CRLF is one line break, while CR-only files also
+                        // need accurate repair positions.
+                        if (value != (byte)'\n' || i == 0 || utf8[i - 1] != (byte)'\r')
+                            line++;
                         lineStart = i + 1;
                     }
                 }
@@ -206,26 +209,30 @@ internal static class LooseAdoFaiJson
 
             switch (value)
             {
+                case (byte)'\r':
                 case (byte)'\n':
-                    line++;
+                    if (value != (byte)'\n' || i == 0 || utf8[i - 1] != (byte)'\r')
+                        line++;
                     lineStart = i + 1;
                     break;
                 case (byte)' ':
                 case (byte)'\t':
-                case (byte)'\r':
                     break;
                 case (byte)'/' when i + 1 < utf8.Length && utf8[i + 1] == (byte)'/':
-                    // Line comment: skip to the newline, which the loop counts.
-                    while (i + 1 < utf8.Length && utf8[i + 1] != (byte)'\n')
+                    // Both CR and LF terminate JSON line comments.
+                    while (i + 1 < utf8.Length &&
+                           utf8[i + 1] != (byte)'\n' &&
+                           utf8[i + 1] != (byte)'\r')
                         i++;
                     break;
                 case (byte)'/' when i + 1 < utf8.Length && utf8[i + 1] == (byte)'*':
                     i += 2;
                     while (i < utf8.Length && !(utf8[i] == (byte)'*' && i + 1 < utf8.Length && utf8[i + 1] == (byte)'/'))
                     {
-                        if (utf8[i] == (byte)'\n')
+                        if (utf8[i] == (byte)'\r' || utf8[i] == (byte)'\n')
                         {
-                            line++;
+                            if (utf8[i] != (byte)'\n' || i == 0 || utf8[i - 1] != (byte)'\r')
+                                line++;
                             lineStart = i + 1;
                         }
                         i++;
@@ -288,7 +295,7 @@ internal static class LooseAdoFaiJson
                 output.WriteByte(value);
                 if (inLineComment)
                 {
-                    if (value == (byte)'\n')
+                    if (value == (byte)'\n' || value == (byte)'\r')
                         inLineComment = false;
                     continue;
                 }
