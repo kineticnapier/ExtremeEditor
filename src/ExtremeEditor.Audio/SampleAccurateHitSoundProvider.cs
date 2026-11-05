@@ -36,6 +36,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private long _renderChunksElapsedTicks;
+    private long _renderChunkAttempts;
     private long _foregroundChunkRenders;
     private long _foregroundRenderTicks;
     private long _maxForegroundRenderTicks;
@@ -81,6 +82,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     internal long PositionFrames => _positionFrames;
     internal IReadOnlyList<ScheduledHit> ScheduledHits => _scheduledHits;
     internal long TotalFrames => _totalFrames;
+    internal long RenderChunkAttempts => Interlocked.Read(ref _renderChunkAttempts);
 
     internal long CachedPcmBytes
     {
@@ -186,11 +188,32 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         return Task.Run(() =>
         {
-            for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
+            // The schedule is sorted by start frame. Visit only chunks that
+            // overlap an audible clip instead of scanning every silent chunk
+            // until the end of a long sparse chart.
+            long nextChunk = firstChunk;
+            foreach (ScheduledHit hit in _scheduledHits)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
-                    break;
+                long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+                if (hitEndFrame <= 0)
+                    continue;
+
+                long hitLastChunk = Math.Min(lastChunk, (hitEndFrame - 1) / ChunkFrames);
+                if (hitLastChunk < nextChunk)
+                    continue;
+
+                long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
+                for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                        return;
+                }
+
+                // Overlapping hits can share chunks. Never render one twice
+                // within the same background pass.
+                nextChunk = hitLastChunk + 1;
             }
         }, cancellationToken);
     }
@@ -464,6 +487,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private float[] RenderChunkMeasured(long chunkIndex)
     {
+        Interlocked.Increment(ref _renderChunkAttempts);
         var watch = Stopwatch.StartNew();
         float[] rendered = RenderChunk(chunkIndex);
         watch.Stop();
