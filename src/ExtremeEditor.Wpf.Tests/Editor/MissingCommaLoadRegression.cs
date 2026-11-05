@@ -25,6 +25,7 @@ internal static class MissingCommaLoadRegression
             VerifyValidChartIsUntouched(directory);
             VerifyMissingCommaBetweenEvents(directory);
             VerifyStringsAndCommentsAreNotRepaired();
+            VerifyRawStringControlsAfterQuotedComments(directory);
             VerifyUnrelatedErrorsAreRejected(directory);
             VerifySaveKeepsEveryEvent(directory);
             VerifyPhantigmaIfPresent(directory);
@@ -99,6 +100,42 @@ internal static class MissingCommaLoadRegression
         byte[] normalized = LooseAdoFaiJson.NormalizeToUtf8(tricky, out IReadOnlyList<JsonRepair> repairs);
         Require(ReferenceEquals(tricky, normalized) && repairs.Count == 0,
             "Commas were inserted inside strings or comments.");
+    }
+
+    private static void VerifyRawStringControlsAfterQuotedComments(string directory)
+    {
+        // A quote in a comment is not a string delimiter. If a later JSON
+        // string contains a raw newline, the normalizer must escape that
+        // newline without changing the comment or the source chart.
+        string[] comments =
+        [
+            "// unmatched \" in a line comment",
+            "/* unmatched \" in a block comment */"
+        ];
+        for (int i = 0; i < comments.Length; i++)
+        {
+            string source = "{\n  " + comments[i] +
+                "\n  \"angleData\": [0, 90]," +
+                "\n  \"settings\": {\"version\": 15, \"bpm\": 120, \"levelDesc\": \"first\nsecond\"}," +
+                "\n  \"actions\": [], \"decorations\": []\n}";
+            byte[] original = Utf8(source);
+            byte[] normalized = LooseAdoFaiJson.NormalizeToUtf8(
+                original, out IReadOnlyList<JsonRepair> repairs);
+            Require(repairs.Count == 0 &&
+                    Encoding.UTF8.GetString(normalized).Contains(
+                        "\"first\\nsecond\"", StringComparison.Ordinal),
+                $"Raw newline after quoted comment {i} was not escaped.");
+
+            string path = Path.Combine(directory, $"raw-comment-{i}.adofai");
+            File.WriteAllBytes(path, original);
+            JsonObject parsed = LooseAdoFaiJson.ParseObject(path);
+            JsonNode? streamed = LooseAdoFaiJson.ParseRootProperty(original, "settings");
+            Require(parsed["settings"]?["levelDesc"]?.GetValue<string>() == "first\nsecond" &&
+                    streamed?["levelDesc"]?.GetValue<string>() == "first\nsecond",
+                $"Quoted comment {i} corrupted the parsed description.");
+            Require(File.ReadAllBytes(path).AsSpan().SequenceEqual(original),
+                "Normalizing raw string controls modified the source chart.");
+        }
     }
 
     private static void VerifyUnrelatedErrorsAreRejected(string directory)
