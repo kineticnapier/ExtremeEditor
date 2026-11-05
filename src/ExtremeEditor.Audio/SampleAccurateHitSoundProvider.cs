@@ -421,6 +421,13 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 peak = observed;
             }
         }
+        // A silent chunk has no PCM payload, but retaining it in the LRU
+        // still allocates dictionary/list nodes. Long sparse playback would
+        // otherwise grow metadata without charging the byte cache budget.
+        // The sorted schedule makes rechecking silence inexpensive.
+        if (rendered.Length == 0)
+            return rendered;
+
         long renderedBytes = GetPcmBytes(rendered);
 
         lock (_cacheLock)
@@ -570,8 +577,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 hit.Volume);
         }
 
-        // Cache an empty sentinel too, so repeatedly reading a silent region does
-        // not repeat the schedule search.
+        // An empty result is silence; callers do not retain zero-byte entries.
         return chunk ?? [];
     }
 
