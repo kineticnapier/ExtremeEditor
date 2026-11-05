@@ -144,7 +144,10 @@ public partial class MainWindow
             return true;
         }
 
-        _pendingTabNavigationTarget = tab;
+        // Even a rejected navigation supersedes an older asynchronous switch.
+        // Invalidate its generation before validating the current settings.
+        int activationGeneration = BeginDocumentTabActivation(
+            ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
         if (!TryCommitSettingsBeforeDocumentChange())
         {
             _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
@@ -152,7 +155,6 @@ public partial class MainWindow
             return false;
         }
 
-        int activationGeneration = ++_tabActivationGeneration;
         TimingMap targetTimingMap;
         HitSoundTimeline targetHitSoundTimeline;
         Task<Native.PreparedNativeLevel> levelPreparation;
@@ -382,6 +384,17 @@ public partial class MainWindow
     {
         activationGeneration++;
         pendingTarget = ClearFailedPendingTabTarget(pendingTarget, activeTab);
+    }
+
+    // A failed settings commit must not allow an earlier prepared tab to
+    // activate after the newer navigation was rejected.
+    internal static int BeginDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab targetTab)
+    {
+        pendingTarget = targetTab;
+        return ++activationGeneration;
     }
 
     // The upload may fail after changing only part of the shared native scene.

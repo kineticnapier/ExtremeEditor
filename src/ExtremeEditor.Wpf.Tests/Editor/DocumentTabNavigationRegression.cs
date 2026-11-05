@@ -68,6 +68,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
         VerifySameTabNavigationCancelsPendingActivation();
+        VerifyRejectedNavigationCancelsOlderPreparation();
         VerifyFailedPendingTargetCleanup();
         VerifyFailedNewTabCleanup();
         VerifyFailedChartOpenCleanup();
@@ -1006,6 +1007,55 @@ internal static class DocumentTabNavigationRegression
             StringComparison.Ordinal);
         Require(skip >= 0 && cancel > skip && cancel < startPreparation,
             "The already-active early return must cancel older activation before preparing another tab.");
+    }
+
+    private static void VerifyRejectedNavigationCancelsOlderPreparation()
+    {
+        // A -> B starts preparing. A later click on C is rejected because
+        // settings cannot be committed. B must not activate after that click.
+        var tabs = new EditorDocumentTabs();
+        EditorDocumentTab NewTab()
+        {
+            LevelDocument document = LevelDocument.CreateSynthetic(2);
+            return new EditorDocumentTab(document, new EditorSession(document));
+        }
+
+        EditorDocumentTab a = NewTab();
+        EditorDocumentTab b = NewTab();
+        EditorDocumentTab c = NewTab();
+        Require(tabs.Add(a) && tabs.Add(b, activate: false) &&
+                tabs.Add(c, activate: false), "Three tabs must start with A active.");
+
+        int generation = 0;
+        EditorDocumentTab? pending = null;
+        int preparingB = MainWindow.BeginDocumentTabActivation(
+            ref generation, ref pending, b);
+        Require(ReferenceEquals(pending, b),
+            "Starting B preparation must record its pending destination.");
+
+        int rejectedC = MainWindow.BeginDocumentTabActivation(
+            ref generation, ref pending, c);
+        pending = MainWindow.ClearFailedPendingTabTarget(pending, c);
+        Require(rejectedC > preparingB && generation != preparingB &&
+                pending is null && ReferenceEquals(tabs.ActiveTab, a),
+            "Rejecting C must invalidate the older B preparation, clear C's pending " +
+            "destination, and leave A active.");
+
+        // Check the real WPF path: the generation must change before settings
+        // validation can return false, not only when native preparation begins.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int begin = activation.IndexOf("int activationGeneration = BeginDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int validate = activation.IndexOf("if (!TryCommitSettingsBeforeDocumentChange())",
+            StringComparison.Ordinal);
+        int prepare = activation.IndexOf("WpfPlaybackSetup? builtPlayback = null;",
+            StringComparison.Ordinal);
+        Require(begin >= 0 && validate > begin && prepare > validate,
+            "A new tab request must invalidate older preparations before settings " +
+            "validation can reject the new navigation.");
     }
 
     private static void VerifyFailedPendingTargetCleanup()
