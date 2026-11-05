@@ -27,6 +27,7 @@ internal static class MissingCommaLoadRegression
             VerifyStringsAndCommentsAreNotRepaired();
             VerifyRawStringControlsAfterQuotedComments(directory);
             VerifyCombinedCommaAndRawControlRepairs(directory);
+            VerifyCarriageReturnTerminatedComments(directory);
             VerifyUnrelatedErrorsAreRejected(directory);
             VerifySaveKeepsEveryEvent(directory);
             VerifyPhantigmaIfPresent(directory);
@@ -169,6 +170,38 @@ internal static class MissingCommaLoadRegression
             "Combined repairs corrupted the parsed chart or streamed actions.");
         Require(File.ReadAllBytes(path).AsSpan().SequenceEqual(original),
             "Combined repairs modified the original chart.");
+    }
+
+    private static void VerifyCarriageReturnTerminatedComments(string directory)
+    {
+        // JSON line comments end at CR as well as LF. A CR-only chart can
+        // contain both a missing comma and an unescaped CR in a string.
+        string source =
+            "{\r  // unmatched \" in a CR-terminated comment\r" +
+            "  \"angleData\": [0, 90, 180],\r" +
+            "  \"settings\": {\"version\": 15, \"bpm\": 120, \"levelDesc\": \"first\rsecond\"},\r" +
+            "  \"actions\": [{\"floor\": 1, \"eventType\": \"Twirl\"}\r" +
+            "    // unmatched \" before the next event\r" +
+            "    {\"floor\": 2, \"eventType\": \"Twirl\"}],\r" +
+            "  \"decorations\": []\r}";
+        byte[] original = Utf8(source);
+        byte[] normalized = LooseAdoFaiJson.NormalizeToUtf8(
+            original, out IReadOnlyList<JsonRepair> repairs);
+        Require(repairs.Count == 1 &&
+                Encoding.UTF8.GetString(normalized).Contains(
+                    "\"first\\rsecond\"", StringComparison.Ordinal),
+            "CR-terminated comments hid a missing comma or raw string CR.");
+
+        string path = Path.Combine(directory, "cr-only-comments.adofai");
+        File.WriteAllBytes(path, original);
+        JsonObject parsed = LooseAdoFaiJson.ParseObject(path);
+        JsonNode? streamed = LooseAdoFaiJson.ParseRootProperty(original, "actions");
+        Require(parsed["actions"] is JsonArray { Count: 2 } &&
+                streamed is JsonArray { Count: 2 } &&
+                parsed["settings"]?["levelDesc"]?.GetValue<string>() == "first\rsecond",
+            "CR-only comment termination corrupted the parsed chart.");
+        Require(File.ReadAllBytes(path).AsSpan().SequenceEqual(original),
+            "Repairing CR-only comments modified the source chart.");
     }
 
     private static void VerifyUnrelatedErrorsAreRejected(string directory)
