@@ -192,11 +192,16 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             // overlap an audible clip instead of scanning every silent chunk
             // until the end of a long sparse chart.
             long nextChunk = firstChunk;
-            foreach (ScheduledHit hit in _scheduledHits)
+            // A seek into a dense chart must not rescan every earlier hit.
+            // The longest clip bounds how far back a hit could still overlap.
+            long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
+            int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+            for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                ScheduledHit hit = _scheduledHits[hitIndex];
                 long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
-                if (hitEndFrame <= 0)
+                if (hitEndFrame <= Math.Max(0, hit.StartFrame))
                     continue;
 
                 long hitLastChunk = Math.Min(lastChunk, (hitEndFrame - 1) / ChunkFrames);
@@ -214,6 +219,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 // Overlapping hits can share chunks. Never render one twice
                 // within the same background pass.
                 nextChunk = hitLastChunk + 1;
+                if (nextChunk > lastChunk)
+                    break;
             }
         }, cancellationToken);
     }
