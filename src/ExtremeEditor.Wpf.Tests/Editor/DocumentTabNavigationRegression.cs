@@ -67,6 +67,7 @@ internal static class DocumentTabNavigationRegression
         VerifyNativeSessionConstructionCleanup();
         VerifyNativeSessionDisposalCleanup();
         VerifyRapidNavigation();
+        VerifySameTabNavigationCancelsPendingActivation();
         VerifyFailedPendingTargetCleanup();
         VerifyFailedNewTabCleanup();
         VerifyFailedChartOpenCleanup();
@@ -958,6 +959,53 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(
                 MainWindow.SelectNextDocumentTab(tabs, c, backwards: true), a),
             "Two-tab reverse cycling must return to the active tab.");
+    }
+
+    private static void VerifySameTabNavigationCancelsPendingActivation()
+    {
+        // A -> B begins preparing, then Ctrl+Tab returns to the still-active A.
+        // B must not commit after A's newer request has already completed.
+        LevelDocument first = LevelDocument.CreateSynthetic(2);
+        LevelDocument second = LevelDocument.CreateSynthetic(3);
+        var a = new EditorDocumentTab(first, new EditorSession(first));
+        var b = new EditorDocumentTab(second, new EditorSession(second));
+        int generation = 0;
+        EditorDocumentTab? pending = b;
+        int pendingBGeneration = ++generation;
+        pending = a;
+
+        Require(MainWindow.CanSkipDocumentTabActivation(a, a, first, false),
+            "Returning to A while B prepares should take the already-active path.");
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(generation != pendingBGeneration && pending is null,
+            "Returning to A must invalidate B's older preparation and clear the pending cycle origin.");
+
+        // Clicking the active tab directly also needs to invalidate a prior
+        // in-flight request, even though direct clicks clear pending first.
+        pending = null;
+        pendingBGeneration = ++generation;
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(generation != pendingBGeneration && pending is null,
+            "Direct re-selection of A must invalidate the older activation.");
+
+        // An older cleanup must never erase a newer, unrelated pending target.
+        pending = b;
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(ReferenceEquals(pending, b),
+            "Same-tab completion must preserve a newer unrelated navigation target.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int skip = activation.IndexOf("if (CanSkipDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int cancel = activation.IndexOf("CancelPendingDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int startPreparation = activation.IndexOf("_pendingTabNavigationTarget = tab;",
+            StringComparison.Ordinal);
+        Require(skip >= 0 && cancel > skip && cancel < startPreparation,
+            "The already-active early return must cancel older activation before preparing another tab.");
     }
 
     private static void VerifyFailedPendingTargetCleanup()
