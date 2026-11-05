@@ -129,6 +129,8 @@ internal static class FilterTimelineBuilder
 
 internal static class FilterStateEvaluator
 {
+    // Match the native filter timeline: a new event completes the prior tween,
+    // while a disabled filter begins its next tween at its stock default.
     internal static NativeFilterState[] Evaluate(IReadOnlyList<NativeFilterEvent> events, double chartTime)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -140,7 +142,7 @@ internal static class FilterStateEvaluator
         for (int i = 0; i < intensity.Length; i++)
             intensity[i] = DefaultIntensity(i);
 
-        if (double.IsFinite(chartTime))
+        if (!double.IsNaN(chartTime))
         {
             foreach (NativeFilterEvent item in events)
             {
@@ -192,10 +194,10 @@ internal static class FilterStateEvaluator
             {
                 if (activeTweens[i] is not NativeFilterEvent tween)
                     continue;
-                double raw = Math.Clamp(
-                    (chartTime - tween.StartTime) / tween.DurationSeconds, 0.0, 1.0);
-                double eased = NativeFilterEaseEvaluator.Evaluate(tween.Ease, raw);
-                double progress = double.IsFinite(eased) ? eased : raw;
+                // Match the native filter timeline, including Back/Elastic
+                // overshoot, before narrowing the result to a finite float.
+                double raw = (chartTime - tween.StartTime) / tween.DurationSeconds;
+                double progress = NativeFilterEaseEvaluator.Evaluate(tween.Ease, raw);
                 double value = (double)tweenFrom[i] +
                     ((double)tween.TargetIntensity - tweenFrom[i]) * progress;
                 intensity[i] = (float)Math.Clamp(
@@ -208,10 +210,7 @@ internal static class FilterStateEvaluator
         {
             uint filter = checked((uint)i);
             result[i] = new NativeFilterState(
-                filter,
-                enabled[i],
-                intensity[i],
-                ApplyFilterIntensity(filter, intensity[i]));
+                filter, enabled[i], intensity[i], ApplyFilterIntensity(filter, intensity[i]));
         }
         return result;
     }
@@ -251,6 +250,8 @@ internal static class FilterStateEvaluator
 
     private static float ScaleFinite(float multiplier, float intensity)
     {
+        // Widen before multiplication: finite float inputs may overflow float
+        // when a filter applies its effect-specific multiplier.
         double scaled = (double)multiplier * intensity;
         return (float)Math.Clamp(scaled, -(double)float.MaxValue, (double)float.MaxValue);
     }

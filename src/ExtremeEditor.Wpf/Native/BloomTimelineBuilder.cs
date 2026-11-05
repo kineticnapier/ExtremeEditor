@@ -133,7 +133,7 @@ internal static class BloomStateEvaluator
         double chartTime)
     {
         NativeBloomState state = new(false, 0f, 0f, 0xffffffu);
-        if (!double.IsFinite(chartTime))
+        if (double.IsNaN(chartTime))
             return state;
         NativeBloomEvent? previous = null;
 
@@ -157,6 +157,8 @@ internal static class BloomStateEvaluator
             double eased = NativeFilterEaseEvaluator.Evaluate(item.Ease, raw);
             double progress = double.IsFinite(eased) ? eased : 0.0;
 
+            // Match native Bloom's ease and preserve finite float endpoints
+            // even when Back/Elastic easing overshoots.
             static float InterpolateFinite(float from, float to, double t)
             {
                 double value = (double)from + ((double)to - from) * t;

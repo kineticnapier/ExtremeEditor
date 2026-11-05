@@ -6,6 +6,8 @@
 
 namespace ee
 {
+// Widen before subtracting finite float endpoints. Back/Elastic easing can
+// overshoot, so clamp only the final value when narrowing to float.
 inline float InterpolateBloomFinite(float from, float to, double progress) noexcept
 {
     if (!std::isfinite(from) || !std::isfinite(to))

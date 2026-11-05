@@ -39,6 +39,12 @@ internal static class VfxSourcePropertiesRegression
             VerifyLoadedValuesReachTimelines(path);
             VerifyEditOverridesLoadedValues(path);
             VerifyBloomAndFilterNumericSafety();
+            VerifyNonFiniteVisualParametersFallback();
+            VerifyFiniteInterpolationWithOpposingExtremes();
+            VerifyBloomEaseAndFiniteOvershoot();
+            VerifyFiniteFilterEffectScaling();
+            VerifyFilterInterruptionMatchesNative();
+            VerifyFilterNonlinearEaseMatchesNative();
         }
         finally
         {
@@ -176,6 +182,378 @@ internal static class VfxSourcePropertiesRegression
             PropertyOverrides = properties
         };
         return action;
+    }
+
+    private static void VerifyNonFiniteVisualParametersFallback()
+    {
+        // Malformed or overflowing visual values must not cross the native ABI
+        // as NaN/Infinity. Existing defaults remain authoritative.
+        LevelDocument level = LevelDocument.CreateSynthetic(6);
+        level.ReplaceActions(
+        [
+            new LevelAction(1, "Flash", true, null, null, null, null)
+            {
+                SourceIndex = 0,
+                PropertyOverrides = new JsonObject
+                {
+                    ["startOpacity"] = "NaN",
+                    ["endOpacity"] = "Infinity"
+                }
+            },
+            new LevelAction(2, "Bloom", true, null, null, null, null)
+            {
+                SourceIndex = 1,
+                PropertyOverrides = new JsonObject
+                {
+                    ["threshold"] = "NaN",
+                    ["intensity"] = "Infinity"
+                }
+            },
+            new LevelAction(3, "SetFilter", true, null, null, null, null)
+            {
+                SourceIndex = 2,
+                PropertyOverrides = new JsonObject
+                {
+                    ["filter"] = "Invert",
+                    ["intensity"] = "1e100"
+                }
+            },
+            new LevelAction(4, "ScreenTile", true, null, null, null, null)
+            {
+                SourceIndex = 3,
+                PropertyOverrides = new JsonObject
+                {
+                    ["tile"] = new JsonArray { double.MaxValue, "NaN" }
+                }
+            }
+        ]);
+
+        TimingMap timing = FlatTimingMapBuilder.Build(level);
+        NativeFlashEvent flash = FlashTimelineBuilder.Build(level, timing).Single();
+        NativeBloomEvent bloom = BloomTimelineBuilder.Build(level, timing).Single();
+        NativeFilterEvent filter = FilterTimelineBuilder.Build(level, timing).Single();
+        NativeScreenTileEvent tile = ScreenTileTimelineBuilder.Build(level, timing).Single();
+
+        if (flash.StartOpacity != 1f || flash.EndOpacity != 0f ||
+            bloom.Threshold != 0f || bloom.Intensity != 0f ||
+            filter.TargetIntensity != 1f ||
+            tile.TargetX != 1f || tile.TargetY != 1f)
+        {
+            throw new InvalidOperationException(
+                "Non-finite or float-overflowing VFX parameters must use finite defaults.");
+        }
+    }
+
+    private static void VerifyFiniteInterpolationWithOpposingExtremes()
+    {
+        // Two finite float endpoints can overflow when subtracted as floats.
+        // At the halfway point the expected result is zero, not Infinity.
+        const float large = 2e38f;
+        NativeBloomState bloom = BloomStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeBloomEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Threshold = large, Intensity = -large, Enabled = 1
+                },
+                new NativeBloomEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    Threshold = -large, Intensity = large, Enabled = 1
+                }
+            }, 2.0);
+        if (!float.IsFinite(bloom.Threshold) || !float.IsFinite(bloom.Intensity) ||
+            Math.Abs(bloom.Threshold) > 1e30f || Math.Abs(bloom.Intensity) > 1e30f)
+            throw new InvalidOperationException("Bloom interpolation overflowed finite endpoints.");
+
+        NativeFilterState filter = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 0, TargetIntensity = -large, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    Filter = 0, TargetIntensity = large, Enabled = 1
+                }
+            }, 2.0)[0];
+        if (!float.IsFinite(filter.Intensity) || !float.IsFinite(filter.AppliedValue) ||
+            Math.Abs(filter.Intensity) > 1e30f)
+            throw new InvalidOperationException("SetFilter interpolation overflowed finite endpoints.");
+
+        NativeScreenTileState tile = ScreenTileStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeScreenTileEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    TargetX = large, TargetY = -large
+                },
+                new NativeScreenTileEvent
+                {
+                    StartTime = 1, DurationSeconds = 2,
+                    TargetX = -large, TargetY = large,
+                    Flags = NativeScreenTileEvent.FlagEnableBeforeTween
+                }
+            }, 2.0);
+        if (!float.IsFinite(tile.TileX) || !float.IsFinite(tile.TileY) ||
+            Math.Abs(tile.TileX) > 1e30f || Math.Abs(tile.TileY) > 1e30f)
+            throw new InvalidOperationException("ScreenTile interpolation overflowed finite endpoints.");
+    }
+
+    private static void VerifyBloomEaseAndFiniteOvershoot()
+    {
+        NativeBloomState eased = BloomStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeBloomEvent
+                {
+                    StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                    Threshold = 0f, Intensity = 0f
+                },
+                new NativeBloomEvent
+                {
+                    StartTime = 1, DurationSeconds = 4, Enabled = 1,
+                    Threshold = 1f, Intensity = 1f,
+                    Ease = NativeCameraEvent.EaseInQuad
+                }
+            }, 2.0);
+        if (!eased.Enabled || Math.Abs(eased.Threshold - 0.0625f) > 1e-6f ||
+            Math.Abs(eased.Intensity - 0.0625f) > 1e-6f)
+            throw new InvalidOperationException("Bloom ignored its native InQuad easing.");
+
+        const float large = 2e38f;
+        NativeBloomEvent[] opposing =
+        [
+            new NativeBloomEvent
+            {
+                StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                Threshold = -large, Intensity = large
+            },
+            new NativeBloomEvent
+            {
+                StartTime = 1, DurationSeconds = 2, Enabled = 1,
+                Threshold = large, Intensity = -large
+            }
+        ];
+        NativeBloomState midpoint = BloomStateEvaluator.Evaluate(opposing, 2.0);
+        if (!float.IsFinite(midpoint.Threshold) || !float.IsFinite(midpoint.Intensity) ||
+            Math.Abs(midpoint.Threshold) > 1e30f || Math.Abs(midpoint.Intensity) > 1e30f)
+            throw new InvalidOperationException("Bloom overflowed finite opposing endpoints.");
+
+        NativeBloomEvent[] overshoot =
+        [
+            new NativeBloomEvent
+            {
+                StartTime = 0, DurationSeconds = 0, Enabled = 1,
+                Threshold = -float.MaxValue, Intensity = float.MaxValue
+            },
+            new NativeBloomEvent
+            {
+                StartTime = 1, DurationSeconds = 2, Enabled = 1,
+                Threshold = float.MaxValue, Intensity = -float.MaxValue,
+                Ease = NativeCameraEvent.EaseOutBack
+            }
+        ];
+        NativeBloomState beyond = BloomStateEvaluator.Evaluate(overshoot, 2.5);
+        if (beyond.Threshold != float.MaxValue || beyond.Intensity != -float.MaxValue)
+            throw new InvalidOperationException("Bloom overshoot was not saturated to finite values.");
+
+        NativeBloomState invalidClock = BloomStateEvaluator.Evaluate(overshoot, double.NaN);
+        if (invalidClock.Enabled || invalidClock.Threshold != 0f ||
+            invalidClock.Intensity != 0f || invalidClock.Tint != 0xffffffu)
+            throw new InvalidOperationException("NaN Bloom clock changed the default state.");
+    }
+
+    private static void VerifyFiniteFilterEffectScaling()
+    {
+        // An effect-specific multiplier must not overflow an otherwise finite
+        // intensity before the value reaches the native renderer.
+        foreach (float extreme in new[] { float.MaxValue, -float.MaxValue })
+        {
+            for (uint filter = 0; filter < 41; filter++)
+            {
+                float applied = FilterStateEvaluator.ApplyFilterIntensity(filter, extreme);
+                if (!float.IsFinite(applied))
+                    throw new InvalidOperationException(
+                        $"SetFilter {filter} produced a non-finite value from {extreme}.");
+            }
+        }
+
+        if (FilterStateEvaluator.ApplyFilterIntensity(16, float.MaxValue) != float.MaxValue ||
+            FilterStateEvaluator.ApplyFilterIntensity(31, -float.MaxValue) != -float.MaxValue ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, 0.5f) != 3f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, -0.5f) != -3f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, 0.1f) != 1f ||
+            FilterStateEvaluator.ApplyFilterIntensity(7, -0.1f) != -1f ||
+            Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(10, 0.5f) - 0.95f) > 1e-6f ||
+            Math.Abs(FilterStateEvaluator.ApplyFilterIntensity(19, 0.5f)) > 1e-6f)
+        {
+            throw new InvalidOperationException(
+                "SetFilter finite saturation or normal intensity conversion regressed.");
+        }
+
+        NativeFilterState state = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 16, TargetIntensity = float.MaxValue, Enabled = 1
+                }
+            }, 0.0)[16];
+        if (!state.Enabled || !float.IsFinite(state.Intensity) ||
+            state.AppliedValue != float.MaxValue)
+        {
+            throw new InvalidOperationException(
+                "SetFilter state evaluation passed an overflowing applied value to native.");
+        }
+    }
+
+    private static void VerifyFilterNonlinearEaseMatchesNative()
+    {
+        // Independent reference values from the native ApplyFlashEase formulas.
+        var samples = new (uint Ease, double Time, double Expected)[]
+        {
+            (NativeCameraEvent.EaseInQuad, 0.25, 0.0625),
+            (NativeCameraEvent.EaseOutQuad, 0.25, 0.4375),
+            (NativeCameraEvent.EaseInOutSine, 0.25, (1.0 - Math.Cos(Math.PI / 4.0)) / 2.0),
+            (NativeCameraEvent.EaseOutBounce, 0.5, 0.765625)
+        };
+        foreach (var (ease, time, expected) in samples)
+        {
+            NativeFilterState state = FilterStateEvaluator.Evaluate(
+                new[]
+                {
+                    new NativeFilterEvent
+                    {
+                        StartTime = 0, DurationSeconds = 4,
+                        Filter = 0, TargetIntensity = 1f, Enabled = 1, Ease = ease
+                    }
+                }, 4.0 * time)[0];
+            if (!state.Enabled || Math.Abs(state.Intensity - expected) > 1e-6)
+                throw new InvalidOperationException(
+                    $"SetFilter ease {ease} differed from native at {time}: {state.Intensity} (expected {expected}).");
+        }
+
+        uint[] allEases =
+        [
+            NativeCameraEvent.EaseLinear,
+            NativeCameraEvent.EaseInSine, NativeCameraEvent.EaseOutSine, NativeCameraEvent.EaseInOutSine,
+            NativeCameraEvent.EaseInQuad, NativeCameraEvent.EaseOutQuad, NativeCameraEvent.EaseInOutQuad,
+            NativeCameraEvent.EaseInCubic, NativeCameraEvent.EaseOutCubic, NativeCameraEvent.EaseInOutCubic,
+            NativeCameraEvent.EaseInQuart, NativeCameraEvent.EaseOutQuart, NativeCameraEvent.EaseInOutQuart,
+            NativeCameraEvent.EaseInQuint, NativeCameraEvent.EaseOutQuint, NativeCameraEvent.EaseInOutQuint,
+            NativeCameraEvent.EaseInExpo, NativeCameraEvent.EaseOutExpo, NativeCameraEvent.EaseInOutExpo,
+            NativeCameraEvent.EaseInCirc, NativeCameraEvent.EaseOutCirc, NativeCameraEvent.EaseInOutCirc,
+            NativeCameraEvent.EaseInBack, NativeCameraEvent.EaseOutBack, NativeCameraEvent.EaseInOutBack,
+            NativeCameraEvent.EaseInElastic, NativeCameraEvent.EaseOutElastic, NativeCameraEvent.EaseInOutElastic,
+            NativeCameraEvent.EaseInBounce, NativeCameraEvent.EaseOutBounce, NativeCameraEvent.EaseInOutBounce
+        ];
+        foreach (uint ease in allEases)
+        {
+            foreach (double time in new[] { 0.0, 0.37, 1.0 })
+            {
+                double value = NativeFilterEaseEvaluator.Evaluate(ease, time);
+                if (!double.IsFinite(value) ||
+                    (time == 0.0 && Math.Abs(value) > 1e-10) ||
+                    (time == 1.0 && Math.Abs(value - 1.0) > 1e-10))
+                {
+                    throw new InvalidOperationException(
+                        $"SetFilter ease {ease} returned an invalid endpoint or value at {time}: {value}.");
+                }
+            }
+        }
+
+        double back = NativeFilterEaseEvaluator.Evaluate(NativeCameraEvent.EaseOutBack, 0.75);
+        if (back <= 1.0 || NativeFilterEaseEvaluator.Evaluate(uint.MaxValue, 0.25) != 0.25)
+            throw new InvalidOperationException("SetFilter overshoot or unknown-ease fallback regressed.");
+
+        NativeFilterState saturated = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = float.MaxValue, Enabled = 1,
+                    Ease = NativeCameraEvent.EaseOutBack
+                }
+            }, 3.0)[0];
+        if (saturated.Intensity != float.MaxValue)
+            throw new InvalidOperationException("SetFilter eased overshoot exceeded the finite float range.");
+    }
+
+    private static void VerifyFilterInterruptionMatchesNative()
+    {
+        // The native renderer completes the interrupted tween to its target
+        // before beginning the next one, rather than sampling it at chartTime.
+        NativeFilterState interrupted = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = 1f, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 2, DurationSeconds = 2,
+                    Filter = 0, TargetIntensity = 0f, Enabled = 1
+                }
+            }, 3.0)[0];
+        if (!interrupted.Enabled || Math.Abs(interrupted.Intensity - 0.5f) > 1e-6f)
+            throw new InvalidOperationException(
+                $"SetFilter interruption differed from native: {interrupted.Intensity} (expected 0.5).");
+
+        // LED starts at the stock default of 1 when it was disabled.
+        NativeFilterState led = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 2,
+                    Filter = 7, TargetIntensity = 0f, Enabled = 1
+                }
+            }, 1.0)[7];
+        if (!led.Enabled || Math.Abs(led.Intensity - 0.5f) > 1e-6f)
+            throw new InvalidOperationException("SetFilter tween did not start from the stock default.");
+
+        // disableOthers completes pending tweens before disabling them.
+        NativeFilterState[] disabled = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 4,
+                    Filter = 0, TargetIntensity = 1f, Enabled = 1
+                },
+                new NativeFilterEvent
+                {
+                    StartTime = 2, DurationSeconds = 0,
+                    Filter = 1, TargetIntensity = 0.25f, Enabled = 1,
+                    Flags = NativeFilterEvent.FlagDisableOthers
+                }
+            }, 3.0);
+        if (disabled[0].Enabled || disabled[0].Intensity != 1f ||
+            !disabled[1].Enabled || disabled[1].Intensity != 0.25f)
+            throw new InvalidOperationException("SetFilter disableOthers did not complete the prior tween.");
+
+        // Invalid native inputs must not poison valid events or a default state.
+        NativeFilterState[] invalidClock = FilterStateEvaluator.Evaluate(
+            new[]
+            {
+                new NativeFilterEvent
+                {
+                    StartTime = 0, DurationSeconds = 0,
+                    Filter = 7, TargetIntensity = 0f, Enabled = 1
+                }
+            }, double.NaN);
+        if (invalidClock[7].Enabled || invalidClock[7].Intensity != 1f)
+            throw new InvalidOperationException("SetFilter invalid clock did not preserve defaults.");
     }
 
     private readonly record struct Timelines(

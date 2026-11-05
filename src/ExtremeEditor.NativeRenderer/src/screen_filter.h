@@ -50,6 +50,8 @@ inline float FilterDefaultIntensity(std::uint32_t filter) noexcept
     }
 }
 
+// Keep the native effect-specific scaling finite for extreme but valid chart
+// values. Match FilterStateEvaluator.ApplyFilterIntensity in WPF.
 inline float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
 {
     if (!std::isfinite(intensity))
@@ -109,7 +111,8 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::uint32_t i = 0u; i < FilterCount; ++i)
         result.entries[i].intensity = FilterDefaultIntensity(i);
 
-    if (!std::isfinite(chart_time))
+    // An invalid clock cannot establish a meaningful filter state.
+    if (std::isnan(chart_time))
         return result;
 
     // Kill(complete: true) jumps a running tween to its end and applies it.
@@ -126,6 +129,7 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::size_t index = 0; index < event_count; ++index)
     {
         const EeFilterEvent& item = events[index];
+        // Keep malformed native input from poisoning later, valid events.
         if (!std::isfinite(item.start_time) ||
             !std::isfinite(item.duration_seconds) ||
             !std::isfinite(item.target_intensity))
@@ -175,6 +179,8 @@ inline FilterVisualState ResolveScreenFilters(
             continue;
         const double raw = std::clamp((chart_time - tween.start) / tween.duration, 0.0, 1.0);
         const double eased = ease != nullptr ? ease(tween.ease, raw) : raw;
+        // Back/elastic easing can overshoot the endpoints. Keep that motion,
+        // but never narrow an out-of-range double to an infinite float.
         const double progress = std::isfinite(eased) ? eased : raw;
         const double value = static_cast<double>(tween.from) +
             (static_cast<double>(tween.to) - tween.from) * progress;

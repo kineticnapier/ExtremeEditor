@@ -36,6 +36,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private long _renderChunksElapsedTicks;
+    private long _renderChunkAttempts;
     private long _foregroundChunkRenders;
     private long _foregroundRenderTicks;
     private long _maxForegroundRenderTicks;
@@ -81,6 +82,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     internal long PositionFrames => _positionFrames;
     internal IReadOnlyList<ScheduledHit> ScheduledHits => _scheduledHits;
     internal long TotalFrames => _totalFrames;
+    internal long RenderChunkAttempts => Interlocked.Read(ref _renderChunkAttempts);
 
     internal long CachedPcmBytes
     {
@@ -148,7 +150,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     /// </summary>
     internal void PrimeRange(long startFrame, long frameCount)
     {
-        if (frameCount <= 0 || _totalFrames <= 0)
+        if (frameCount <= 0 || _totalFrames <= 0 || _scheduledHits.Count == 0)
             return;
 
         long start = Math.Clamp(startFrame, 0, _totalFrames);
@@ -159,8 +161,35 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         long firstChunk = start / ChunkFrames;
         long lastChunk = (start + length - 1) / ChunkFrames;
-        for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
-            _ = EnsureChunk(chunkIndex);
+
+        // Only prime chunks containing a scheduled hit. Sparse charts can have
+        // very long silent ranges, and caching empty sentinels for all of them
+        // wastes both startup time and dictionary/LRU entries.
+        long nextChunk = firstChunk;
+        long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
+        int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
+        {
+            ScheduledHit hit = _scheduledHits[hitIndex];
+            if (hit.StartFrame >= 0 && hit.StartFrame / ChunkFrames > lastChunk)
+                break;
+
+            long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+            if (hitEndFrame <= Math.Max(0, hit.StartFrame))
+                continue;
+
+            long hitLastChunk = Math.Min(lastChunk, (hitEndFrame - 1) / ChunkFrames);
+            if (hitLastChunk < nextChunk)
+                continue;
+
+            long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
+            for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+                _ = EnsureChunk(chunkIndex);
+
+            nextChunk = hitLastChunk + 1;
+            if (nextChunk > lastChunk)
+                break;
+        }
     }
 
     /// <summary>
@@ -174,7 +203,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken)
     {
-        if (_totalFrames <= 0 || cacheBudgetBytes <= 0)
+        if (_totalFrames <= 0 || cacheBudgetBytes <= 0 || _scheduledHits.Count == 0)
             return Task.CompletedTask;
 
         long start = Math.Clamp(startFrame, 0, _totalFrames);
@@ -186,10 +215,38 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         return Task.Run(() =>
         {
-            for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
+            // The schedule is sorted by start frame. Visit only chunks that
+            // overlap an audible clip instead of scanning every silent chunk
+            // until the end of a long sparse chart.
+            long nextChunk = firstChunk;
+            // A seek into a dense chart must not rescan every earlier hit.
+            // The longest clip bounds how far back a hit could still overlap.
+            long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
+            int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+            for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                ScheduledHit hit = _scheduledHits[hitIndex];
+                long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+                if (hitEndFrame <= Math.Max(0, hit.StartFrame))
+                    continue;
+
+                long hitLastChunk = Math.Min(lastChunk, (hitEndFrame - 1) / ChunkFrames);
+                if (hitLastChunk < nextChunk)
+                    continue;
+
+                long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
+                for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                        return;
+                }
+
+                // Overlapping hits can share chunks. Never render one twice
+                // within the same background pass.
+                nextChunk = hitLastChunk + 1;
+                if (nextChunk > lastChunk)
                     break;
             }
         }, cancellationToken);
@@ -250,6 +307,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             sourceHitCount++;
 
+            // Muted hits still count as source events for diagnostics, but
+            // should not occupy schedule entries or consume PCM mixing work.
+            if (currentVolume <= 0f)
+                continue;
+
             // At extreme BPM several adjacent floors often round to the exact
             // same sample. Linear mixing lets those identical contributions
             // collapse into one scaled voice without changing their waveform.
@@ -302,8 +364,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             float volume = double.IsFinite(requestedVolume)
                 ? (float)Math.Clamp(requestedVolume * 0.01, 0.0, 1.0)
                 : 0f;
-            hits.Add(new ScheduledHit(clip, startFrame, volume));
             sourceHitCount++;
+            if (volume <= 0f)
+                continue;
+            hits.Add(new ScheduledHit(clip, startFrame, volume));
         }
 
         return new ScheduleBuildResult(hits, sourceHitCount);
@@ -394,6 +458,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex);
+        // A silent chunk has no PCM bytes, but a cached sentinel still costs
+        // dictionary/LRU entries. Do not retain speculative silence across
+        // long sparse charts; foreground reads can cache it when needed.
+        if (rendered.Length == 0)
+            return true;
+
         long renderedBytes = GetPcmBytes(rendered);
 
         lock (_cacheLock)
@@ -451,6 +521,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private float[] RenderChunkMeasured(long chunkIndex)
     {
+        Interlocked.Increment(ref _renderChunkAttempts);
         var watch = Stopwatch.StartNew();
         float[] rendered = RenderChunk(chunkIndex);
         watch.Stop();
@@ -545,6 +616,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)
     {
+        // Read already zeroed the destination. An entirely muted chart needs
+        // no chunk rendering, empty cache entries, or background prerendering.
+        if (_scheduledHits.Count == 0)
+            return;
+
         long frame = startFrame;
         int destinationSample = offset;
         int framesRemaining = frameCount;

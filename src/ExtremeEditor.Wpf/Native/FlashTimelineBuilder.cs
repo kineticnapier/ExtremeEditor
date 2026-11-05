@@ -45,9 +45,11 @@ internal static class FlashTimelineBuilder
 
     private static float ReadPercent(JsonObject? p,string name,float fallback)
     {
-        if(p?[name] is not JsonValue v) return fallback/100f;
-        if(v.TryGetValue(out double n)) return (float)Math.Clamp(n/100.0,0.0,1.0);
-        if(v.TryGetValue(out string? s) && double.TryParse(s,NumberStyles.Float,CultureInfo.InvariantCulture,out n))
+        if(p?[name] is JsonValue v &&
+           (v.TryGetValue(out double n) ||
+            (v.TryGetValue(out string? s) &&
+             double.TryParse(s,NumberStyles.Float,CultureInfo.InvariantCulture,out n))) &&
+           double.IsFinite(n))
             return (float)Math.Clamp(n/100.0,0.0,1.0);
         return fallback/100f;
     }

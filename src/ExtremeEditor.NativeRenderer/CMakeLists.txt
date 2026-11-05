@@ -196,6 +196,10 @@ add_executable(background_timeline_lookup_tests tests/background_timeline_lookup
 target_compile_features(background_timeline_lookup_tests PRIVATE cxx_std_20)
 target_include_directories(background_timeline_lookup_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(bloom_interpolation_tests tests/bloom_interpolation_tests.cpp)
+target_compile_features(bloom_interpolation_tests PRIVATE cxx_std_20)
+target_include_directories(bloom_interpolation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME follow_camera_midspin_tests COMMAND follow_camera_midspin_tests)
@@ -218,6 +222,7 @@ add_test(NAME floor_hit_order_tests COMMAND floor_hit_order_tests)
 add_test(NAME background_layer_contract_tests COMMAND background_layer_contract_tests)
 add_test(NAME camera_component_lookup_tests COMMAND camera_component_lookup_tests)
 add_test(NAME background_timeline_lookup_tests COMMAND background_timeline_lookup_tests)
+add_test(NAME bloom_interpolation_tests COMMAND bloom_interpolation_tests)
 add_test(NAME win32_window_extent_tests COMMAND win32_window_extent_tests)
 add_test(NAME editor_hud_zoom_tests COMMAND editor_hud_zoom_tests)
 add_test(NAME editor_floor_numbers_contract_tests COMMAND editor_floor_numbers_contract_tests)

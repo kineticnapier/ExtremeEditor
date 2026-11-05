@@ -47,6 +47,37 @@ int main()
         }
     }
 
+    // Extreme finite filter intensities must not overflow during the
+    // effect-specific scaling performed after ResolveScreenFilters.
+    {
+        const float limit = std::numeric_limits<float>::max();
+        for (std::uint32_t filter = 0u; filter < ee::FilterCount; ++filter)
+        {
+            for (float intensity : {limit, -limit})
+            {
+                if (!std::isfinite(ee::ApplyFilterIntensity(filter, intensity)))
+                {
+                    std::cerr << "SetFilter native effect scaling overflowed.\n";
+                    return 1;
+                }
+            }
+        }
+
+        if (ee::ApplyFilterIntensity(16u, limit) != limit ||
+            ee::ApplyFilterIntensity(31u, -limit) != -limit ||
+            ee::ApplyFilterIntensity(7u, 0.5f) != 3.0f ||
+            ee::ApplyFilterIntensity(7u, -0.5f) != -3.0f ||
+            ee::ApplyFilterIntensity(7u, 0.1f) != 1.0f ||
+            ee::ApplyFilterIntensity(7u, -0.1f) != -1.0f ||
+            std::abs(ee::ApplyFilterIntensity(10u, 0.5f) - 0.95f) > 1e-6f ||
+            std::abs(ee::ApplyFilterIntensity(19u, 0.5f)) > 1e-6f ||
+            ee::ApplyFilterIntensity(16u, std::numeric_limits<float>::infinity()) != 0.0f)
+        {
+            std::cerr << "SetFilter native effect scaling or LED rounding regressed.\n";
+            return 1;
+        }
+    }
+
     // Malformed events are ignored without poisoning a following valid event.
     {
         EeFilterEvent events[5]{};
@@ -154,6 +185,157 @@ int main()
             {
                 std::cerr << "Screen filter pass order changed at index " << index << ".\n";
                 return 1;
+            }
+        }
+    }
+
+    // Malformed native event values must not contaminate the state of a
+    // later valid event; an invalid evaluation clock returns defaults.
+    {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double infinity = std::numeric_limits<double>::infinity();
+        EeFilterEvent malformed[6]{};
+        for (EeFilterEvent& event : malformed)
+        {
+            event.filter = ee::FilterGrayscale;
+            event.enabled = 1u;
+            event.target_intensity = 1.0f;
+        }
+        malformed[0].start_time = nan;
+        malformed[1].duration_seconds = nan;
+        malformed[2].duration_seconds = infinity;
+        malformed[3].target_intensity = std::numeric_limits<float>::quiet_NaN();
+        malformed[4].target_intensity = std::numeric_limits<float>::infinity();
+        malformed[5].start_time = 0.5;
+        malformed[5].target_intensity = 0.75f;
+
+        const ee::FilterVisualState valid = ee::ResolveScreenFilters(
+            malformed, 6u, 1.0, nullptr);
+        const ee::FilterVisualState only_invalid = ee::ResolveScreenFilters(
+            malformed, 5u, 1.0, nullptr);
+        const ee::FilterVisualState invalid_clock = ee::ResolveScreenFilters(
+            malformed, 6u, nan, nullptr);
+        if (!valid.entries[ee::FilterGrayscale].enabled ||
+            valid.entries[ee::FilterGrayscale].intensity != 0.75f ||
+            only_invalid.entries[ee::FilterGrayscale].enabled ||
+            only_invalid.entries[ee::FilterGrayscale].intensity !=
+                ee::FilterDefaultIntensity(ee::FilterGrayscale) ||
+            invalid_clock.entries[ee::FilterGrayscale].enabled ||
+            invalid_clock.entries[ee::FilterGrayscale].intensity !=
+                ee::FilterDefaultIntensity(ee::FilterGrayscale))
+        {
+            std::cerr << "SetFilter propagated non-finite event data or clock.\n";
+            return 1;
+        }
+    }
+
+    // Finite but opposite-sign SetFilter targets must not overflow during
+    // interpolation. The old float subtraction yielded Infinity (and NaN
+    // at progress zero), even though the expected midpoint is zero.
+    {
+        EeFilterEvent extreme[2]{};
+        extreme[0].start_time = 0.0;
+        extreme[0].filter = ee::FilterGrayscale;
+        extreme[0].target_intensity = -2e38f;
+        extreme[0].enabled = 1u;
+        extreme[1].start_time = 1.0;
+        extreme[1].duration_seconds = 2.0;
+        extreme[1].filter = ee::FilterGrayscale;
+        extreme[1].target_intensity = 2e38f;
+        extreme[1].enabled = 1u;
+        extreme[1].source_index = 1u;
+
+        const float at_start = ee::ResolveScreenFilters(
+            extreme, 2u, 1.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        const float at_midpoint = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        const float at_end = ee::ResolveScreenFilters(
+            extreme, 2u, 3.0, nullptr).entries[ee::FilterGrayscale].intensity;
+        if (!std::isfinite(at_start) || !std::isfinite(at_midpoint) ||
+            !std::isfinite(at_end) ||
+            std::abs(at_start + 2e38f) > 1e30f ||
+            std::abs(at_midpoint) > 1e30f ||
+            std::abs(at_end - 2e38f) > 1e30f)
+        {
+            std::cerr << "SetFilter native tween overflowed finite endpoints.\n";
+            return 1;
+        }
+    }
+
+    // Nonlinear easing can overshoot a finite float endpoint. The Native
+    // timeline must preserve ordinary overshoot while keeping the result finite.
+    {
+        EeFilterEvent extreme[2]{};
+        extreme[0].start_time = 0.0;
+        extreme[0].filter = ee::FilterGrayscale;
+        extreme[0].target_intensity = -2e38f;
+        extreme[0].enabled = 1u;
+        extreme[1].start_time = 1.0;
+        extreme[1].duration_seconds = 2.0;
+        extreme[1].filter = ee::FilterGrayscale;
+        extreme[1].target_intensity = 2e38f;
+        extreme[1].enabled = 1u;
+        extreme[1].source_index = 1u;
+
+        const float upper = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return 2.0; })
+            .entries[ee::FilterGrayscale].intensity;
+        const float lower = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return -1.0; })
+            .entries[ee::FilterGrayscale].intensity;
+        const float nan_ease = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return std::numeric_limits<double>::quiet_NaN(); })
+            .entries[ee::FilterGrayscale].intensity;
+        const float infinite_ease = ee::ResolveScreenFilters(
+            extreme, 2u, 2.0,
+            +[](std::uint32_t, double) { return std::numeric_limits<double>::infinity(); })
+            .entries[ee::FilterGrayscale].intensity;
+        if (!std::isfinite(upper) || !std::isfinite(lower) ||
+            !std::isfinite(nan_ease) || !std::isfinite(infinite_ease) ||
+            upper != std::numeric_limits<float>::max() ||
+            lower != -std::numeric_limits<float>::max() ||
+            std::abs(nan_ease) > 1e30f ||
+            std::abs(infinite_ease) > 1e30f)
+        {
+            std::cerr << "SetFilter easing overflowed or propagated a non-finite result.\n";
+            return 1;
+        }
+    }
+
+    // Extreme but finite colour-filter intensities must keep every independent
+    // render-pass matrix finite. Multipass rendering deliberately avoids the
+    // cross-filter matrix multiplication used by the former combined path.
+    {
+        const float limit = std::numeric_limits<float>::max();
+        ee::FilterVisualState filters{};
+        filters.entries[ee::FilterGrayscale].enabled = true;
+        filters.entries[ee::FilterGrayscale].intensity = limit;
+        filters.entries[ee::FilterSepia].enabled = true;
+        filters.entries[ee::FilterSepia].intensity = limit;
+        filters.entries[ee::FilterInvert].enabled = true;
+        filters.entries[ee::FilterContrast].enabled = true;
+        filters.entries[ee::FilterContrast].intensity = limit;
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(filters);
+        if (passes.count != ee::MaxScreenFilterPasses)
+        {
+            std::cerr << "SetFilter extreme colour passes were not built.\n";
+            return 1;
+        }
+        for (std::size_t pass = 0; pass < passes.count; ++pass)
+        {
+            for (const auto& row : passes.items[pass].color_matrix.m)
+            {
+                for (float value : row)
+                {
+                    if (!std::isfinite(value))
+                    {
+                        std::cerr << "SetFilter pass matrix contains non-finite coefficients.\n";
+                        return 1;
+                    }
+                }
             }
         }
     }
