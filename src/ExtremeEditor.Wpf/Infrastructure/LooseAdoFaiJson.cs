@@ -271,109 +271,104 @@ internal static class LooseAdoFaiJson
 
     private static byte[] EscapeRawStringControls(byte[] utf8)
     {
+        // Comments may contain unmatched quotes. Track them separately so a
+        // quote in a comment cannot hide a raw newline in a later JSON string.
         bool inString = false;
         bool escaped = false;
-        bool needsRewrite = false;
+        bool inLineComment = false;
+        bool inBlockComment = false;
+        bool changed = false;
+        using var output = new MemoryStream(utf8.Length + 256);
 
-        foreach (byte value in utf8)
+        for (int i = 0; i < utf8.Length; i++)
         {
+            byte value = utf8[i];
             if (!inString)
             {
-                if (value == (byte)'\"')
+                output.WriteByte(value);
+                if (inLineComment)
+                {
+                    if (value == (byte)'\n')
+                        inLineComment = false;
+                    continue;
+                }
+                if (inBlockComment)
+                {
+                    if (value == (byte)'*' && i + 1 < utf8.Length &&
+                        utf8[i + 1] == (byte)'/')
+                    {
+                        output.WriteByte(utf8[++i]);
+                        inBlockComment = false;
+                    }
+                    continue;
+                }
+                if (value == (byte)'/' && i + 1 < utf8.Length)
+                {
+                    byte next = utf8[i + 1];
+                    if (next == (byte)'/' || next == (byte)'*')
+                    {
+                        output.WriteByte(utf8[++i]);
+                        inLineComment = next == (byte)'/';
+                        inBlockComment = next == (byte)'*';
+                        continue;
+                    }
+                }
+                if (value == (byte)'"')
                     inString = true;
                 continue;
             }
 
             if (escaped)
             {
+                output.WriteByte(value);
                 escaped = false;
                 continue;
             }
-
             if (value == (byte)'\\')
             {
+                output.WriteByte(value);
                 escaped = true;
                 continue;
             }
-
-            if (value == (byte)'\"')
+            if (value == (byte)'"')
             {
+                output.WriteByte(value);
                 inString = false;
                 continue;
             }
 
             if (value < 0x20)
             {
-                needsRewrite = true;
-                break;
-            }
-        }
-
-        if (!needsRewrite)
-            return utf8;
-
-        using var output = new MemoryStream(utf8.Length + 256);
-        inString = false;
-        escaped = false;
-
-        foreach (byte value in utf8)
-        {
-            if (!inString)
-            {
-                output.WriteByte(value);
-                if (value == (byte)'\"')
-                    inString = true;
-                continue;
-            }
-
-            if (escaped)
-            {
-                output.WriteByte(value);
-                escaped = false;
-                continue;
-            }
-
-            if (value == (byte)'\\')
-            {
-                output.WriteByte(value);
-                escaped = true;
-                continue;
-            }
-
-            if (value == (byte)'\"')
-            {
-                output.WriteByte(value);
-                inString = false;
-                continue;
-            }
-
-            switch (value)
-            {
-                case 0x08:
-                    WriteAscii(output, "\\b");
-                    break;
-                case 0x09:
-                    WriteAscii(output, "\\t");
-                    break;
-                case 0x0A:
-                    WriteAscii(output, "\\n");
-                    break;
-                case 0x0C:
-                    WriteAscii(output, "\\f");
-                    break;
-                case 0x0D:
-                    WriteAscii(output, "\\r");
-                    break;
-                default:
-                    if (value < 0x20)
+                changed = true;
+                switch (value)
+                {
+                    case 0x08:
+                        WriteAscii(output, "\\b");
+                        break;
+                    case 0x09:
+                        WriteAscii(output, "\\t");
+                        break;
+                    case 0x0A:
+                        WriteAscii(output, "\\n");
+                        break;
+                    case 0x0C:
+                        WriteAscii(output, "\\f");
+                        break;
+                    case 0x0D:
+                        WriteAscii(output, "\\r");
+                        break;
+                    default:
                         WriteAscii(output, $"\\u{value:X4}");
-                    else
-                        output.WriteByte(value);
-                    break;
+                        break;
+                }
+            }
+            else
+            {
+                output.WriteByte(value);
             }
         }
 
-        return output.ToArray();
+        return changed ? output.ToArray() : utf8;
     }
 
     private static void WriteAscii(Stream output, string value)
