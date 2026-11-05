@@ -478,6 +478,14 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 TouchCacheEntry(chunkIndex);
                 return true;
             }
+
+            // Audible chunks always allocate a full stereo PCM buffer. When
+            // speculative space is exhausted, avoid mixing a chunk that cannot
+            // be cached. Foreground reads can still render it on demand.
+            const long fullChunkBytes = ChunkFrames * 2L * sizeof(float);
+            long effectiveBudget = Math.Min(_cacheBudgetBytes, Math.Max(0, cacheBudgetBytes));
+            if (fullChunkBytes > effectiveBudget - Math.Min(_cachedPcmBytes, effectiveBudget))
+                return false;
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex);
