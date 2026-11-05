@@ -28,6 +28,7 @@ RunNonFiniteHitSoundVolumeChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
 RunSparsePrerenderCacheChecks();
+RunSparsePrerenderGapChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -283,6 +284,8 @@ static void RunSparsePrerenderCacheChecks()
 
     Equal(1, provider.Metrics.RenderedChunkCount,
         "sparse background prerender retains only the audible chunk");
+    Equal(1L, provider.RenderChunkAttempts,
+        "sparse background prerender skips silent chunk rendering");
     Equal(4096L * 2 * sizeof(float), provider.CachedPcmBytes,
         "sparse background prerender PCM cache size");
 
@@ -296,6 +299,50 @@ static void RunSparsePrerenderCacheChecks()
     Equal(2, provider.Read(silentPcm, 0, 2), "sparse silent region read");
     Near(0.0, silentPcm[0], "sparse silent region remains silent");
     Near(0.0, silentPcm[1], "sparse silent region right channel");
+}
+
+static void RunSparsePrerenderGapChecks()
+{
+    // A clip crossing a chunk boundary needs both chunks. A second hit much
+    // later must not cause every intervening silent chunk to be rendered.
+    const int sampleRate = 1_000;
+    const long totalFrames = 64L * 4096;
+    LevelDocument level = CreateLevel(3);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 4.095),
+        Floor(2, 200.001)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 12).ToArray(), 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    provider.PrerenderAheadAsync(0, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    Equal(3L, provider.RenderChunkAttempts,
+        "sparse background prerender renders only the three audible chunks");
+    Equal(3, provider.Metrics.RenderedChunkCount,
+        "sparse background prerender retains all audible chunks");
+    Equal(3L * 4096 * 2 * sizeof(float), provider.CachedPcmBytes,
+        "sparse background prerender PCM bytes");
+
+    provider.Seek(4095);
+    var crossing = new float[12];
+    Equal(12, provider.Read(crossing, 0, crossing.Length),
+        "cross-boundary hit read");
+    if (crossing.Any(sample => Math.Abs(sample - 0.5f) > 1e-6f))
+        throw new InvalidOperationException("cross-boundary hit samples differ");
+
+    provider.Seek(200_001);
+    var later = new float[2];
+    Equal(2, provider.Read(later, 0, later.Length), "later hit read");
+    Near(0.5, later[0], "later hit left channel");
+    Near(0.5, later[1], "later hit right channel");
 }
 
 static void RunSongPitchRateChecks()
