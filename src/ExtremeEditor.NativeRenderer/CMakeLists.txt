@@ -71,6 +71,12 @@ target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINM
 target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
+add_executable(decoration_shutdown_tests tests/decoration_shutdown_tests.cpp)
+target_compile_features(decoration_shutdown_tests PRIVATE cxx_std_20)
+target_compile_definitions(decoration_shutdown_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(decoration_shutdown_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(decoration_shutdown_tests PRIVATE ExtremeEditor.NativeRenderer user32)
+
 add_executable(camera_runtime_reference_tests tests/camera_runtime_reference_tests.cpp src/renderer_camera.cpp)
 target_compile_features(camera_runtime_reference_tests PRIVATE cxx_std_20)
 target_compile_definitions(camera_runtime_reference_tests PRIVATE UNICODE _UNICODE NOMINMAX)
@@ -213,6 +219,7 @@ target_compile_definitions(floor_transform_runtime_tests PRIVATE UNICODE _UNICOD
 target_include_directories(floor_transform_runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
+add_test(NAME decoration_shutdown_tests COMMAND decoration_shutdown_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME follow_camera_midspin_tests COMMAND follow_camera_midspin_tests)
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
