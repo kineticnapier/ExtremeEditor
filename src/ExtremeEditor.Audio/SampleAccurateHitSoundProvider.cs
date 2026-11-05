@@ -250,6 +250,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             sourceHitCount++;
 
+            // Muted hits still count as source events for diagnostics, but
+            // should not occupy schedule entries or consume PCM mixing work.
+            if (currentVolume <= 0f)
+                continue;
+
             // At extreme BPM several adjacent floors often round to the exact
             // same sample. Linear mixing lets those identical contributions
             // collapse into one scaled voice without changing their waveform.
@@ -302,8 +307,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             float volume = double.IsFinite(requestedVolume)
                 ? (float)Math.Clamp(requestedVolume * 0.01, 0.0, 1.0)
                 : 0f;
-            hits.Add(new ScheduledHit(clip, startFrame, volume));
             sourceHitCount++;
+            if (volume <= 0f)
+                continue;
+            hits.Add(new ScheduledHit(clip, startFrame, volume));
         }
 
         return new ScheduleBuildResult(hits, sourceHitCount);
