@@ -320,7 +320,7 @@ public static class VfxTimelineBuilder
             action.Active,
             angleOffset,
             action.Duration,
-            ReadString(MoveDecorationsTargeting.GetProperties(action), "ease"),
+            ReadEase(MoveDecorationsTargeting.GetProperties(action)),
             MoveDecorationsTargeting.GetEventTag(action),
             action,
             RepeatDescriptor: repeatDescriptor,
@@ -419,6 +419,24 @@ public static class VfxTimelineBuilder
             ReadBool(properties, "executeOnCurrentFloor"),
             action);
         return true;
+    }
+
+    // The game stores an integer ease with Enum.ToObject; keep it as its
+    // numeric text so DotweenEaseEvaluator parses it like a numeric name.
+    private static string? ReadEase(JsonObject? properties)
+    {
+        if (properties?["ease"] is JsonValue value)
+        {
+            if (value.TryGetValue(out int number))
+                return number.ToString(CultureInfo.InvariantCulture);
+            if (value.TryGetValue(out JsonElement element) &&
+                element.ValueKind == JsonValueKind.Number &&
+                element.TryGetInt32(out number))
+            {
+                return number.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+        return ReadString(properties, "ease");
     }
 
     private static string? ReadString(JsonObject? properties, string name)
