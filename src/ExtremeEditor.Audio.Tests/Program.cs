@@ -531,11 +531,25 @@ static void RunLongClipSparseCandidateIndexChecks()
     Near(0.75, primedTail[0], "primed long-tail overlap left");
     Near(0.75, primedTail[1], "primed long-tail overlap right");
 
+    // Seeking to the exact end still visits the containing chunk because
+    // that chunk includes earlier tail samples; the next chunk is fully silent.
+    var boundaryPrerender = NewProvider();
+    boundaryPrerender.PrerenderAheadAsync(800_000, 32 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, boundaryPrerender.RenderChunkAttempts,
+        "background prerender keeps the chunk crossing the exclusive tail end");
+    boundaryPrerender.Seek(800_000);
+    var boundaryPcm = new float[2];
+    Equal(2, boundaryPrerender.Read(boundaryPcm, 0, 2),
+        "exclusive tail end read count");
+    Near(0.0, boundaryPcm[0], "exclusive tail end left");
+    Near(0.0, boundaryPcm[1], "exclusive tail end right");
+
     var expiredPrerender = NewProvider();
-    expiredPrerender.PrerenderAheadAsync(800_000, 32 * 1024, CancellationToken.None)
+    expiredPrerender.PrerenderAheadAsync(802_816, 32 * 1024, CancellationToken.None)
         .GetAwaiter().GetResult();
     Equal(0L, expiredPrerender.RenderChunkAttempts,
-        "background prerender skips all hits at the exact long-tail end");
+        "background prerender skips the first fully silent chunk after the tail");
     Equal(0L, expiredPrerender.CachedPcmBytes,
         "expired background prerender leaves no PCM cache");
 
