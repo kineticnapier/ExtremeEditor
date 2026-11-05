@@ -366,6 +366,26 @@ static void RunSparsePrerenderGapChecks()
         .GetAwaiter().GetResult();
     Equal(1L, nearEnd.RenderChunkAttempts,
         "late seek prerenders only the remaining audible chunk");
+
+    // A speculative cache budget that holds exactly one audible chunk must
+    // stop BEFORE rendering the next chunk, not after wasting a full mix.
+    const long oneChunkBytes = 4096L * 2 * sizeof(float);
+    var budgetLimited = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    budgetLimited.PrerenderAheadAsync(0, oneChunkBytes, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "full speculative cache skips the next expensive chunk render");
+    Equal(1, budgetLimited.Metrics.RenderedChunkCount,
+        "speculative cache retains only the first chunk within budget");
+    Equal(oneChunkBytes, budgetLimited.CachedPcmBytes,
+        "speculative cache never exceeds its supplied budget");
+    budgetLimited.Seek(4096);
+    var uncachedTail = new float[2];
+    Equal(2, budgetLimited.Read(uncachedTail, 0, 2),
+        "foreground still renders an uncached tail after prerender stops");
+    Near(0.5, uncachedTail[0], "uncached tail remains audible");
 }
 
 static void RunSparsePrimeRangeChecks()
