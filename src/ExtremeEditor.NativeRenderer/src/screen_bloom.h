@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -22,6 +23,8 @@ inline constexpr float BloomMediumKernelScale = 1.0f;
 inline constexpr float BloomLumaR = 0.30f;
 inline constexpr float BloomLumaG = 0.59f;
 inline constexpr float BloomLumaB = 0.11f;
+// D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION documents a maximum of 250.
+inline constexpr float BloomMaximumSigmaPixels = 250.0f;
 
 // VideoBloom.videoBlurGetMaxScaleFor.
 inline double VideoBloomMaxBlurScale(double kernel) noexcept
@@ -44,7 +47,15 @@ inline float VideoBloomBlurSigmaPixels(std::uint32_t frame_height) noexcept
 {
     if (frame_height == 0u)
         return 0.0f;
-    const double scale = 198.0 / static_cast<double>(frame_height);
+    // VideoBloom's source is 198 px high. Treat half of that working surface
+    // as the smallest meaningful blur-pyramid level; smaller host targets
+    // otherwise increase the pass count exponentially. Heights used by the
+    // normal renderer (180 px and above) retain the original formula.
+    constexpr std::uint32_t working_height = 198u;
+    constexpr std::uint32_t minimum_pyramid_height = working_height / 2u;
+    const std::uint32_t effective_height = std::max(frame_height, minimum_pyramid_height);
+    const double scale = static_cast<double>(working_height) /
+        static_cast<double>(effective_height);
     const double kernel = BloomKernelSize * BloomMediumKernelScale * scale;
     if (!(kernel > 0.0))
         return 0.0f;
@@ -54,6 +65,8 @@ inline float VideoBloomBlurSigmaPixels(std::uint32_t frame_height) noexcept
     const double per_pass = 0.2045 * 34.0 / 9.0;
     const double steps = std::pow(2.0, passes);
     const double variance = per_pass * ((steps - 1.0) + fraction * steps);
-    return static_cast<float>(std::sqrt(variance) / scale);
+    const double sigma = std::sqrt(variance) / scale;
+    return static_cast<float>(std::clamp(
+        sigma, 0.0, static_cast<double>(BloomMaximumSigmaPixels)));
 }
 }

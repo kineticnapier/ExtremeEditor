@@ -1,3 +1,4 @@
+#include "bloom_interpolation.h"
 #include "renderer.h"
 #include "screen_bloom.h"
 #include "background_timeline_lookup.h"
@@ -535,12 +536,17 @@ BloomVisualState ResolveBloomAtTime(
     double chart_time) noexcept
 {
     BloomVisualState result;
-    if (events == nullptr || events->empty())
+    if (events == nullptr || events->empty() || !std::isfinite(chart_time))
         return result;
 
     const EeBloomEvent* previous = nullptr;
     for (const EeBloomEvent& item : *events)
     {
+        if (!std::isfinite(item.start_time) ||
+            !std::isfinite(item.duration_seconds) ||
+            !std::isfinite(item.threshold) ||
+            !std::isfinite(item.intensity))
+            continue;
         if (item.start_time > chart_time)
             break;
 
@@ -552,13 +558,14 @@ BloomVisualState ResolveBloomAtTime(
         const double raw = item.duration_seconds <= 1e-9
             ? 1.0
             : (chart_time - item.start_time) / item.duration_seconds;
-        const double progress = ApplyFlashEase(item.ease, raw);
+        const double eased = ApplyFlashEase(item.ease, raw);
+        const double progress = std::isfinite(eased) ? eased : 0.0;
 
         result.enabled = item.enabled != 0u;
-        result.threshold = start_threshold +
-            (item.threshold - start_threshold) * static_cast<float>(progress);
-        result.intensity = start_intensity +
-            (item.intensity - start_intensity) * static_cast<float>(progress);
+        result.threshold = InterpolateBloomFinite(
+            start_threshold, item.threshold, progress);
+        result.intensity = InterpolateBloomFinite(
+            start_intensity, item.intensity, progress);
         result.tint = LerpBloomColor(start_tint, item.tint, progress);
         previous = &item;
     }
@@ -834,28 +841,6 @@ bool Renderer::SetFilterTimeline(
     catch (...)
     {
         return false;
-    }
-}
-
-float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
-{
-    switch (filter)
-    {
-    case 3u: return 0.212f * intensity;
-    case 7u: return std::round(5.0f * intensity);
-    case 8u: return 0.5f * intensity;
-    case 10u: return 0.9f + 0.1f * intensity;
-    case 11u: return 3.0f * intensity;
-    case 13u: return 4.0f * intensity;
-    case 14u: return 10.0f * intensity;
-    case 16u: return 32.0f * intensity;
-    case 17u: return 0.375f * intensity;
-    case 19u: return 0.04f * intensity - 0.02f;
-    case 27u: return 2.0f * intensity;
-    case 31u: return 20.0f * intensity;
-    case 33u: return 1.0f + intensity;
-    case 38u: return 2.4f * intensity;
-    default: return intensity;
     }
 }
 

@@ -1,5 +1,6 @@
 #include "extreme_editor_renderer.h"
 #include "extreme_editor_headless.h"
+#include "bloom_interpolation.h"
 #include "icon_assets.h"
 #include "screen_bloom.h"
 #include "screen_filter.h"
@@ -10,10 +11,95 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 int main()
 {
+    // Finite chart values may still overflow when narrowed or interpolated.
+    constexpr float large = 2e38f;
+    if (!std::isfinite(ee::InterpolateBloomFinite(-large, large, 0.5)) ||
+        std::abs(ee::InterpolateBloomFinite(-large, large, 0.5)) > 1e30f ||
+        ee::InterpolateBloomFinite(-std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(), 1.2) != std::numeric_limits<float>::max())
+    {
+        std::cerr << "Bloom finite interpolation overflowed.\n";
+        return 1;
+    }
+
+    // VideoBloom renders its blur at 198 px. Output heights below that must
+    // not increase the pass count or produce an unbounded frame-space sigma.
+    constexpr std::uint32_t bloom_heights[] = {1u, 5u, 10u, 360u, 1080u, 2160u, 4320u};
+    constexpr float expected_sigmas[] = {7.02f, 7.02f, 7.02f, 5.67f, 6.24f, 7.87f, 11.12f};
+    for (std::size_t index = 0; index < std::size(bloom_heights); ++index)
+    {
+        const std::uint32_t height = bloom_heights[index];
+        const float sigma = ee::VideoBloomBlurSigmaPixels(height);
+        const bool tiny_height = height <= 10u;
+        if (!std::isfinite(sigma) || sigma <= 0.0f ||
+            sigma > ee::BloomMaximumSigmaPixels ||
+            (tiny_height && sigma > 7.1f) ||
+            std::abs(sigma - expected_sigmas[index]) > 0.05f)
+        {
+            std::cerr << "Unsafe Bloom sigma at height " << height
+                      << ": " << sigma << ".\n";
+            return 1;
+        }
+    }
+
+    // Malformed events are ignored without poisoning a following valid event.
+    {
+        EeFilterEvent events[5]{};
+        for (EeFilterEvent& event : events)
+        {
+            event.filter = ee::FilterGrayscale;
+            event.enabled = 1u;
+            event.target_intensity = 1.0f;
+        }
+        events[0].start_time = std::numeric_limits<double>::quiet_NaN();
+        events[1].duration_seconds = std::numeric_limits<double>::infinity();
+        events[2].target_intensity = std::numeric_limits<float>::infinity();
+        events[3].target_intensity = -std::numeric_limits<float>::infinity();
+        events[4].start_time = 1.0;
+        events[4].target_intensity = 5.0f;
+        const ee::FilterVisualState state = ee::ResolveScreenFilters(events, 5u, 2.0, nullptr);
+        if (!state.entries[ee::FilterGrayscale].enabled ||
+            state.entries[ee::FilterGrayscale].intensity != 5.0f)
+        {
+            std::cerr << "Invalid SetFilter event poisoned the next valid event.\n";
+            return 1;
+        }
+    }
+
+    // Effect-specific scaling and all four colour-pass matrices stay finite.
+    for (std::uint32_t filter = 0u; filter < ee::FilterCount; ++filter)
+    {
+        if (!std::isfinite(ee::ApplyFilterIntensity(
+                filter, std::numeric_limits<float>::max())) ||
+            !std::isfinite(ee::ApplyFilterIntensity(
+                filter, -std::numeric_limits<float>::max())))
+        {
+            std::cerr << "SetFilter effect scaling overflowed.\n";
+            return 1;
+        }
+    }
+    {
+        ee::FilterVisualState state;
+        state.entries[ee::FilterGrayscale] = {true, std::numeric_limits<float>::quiet_NaN(), 0.0f};
+        state.entries[ee::FilterSepia] = {true, std::numeric_limits<float>::infinity(), 0.0f};
+        state.entries[ee::FilterInvert] = {true, 0.0f, 0.0f};
+        state.entries[ee::FilterContrast] = {true, -std::numeric_limits<float>::infinity(), 0.0f};
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(state);
+        for (std::size_t pass = 0; pass < passes.count; ++pass)
+            for (const auto& row : passes.items[pass].color_matrix.m)
+                for (float value : row)
+                    if (!std::isfinite(value))
+                    {
+                        std::cerr << "SetFilter produced a non-finite colour matrix.\n";
+                        return 1;
+                    }
+    }
+
     {
         EeFilterEvent events[2]{};
         events[0].start_time = 0.0;
@@ -791,11 +877,42 @@ int main()
         destroy_headless();
         return 1;
     }
+    bloom.intensity = 5.0f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 224.0f, 224.0f, 224.0f, "Bloom 500% pixel mismatch"))
+    {
+        std::cerr << "Bloom 500% intensity was clamped unexpectedly.\n";
+        destroy_headless();
+        return 1;
+    }
     bloom.intensity = 0.5f;
     if (!bloom_frame(&bloom, 1u, 0.25) ||
         !require_uniform(filter_frame, 80.0f, 80.0f, 80.0f, "Bloom 50% pixel mismatch"))
     {
         std::cerr << "Bloom intensity did not scale the glow.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeBloomEvent malformed_bloom[5]{};
+    for (EeBloomEvent& event : malformed_bloom)
+    {
+        event.enabled = 1u;
+        event.tint = 0xffffffu;
+    }
+    malformed_bloom[0].start_time = std::numeric_limits<double>::quiet_NaN();
+    malformed_bloom[0].intensity = 1.0f;
+    malformed_bloom[1].duration_seconds = std::numeric_limits<double>::infinity();
+    malformed_bloom[1].intensity = 1.0f;
+    malformed_bloom[2].threshold = std::numeric_limits<float>::infinity();
+    malformed_bloom[3].intensity = -std::numeric_limits<float>::infinity();
+    malformed_bloom[4].start_time = 1.0;
+    malformed_bloom[4].intensity = 1.0f;
+    if (!bloom_frame(malformed_bloom, 5u, 2.0) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f,
+            "Valid Bloom after malformed events mismatch"))
+    {
+        std::cerr << "Malformed Bloom event poisoned the next valid event.\n";
         destroy_headless();
         return 1;
     }

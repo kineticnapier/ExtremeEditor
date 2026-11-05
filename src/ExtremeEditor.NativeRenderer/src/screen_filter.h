@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 // SetFilter state and screen-space colour filters.
 //
@@ -48,6 +50,38 @@ inline float FilterDefaultIntensity(std::uint32_t filter) noexcept
     }
 }
 
+inline float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
+{
+    if (!std::isfinite(intensity))
+        return 0.0f;
+
+    const auto scale_finite = [intensity](float multiplier) noexcept
+    {
+        const double scaled = static_cast<double>(multiplier) * intensity;
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
+        return static_cast<float>(std::clamp(scaled, -limit, limit));
+    };
+
+    switch (filter)
+    {
+    case 3u: return scale_finite(0.212f);
+    case 7u: return std::round(scale_finite(5.0f));
+    case 8u: return scale_finite(0.5f);
+    case 10u: return 0.9f + scale_finite(0.1f);
+    case 11u: return scale_finite(3.0f);
+    case 13u: return scale_finite(4.0f);
+    case 14u: return scale_finite(10.0f);
+    case 16u: return scale_finite(32.0f);
+    case 17u: return scale_finite(0.375f);
+    case 19u: return scale_finite(0.04f) - 0.02f;
+    case 27u: return scale_finite(2.0f);
+    case 31u: return scale_finite(20.0f);
+    case 33u: return 1.0f + intensity;
+    case 38u: return scale_finite(2.4f);
+    default: return intensity;
+    }
+}
+
 using FilterEaseFunction = double (*)(std::uint32_t ease, double progress);
 
 // Evaluates the SetFilter timeline at chart_time. events are ordered by
@@ -75,6 +109,9 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::uint32_t i = 0u; i < FilterCount; ++i)
         result.entries[i].intensity = FilterDefaultIntensity(i);
 
+    if (!std::isfinite(chart_time))
+        return result;
+
     // Kill(complete: true) jumps a running tween to its end and applies it.
     const auto complete = [&](std::uint32_t filter) noexcept
     {
@@ -89,6 +126,10 @@ inline FilterVisualState ResolveScreenFilters(
     for (std::size_t index = 0; index < event_count; ++index)
     {
         const EeFilterEvent& item = events[index];
+        if (!std::isfinite(item.start_time) ||
+            !std::isfinite(item.duration_seconds) ||
+            !std::isfinite(item.target_intensity))
+            continue;
         if (item.start_time > chart_time)
             break;
         if (item.filter >= FilterCount)
@@ -133,9 +174,13 @@ inline FilterVisualState ResolveScreenFilters(
         if (!tween.active)
             continue;
         const double raw = std::clamp((chart_time - tween.start) / tween.duration, 0.0, 1.0);
-        const double progress = ease != nullptr ? ease(tween.ease, raw) : raw;
+        const double eased = ease != nullptr ? ease(tween.ease, raw) : raw;
+        const double progress = std::isfinite(eased) ? eased : raw;
+        const double value = static_cast<double>(tween.from) +
+            (static_cast<double>(tween.to) - tween.from) * progress;
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
         result.entries[filter].intensity = static_cast<float>(
-            tween.from + (tween.to - tween.from) * progress);
+            std::clamp(value, -limit, limit));
     }
     return result;
 }
@@ -211,7 +256,9 @@ inline ScreenFilterPassList BuildScreenFilterPasses(
     const FilterVisualEntry& grayscale = state.entries[FilterGrayscale];
     if (grayscale.enabled)
     {
-        const float amount = std::clamp(grayscale.intensity, 0.0f, 1.0f);
+        const float amount = std::clamp(
+            std::isfinite(grayscale.intensity) ? grayscale.intensity : 0.0f,
+            0.0f, 1.0f);
         ScreenColorMatrix gray = ScreenColorMatrix::Identity();
         const float weights[3] = {GrayscaleWeightR, GrayscaleWeightG, GrayscaleWeightB};
         for (int input = 0; input < 3; ++input)
@@ -231,7 +278,7 @@ inline ScreenFilterPassList BuildScreenFilterPasses(
     const FilterVisualEntry& sepia = state.entries[FilterSepia];
     if (sepia.enabled)
     {
-        const float amount = sepia.intensity;
+        const float amount = std::isfinite(sepia.intensity) ? sepia.intensity : 0.0f;
         const float weights[3] = {GrayscaleWeightR, GrayscaleWeightG, GrayscaleWeightB};
         const float tint[3] = {0.437f, 0.171f, 0.078f};
         ScreenColorMatrix tone = ScreenColorMatrix::Identity();
@@ -269,7 +316,10 @@ inline ScreenFilterPassList BuildScreenFilterPasses(
     const FilterVisualEntry& contrast = state.entries[FilterContrast];
     if (contrast.enabled)
     {
-        const float scale = contrast.intensity + 1.0f;
+        const double requested = 1.0 + static_cast<double>(
+            std::isfinite(contrast.intensity) ? contrast.intensity : 0.0f);
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
+        const float scale = static_cast<float>(std::clamp(requested, -limit, limit));
         ScreenColorMatrix stretch = ScreenColorMatrix::Identity();
         for (int channel = 0; channel < 3; ++channel)
         {
