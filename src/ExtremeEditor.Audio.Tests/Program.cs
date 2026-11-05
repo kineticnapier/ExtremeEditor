@@ -31,6 +31,7 @@ RunSparsePrerenderCacheChecks();
 RunSparsePrerenderGapChecks();
 RunSparsePrimeRangeChecks();
 RunSparseForegroundSilenceCacheChecks();
+RunLongClipSparseCandidateIndexChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -463,6 +464,66 @@ static void RunSparseForegroundSilenceCacheChecks()
     Near(0.5, hitSamples[1], "sparse foreground audible right");
     Equal(1, provider.Metrics.RenderedChunkCount,
         "audible foreground chunks must still be cached");
+}
+
+static void RunLongClipSparseCandidateIndexChecks()
+{
+    // A future long clip must not force every silent middle chunk to inspect
+    // already-finished short hits. Its tail must still mix with later hits.
+    const int sampleRate = 1_000;
+    const int shortHitCount = 96;
+    const long totalFrames = 850_000;
+    var timings = new FloorTiming[shortHitCount + 3];
+    timings[0] = Floor(0, 0.0);
+    for (int floor = 1; floor <= shortHitCount; floor++)
+        timings[floor] = Floor(floor, floor * 2.0);
+    timings[shortHitCount + 1] = Floor(shortHitCount + 1, 500.0);
+    timings[shortHitCount + 2] = Floor(shortHitCount + 2, 600.0);
+
+    LevelDocument level = CreateLevel(timings.Length, new Dictionary<int, LevelAction[]>
+    {
+        [shortHitCount + 1] = [new LevelAction(shortHitCount + 1, "SetHitsound", true, null, null, null, null)
+        {
+            HitSound = "Long"
+        }],
+        [shortHitCount + 2] = [new LevelAction(shortHitCount + 2, "SetHitsound", true, null, null, null, null)
+        {
+            HitSound = "Kick"
+        }]
+    });
+    var timing = new TimingMap(timings);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0),
+        ["Long"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 300_000 * 2).ToArray(), 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(shortHitCount + 2, provider.ScheduledHits.Count, "long-clip sparse schedule");
+    Equal(shortHitCount, provider.FirstPotentiallyOverlappingHitIndex(350_000),
+        "silent gap skips all expired short hits");
+    Equal(shortHitCount, provider.FirstPotentiallyOverlappingHitIndex(600_000),
+        "long tail remains a candidate during later hit");
+    Equal(shortHitCount + 2, provider.FirstPotentiallyOverlappingHitIndex(800_000),
+        "expired long tail is excluded at its exact end");
+
+    void CheckFrame(long frame, double expected, string label)
+    {
+        provider.Seek(frame);
+        var pcm = new[] { -1f, -1f };
+        Equal(2, provider.Read(pcm, 0, pcm.Length), label + " read");
+        Near(expected, pcm[0], label + " left");
+        Near(expected, pcm[1], label + " right");
+    }
+
+    CheckFrame(350_000, 0.0, "silent gap before future long hit");
+    Equal(0, provider.Metrics.RenderedChunkCount, "silent gap leaves cache empty");
+    CheckFrame(500_000, 0.5, "long clip begins");
+    CheckFrame(600_000, 0.75, "short hit mixes with long clip tail");
+    CheckFrame(799_999, 0.5, "last frame of long clip");
+    CheckFrame(800_000, 0.0, "long clip ends exclusively");
 }
 
 static void RunSongPitchRateChecks()
