@@ -455,6 +455,8 @@ static void RunSparseForegroundSilenceCacheChecks()
         "foreground silence must not accumulate zero-byte cache entries");
     Equal(0L, provider.CachedPcmBytes,
         "foreground silence must not allocate cached PCM");
+    Equal(0L, provider.RenderChunkAttempts,
+        "foreground silence must bypass rendering, not just avoid caching");
 
     provider.Seek(1);
     var hitSamples = new float[2];
@@ -464,6 +466,8 @@ static void RunSparseForegroundSilenceCacheChecks()
     Near(0.5, hitSamples[1], "sparse foreground audible right");
     Equal(1, provider.Metrics.RenderedChunkCount,
         "audible foreground chunks must still be cached");
+    Equal(1L, provider.RenderChunkAttempts,
+        "audible foreground hit still renders once");
 }
 
 static void RunLongClipSparseCandidateIndexChecks()
@@ -564,6 +568,8 @@ static void RunLongClipSparseCandidateIndexChecks()
 
     CheckFrame(350_000, 0.0, "silent gap before future long hit");
     Equal(0, provider.Metrics.RenderedChunkCount, "silent gap leaves cache empty");
+    Equal(0L, provider.RenderChunkAttempts,
+        "silent gap before a future long hit does not render");
     CheckFrame(500_000, 0.5, "long clip begins");
     CheckFrame(600_000, 0.75, "short hit mixes with long clip tail");
     CheckFrame(799_999, 0.5, "last frame of long clip");
