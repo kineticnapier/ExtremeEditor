@@ -1,4 +1,5 @@
 #include "icon_instanced_renderer.h"
+#include "floor_transform.h"
 
 #include <d3dcompiler.h>
 
@@ -33,9 +34,11 @@ struct VSInput
     float2 worldPosition : INSTANCEPOS;
     float2 sizePixels : INSTANCESIZE;
     float2 centerOffsetPixels : INSTANCEOFFSET;
-    float2 rotation : INSTANCEROT;
+    float2 baseRotation : INSTANCEROT;
     float depth : INSTANCEDEPTH;
     float opacity : INSTANCEOPACITY;
+    float2 transformRotation : INSTANCETRANSFORMROT;
+    float2 floorScale : INSTANCESCALE;
 };
 
 struct VSOutput
@@ -49,11 +52,17 @@ VSOutput VSMain(VSInput input)
 {
     VSOutput output;
     float2 local = input.localPosition * input.sizePixels + input.centerOffsetPixels;
-    float c = input.rotation.x;
-    float s = input.rotation.y;
+    float bc = input.baseRotation.x;
+    float bs = input.baseRotation.y;
+    float2 shaped = float2(
+        bc * local.x - bs * local.y,
+        bs * local.x + bc * local.y);
+    float2 scaled = shaped * input.floorScale;
+    float tc = input.transformRotation.x;
+    float ts = input.transformRotation.y;
     float2 offset = float2(
-        c * local.x - s * local.y,
-        s * local.x + c * local.y);
+        tc * scaled.x - ts * scaled.y,
+        ts * scaled.x + tc * scaled.y);
     float2 center = float2(
         (input.worldPosition.x - camera.x) * zoom + viewport.x * 0.5,
         (camera.y - input.worldPosition.y) * zoom + viewport.y * 0.5);
@@ -166,7 +175,9 @@ bool IconInstancedRenderer::CreatePipeline(ID3D11Device* device) noexcept
         {"INSTANCEOFFSET", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 24, D3D11_INPUT_PER_INSTANCE_DATA, 1},
         {"INSTANCEDEPTH", 0, DXGI_FORMAT_R32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1},
-        {"INSTANCEOPACITY", 0, DXGI_FORMAT_R32_FLOAT, 1, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1}
+        {"INSTANCEOPACITY", 0, DXGI_FORMAT_R32_FLOAT, 1, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCETRANSFORMROT", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 40, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"INSTANCESCALE", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1}
     };
     if (FAILED(device->CreateInputLayout(
             elements,
@@ -491,10 +502,13 @@ bool IconInstancedRenderer::Draw(
             (static_cast<float>(floor_index) + 1.0f - static_cast<float>(floor.track_sorting_offset)) * depth_step,
             0.0f,
             1.0f);
-        const float cosine = std::cos(floor.icon_angle);
-        const float sine = std::sin(floor.icon_angle);
-        const float scale_x = std::isfinite(floor.transform_scale_x) ? floor.transform_scale_x : 1.0f;
-        const float scale_y = std::isfinite(floor.transform_scale_y) ? floor.transform_scale_y : 1.0f;
+        const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
+        const FloorLocalTransform transform = ResolveFloorLocalTransform(
+            floor.icon_angle,
+            floor.transform_rotation,
+            floor.transform_scale_x,
+            floor.transform_scale_y,
+            transformed);
         const float opacity = std::isfinite(floor.transform_opacity)
             ? std::clamp(floor.transform_opacity, 0.0f, 1.0f)
             : 1.0f;
@@ -524,14 +538,18 @@ bool IconInstancedRenderer::Draw(
             batch.instances.push_back(InstanceData{
                 floor.x,
                 floor.y,
-                draw_width * scale_x,
-                layout.height * scale_y,
-                (flipped ? -layout.offset_x : layout.offset_x) * scale_x,
-                layout.offset_y * scale_y,
-                cosine,
-                sine,
+                draw_width,
+                layout.height,
+                flipped ? -layout.offset_x : layout.offset_x,
+                layout.offset_y,
+                transform.base_cosine,
+                transform.base_sine,
                 depth,
-                opacity});
+                opacity,
+                transform.transform_cosine,
+                transform.transform_sine,
+                transform.scale_x,
+                transform.scale_y});
             ++sprite_count;
         };
 

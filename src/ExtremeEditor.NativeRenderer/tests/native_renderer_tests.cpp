@@ -1229,6 +1229,86 @@ int main()
         return 1;
     }
 
+    // Exercise the production floor vertex shader. A 1.5 x 0.825 rectangle
+    // entering at 90 degrees and scaled [300,100] must become horizontally
+    // wide (2.475 x 1.5). The former R(entry) * S implementation rendered it
+    // as a tall, narrow floor.
+    EePoint anisotropic_points[] =
+    {
+        {-0.75f, -0.4125f},
+        { 0.75f, -0.4125f},
+        { 0.75f,  0.4125f},
+        {-0.75f,  0.4125f}
+    };
+    EeGeometry anisotropic_geometry{};
+    anisotropic_geometry.point_count = 4u;
+    EeFloor anisotropic_floor{};
+    anisotropic_floor.entry_angle = 3.14159265358979323846f * 0.5f;
+    anisotropic_floor.geometry_id = 0u;
+    anisotropic_floor.icon_id = EE_ICON_NONE;
+    anisotropic_floor.track_primary_color = 0xff0000ffu;
+    anisotropic_floor.track_secondary_color = 0xff0000ffu;
+    anisotropic_floor.track_visual_flags = EE_TRACK_VISUAL_ENABLED;
+    anisotropic_floor.transform_scale_x = 3.0f;
+    anisotropic_floor.transform_scale_y = 1.0f;
+    anisotropic_floor.transform_rotation = 0.0f;
+    anisotropic_floor.transform_opacity = 1.0f;
+    anisotropic_floor.track_transform_flags = EE_TRACK_TRANSFORM_ENABLED;
+    anisotropic_floor.track_extend_anim = 1.0f;
+
+    if (ee_renderer_set_level(
+            headless,
+            &anisotropic_floor,
+            1u,
+            &anisotropic_geometry,
+            1u,
+            anisotropic_points,
+            4u,
+            -3.0f,
+            -3.0f,
+            3.0f,
+            3.0f) != EE_OK ||
+        ee_renderer_set_editor_camera(headless, 0.0f, 0.0f, 40.0f) != EE_OK ||
+        !render_filter_frame(0.0, filter_frame))
+    {
+        std::cerr << "Anisotropic floor headless render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    int min_x = 320;
+    int max_x = -1;
+    int min_y = 180;
+    int max_y = -1;
+    for (int y = 0; y < 180; ++y)
+    {
+        for (int x = 0; x < 320; ++x)
+        {
+            const std::size_t offset = static_cast<std::size_t>(y) * row_stride +
+                static_cast<std::size_t>(x) * 3u;
+            const int r = filter_frame[offset];
+            const int g = filter_frame[offset + 1u];
+            const int b = filter_frame[offset + 2u];
+            if (r < 70 || r <= g + 20 || r <= b + 20)
+                continue;
+            min_x = std::min(min_x, x);
+            max_x = std::max(max_x, x);
+            min_y = std::min(min_y, y);
+            max_y = std::max(max_y, y);
+        }
+    }
+    const int rendered_width = max_x >= min_x ? max_x - min_x + 1 : 0;
+    const int rendered_height = max_y >= min_y ? max_y - min_y + 1 : 0;
+    if (rendered_width < 90 || rendered_width > 110 ||
+        rendered_height < 52 || rendered_height > 70 ||
+        rendered_width <= rendered_height)
+    {
+        std::cerr << "Anisotropic floor shader bounds mismatch: "
+                  << rendered_width << 'x' << rendered_height << ".\n";
+        destroy_headless();
+        return 1;
+    }
+
     destroy_headless();
     std::cout << "PASS: native renderer ABI + deterministic headless RGB smoke test.\n";
     return 0;

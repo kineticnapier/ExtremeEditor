@@ -80,8 +80,8 @@ private:
     {
         float x;
         float y;
-        float cosine;
-        float sine;
+        float base_cosine;
+        float base_sine;
         float depth;
         float color_r;
         float color_g;
@@ -90,7 +90,9 @@ private:
         float scale_x;
         float scale_y;
         float opacity;
-        float padding;
+        float extend;
+        float transform_cosine;
+        float transform_sine;
     };
 
     struct InstanceRange
