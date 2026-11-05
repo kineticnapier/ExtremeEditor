@@ -29,6 +29,7 @@ RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
 RunSparsePrerenderCacheChecks();
 RunSparsePrerenderGapChecks();
+RunSparsePrimeRangeChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -363,6 +364,59 @@ static void RunSparsePrerenderGapChecks()
         .GetAwaiter().GetResult();
     Equal(1L, nearEnd.RenderChunkAttempts,
         "late seek prerenders only the remaining audible chunk");
+}
+
+static void RunSparsePrimeRangeChecks()
+{
+    // Priming a long sparse chart must not retain an empty sentinel for
+    // every silent chunk. A hit crossing a boundary still needs both chunks.
+    const int sampleRate = 1_000;
+    const long totalFrames = 64L * 4096;
+    LevelDocument level = CreateLevel(3);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 4.095),
+        Floor(2, 200.001)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 12).ToArray(), 0.0)
+    };
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+
+    var full = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    full.PrimeRange(0, totalFrames);
+    Equal(3L, full.RenderChunkAttempts,
+        "sparse priming renders only the three audible chunks");
+    Equal(3, full.Metrics.RenderedChunkCount,
+        "sparse priming caches only audible chunks");
+    Equal(3L * 4096 * 2 * sizeof(float), full.CachedPcmBytes,
+        "sparse priming PCM bytes");
+    full.Seek(4096);
+    var tail = new float[2];
+    Equal(2, full.Read(tail, 0, 2), "primed boundary tail read");
+    Near(0.5, tail[0], "primed boundary tail remains audible");
+
+    var fromBoundary = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    fromBoundary.PrimeRange(4096, 4096);
+    Equal(1L, fromBoundary.RenderChunkAttempts,
+        "priming from a boundary includes the earlier hit tail");
+    fromBoundary.Seek(4096);
+    var boundaryTail = new float[2];
+    Equal(2, fromBoundary.Read(boundaryTail, 0, 2),
+        "boundary-only primed tail read");
+    Near(0.5, boundaryTail[0], "boundary-only primed tail sample");
+
+    var silentGap = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    silentGap.PrimeRange(100_000, 1_000);
+    Equal(0L, silentGap.RenderChunkAttempts,
+        "priming an entirely silent gap does no rendering");
+    Equal(0, silentGap.Metrics.RenderedChunkCount,
+        "silent-gap priming does not cache empty chunks");
 }
 
 static void RunSongPitchRateChecks()
