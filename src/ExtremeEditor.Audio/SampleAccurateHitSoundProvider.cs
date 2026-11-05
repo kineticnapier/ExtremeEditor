@@ -161,8 +161,35 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         long firstChunk = start / ChunkFrames;
         long lastChunk = (start + length - 1) / ChunkFrames;
-        for (long chunkIndex = firstChunk; chunkIndex <= lastChunk; chunkIndex++)
-            _ = EnsureChunk(chunkIndex);
+
+        // Only prime chunks containing a scheduled hit. Sparse charts can have
+        // very long silent ranges, and caching empty sentinels for all of them
+        // wastes both startup time and dictionary/LRU entries.
+        long nextChunk = firstChunk;
+        long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
+        int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
+        {
+            ScheduledHit hit = _scheduledHits[hitIndex];
+            if (hit.StartFrame >= 0 && hit.StartFrame / ChunkFrames > lastChunk)
+                break;
+
+            long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+            if (hitEndFrame <= Math.Max(0, hit.StartFrame))
+                continue;
+
+            long hitLastChunk = Math.Min(lastChunk, (hitEndFrame - 1) / ChunkFrames);
+            if (hitLastChunk < nextChunk)
+                continue;
+
+            long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
+            for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+                _ = EnsureChunk(chunkIndex);
+
+            nextChunk = hitLastChunk + 1;
+            if (nextChunk > lastChunk)
+                break;
+        }
     }
 
     /// <summary>
