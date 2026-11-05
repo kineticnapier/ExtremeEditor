@@ -343,6 +343,26 @@ static void RunSparsePrerenderGapChecks()
     Equal(2, provider.Read(later, 0, later.Length), "later hit read");
     Near(0.5, later[0], "later hit left channel");
     Near(0.5, later[1], "later hit right channel");
+
+    var fromBoundary = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    fromBoundary.PrerenderAheadAsync(4096, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(2L, fromBoundary.RenderChunkAttempts,
+        "seeked prerender retains an earlier hit tail and a later hit");
+    fromBoundary.Seek(4096);
+    var tail = new float[2];
+    Equal(2, fromBoundary.Read(tail, 0, 2), "seeked tail read");
+    Near(0.5, tail[0], "seeked tail remains audible");
+
+    var nearEnd = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    nearEnd.PrerenderAheadAsync(200_000, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, nearEnd.RenderChunkAttempts,
+        "late seek prerenders only the remaining audible chunk");
 }
 
 static void RunSongPitchRateChecks()
