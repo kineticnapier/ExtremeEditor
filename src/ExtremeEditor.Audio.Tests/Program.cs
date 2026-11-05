@@ -27,6 +27,7 @@ RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
+RunSparsePrerenderCacheChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -259,6 +260,42 @@ static void RunEmptyHitScheduleCacheChecks()
         "all-muted playback must not create empty PCM cache entries");
     Equal(0L, provider.CachedPcmBytes,
         "all-muted playback must not allocate cached PCM");
+}
+
+static void RunSparsePrerenderCacheChecks()
+{
+    // A single audible hit followed by many silent chunks must not fill the
+    // speculative LRU with zero-byte sentinels (which still use managed memory).
+    const int sampleRate = 1_000;
+    const long totalFrames = 32L * 4096;
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    provider.PrerenderAheadAsync(0, 64 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    Equal(1, provider.Metrics.RenderedChunkCount,
+        "sparse background prerender retains only the audible chunk");
+    Equal(4096L * 2 * sizeof(float), provider.CachedPcmBytes,
+        "sparse background prerender PCM cache size");
+
+    provider.Seek(1);
+    var hitPcm = new float[2];
+    Equal(2, provider.Read(hitPcm, 0, 2), "sparse cached hit read");
+    Near(0.5, hitPcm[0], "sparse cached hit sample");
+
+    provider.Seek(10L * 4096);
+    var silentPcm = new[] { 1f, 1f };
+    Equal(2, provider.Read(silentPcm, 0, 2), "sparse silent region read");
+    Near(0.0, silentPcm[0], "sparse silent region remains silent");
+    Near(0.0, silentPcm[1], "sparse silent region right channel");
 }
 
 static void RunSongPitchRateChecks()
