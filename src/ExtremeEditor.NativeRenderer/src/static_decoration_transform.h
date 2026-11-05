@@ -123,13 +123,22 @@ inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     const float screen_angle = placement_camera_rotation - world_rotation;
     const float c = std::cos(screen_angle);
     const float s = std::sin(screen_angle);
-    const float scale_zoom = lock_scale ? pixels_per_unit : zoom;
     const float floor_scale_x = stick_to_floor ? parent_scale_x : 1.0f;
     const float floor_scale_y = stick_to_floor ? parent_scale_y : 1.0f;
-    const float sx = scale_zoom * decoration.scale_x * decoration.scale_multiplier * floor_scale_x /
-        pixels_per_unit;
-    const float sy = scale_zoom * decoration.scale_y * decoration.scale_multiplier * floor_scale_y /
-        pixels_per_unit;
+    float screen_scale_per_source_pixel = zoom / pixels_per_unit;
+    if (lock_scale)
+    {
+        // Stock scrDecoration.camScaleMultiplier: localScale *= ortho * 0.2 /
+        // (levelData.camZoom / 100) with 100 PPU sprites. On screen the current
+        // ortho size cancels, leaving Screen.height * 0.001 / (chartZoom / 100)
+        // per source pixel, independent of the current camera zoom. The managed
+        // snapshot bakes 1 / (chartZoom / 100) into scale_multiplier.
+        screen_scale_per_source_pixel = static_cast<float>(height) * 0.001f;
+    }
+    const float sx = screen_scale_per_source_pixel * decoration.scale_x *
+        decoration.scale_multiplier * floor_scale_x;
+    const float sy = screen_scale_per_source_pixel * decoration.scale_y *
+        decoration.scale_multiplier * floor_scale_y;
     result.m11 = sx * c;
     result.m12 = sx * s;
     result.m21 = -sy * s;

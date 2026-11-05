@@ -1118,6 +1118,8 @@ internal static class Program
             MoveDecorationsFullEaseRegression.Run();
             PhantigmaMoveDecorationsEaseRegression.Run();
             MoveDecorationsCoordinateRegression.Run();
+            MoveDecorationsCameraPlacementRegression.Run();
+            MoveDecorationsCompletionRegression.Run();
             MoveDecorationsTilePlacementRegression.Run();
             MoveDecorationsRendererIntegrationRegression.Run();
             Console.WriteLine("PASS: legacy WinForms host removal, editor selection state, native-only production viewport, WPF asset setup/ADOFAI locator/setup UI/legacy import removal, floor geometry, icon bitmaps, level open/dirty-open guard, event palette/availability/legacy round-trip, decoration model foundation, playback setup, playback viewport, raster cache, raster streaming, raster scene rebase, raster worker, threading, playback diagnostics/layout/stall/lookahead, temporal playback rendering/routing/icon diagnostics/retention, native renderer ABI/host, runtime Tile camera reference, MoveTrack Tile camera freeze, Player camera reference conversion/smooth pivot, load preparation/progressive readiness, and performance regressions are valid.");

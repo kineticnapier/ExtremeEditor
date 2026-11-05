@@ -13,6 +13,11 @@ bool Near(float actual, float expected) noexcept
 {
     return std::abs(actual - expected) <= 0.0001f;
 }
+
+bool NearPixel(float actual, float expected) noexcept
+{
+    return std::abs(actual - expected) <= 0.001f;
+}
 }
 
 int main()
@@ -158,10 +163,60 @@ int main()
             0.25f,
             2.0f,
             0.5f);
-    if (!Near(runtime_transform.m11, std::cos(0.25f) * 2.5f) ||
-        !Near(runtime_transform.m22, std::cos(0.25f) * 0.625f))
+    // lockScale: Screen.height * 0.001 per source pixel; chart zoom is baked
+    // into scale_multiplier by the managed snapshot.
+    constexpr float runtime_lock_scale = 600.0f * 0.001f;
+    if (!Near(runtime_transform.m11, std::cos(0.25f) * runtime_lock_scale * 1.25f * 2.0f) ||
+        !Near(runtime_transform.m22, std::cos(0.25f) * runtime_lock_scale * 1.25f * 0.5f))
     {
         return 6;
+    }
+
+    // Stock lockScale uses the sprite PPU plus the current screen height and
+    // chart zoom. Phantigma floor 2135 has a 256px square at scale [2000,1000],
+    // chart zoom 200 and Camera positionOffset -17 * tileSize (1.5).
+    EeStaticDecoration phantigma{};
+    phantigma.relative_mode = EE_DECORATION_RELATIVE_CAMERA;
+    phantigma.position_x = -25.5f;
+    phantigma.scale_x = 20.0f;
+    phantigma.scale_y = 10.0f;
+    phantigma.scale_multiplier = 0.5f; // chart zoom 200 baked by the snapshot
+    phantigma.flags = EE_DECORATION_LOCK_SCALE;
+    const ee::StaticDecorationScreenTransform phantigma_transform =
+        ee::CalculateStaticDecorationScreenTransform(
+            phantigma,
+            0.0f,
+            0.0f,
+            0.0f,
+            0.0f,
+            28.0f, // stock playback base 56 / chart zoom multiplier 2
+            0.0f,
+            960u,
+            540u,
+            100.0f);
+    const ee::StaticDecorationScreenRect phantigma_rect =
+        ee::CalculateStaticDecorationScreenRect(phantigma_transform, 256.0f, 256.0f);
+    if (!NearPixel(phantigma_transform.center_x, -744.0f) ||
+        !Near(phantigma_transform.m11, 5.4f) ||
+        !Near(phantigma_transform.m22, 2.7f) ||
+        !NearPixel(phantigma_rect.right - phantigma_rect.left, 1382.4f) ||
+        !NearPixel(phantigma_rect.bottom - phantigma_rect.top, 691.2f) ||
+        !NearPixel(phantigma_rect.right, -52.8f))
+    {
+        return 7;
+    }
+
+    // Stock lockScale size does not depend on the current camera zoom.
+    for (float camera_zoom : {14.0f, 56.0f, 112.0f})
+    {
+        const ee::StaticDecorationScreenTransform zoomed =
+            ee::CalculateStaticDecorationScreenTransform(
+                phantigma, 0.0f, 0.0f, 0.0f, 0.0f, camera_zoom, 0.0f, 960u, 540u, 100.0f);
+        if (!Near(zoomed.m11, phantigma_transform.m11) ||
+            !Near(zoomed.m22, phantigma_transform.m22))
+        {
+            return 7;
+        }
     }
 
     ee::StaticDecorationScreenTransform rect_transform{};
@@ -178,13 +233,13 @@ int main()
         !Near(screen_rect.right, 800.0f) ||
         !Near(screen_rect.bottom, 600.0f))
     {
-        return 7;
+        return 8;
     }
 
     D2D1_BLEND_MODE blend_mode{};
     EeStaticDecoration blend{};
     if (ee::TryGetDecorationD2DBlendMode(blend, blend_mode))
-        return 8;
+        return 9;
 
     struct BlendCase
     {
@@ -206,7 +261,7 @@ int main()
         if (!ee::TryGetDecorationD2DBlendMode(blend, blend_mode) ||
             blend_mode != blend_case.expected)
         {
-            return 9;
+            return 10;
         }
     }
 
@@ -217,12 +272,12 @@ int main()
         !ee::TryGetDecorationD2DBlendMode(blend, blend_mode) ||
         blend_mode != D2D1_BLEND_MODE_OVERLAY)
     {
-        return 10;
+        return 11;
     }
 
     blend.flags = ee::kDecorationBlendModeBits;
     if (ee::TryGetDecorationD2DBlendMode(blend, blend_mode))
-        return 11;
+        return 12;
 
     return 0;
 }

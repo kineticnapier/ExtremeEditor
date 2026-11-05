@@ -51,14 +51,14 @@ internal static class MoveDecorationsCompletionRegression
 
         // Null axes mean "leave that component untouched", not "ignore the entire pair".
         AssertNear(state.PositionX, 10, "positionOffset null X changed the X component.");
-        AssertNear(state.PositionY, 50, "positionOffset null-axis inheritance failed for Y.");
+        AssertNear(state.PositionY, 65, "Camera positionOffset did not apply tileSize to the specified Y axis.");
         AssertNear(state.ScaleX, 300, "scale X target was not applied.");
         AssertNear(state.ScaleY, 200, "scale null Y did not preserve the prior Y component.");
         AssertNear(state.Opacity, 40, "opacity target was not applied with the combined MoveDecorations event.");
 
         (double pivotX, double pivotY) = ReadPair(state, "PivotOffset", "PivotOffsetX", "PivotOffsetY");
-        AssertNear(pivotX, 3, "pivotOffset X target was not applied.");
-        AssertNear(pivotY, 4, "pivotOffset Y target was not applied.");
+        AssertNear(pivotX, 4.5, "Camera pivotOffset X target did not apply tileSize.");
+        AssertNear(pivotY, 6, "Camera pivotOffset Y target did not apply tileSize.");
 
         (double parallaxX, double parallaxY) = ReadPair(
             state,
@@ -74,12 +74,12 @@ internal static class MoveDecorationsCompletionRegression
             state,
             screenWidth: 1920,
             screenHeight: 1080);
-        AssertPair(screen, new Vector2(1.15f, 3.2f),
+        AssertPair(screen, new Vector2(1.225f, 4.05f),
             "camera placement did not compose the evaluated position and pivotOffset.");
 
         // Renderer-facing parallax composition must likewise consume the evaluated parallaxOffset.
         Vector2 world = ResolveParallaxWorldPosition(level, decoration, state);
-        Vector2 expectedBase = new(15f, 75f); // evaluated position * tileSize (1.5)
+        Vector2 expectedBase = new(10f, 65f); // AddDecoration base + already-scaled Move offset
         Vector2 expectedParallaxOffset = new(1.5f, 9f);
         Vector2 expectedCameraDelta = new(4f, -2f); // (12,3) - (8,5), multiplier 100% / 50%
         Vector2 expected = expectedBase + new Vector2(4f, -1f) + expectedParallaxOffset;

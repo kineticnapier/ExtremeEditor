@@ -47,30 +47,37 @@ internal static class MoveDecorationsCameraPlacementRegression
         LevelDecoration camera = FindDecoration(level, 0);
         VfxOccurrence cameraMove = FindOccurrence(timeline, 0);
         DecorationState cameraState = DecorationState.Evaluate(camera, timeline, cameraMove.StartTime);
-        AssertPair(cameraState.Position, (5, 0),
-            "Camera placement leaked screen coordinates into logical DecorationState position.");
+        AssertPair(cameraState.Position, (6.5, 2),
+            "Camera MoveDecorations positionOffset did not apply stock tileSize 1.5.");
+        AssertPair(cameraState.PivotOffset, (4.5, 6),
+            "Camera MoveDecorations pivotOffset did not apply stock tileSize 1.5.");
 
         Vector2 cameraRelative = contract.Resolve(camera, cameraState, screenWidth, screenHeight);
-        AssertPair((cameraRelative.X, cameraRelative.Y), (0.8, 0.6), MissingCameraTransform);
+        AssertPair((cameraRelative.X, cameraRelative.Y), (1.05, 0.9), MissingCameraTransform);
 
         LevelDecoration aspect = FindDecoration(level, 1);
         VfxOccurrence aspectMove = FindOccurrence(timeline, 1);
         DecorationState aspectState = DecorationState.Evaluate(aspect, timeline, aspectMove.StartTime);
-        AssertPair(aspectState.Position, (5, 0),
-            "CameraAspect placement leaked screen coordinates into logical DecorationState position.");
+        AssertPair(aspectState.Position, (6.5, 2),
+            "CameraAspect MoveDecorations positionOffset did not apply stock tileSize 1.5.");
+        AssertPair(aspectState.PivotOffset, (4.5, 6),
+            "CameraAspect MoveDecorations pivotOffset did not apply stock tileSize 1.5.");
 
         Vector2 aspectRelative = contract.Resolve(aspect, aspectState, screenWidth, screenHeight);
-        AssertPair((aspectRelative.X, aspectRelative.Y), (0.65, 0.6),
+        AssertPair((aspectRelative.X, aspectRelative.Y), (0.775, 0.9),
             "CameraAspect did not apply Screen.height / Screen.width to X before screen normalization.");
 
-        // Camera/CameraAspect use chart-space position and pivotOffset directly: SetPlacementType
-        // cancels the initial tileSize multiplication, and Setup leaves pivotOffset unscaled.
-        // The logical state must therefore remain unchanged by screen aspect or tile size.
+        // AddDecoration starts in unscaled chart coordinates. Only MoveDecorations
+        // positionOffset/pivotOffset use scrController.tileSize (1.5).
         Vector2 aspectWide = contract.Resolve(aspect, aspectState, 400f, 100f);
-        AssertPair((aspectWide.X, aspectWide.Y), (0.575, 0.6),
+        AssertPair((aspectWide.X, aspectWide.Y), (0.6375, 0.9),
             "CameraAspect screen-relative X did not track the current viewport aspect ratio.");
-        AssertPair(aspectState.Position, (5, 0),
+        AssertPair(aspectState.Position, (6.5, 2),
             "CameraAspect resolver mutated DecorationState logical coordinates.");
+
+        VerifyLastPositionScalesOnlyAddedOffset();
+        VerifyTileAndGlobalRemainUnscaled();
+        VerifyPhantigmaFloor2135(contract);
     }
 
     private static LevelDocument CreateFixture()
@@ -120,7 +127,8 @@ internal static class MoveDecorationsCameraPlacementRegression
             ["duration"] = 0,
             ["ease"] = "Linear",
             ["tag"] = tag,
-            ["positionOffset"] = new JsonArray(3, 4)
+            ["positionOffset"] = new JsonArray(3, 4),
+            ["pivotOffset"] = new JsonArray(3, 4)
         };
         return new LevelAction(floor, "MoveDecorations", true, null, null, null, null)
         {
@@ -129,6 +137,74 @@ internal static class MoveDecorationsCameraPlacementRegression
             Duration = 0,
             PropertyOverrides = properties
         };
+    }
+
+    private static void VerifyLastPositionScalesOnlyAddedOffset()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.InitialBpm = 60;
+        level.PitchPercent = 100;
+        LevelDecoration decoration = CreateDecoration(10, "last", "Camera");
+        level.ReplaceDecorations([decoration]);
+        LevelAction first = CreateMove(1, 10, "last");
+        LevelAction second = CreateMove(2, 11, "last");
+        second.PropertyOverrides!["relativeTo"] = "LastPosition";
+        second.PropertyOverrides["positionOffset"] = new JsonArray(2, -2);
+        second.PropertyOverrides.Remove("pivotOffset");
+        level.ReplaceActions([first, second]);
+
+        VfxTimeline timeline = VfxTimelineBuilder.Build(level);
+        VfxOccurrence last = FindOccurrence(timeline, 11);
+        DecorationState state = DecorationState.Evaluate(decoration, timeline, last.StartTime);
+        AssertPair(state.Position, (9.5, -1),
+            "LastPosition must retain the captured base and scale only its added offset by tileSize.");
+    }
+
+    private static void VerifyTileAndGlobalRemainUnscaled()
+    {
+        foreach (string placement in new[] { "Tile", "Global" })
+        {
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            level.InitialBpm = 60;
+            level.PitchPercent = 100;
+            LevelDecoration decoration = CreateDecoration(20, placement, placement);
+            level.ReplaceDecorations([decoration]);
+            LevelAction move = CreateMove(1, 20, placement);
+            level.ReplaceActions([move]);
+            VfxTimeline timeline = VfxTimelineBuilder.Build(level);
+            DecorationState state = DecorationState.Evaluate(
+                decoration, timeline, FindOccurrence(timeline, 20).StartTime);
+            AssertPair(state.Position, (5, 0),
+                $"{placement} MoveDecorations positionOffset unexpectedly changed semantics.");
+            AssertPair(state.PivotOffset, (3, 4),
+                $"{placement} MoveDecorations pivotOffset unexpectedly changed semantics.");
+        }
+    }
+
+    private static void VerifyPhantigmaFloor2135(ScreenRelativePositionContract contract)
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        level.InitialBpm = 60;
+        level.PitchPercent = 100;
+        LevelDecoration decoration = CreateDecoration(30, "square", "Camera");
+        decoration.Properties["position"] = new JsonArray(0, 0);
+        decoration.Properties["pivotOffset"] = new JsonArray(0, 0);
+        decoration.Properties["scale"] = new JsonArray(2000, 1000);
+        decoration.Properties["lockScale"] = true;
+        level.ReplaceDecorations([decoration]);
+        LevelAction move = CreateMove(1, 30, "square");
+        move.PropertyOverrides!["positionOffset"] = new JsonArray(-17, 0);
+        move.PropertyOverrides.Remove("pivotOffset");
+        level.ReplaceActions([move]);
+
+        VfxTimeline timeline = VfxTimelineBuilder.Build(level);
+        DecorationState state = DecorationState.Evaluate(
+            decoration, timeline, FindOccurrence(timeline, 30).StartTime);
+        AssertPair(state.Position, (-25.5, 0),
+            "Phantigma square positionOffset did not apply tileSize.");
+        Vector2 relative = contract.Resolve(decoration, state, 960, 540);
+        AssertPair((relative.X, relative.Y), (-0.775, 0.5),
+            "Phantigma square center did not move beyond the left viewport edge.");
     }
 
     private static LevelDecoration FindDecoration(LevelDocument level, int sourceIndex) =>

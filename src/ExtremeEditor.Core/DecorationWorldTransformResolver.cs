@@ -117,8 +117,8 @@ public static class DecorationWorldTransformResolver
             string.Equals(placement, "CameraAspect", StringComparison.OrdinalIgnoreCase))
         {
             world = new Vector2(
-                checked((float)(state.PositionX * PathBuilder.DefaultLongTileSize)),
-                checked((float)(state.PositionY * PathBuilder.DefaultLongTileSize)));
+                checked((float)state.PositionX),
+                checked((float)state.PositionY));
         }
         else
         {

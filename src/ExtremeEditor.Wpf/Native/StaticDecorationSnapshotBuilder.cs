@@ -330,7 +330,8 @@ internal static class StaticDecorationSnapshotBuilder
                 ParallaxY = rendererTransform.Parallax.Y,
                 ParallaxOffsetX = rendererTransform.ParallaxOffset.X,
                 ParallaxOffsetY = rendererTransform.ParallaxOffset.Y,
-                ScaleMultiplier = rendererTransform.ScaleMultiplier,
+                ScaleMultiplier = rendererTransform.ScaleMultiplier *
+                    LockScaleChartZoomFactor(level, rendererTransform.LockScale),
                 ChartPositionX = maskingType == MaskingMask
                     ? maskingFrontDepth
                     : checked((float)initialState.PositionX),
@@ -477,7 +478,8 @@ internal static class StaticDecorationSnapshotBuilder
         template.ParallaxY = rendererTransform.Parallax.Y;
         template.ParallaxOffsetX = rendererTransform.ParallaxOffset.X;
         template.ParallaxOffsetY = rendererTransform.ParallaxOffset.Y;
-        template.ScaleMultiplier = rendererTransform.ScaleMultiplier;
+        // scaleMultiplier and lockScale are static AddDecoration properties; keep
+        // the template value, which already carries the chart-zoom lockScale factor.
         if ((template.Flags & MaskingTypeBits) != MaskingMask)
         {
             template.ChartPositionX = checked((float)state.PositionX);
@@ -493,6 +495,17 @@ internal static class StaticDecorationSnapshotBuilder
         else
             template.Flags &= ~NativeStaticDecoration.FlagVisible;
         return template;
+    }
+
+    // Stock scrDecoration.camScaleMultiplier divides lockScale decorations by
+    // levelData.camZoom / 100 (the chart settings zoom, not the current camera
+    // zoom). The native renderer supplies Screen.height * 0.001.
+    internal static float LockScaleChartZoomFactor(LevelDocument level, bool lockScale)
+    {
+        if (!lockScale)
+            return 1f;
+        double zoom = level.CameraSettings.Zoom;
+        return double.IsFinite(zoom) && zoom > 0 ? (float)(100.0 / zoom) : 1f;
     }
 
     private static uint ResolveRelativeMode(string relativeTo)

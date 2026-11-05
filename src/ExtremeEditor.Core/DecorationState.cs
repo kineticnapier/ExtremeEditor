@@ -56,6 +56,12 @@ public sealed record DecorationState(
         var colorG = new ScalarTweenState((state.Color >> 8) & 0xffu);
         var colorB = new ScalarTweenState(state.Color & 0xffu);
         bool visible = state.Visible;
+        string placement = ReadString(decoration.Properties["relativeTo"]) ?? "Tile";
+        double moveOffsetScale =
+            string.Equals(placement, "Camera", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(placement, "CameraAspect", StringComparison.OrdinalIgnoreCase)
+                ? PathBuilder.DefaultLongTileSize
+                : 1.0;
 
         foreach (VfxOccurrence occurrence in timeline.Occurrences)
         {
@@ -105,7 +111,11 @@ public sealed record DecorationState(
                     double targetBaseX = isLastPosition
                         ? positionX.ValueAt(startTime)
                         : state.PositionX;
-                    positionX.Start(targetBaseX + offsetX, startTime, durationSeconds, occurrence.Ease);
+                    positionX.Start(
+                        targetBaseX + offsetX * moveOffsetScale,
+                        startTime,
+                        durationSeconds,
+                        occurrence.Ease);
                 }
 
                 if (positionOffsetY is double offsetY)
@@ -113,7 +123,11 @@ public sealed record DecorationState(
                     double targetBaseY = isLastPosition
                         ? positionY.ValueAt(startTime)
                         : state.PositionY;
-                    positionY.Start(targetBaseY + offsetY, startTime, durationSeconds, occurrence.Ease);
+                    positionY.Start(
+                        targetBaseY + offsetY * moveOffsetScale,
+                        startTime,
+                        durationSeconds,
+                        occurrence.Ease);
                 }
             }
 
@@ -147,8 +161,18 @@ public sealed record DecorationState(
 
             if (TryReadComponents(properties["pivotOffset"], out double? newPivotX, out double? newPivotY))
             {
-                StartIfSpecified(pivotOffsetX, newPivotX, startTime, durationSeconds, occurrence.Ease);
-                StartIfSpecified(pivotOffsetY, newPivotY, startTime, durationSeconds, occurrence.Ease);
+                StartIfSpecified(
+                    pivotOffsetX,
+                    ScaleIfSpecified(newPivotX, moveOffsetScale),
+                    startTime,
+                    durationSeconds,
+                    occurrence.Ease);
+                StartIfSpecified(
+                    pivotOffsetY,
+                    ScaleIfSpecified(newPivotY, moveOffsetScale),
+                    startTime,
+                    durationSeconds,
+                    occurrence.Ease);
             }
 
             if (TryReadComponents(
@@ -217,6 +241,9 @@ public sealed record DecorationState(
         if (target is double value)
             tween.Start(value, startTime, durationSeconds, ease);
     }
+
+    private static double? ScaleIfSpecified(double? value, double scale) =>
+        value is double specified ? specified * scale : null;
 
     private static string? ReadString(JsonNode? node)
     {
