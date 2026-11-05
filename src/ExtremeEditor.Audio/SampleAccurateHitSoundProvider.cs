@@ -401,6 +401,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex);
+        // A silent chunk has no PCM bytes, but a cached sentinel still costs
+        // dictionary/LRU entries. Do not retain speculative silence across
+        // long sparse charts; foreground reads can cache it when needed.
+        if (rendered.Length == 0)
+            return true;
+
         long renderedBytes = GetPcmBytes(rendered);
 
         lock (_cacheLock)
