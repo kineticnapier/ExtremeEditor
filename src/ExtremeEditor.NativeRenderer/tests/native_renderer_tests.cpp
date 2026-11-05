@@ -1,6 +1,8 @@
 #include "extreme_editor_renderer.h"
 #include "extreme_editor_headless.h"
+#include "bloom_interpolation.h"
 #include "icon_assets.h"
+#include "screen_bloom.h"
 #include "screen_filter.h"
 
 #include <algorithm>
@@ -14,6 +16,37 @@
 
 int main()
 {
+    // Finite chart values may still overflow when narrowed or interpolated.
+    constexpr float large = 2e38f;
+    if (!std::isfinite(ee::InterpolateBloomFinite(-large, large, 0.5)) ||
+        std::abs(ee::InterpolateBloomFinite(-large, large, 0.5)) > 1e30f ||
+        ee::InterpolateBloomFinite(-std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(), 1.2) != std::numeric_limits<float>::max())
+    {
+        std::cerr << "Bloom finite interpolation overflowed.\n";
+        return 1;
+    }
+
+    // VideoBloom renders its blur at 198 px. Output heights below that must
+    // not increase the pass count or produce an unbounded frame-space sigma.
+    constexpr std::uint32_t bloom_heights[] = {1u, 5u, 10u, 360u, 1080u, 2160u, 4320u};
+    constexpr float expected_sigmas[] = {7.02f, 7.02f, 7.02f, 5.67f, 6.24f, 7.87f, 11.12f};
+    for (std::size_t index = 0; index < std::size(bloom_heights); ++index)
+    {
+        const std::uint32_t height = bloom_heights[index];
+        const float sigma = ee::VideoBloomBlurSigmaPixels(height);
+        const bool tiny_height = height <= 10u;
+        if (!std::isfinite(sigma) || sigma <= 0.0f ||
+            sigma > ee::BloomMaximumSigmaPixels ||
+            (tiny_height && sigma > 7.1f) ||
+            std::abs(sigma - expected_sigmas[index]) > 0.05f)
+        {
+            std::cerr << "Unsafe Bloom sigma at height " << height
+                      << ": " << sigma << ".\n";
+            return 1;
+        }
+    }
+
     // Extreme finite filter intensities must not overflow during the
     // effect-specific scaling performed after ResolveScreenFilters.
     {
@@ -45,6 +78,59 @@ int main()
         }
     }
 
+    // Malformed events are ignored without poisoning a following valid event.
+    {
+        EeFilterEvent events[5]{};
+        for (EeFilterEvent& event : events)
+        {
+            event.filter = ee::FilterGrayscale;
+            event.enabled = 1u;
+            event.target_intensity = 1.0f;
+        }
+        events[0].start_time = std::numeric_limits<double>::quiet_NaN();
+        events[1].duration_seconds = std::numeric_limits<double>::infinity();
+        events[2].target_intensity = std::numeric_limits<float>::infinity();
+        events[3].target_intensity = -std::numeric_limits<float>::infinity();
+        events[4].start_time = 1.0;
+        events[4].target_intensity = 5.0f;
+        const ee::FilterVisualState state = ee::ResolveScreenFilters(events, 5u, 2.0, nullptr);
+        if (!state.entries[ee::FilterGrayscale].enabled ||
+            state.entries[ee::FilterGrayscale].intensity != 5.0f)
+        {
+            std::cerr << "Invalid SetFilter event poisoned the next valid event.\n";
+            return 1;
+        }
+    }
+
+    // Effect-specific scaling and all four colour-pass matrices stay finite.
+    for (std::uint32_t filter = 0u; filter < ee::FilterCount; ++filter)
+    {
+        if (!std::isfinite(ee::ApplyFilterIntensity(
+                filter, std::numeric_limits<float>::max())) ||
+            !std::isfinite(ee::ApplyFilterIntensity(
+                filter, -std::numeric_limits<float>::max())))
+        {
+            std::cerr << "SetFilter effect scaling overflowed.\n";
+            return 1;
+        }
+    }
+    {
+        ee::FilterVisualState state;
+        state.entries[ee::FilterGrayscale] = {true, std::numeric_limits<float>::quiet_NaN(), 0.0f};
+        state.entries[ee::FilterSepia] = {true, std::numeric_limits<float>::infinity(), 0.0f};
+        state.entries[ee::FilterInvert] = {true, 0.0f, 0.0f};
+        state.entries[ee::FilterContrast] = {true, -std::numeric_limits<float>::infinity(), 0.0f};
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(state);
+        for (std::size_t pass = 0; pass < passes.count; ++pass)
+            for (const auto& row : passes.items[pass].color_matrix.m)
+                for (float value : row)
+                    if (!std::isfinite(value))
+                    {
+                        std::cerr << "SetFilter produced a non-finite colour matrix.\n";
+                        return 1;
+                    }
+    }
+
     {
         EeFilterEvent events[2]{};
         events[0].start_time = 0.0;
@@ -65,6 +151,41 @@ int main()
         {
             std::cerr << "SetFilter tween interruption did not complete the prior tween.\n";
             return 1;
+        }
+    }
+    {
+        ee::FilterVisualState state;
+        if (ee::HasScreenFilterPasses(state) ||
+            ee::BuildScreenFilterPasses(state).count != 0u)
+        {
+            std::cerr << "Disabled screen filters produced render passes.\n";
+            return 1;
+        }
+        state.entries[ee::FilterContrast].enabled = true;
+        state.entries[ee::FilterInvert].enabled = true;
+        state.entries[ee::FilterGrayscale].enabled = true;
+        state.entries[ee::FilterSepia].enabled = true;
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(state);
+        const std::uint32_t expected_order[] =
+        {
+            ee::FilterGrayscale,
+            ee::FilterSepia,
+            ee::FilterInvert,
+            ee::FilterContrast
+        };
+        if (passes.count != std::size(expected_order))
+        {
+            std::cerr << "Enabled screen filters did not produce four independent passes.\n";
+            return 1;
+        }
+        for (std::size_t index = 0u; index < passes.count; ++index)
+        {
+            if (passes.items[index].filter != expected_order[index] ||
+                passes.items[index].kind != ee::ScreenFilterPassKind::ColorMatrix)
+            {
+                std::cerr << "Screen filter pass order changed at index " << index << ".\n";
+                return 1;
+            }
         }
     }
 
@@ -184,63 +305,36 @@ int main()
         }
     }
 
-    // Extreme but finite colour-filter intensities can overflow the float
-    // products in matrix composition, including Inf - Inf cancellation.
+    // Extreme but finite colour-filter intensities must keep every independent
+    // render-pass matrix finite. Multipass rendering deliberately avoids the
+    // cross-filter matrix multiplication used by the former combined path.
     {
-        ee::ScreenColorMatrix first = ee::ScreenColorMatrix::Identity();
-        ee::ScreenColorMatrix next = ee::ScreenColorMatrix::Identity();
-        first.m[0][0] = 2.0f;
-        first.m[3][0] = 0.25f;
-        next.m[0][0] = 3.0f;
-        next.m[3][0] = 0.5f;
-        const ee::ScreenColorMatrix ordinary = ee::ComposeColorMatrices(first, next);
-        if (ordinary.m[0][0] != 6.0f || ordinary.m[3][0] != 1.25f)
-        {
-            std::cerr << "SetFilter colour matrix changed ordinary composition.\n";
-            return 1;
-        }
-
         const float limit = std::numeric_limits<float>::max();
-        first = ee::ScreenColorMatrix::Identity();
-        next = ee::ScreenColorMatrix::Identity();
-        first.m[0][0] = limit;
-        next.m[0][0] = limit;
-        const ee::ScreenColorMatrix overflow = ee::ComposeColorMatrices(first, next);
-        if (!std::isfinite(overflow.m[0][0]) || overflow.m[0][0] != limit)
-        {
-            std::cerr << "SetFilter colour matrix overflowed finite coefficients.\n";
-            return 1;
-        }
-
-        first.m[0][1] = -limit;
-        next.m[1][0] = limit;
-        const ee::ScreenColorMatrix cancellation = ee::ComposeColorMatrices(first, next);
-        if (!std::isfinite(cancellation.m[0][0]) ||
-            std::abs(cancellation.m[0][0]) > 1e30f)
-        {
-            std::cerr << "SetFilter colour matrix produced NaN after cancellation.\n";
-            return 1;
-        }
-
         ee::FilterVisualState filters{};
+        filters.entries[ee::FilterGrayscale].enabled = true;
+        filters.entries[ee::FilterGrayscale].intensity = limit;
         filters.entries[ee::FilterSepia].enabled = true;
         filters.entries[ee::FilterSepia].intensity = limit;
+        filters.entries[ee::FilterInvert].enabled = true;
         filters.entries[ee::FilterContrast].enabled = true;
         filters.entries[ee::FilterContrast].intensity = limit;
-        ee::ScreenColorMatrix combined{};
-        if (!ee::BuildScreenFilterColorMatrix(filters, combined))
+        const ee::ScreenFilterPassList passes = ee::BuildScreenFilterPasses(filters);
+        if (passes.count != ee::MaxScreenFilterPasses)
         {
-            std::cerr << "SetFilter extreme colour matrix was not built.\n";
+            std::cerr << "SetFilter extreme colour passes were not built.\n";
             return 1;
         }
-        for (int row = 0; row < 5; ++row)
+        for (std::size_t pass = 0; pass < passes.count; ++pass)
         {
-            for (int column = 0; column < 4; ++column)
+            for (const auto& row : passes.items[pass].color_matrix.m)
             {
-                if (!std::isfinite(combined.m[row][column]))
+                for (float value : row)
                 {
-                    std::cerr << "SetFilter combined colour matrix contains non-finite coefficients.\n";
-                    return 1;
+                    if (!std::isfinite(value))
+                    {
+                        std::cerr << "SetFilter pass matrix contains non-finite coefficients.\n";
+                        return 1;
+                    }
                 }
             }
         }
@@ -857,32 +951,280 @@ int main()
         return 1;
     }
 
-    // Composition follows ascending Filter id: Sepia (1) before Contrast (33).
+    // Independent passes follow ascending Filter id: Sepia (1) before Contrast
+    // (33), with the 8-bit render target clamping between passes.
+    EeFlashEvent white_flash{};
+    white_flash.start_color = 0xffffffu;
+    white_flash.end_color = 0xffffffu;
+    white_flash.start_opacity = 1.0f;
+    white_flash.end_opacity = 1.0f;
+    white_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    if (ee_renderer_set_flash_timeline(headless, &white_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline))
+    {
+        std::cerr << "Independent-pass baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
     EeFilterEvent sepia_contrast[2]{};
     sepia_contrast[0].filter = 1u;
     sepia_contrast[0].target_intensity = 0.5f;
     sepia_contrast[0].enabled = 1u;
     sepia_contrast[1].filter = 33u;
-    sepia_contrast[1].target_intensity = 0.25f;
+    sepia_contrast[1].target_intensity = -0.75f;
     sepia_contrast[1].enabled = 1u;
     sepia_contrast[1].source_index = 1;
     if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
         !render_filter_frame(0.25, filter_frame) ||
         !require_pixels_mapped(filter_frame, filter_baseline,
-            [&](float* c) { sepia(0.5f)(c); contrast(0.25f)(c); },
+            [&](float* c)
+            {
+                sepia(0.5f)(c);
+                for (int k = 0; k < 3; ++k)
+                    c[k] = std::clamp(c[k], 0.0f, 1.0f);
+                contrast(-0.75f)(c);
+            },
             "Sepia then Contrast pixel mismatch"))
     {
-        std::cerr << "Sepia and Contrast did not compose in Filter id order.\n";
+        std::cerr << "Sepia and Contrast did not run as independent Filter id passes.\n";
         destroy_headless();
         return 1;
     }
     sepia_contrast[1].flags = EE_FILTER_DISABLE_OTHERS;
     if (ee_renderer_set_filter_timeline(headless, sepia_contrast, 2u) != EE_OK ||
         !render_filter_frame(0.25, filter_frame) ||
-        !require_pixels_mapped(filter_frame, filter_baseline, contrast(0.25f),
+        !require_pixels_mapped(filter_frame, filter_baseline, contrast(-0.75f),
             "disableOthers Contrast pixel mismatch"))
     {
         std::cerr << "Contrast disableOthers did not disable Sepia.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Bloom follows the stock VideoBloom image effect: additive composite
+    // src + tint * 0.5 * intensity * blur(threshold(src)). A uniform opaque
+    // frame blurs to itself, so expected pixels follow from the formula.
+    EeFlashEvent uniform_flash{};
+    uniform_flash.start_color = 0x404040u;
+    uniform_flash.end_color = 0x404040u;
+    uniform_flash.start_opacity = 1.0f;
+    uniform_flash.end_opacity = 1.0f;
+    uniform_flash.plane = EE_FLASH_PLANE_FOREGROUND;
+    const auto require_uniform = [&](const std::vector<std::uint8_t>& frame,
+                                     float r, float g, float b,
+                                     const char* message)
+    {
+        const float expected[3] = {r, g, b};
+        for (std::size_t i = 0; i + 2u < frame.size(); i += 3u)
+        {
+            for (std::size_t channel = 0; channel < 3u; ++channel)
+            {
+                const float want = std::clamp(expected[channel], 0.0f, 255.0f);
+                if (std::abs(static_cast<float>(frame[i + channel]) - want) > 2.0f)
+                {
+                    std::cerr << message << " at byte " << i + channel
+                              << ": expected " << want
+                              << ", actual " << static_cast<unsigned>(frame[i + channel]) << ".\n";
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    const auto bloom_frame = [&](const EeBloomEvent* events, std::uint32_t count, double time)
+    {
+        return ee_renderer_set_bloom_timeline(headless, events, count) == EE_OK &&
+               render_filter_frame(time, filter_frame);
+    };
+    if (ee_renderer_set_flash_timeline(headless, &uniform_flash, 1u) != EE_OK ||
+        ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        !bloom_frame(nullptr, 0u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Frame without Bloom changed"))
+    {
+        std::cerr << "Bloom baseline render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeBloomEvent bloom{};
+    bloom.enabled = 1u;
+    bloom.threshold = 0.0f;
+    bloom.intensity = 1.0f;
+    bloom.tint = 0xffffffu;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom 100% pixel mismatch"))
+    {
+        std::cerr << "Bloom did not brighten the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = 5.0f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 224.0f, 224.0f, 224.0f, "Bloom 500% pixel mismatch"))
+    {
+        std::cerr << "Bloom 500% intensity was clamped unexpectedly.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = 0.5f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 80.0f, 80.0f, 80.0f, "Bloom 50% pixel mismatch"))
+    {
+        std::cerr << "Bloom intensity did not scale the glow.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    EeBloomEvent malformed_bloom[5]{};
+    for (EeBloomEvent& event : malformed_bloom)
+    {
+        event.enabled = 1u;
+        event.tint = 0xffffffu;
+    }
+    malformed_bloom[0].start_time = std::numeric_limits<double>::quiet_NaN();
+    malformed_bloom[0].intensity = 1.0f;
+    malformed_bloom[1].duration_seconds = std::numeric_limits<double>::infinity();
+    malformed_bloom[1].intensity = 1.0f;
+    malformed_bloom[2].threshold = std::numeric_limits<float>::infinity();
+    malformed_bloom[3].intensity = -std::numeric_limits<float>::infinity();
+    malformed_bloom[4].start_time = 1.0;
+    malformed_bloom[4].intensity = 1.0f;
+    if (!bloom_frame(malformed_bloom, 5u, 2.0) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f,
+            "Valid Bloom after malformed events mismatch"))
+    {
+        std::cerr << "Malformed Bloom event poisoned the next valid event.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = -1.0f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 32.0f, 32.0f, 32.0f, "Bloom -100% pixel mismatch"))
+    {
+        std::cerr << "Negative Bloom intensity did not darken the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.intensity = 1.0f;
+    bloom.tint = 0xff0000u;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 64.0f, 64.0f, "Red Bloom pixel mismatch"))
+    {
+        std::cerr << "Bloom colour did not tint the glow.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.tint = 0xffffffu;
+    bloom.threshold = 0.3f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom above-threshold pixel mismatch"))
+    {
+        std::cerr << "Bloom threshold above the frame luma still glowed.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.threshold = 0.2f;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom below-threshold pixel mismatch"))
+    {
+        std::cerr << "Bloom threshold below the frame luma did not glow.\n";
+        destroy_headless();
+        return 1;
+    }
+    bloom.threshold = 0.0f;
+    bloom.enabled = 0u;
+    if (!bloom_frame(&bloom, 1u, 0.25) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Disabled Bloom changed pixels"))
+    {
+        std::cerr << "Disabled Bloom changed the frame.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Tween from intensity 0 to 1 over [1, 3], then seek back before it.
+    EeBloomEvent tween[2]{};
+    tween[0].enabled = 1u;
+    tween[0].tint = 0xffffffu;
+    tween[1] = tween[0];
+    tween[1].start_time = 1.0;
+    tween[1].duration_seconds = 2.0;
+    tween[1].intensity = 1.0f;
+    tween[1].source_index = 1;
+    if (!bloom_frame(tween, 2u, 0.5) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom before tween changed pixels") ||
+        !bloom_frame(tween, 2u, 2.0) ||
+        !require_uniform(filter_frame, 80.0f, 80.0f, 80.0f, "Bloom mid-tween pixel mismatch") ||
+        !bloom_frame(tween, 2u, 3.0) ||
+        !require_uniform(filter_frame, 96.0f, 96.0f, 96.0f, "Bloom after tween pixel mismatch") ||
+        !bloom_frame(tween, 2u, 0.5) ||
+        !require_uniform(filter_frame, 64.0f, 64.0f, 64.0f, "Bloom seek back pixel mismatch"))
+    {
+        std::cerr << "Bloom duration, ease or seek did not follow the timeline.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // Bloom runs before SetFilter: Invert of the bloomed 96 is 159.
+    EeFilterEvent bloom_invert{};
+    bloom_invert.filter = ee::FilterInvert;
+    bloom_invert.enabled = 1u;
+    if (ee_renderer_set_filter_timeline(headless, &bloom_invert, 1u) != EE_OK ||
+        !bloom_frame(&bloom, 0u, 0.25) ||
+        !bloom_frame(tween, 2u, 3.0) ||
+        !require_uniform(filter_frame, 159.0f, 159.0f, 159.0f, "Bloom then Invert pixel mismatch"))
+    {
+        std::cerr << "Bloom and SetFilter did not compose in order.\n";
+        destroy_headless();
+        return 1;
+    }
+    if (ee_renderer_set_filter_timeline(headless, nullptr, 0u) != EE_OK ||
+        ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK ||
+        ee_renderer_set_flash_timeline(headless, nullptr, 0u) != EE_OK)
+    {
+        std::cerr << "Could not clear Bloom test timelines.\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // VideoBloom blurs at a 198 px height; its spread is about 6 frame pixels
+    // at both 1080 and 180 px.
+    if (std::abs(ee::VideoBloomBlurSigmaPixels(1080u) - 6.24f) > 0.05f ||
+        std::abs(ee::VideoBloomBlurSigmaPixels(180u) - 6.2f) > 0.1f ||
+        ee::VideoBloomBlurSigmaPixels(0u) != 0.0f)
+    {
+        std::cerr << "VideoBloom blur spread differs: 1080="
+                  << ee::VideoBloomBlurSigmaPixels(1080u)
+                  << " 180=" << ee::VideoBloomBlurSigmaPixels(180u) << ".\n";
+        destroy_headless();
+        return 1;
+    }
+
+    // On the real scene the glow is a blur, not a per-pixel gain. With
+    // intensity 10 a per-pixel model would give exactly 6x the frame; near
+    // the scene's edges the blurred glow must differ from that.
+    EeBloomEvent scene_bloom{};
+    scene_bloom.enabled = 1u;
+    scene_bloom.intensity = 10.0f;
+    scene_bloom.tint = 0xffffffu;
+    // Look at the two coloured floors so the frame has hard edges.
+    if (ee_renderer_set_editor_camera(headless, 0.75f, 0.0f, 64.0f) != EE_OK ||
+        ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK ||
+        !render_filter_frame(0.25, filter_baseline) ||
+        ee_renderer_set_bloom_timeline(headless, &scene_bloom, 1u) != EE_OK ||
+        !render_filter_frame(0.25, filter_frame))
+    {
+        std::cerr << "Scene Bloom render failed.\n";
+        destroy_headless();
+        return 1;
+    }
+    bool spread = false;
+    for (std::size_t i = 0; i < filter_frame.size() && !spread; ++i)
+        spread = std::abs(static_cast<float>(filter_frame[i]) - filter_baseline[i] * 6.0f) > 8.0f &&
+                 filter_frame[i] < 250u;
+    if (!spread || ee_renderer_set_bloom_timeline(headless, nullptr, 0u) != EE_OK)
+    {
+        std::cerr << "Bloom glow did not spread to neighbouring pixels.\n";
         destroy_headless();
         return 1;
     }

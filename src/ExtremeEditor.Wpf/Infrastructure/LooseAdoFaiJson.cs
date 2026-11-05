@@ -4,6 +4,10 @@ using System.Text.Json.Nodes;
 
 namespace ExtremeEditor.Wpf;
 
+// A comma the loader inserted between two values, at 1-based line/column of
+// the value end it follows in the UTF-8 chart text.
+internal readonly record struct JsonRepair(int Line, int Column, long ByteOffset);
+
 internal static class LooseAdoFaiJson
 {
     internal static bool HasUtf16Bom(string sourcePath)
@@ -92,12 +96,15 @@ internal static class LooseAdoFaiJson
             });
     }
 
-    internal static string CreateNormalizedTempCopy(string sourcePath)
+    internal static string CreateNormalizedTempCopy(string sourcePath) =>
+        CreateNormalizedTempCopy(sourcePath, out _);
+
+    internal static string CreateNormalizedTempCopy(string sourcePath, out IReadOnlyList<JsonRepair> repairs)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
 
         byte[] bytes = File.ReadAllBytes(sourcePath);
-        byte[] normalized = NormalizeToUtf8(bytes);
+        byte[] normalized = NormalizeToUtf8(bytes, out repairs);
 
         string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor", "normalized-json");
         Directory.CreateDirectory(directory);
@@ -106,7 +113,12 @@ internal static class LooseAdoFaiJson
         return path;
     }
 
-    internal static byte[] NormalizeToUtf8(byte[] bytes)
+    internal static byte[] NormalizeToUtf8(byte[] bytes) => NormalizeToUtf8(bytes, out _);
+
+    // Converts to UTF-8, supplies missing commas between values (see
+    // FindMissingCommas) and escapes raw control bytes inside strings. A
+    // strictly valid UTF-8 chart is returned as the same array.
+    internal static byte[] NormalizeToUtf8(byte[] bytes, out IReadOnlyList<JsonRepair> repairs)
     {
         byte[] utf8;
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
@@ -126,7 +138,135 @@ internal static class LooseAdoFaiJson
             utf8 = bytes;
         }
 
-        return EscapeRawStringControls(utf8);
+        List<JsonRepair> found = FindMissingCommas(utf8, out bool hasRawStringControls);
+        repairs = found;
+        if (found.Count > 0)
+            utf8 = InsertCommas(utf8, found);
+        return found.Count > 0 || hasRawStringControls ? EscapeRawStringControls(utf8) : utf8;
+    }
+
+    // Stock ADOFAI parses levels with GDMiniJSON, which skips commas between
+    // array elements and object members instead of requiring them. Supply a
+    // comma only in the unambiguous case: outside strings and comments, a
+    // value has ended (an object, an array or a string) and, after only
+    // whitespace or comments, the next token opens an object, an array or a
+    // string. Adjacent numbers or literals are left alone. The result is
+    // still parsed strictly, so a comma that does not complete valid JSON
+    // leaves the chart rejected.
+    private static List<JsonRepair> FindMissingCommas(byte[] utf8, out bool hasRawStringControls)
+    {
+        var repairs = new List<JsonRepair>();
+        hasRawStringControls = false;
+        bool inString = false;
+        bool escaped = false;
+        bool valueEnded = false;
+        long valueEnd = -1;
+        int valueEndLine = 0;
+        int valueEndColumn = 0;
+        int line = 1;
+        long lineStart = 0;
+
+        void MarkValueEnd(long index)
+        {
+            valueEnded = true;
+            valueEnd = index;
+            valueEndLine = line;
+            valueEndColumn = checked((int)(index - lineStart)) + 1;
+        }
+
+        for (long i = 0; i < utf8.Length; i++)
+        {
+            byte value = utf8[i];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (value == (byte)'\\')
+                {
+                    escaped = true;
+                }
+                else if (value == (byte)'"')
+                {
+                    inString = false;
+                    MarkValueEnd(i);
+                }
+                else if (value < 0x20)
+                {
+                    hasRawStringControls = true;
+                    if (value == (byte)'\n')
+                    {
+                        line++;
+                        lineStart = i + 1;
+                    }
+                }
+                continue;
+            }
+
+            switch (value)
+            {
+                case (byte)'\n':
+                    line++;
+                    lineStart = i + 1;
+                    break;
+                case (byte)' ':
+                case (byte)'\t':
+                case (byte)'\r':
+                    break;
+                case (byte)'/' when i + 1 < utf8.Length && utf8[i + 1] == (byte)'/':
+                    // Line comment: skip to the newline, which the loop counts.
+                    while (i + 1 < utf8.Length && utf8[i + 1] != (byte)'\n')
+                        i++;
+                    break;
+                case (byte)'/' when i + 1 < utf8.Length && utf8[i + 1] == (byte)'*':
+                    i += 2;
+                    while (i < utf8.Length && !(utf8[i] == (byte)'*' && i + 1 < utf8.Length && utf8[i + 1] == (byte)'/'))
+                    {
+                        if (utf8[i] == (byte)'\n')
+                        {
+                            line++;
+                            lineStart = i + 1;
+                        }
+                        i++;
+                    }
+                    i++;
+                    break;
+                case (byte)'{':
+                case (byte)'[':
+                case (byte)'"':
+                    if (valueEnded)
+                        repairs.Add(new JsonRepair(valueEndLine, valueEndColumn, valueEnd + 1));
+                    valueEnded = false;
+                    inString = value == (byte)'"';
+                    break;
+                case (byte)'}':
+                case (byte)']':
+                    MarkValueEnd(i);
+                    break;
+                default:
+                    valueEnded = false;
+                    break;
+            }
+        }
+        return repairs;
+    }
+
+    private static byte[] InsertCommas(byte[] utf8, IReadOnlyList<JsonRepair> repairs)
+    {
+        var output = new byte[utf8.Length + repairs.Count];
+        long source = 0;
+        long target = 0;
+        foreach (JsonRepair repair in repairs)
+        {
+            long count = repair.ByteOffset - source;
+            Array.Copy(utf8, source, output, target, count);
+            target += count;
+            output[target++] = (byte)',';
+            source = repair.ByteOffset;
+        }
+        Array.Copy(utf8, source, output, target, utf8.Length - source);
+        return output;
     }
 
     private static byte[] EscapeRawStringControls(byte[] utf8)

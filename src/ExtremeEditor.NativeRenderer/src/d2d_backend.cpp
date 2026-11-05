@@ -311,6 +311,13 @@ void D2DBackend::ReleaseTargetBitmap() noexcept
     target_bitmap_.Reset();
     screen_filter_source_.Reset();
     screen_filter_effect_.Reset();
+    bloom_luma_effect_.Reset();
+    bloom_threshold_effect_.Reset();
+    bloom_mask_effect_.Reset();
+    bloom_blur_effect_.Reset();
+    bloom_tint_effect_.Reset();
+    bloom_composite_effect_.Reset();
+    bloom_table_threshold_ = -1.0f;
     depth_stencil_view_.Reset();
     depth_texture_.Reset();
     render_target_view_.Reset();
@@ -341,42 +348,177 @@ bool D2DBackend::EnsureScreenFilterResources() noexcept
     return true;
 }
 
-HRESULT D2DBackend::ApplyScreenFilter() noexcept
+bool D2DBackend::EnsureBloomResources() noexcept
 {
-    ScreenColorMatrix matrix;
-    if (!BuildScreenFilterColorMatrix(filter_state_, matrix))
-        return S_OK;
     if (!EnsureScreenFilterResources())
+        return false;
+    const auto create = [this](const CLSID& id, Microsoft::WRL::ComPtr<ID2D1Effect>& effect)
+    {
+        return effect || SUCCEEDED(d2d_context_->CreateEffect(id, effect.GetAddressOf()));
+    };
+    if (!create(CLSID_D2D1ColorMatrix, bloom_luma_effect_) ||
+        !create(CLSID_D2D1DiscreteTransfer, bloom_threshold_effect_) ||
+        !create(CLSID_D2D1Blend, bloom_mask_effect_) ||
+        !create(CLSID_D2D1GaussianBlur, bloom_blur_effect_) ||
+        !create(CLSID_D2D1ColorMatrix, bloom_tint_effect_) ||
+        !create(CLSID_D2D1Blend, bloom_composite_effect_))
+        return false;
+    return true;
+}
+
+// VideoBloom's additive mode: frame + tint * 0.5 * intensity * blur(bright).
+// Intensity may be negative (charts use it to darken) or above 1. The glow
+// is scaled by |intensity| and added (linear dodge) or subtracted. Clamping
+// the scaled glow to [0, 1] does not change the clamped sum: the frame is
+// never negative.
+HRESULT D2DBackend::ApplyBloom() noexcept
+{
+    const BloomVisualState& bloom = bloom_state_;
+    if (!bloom.enabled || bloom.intensity == 0.0f || !std::isfinite(bloom.intensity))
+        return S_OK;
+    if (!EnsureBloomResources())
         return E_FAIL;
 
-    HRESULT hr = screen_filter_source_->CopyFromBitmap(
-        nullptr, target_bitmap_.Get(), nullptr);
+    HRESULT hr = screen_filter_source_->CopyFromBitmap(nullptr, target_bitmap_.Get(), nullptr);
     if (FAILED(hr))
         return hr;
 
-    D2D1_MATRIX_5X4_F d2d_matrix{};
-    static_assert(sizeof(d2d_matrix) == sizeof(matrix.m));
-    std::memcpy(&d2d_matrix, matrix.m, sizeof(d2d_matrix));
-    screen_filter_effect_->SetInput(0u, screen_filter_source_.Get());
-    if (FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_COLOR_MATRIX, d2d_matrix)) ||
-        FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_ALPHA_MODE,
-            D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
-        FAILED(screen_filter_effect_->SetValue(
-            D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT,
-            TRUE)))
+    const float threshold = std::isfinite(bloom.threshold) ? bloom.threshold : 0.0f;
+    if (threshold > 0.0f)
+    {
+        // A step on luma gives an opaque 0/1 mask, multiplied into the frame:
+        // below the threshold a pixel contributes nothing, at or above it in
+        // full. Everything stays opaque, so premultiplication never applies.
+        const D2D1_MATRIX_5X4_F luma = D2D1::Matrix5x4F(
+            BloomLumaR, BloomLumaR, BloomLumaR, 0,
+            BloomLumaG, BloomLumaG, BloomLumaG, 0,
+            BloomLumaB, BloomLumaB, BloomLumaB, 0,
+            0, 0, 0, 1,
+            0, 0, 0, 0);
+        bloom_luma_effect_->SetInput(0u, screen_filter_source_.Get());
+        if (FAILED(bloom_luma_effect_->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, luma)))
+            return E_FAIL;
+        if (threshold != bloom_table_threshold_)
+        {
+            constexpr std::size_t steps = 256u;
+            float table[steps];
+            for (std::size_t i = 0; i < steps; ++i)
+                table[i] = static_cast<float>(i) / static_cast<float>(steps) >= threshold ? 1.0f : 0.0f;
+            const auto* bytes = reinterpret_cast<const BYTE*>(table);
+            const auto size = static_cast<UINT32>(sizeof(table));
+            if (FAILED(bloom_threshold_effect_->SetValue(D2D1_DISCRETETRANSFER_PROP_RED_TABLE, bytes, size)) ||
+                FAILED(bloom_threshold_effect_->SetValue(D2D1_DISCRETETRANSFER_PROP_GREEN_TABLE, bytes, size)) ||
+                FAILED(bloom_threshold_effect_->SetValue(D2D1_DISCRETETRANSFER_PROP_BLUE_TABLE, bytes, size)) ||
+                FAILED(bloom_threshold_effect_->SetValue(D2D1_DISCRETETRANSFER_PROP_ALPHA_DISABLE, TRUE)))
+                return E_FAIL;
+            bloom_table_threshold_ = threshold;
+        }
+        bloom_threshold_effect_->SetInputEffect(0u, bloom_luma_effect_.Get());
+        bloom_mask_effect_->SetInput(0u, screen_filter_source_.Get());
+        bloom_mask_effect_->SetInputEffect(1u, bloom_threshold_effect_.Get());
+        if (FAILED(bloom_mask_effect_->SetValue(D2D1_BLEND_PROP_MODE, D2D1_BLEND_MODE_MULTIPLY)))
+            return E_FAIL;
+        bloom_blur_effect_->SetInputEffect(0u, bloom_mask_effect_.Get());
+    }
+    else
+    {
+        bloom_blur_effect_->SetInput(0u, screen_filter_source_.Get());
+    }
+
+    if (FAILED(bloom_blur_effect_->SetValue(
+            D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, VideoBloomBlurSigmaPixels(height_))) ||
+        FAILED(bloom_blur_effect_->SetValue(
+            D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_HARD)))
+        return E_FAIL;
+
+    const float amount = 0.5f * std::abs(bloom.intensity) * BloomMediumAmount;
+    const float r = amount * static_cast<float>((bloom.tint >> 16) & 0xffu) / 255.0f;
+    const float g = amount * static_cast<float>((bloom.tint >> 8) & 0xffu) / 255.0f;
+    const float b = amount * static_cast<float>(bloom.tint & 0xffu) / 255.0f;
+    const D2D1_MATRIX_5X4_F tint = D2D1::Matrix5x4F(
+        r, 0, 0, 0,
+        0, g, 0, 0,
+        0, 0, b, 0,
+        0, 0, 0, 1,
+        0, 0, 0, 0);
+    bloom_tint_effect_->SetInputEffect(0u, bloom_blur_effect_.Get());
+    if (FAILED(bloom_tint_effect_->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, tint)) ||
+        FAILED(bloom_tint_effect_->SetValue(
+            D2D1_COLORMATRIX_PROP_ALPHA_MODE, D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
+        FAILED(bloom_tint_effect_->SetValue(D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT, TRUE)))
+        return E_FAIL;
+
+    // Blend: input 0 is the destination (frame), input 1 the source (glow).
+    bloom_composite_effect_->SetInput(0u, screen_filter_source_.Get());
+    bloom_composite_effect_->SetInputEffect(1u, bloom_tint_effect_.Get());
+    if (FAILED(bloom_composite_effect_->SetValue(
+            D2D1_BLEND_PROP_MODE,
+            bloom.intensity > 0.0f ? D2D1_BLEND_MODE_LINEAR_DODGE : D2D1_BLEND_MODE_SUBTRACT)))
         return E_FAIL;
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
     d2d_context_->DrawImage(
-        screen_filter_effect_.Get(),
+        bloom_composite_effect_.Get(),
         nullptr,
         nullptr,
         D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
         D2D1_COMPOSITE_MODE_SOURCE_COPY);
     return d2d_context_->EndDraw();
+}
+
+HRESULT D2DBackend::ApplyScreenFilter() noexcept
+{
+    // Bloom is a camera effect like SetFilter; it runs first. The stock
+    // component order on the camera is not visible in the assemblies.
+    if (const HRESULT bloom = ApplyBloom(); FAILED(bloom))
+        return bloom;
+    // Keep the no-filter frame path to four bool reads: do not construct the
+    // fixed pass buffer or touch Direct2D post-processing resources.
+    if (!HasScreenFilterPasses(filter_state_))
+        return S_OK;
+    const ScreenFilterPassList passes = BuildScreenFilterPasses(filter_state_);
+    if (!EnsureScreenFilterResources())
+        return E_FAIL;
+
+    for (std::size_t index = 0u; index < passes.count; ++index)
+    {
+        const ScreenFilterPass& pass = passes.items[index];
+        if (pass.kind != ScreenFilterPassKind::ColorMatrix)
+            return E_NOTIMPL;
+
+        HRESULT hr = screen_filter_source_->CopyFromBitmap(
+            nullptr, target_bitmap_.Get(), nullptr);
+        if (FAILED(hr))
+            return hr;
+
+        D2D1_MATRIX_5X4_F d2d_matrix{};
+        static_assert(sizeof(d2d_matrix) == sizeof(pass.color_matrix.m));
+        std::memcpy(&d2d_matrix, pass.color_matrix.m, sizeof(d2d_matrix));
+        screen_filter_effect_->SetInput(0u, screen_filter_source_.Get());
+        if (FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_COLOR_MATRIX, d2d_matrix)) ||
+            FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_ALPHA_MODE,
+                D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED)) ||
+            FAILED(screen_filter_effect_->SetValue(
+                D2D1_COLORMATRIX_PROP_CLAMP_OUTPUT,
+                TRUE)))
+            return E_FAIL;
+
+        d2d_context_->BeginDraw();
+        d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+        d2d_context_->DrawImage(
+            screen_filter_effect_.Get(),
+            nullptr,
+            nullptr,
+            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            D2D1_COMPOSITE_MODE_SOURCE_COPY);
+        hr = d2d_context_->EndDraw();
+        if (FAILED(hr))
+            return hr;
+    }
+    return S_OK;
 }
 
 bool D2DBackend::Resize(std::uint32_t width, std::uint32_t height) noexcept

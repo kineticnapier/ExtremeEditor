@@ -3,6 +3,7 @@
 #include "extreme_editor_renderer.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -205,34 +206,32 @@ struct ScreenColorMatrix
     }
 };
 
-// Applies `next` after `first`.
-inline ScreenColorMatrix ComposeColorMatrices(
-    const ScreenColorMatrix& first,
-    const ScreenColorMatrix& next) noexcept
+enum class ScreenFilterPassKind : std::uint8_t
 {
-    ScreenColorMatrix result;
-    for (int column = 0; column < 4; ++column)
-    {
-        for (int row = 0; row < 5; ++row)
-        {
-            float value = row == 4 ? next.m[4][column] : 0.0f;
-            for (int k = 0; k < 4; ++k)
-                value += first.m[row][k] * next.m[k][column];
-            // Preserve the usual float arithmetic, but recompute in double
-            // when a product or sum overflows (or cancels infinities to NaN).
-            if (!std::isfinite(value))
-            {
-                double precise = row == 4 ? static_cast<double>(next.m[4][column]) : 0.0;
-                for (int k = 0; k < 4; ++k)
-                    precise += static_cast<double>(first.m[row][k]) * next.m[k][column];
-                const double limit = static_cast<double>(std::numeric_limits<float>::max());
-                value = static_cast<float>(std::isnan(precise) ? 0.0 :
-                    std::clamp(precise, -limit, limit));
-            }
-            result.m[row][column] = value;
-        }
-    }
-    return result;
+    ColorMatrix
+};
+
+struct ScreenFilterPass
+{
+    std::uint32_t filter = 0u;
+    ScreenFilterPassKind kind = ScreenFilterPassKind::ColorMatrix;
+    ScreenColorMatrix color_matrix{};
+};
+
+inline constexpr std::size_t MaxScreenFilterPasses = 4u;
+
+struct ScreenFilterPassList
+{
+    std::array<ScreenFilterPass, MaxScreenFilterPasses> items{};
+    std::size_t count = 0u;
+};
+
+inline bool HasScreenFilterPasses(const FilterVisualState& state) noexcept
+{
+    return state.entries[FilterGrayscale].enabled ||
+        state.entries[FilterSepia].enabled ||
+        state.entries[FilterInvert].enabled ||
+        state.entries[FilterContrast].enabled;
 }
 
 // Luma weights of CameraFilterPackLegacy/Color_GrayScale and Color_Sepia,
@@ -241,23 +240,31 @@ inline constexpr float GrayscaleWeightR = 0.222f;
 inline constexpr float GrayscaleWeightG = 0.707f;
 inline constexpr float GrayscaleWeightB = 0.071f;
 
-// Combines the enabled filters that are a per-pixel colour transform into
-// one matrix, in ascending Filter id order. Stock applies each filter as its
-// own camera pass in component order, which the game assemblies do not
-// reveal, and an 8-bit pass would clamp between filters; one matrix does not. Returns false when none is enabled, so the frame is left
-// untouched. Filters that sample neighbouring pixels need their own passes
-// and are not handled here.
-inline bool BuildScreenFilterColorMatrix(
-    const FilterVisualState& state,
-    ScreenColorMatrix& output) noexcept
+// Builds independent render passes in ascending Filter id order. The stock
+// component order remains unknown; keeping the prior renderer order preserves
+// current behavior except for the intentional clamp/rounding between passes.
+// The fixed-capacity list avoids allocating memory while rendering and can be
+// extended with non-colour-matrix pass kinds for sampling filters.
+inline ScreenFilterPassList BuildScreenFilterPasses(
+    const FilterVisualState& state) noexcept
 {
-    bool any = false;
-    ScreenColorMatrix matrix = ScreenColorMatrix::Identity();
+    ScreenFilterPassList result;
+    const auto append = [&](std::uint32_t filter, const ScreenColorMatrix& matrix) noexcept
+    {
+        if (result.count >= result.items.size())
+            return;
+        ScreenFilterPass& pass = result.items[result.count++];
+        pass.filter = filter;
+        pass.kind = ScreenFilterPassKind::ColorMatrix;
+        pass.color_matrix = matrix;
+    };
 
     const FilterVisualEntry& grayscale = state.entries[FilterGrayscale];
     if (grayscale.enabled)
     {
-        const float amount = std::clamp(grayscale.intensity, 0.0f, 1.0f);
+        const float amount = std::clamp(
+            std::isfinite(grayscale.intensity) ? grayscale.intensity : 0.0f,
+            0.0f, 1.0f);
         ScreenColorMatrix gray = ScreenColorMatrix::Identity();
         const float weights[3] = {GrayscaleWeightR, GrayscaleWeightG, GrayscaleWeightB};
         for (int input = 0; input < 3; ++input)
@@ -268,8 +275,7 @@ inline bool BuildScreenFilterColorMatrix(
                 gray.m[input][out] = identity + (weights[input] - identity) * amount;
             }
         }
-        matrix = ComposeColorMatrices(matrix, gray);
-        any = true;
+        append(FilterGrayscale, gray);
     }
 
     // CameraFilterPackLegacy/Color_Sepia, decoded from the stock shader:
@@ -278,7 +284,7 @@ inline bool BuildScreenFilterColorMatrix(
     const FilterVisualEntry& sepia = state.entries[FilterSepia];
     if (sepia.enabled)
     {
-        const float amount = sepia.intensity;
+        const float amount = std::isfinite(sepia.intensity) ? sepia.intensity : 0.0f;
         const float weights[3] = {GrayscaleWeightR, GrayscaleWeightG, GrayscaleWeightB};
         const float tint[3] = {0.437f, 0.171f, 0.078f};
         ScreenColorMatrix tone = ScreenColorMatrix::Identity();
@@ -292,8 +298,7 @@ inline bool BuildScreenFilterColorMatrix(
             // Constant terms ride on the alpha row, as for Invert below.
             tone.m[3][out] = tint[out] * amount;
         }
-        matrix = ComposeColorMatrices(matrix, tone);
-        any = true;
+        append(FilterSepia, tone);
     }
 
     // Stock SetFilter has no intensity parameter for Invert: enabling it
@@ -309,8 +314,7 @@ inline bool BuildScreenFilterColorMatrix(
             // transparent inputs retain valid premultiplied colour values.
             invert.m[3][channel] = 1.0f;
         }
-        matrix = ComposeColorMatrices(matrix, invert);
-        any = true;
+        append(FilterInvert, invert);
     }
 
     // CameraFilterPackLegacy/Color_Contrast: c' = (c - 0.5) * C + 0.5, where
@@ -318,19 +322,19 @@ inline bool BuildScreenFilterColorMatrix(
     const FilterVisualEntry& contrast = state.entries[FilterContrast];
     if (contrast.enabled)
     {
-        const float scale = contrast.intensity + 1.0f;
+        const double requested = 1.0 + static_cast<double>(
+            std::isfinite(contrast.intensity) ? contrast.intensity : 0.0f);
+        const double limit = static_cast<double>(std::numeric_limits<float>::max());
+        const float scale = static_cast<float>(std::clamp(requested, -limit, limit));
         ScreenColorMatrix stretch = ScreenColorMatrix::Identity();
         for (int channel = 0; channel < 3; ++channel)
         {
             stretch.m[channel][channel] = scale;
             stretch.m[3][channel] = 0.5f * (1.0f - scale);
         }
-        matrix = ComposeColorMatrices(matrix, stretch);
-        any = true;
+        append(FilterContrast, stretch);
     }
 
-    if (any)
-        output = matrix;
-    return any;
+    return result;
 }
 }

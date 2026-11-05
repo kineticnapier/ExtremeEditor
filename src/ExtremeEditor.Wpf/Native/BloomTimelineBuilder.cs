@@ -139,6 +139,11 @@ internal static class BloomStateEvaluator
 
         foreach (NativeBloomEvent item in events)
         {
+            if (!double.IsFinite(item.StartTime) ||
+                !double.IsFinite(item.DurationSeconds) ||
+                !float.IsFinite(item.Threshold) ||
+                !float.IsFinite(item.Intensity))
+                continue;
             if (item.StartTime > chartTime)
                 break;
 

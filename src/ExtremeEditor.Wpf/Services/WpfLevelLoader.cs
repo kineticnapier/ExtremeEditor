@@ -9,7 +9,11 @@ internal sealed record WpfLevelLoadResult(
     LevelDocument Document,
     SpatialGridIndex Index,
     LoadMetrics Metrics,
-    TimeSpan IndexTime);
+    TimeSpan IndexTime)
+{
+    // Missing commas the loader supplied, empty for a strictly valid chart.
+    internal IReadOnlyList<JsonRepair> JsonRepairs { get; init; } = [];
+}
 
 internal static class WpfLevelLoader
 {
@@ -30,9 +34,10 @@ internal static class WpfLevelLoader
         CameraSourceData cameraEvents;
         string loadPath = path;
         string? normalizedPath = null;
+        IReadOnlyList<JsonRepair> repairs = [];
         if (LooseAdoFaiJson.HasUtf16Bom(path))
         {
-            normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+            normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path, out repairs);
             loadPath = normalizedPath;
         }
 
@@ -54,10 +59,11 @@ internal static class WpfLevelLoader
             }
             catch (JsonException) when (normalizedPath is null)
             {
-                // The game accepts literal control bytes inside strings. Normalize
-                // the exceptional file once so every dedicated reader sees the same
-                // UTF-8 representation as the core loader.
-                normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+                // The game accepts literal control bytes inside strings and
+                // missing commas between values. Normalize the exceptional file
+                // once so every dedicated reader sees the same UTF-8 text as the
+                // core loader. The strictly valid path above stays untouched.
+                normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path, out repairs);
                 loadPath = normalizedPath;
                 (loaded, trackVisuals, trackTransforms, scaleRadius, cameraSource) =
                     await LoadPassesAsync(loadPath, cancellationToken).ConfigureAwait(false);
@@ -75,6 +81,13 @@ internal static class WpfLevelLoader
         }
 
         loaded.Document.SourcePath = path;
+        if (repairs.Count > 0)
+        {
+            Console.WriteLine(
+                $"[load] json-repair inserted {repairs.Count} missing comma(s) after " +
+                string.Join(", ", repairs.Take(8).Select(static r => $"line {r.Line} col {r.Column}")) +
+                (repairs.Count > 8 ? ", ..." : string.Empty));
+        }
 
         loaded.Document.CameraSettings = new LevelCameraSettings(
             cameraSource.InitialRelativeTo,
@@ -107,7 +120,10 @@ internal static class WpfLevelLoader
             loaded.Document,
             index,
             loaded.Metrics,
-            indexWatch.Elapsed);
+            indexWatch.Elapsed)
+        {
+            JsonRepairs = repairs
+        };
     }
 
     private static async Task<(LoadResult Loaded, TrackVisualSourceBundle Visuals,

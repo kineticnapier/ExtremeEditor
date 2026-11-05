@@ -1,5 +1,6 @@
 #include "bloom_interpolation.h"
 #include "renderer.h"
+#include "screen_bloom.h"
 #include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
@@ -541,12 +542,19 @@ BloomVisualState ResolveBloomAtTime(
     const EeBloomEvent* previous = nullptr;
     for (const EeBloomEvent& item : *events)
     {
+        if (!std::isfinite(item.start_time) ||
+            !std::isfinite(item.duration_seconds) ||
+            !std::isfinite(item.threshold) ||
+            !std::isfinite(item.intensity))
+            continue;
         if (item.start_time > chart_time)
             break;
 
-        const float start_threshold = previous ? previous->threshold : item.threshold;
-        const float start_intensity = previous ? previous->intensity : item.intensity;
-        const std::uint32_t start_tint = previous ? previous->tint : item.tint;
+        // Each event kills the running tweens with completion and tweens from
+        // there; before the first event VideoBloom holds its defaults.
+        const float start_threshold = previous ? previous->threshold : BloomDefaultThreshold;
+        const float start_intensity = previous ? previous->intensity : BloomDefaultIntensity;
+        const std::uint32_t start_tint = previous ? previous->tint : BloomDefaultTint;
         const double raw = item.duration_seconds <= 1e-9
             ? 1.0
             : (chart_time - item.start_time) / item.duration_seconds;
@@ -554,9 +562,9 @@ BloomVisualState ResolveBloomAtTime(
         const double progress = std::isfinite(eased) ? eased : 0.0;
 
         result.enabled = item.enabled != 0u;
-        result.threshold = ee::InterpolateBloomFinite(
+        result.threshold = InterpolateBloomFinite(
             start_threshold, item.threshold, progress);
-        result.intensity = ee::InterpolateBloomFinite(
+        result.intensity = InterpolateBloomFinite(
             start_intensity, item.intensity, progress);
         result.tint = LerpBloomColor(start_tint, item.tint, progress);
         previous = &item;
