@@ -509,6 +509,36 @@ static void RunLongClipSparseCandidateIndexChecks()
     Equal(shortHitCount + 2, provider.FirstPotentiallyOverlappingHitIndex(800_000),
         "expired long tail is excluded at its exact end");
 
+    // Priming and background prerendering must use the same end-frame index
+    // as foreground reads, including silent seeks and the exclusive tail end.
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    SampleAccurateHitSoundProvider NewProvider() => new(
+        format, level, timing, timeline, clips, totalFrames);
+
+    var silentPrime = NewProvider();
+    silentPrime.PrimeRange(350_000, 4096);
+    Equal(0L, silentPrime.RenderChunkAttempts,
+        "silent middle-range priming skips all expired hits");
+
+    var tailPrime = NewProvider();
+    tailPrime.PrimeRange(600_000, 1);
+    Equal(1L, tailPrime.RenderChunkAttempts,
+        "priming a long tail and later short hit renders their shared chunk once");
+    tailPrime.Seek(600_000);
+    var primedTail = new float[2];
+    Equal(2, tailPrime.Read(primedTail, 0, 2), "primed long-tail read count");
+    Near(0.75, primedTail[0], "primed long-tail overlap left");
+    Near(0.75, primedTail[1], "primed long-tail overlap right");
+
+    var expiredPrerender = NewProvider();
+    expiredPrerender.PrerenderAheadAsync(800_000, 32 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(0L, expiredPrerender.RenderChunkAttempts,
+        "background prerender skips all hits at the exact long-tail end");
+    Equal(0L, expiredPrerender.CachedPcmBytes,
+        "expired background prerender leaves no PCM cache");
+
     void CheckFrame(long frame, double expected, string label)
     {
         provider.Seek(frame);
