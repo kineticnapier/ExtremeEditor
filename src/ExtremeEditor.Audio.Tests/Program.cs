@@ -296,6 +296,39 @@ static void RunPlaySoundEventChecks()
         .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
     Equal(1_300L, eventHit.StartFrame, "PlaySound angleOffset sample frame");
     Near(0.5, eventHit.Volume, "PlaySound volume");
+
+    // Verify audible PCM, not just the schedule: the event must survive seeking
+    // and remain independent of the ordinary floor landing sound.
+    var landingPcm = new float[2];
+    provider.Seek(1_000);
+    Equal(2, provider.Read(landingPcm, 0, landingPcm.Length), "PlaySound landing read");
+    Near(0.25, landingPcm[0], "ordinary landing PCM");
+
+    var eventPcm = new float[2];
+    provider.Seek(1_300);
+    Equal(2, provider.Read(eventPcm, 0, eventPcm.Length), "PlaySound event read after seek");
+    Near(0.25, eventPcm[0], "PlaySound event left PCM");
+    Near(0.25, eventPcm[1], "PlaySound event right PCM");
+
+    // A chart pitch of 200% must advance both landing and PlaySound cues
+    // on the same transport clock, without changing their relative volume.
+    LevelDocument pitchedLevel = WithSettings(
+        level, offsetMilliseconds: 0, pitchPercent: 200,
+        countdownTicks: 0, separateCountdownTime: false, initialBpm: 100);
+    var pitchedProvider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        pitchedLevel,
+        timing,
+        HitSoundTimelineBuilder.Build(pitchedLevel),
+        clips,
+        totalFrames: 2_000);
+    SampleAccurateHitSoundProvider.ScheduledHit pitchedEvent = pitchedProvider.ScheduledHits
+        .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
+    Equal(650L, pitchedEvent.StartFrame, "PlaySound chart pitch sample frame");
+    var pitchedPcm = new float[2];
+    pitchedProvider.Seek(650);
+    Equal(2, pitchedProvider.Read(pitchedPcm, 0, pitchedPcm.Length), "pitched PlaySound read");
+    Near(0.25, pitchedPcm[0], "pitched PlaySound PCM");
 }
 
 static void RunHitSoundScheduleHotSwapRegression()
