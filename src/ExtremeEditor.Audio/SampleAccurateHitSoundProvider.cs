@@ -148,7 +148,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     /// </summary>
     internal void PrimeRange(long startFrame, long frameCount)
     {
-        if (frameCount <= 0 || _totalFrames <= 0)
+        if (frameCount <= 0 || _totalFrames <= 0 || _scheduledHits.Count == 0)
             return;
 
         long start = Math.Clamp(startFrame, 0, _totalFrames);
@@ -174,7 +174,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken)
     {
-        if (_totalFrames <= 0 || cacheBudgetBytes <= 0)
+        if (_totalFrames <= 0 || cacheBudgetBytes <= 0 || _scheduledHits.Count == 0)
             return Task.CompletedTask;
 
         long start = Math.Clamp(startFrame, 0, _totalFrames);
@@ -552,6 +552,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)
     {
+        // Read already zeroed the destination. An entirely muted chart needs
+        // no chunk rendering, empty cache entries, or background prerendering.
+        if (_scheduledHits.Count == 0)
+            return;
+
         long frame = startFrame;
         int destinationSample = offset;
         int framesRemaining = frameCount;
