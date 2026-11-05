@@ -26,6 +26,7 @@ internal static class MissingCommaLoadRegression
             VerifyMissingCommaBetweenEvents(directory);
             VerifyStringsAndCommentsAreNotRepaired();
             VerifyRawStringControlsAfterQuotedComments(directory);
+            VerifyCombinedCommaAndRawControlRepairs(directory);
             VerifyUnrelatedErrorsAreRejected(directory);
             VerifySaveKeepsEveryEvent(directory);
             VerifyPhantigmaIfPresent(directory);
@@ -136,6 +137,38 @@ internal static class MissingCommaLoadRegression
             Require(File.ReadAllBytes(path).AsSpan().SequenceEqual(original),
                 "Normalizing raw string controls modified the source chart.");
         }
+    }
+
+    private static void VerifyCombinedCommaAndRawControlRepairs(string directory)
+    {
+        // A missing comma and a raw newline can occur in the same chart.
+        // Unmatched quotes in both comment forms must not confuse either repair.
+        string source =
+            "{\n  // unmatched \" in a line comment\n" +
+            "  \"angleData\": [0, 90, 180],\n" +
+            "  \"settings\": {\"version\": 15, \"bpm\": 120, \"levelDesc\": \"line one\nline two\"},\n" +
+            "  \"actions\": [{\"floor\": 1, \"eventType\": \"Twirl\"}\n" +
+            "    /* unmatched \" in a block comment */\n" +
+            "    {\"floor\": 2, \"eventType\": \"Twirl\"}],\n" +
+            "  \"decorations\": []\n}";
+        byte[] original = Utf8(source);
+        byte[] normalized = LooseAdoFaiJson.NormalizeToUtf8(
+            original, out IReadOnlyList<JsonRepair> repairs);
+        Require(repairs.Count == 1 &&
+                Encoding.UTF8.GetString(normalized).Contains(
+                    "\"line one\\nline two\"", StringComparison.Ordinal),
+            "Combined comma and raw-newline repairs did not both apply.");
+
+        string path = Path.Combine(directory, "combined-repairs.adofai");
+        File.WriteAllBytes(path, original);
+        JsonObject parsed = LooseAdoFaiJson.ParseObject(path);
+        JsonNode? streamed = LooseAdoFaiJson.ParseRootProperty(original, "actions");
+        Require(parsed["actions"] is JsonArray { Count: 2 } &&
+                streamed is JsonArray { Count: 2 } &&
+                parsed["settings"]?["levelDesc"]?.GetValue<string>() == "line one\nline two",
+            "Combined repairs corrupted the parsed chart or streamed actions.");
+        Require(File.ReadAllBytes(path).AsSpan().SequenceEqual(original),
+            "Combined repairs modified the original chart.");
     }
 
     private static void VerifyUnrelatedErrorsAreRejected(string directory)
