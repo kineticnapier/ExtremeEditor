@@ -32,7 +32,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly Dictionary<long, LinkedListNode<long>> _cacheLruNodes = [];
     private readonly object _cacheLock = new();
     private readonly long _totalFrames;
-    private readonly long _maxClipFrames;
+    private readonly long[] _prefixMaxHitEndFrames;
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private long _renderChunksElapsedTicks;
@@ -72,9 +72,19 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         _scheduledHits = schedule.Hits;
         _sourceHitCount = schedule.SourceHitCount;
         _buildSchedule = watch.Elapsed;
-        _maxClipFrames = _scheduledHits.Count == 0
-            ? 0
-            : _scheduledHits.Max(static hit => (long)hit.Clip.FrameCount);
+        // Prefix maximums let a chunk lookup skip every earlier hit whose
+        // sound has already ended, even when a much longer clip starts later.
+        _prefixMaxHitEndFrames = new long[_scheduledHits.Count];
+        long latestEnd = long.MinValue;
+        for (int i = 0; i < _scheduledHits.Count; i++)
+        {
+            ScheduledHit hit = _scheduledHits[i];
+            long end = hit.StartFrame > long.MaxValue - hit.Clip.FrameCount
+                ? long.MaxValue
+                : hit.StartFrame + hit.Clip.FrameCount;
+            latestEnd = Math.Max(latestEnd, end);
+            _prefixMaxHitEndFrames[i] = latestEnd;
+        }
         Seek(0);
     }
 
@@ -166,8 +176,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         // very long silent ranges, and caching empty sentinels for all of them
         // wastes both startup time and dictionary/LRU entries.
         long nextChunk = firstChunk;
-        long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
-        int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        int firstHitIndex = FirstPotentiallyOverlappingHitIndex(firstChunk * ChunkFrames);
         for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
         {
             ScheduledHit hit = _scheduledHits[hitIndex];
@@ -219,10 +228,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             // overlap an audible clip instead of scanning every silent chunk
             // until the end of a long sparse chart.
             long nextChunk = firstChunk;
-            // A seek into a dense chart must not rescan every earlier hit.
-            // The longest clip bounds how far back a hit could still overlap.
-            long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
-            int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+            // Skip all expired hits while retaining any long tail crossing
+            // the seek position, regardless of other future clip lengths.
+            int firstHitIndex = FirstPotentiallyOverlappingHitIndex(firstChunk * ChunkFrames);
             for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -548,8 +556,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             return [];
 
         long chunkEnd = Math.Min(_totalFrames, chunkStart + ChunkFrames);
-        long earliestRelevantStart = chunkStart - _maxClipFrames + 1;
-        int hitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        int hitIndex = FirstPotentiallyOverlappingHitIndex(chunkStart);
         float[]? chunk = null;
 
         for (; hitIndex < _scheduledHits.Count; hitIndex++)
@@ -581,14 +588,16 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         return chunk ?? [];
     }
 
-    private int LowerBoundStartFrame(long startFrame)
+    // The prefix maximum is nondecreasing. Every hit before the returned
+    // index ends at or before the requested frame and cannot contribute PCM.
+    internal int FirstPotentiallyOverlappingHitIndex(long frame)
     {
         int low = 0;
-        int high = _scheduledHits.Count;
+        int high = _prefixMaxHitEndFrames.Length;
         while (low < high)
         {
             int middle = low + ((high - low) >> 1);
-            if (_scheduledHits[middle].StartFrame < startFrame)
+            if (_prefixMaxHitEndFrames[middle] <= frame)
                 low = middle + 1;
             else
                 high = middle;
