@@ -135,6 +135,11 @@ public partial class MainWindow
         if (CanSkipDocumentTabActivation(
                 _documentTabs.ActiveTab, tab, _level, _nativeSceneRecoveryFailed))
         {
+            // A previous activation may still be preparing another tab.
+            // Returning to the already-active tab is a newer navigation request:
+            // invalidate that older task before it can commit its native upload.
+            CancelPendingDocumentTabActivation(
+                ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
             HideWelcomePage();
             return true;
         }
@@ -367,6 +372,17 @@ public partial class MainWindow
         !nativeRecoveryFailed &&
         ReferenceEquals(activeTab, targetTab) &&
         ReferenceEquals(activeLevel, targetTab.Document);
+
+    // A same-tab navigation is still a request. Cancel any older asynchronous
+    // preparation and remove this request from the pending Ctrl+Tab origin.
+    internal static void CancelPendingDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab activeTab)
+    {
+        activationGeneration++;
+        pendingTarget = ClearFailedPendingTabTarget(pendingTarget, activeTab);
+    }
 
     // The upload may fail after changing only part of the shared native scene.
     // Keep the managed tab unchanged and attempt to restore the old scene.
