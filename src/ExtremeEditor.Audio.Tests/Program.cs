@@ -329,6 +329,34 @@ static void RunPlaySoundEventChecks()
     pitchedProvider.Seek(650);
     Equal(2, pitchedProvider.Read(pitchedPcm, 0, pitchedPcm.Length), "pitched PlaySound read");
     Near(0.25, pitchedPcm[0], "pitched PlaySound PCM");
+
+    // Exercise the complete preview/offline audio graph, not just the
+    // scheduled hit-sound layer. Pitch must affect the song branch while
+    // the landing and PlaySound remain aligned on the output sample clock.
+    var silentSong = new AudioGraphFactory.FiniteSilentSampleProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2))
+    {
+        TotalFrames = 2_000
+    };
+    AudioGraphBuildResult fullGraph = AudioGraphFactory.Build(
+        silentSong,
+        pitchedLevel,
+        timing,
+        HitSoundTimelineBuilder.Build(pitchedLevel),
+        clips,
+        totalFrames: 2_000,
+        songVolumePercent: 100,
+        playbackSpeed: 1.0,
+        hitSoundsEnabled: true,
+        songPitch: 2.0);
+    Near(2.0, fullGraph.SongRateProvider.PlaybackSpeed,
+        "PlaySound full graph song pitch");
+    var mixedPcm = new float[1_400]; // 700 stereo output frames
+    Equal(mixedPcm.Length, fullGraph.Graph.Read(mixedPcm, 0, mixedPcm.Length),
+        "PlaySound full graph read");
+    Near(0.25, mixedPcm[500 * 2], "PlaySound full graph landing PCM");
+    Near(0.25, mixedPcm[650 * 2], "PlaySound full graph event PCM");
+    Near(0.0, mixedPcm[649 * 2], "PlaySound full graph pre-event silence");
 }
 
 static void RunHitSoundScheduleHotSwapRegression()
