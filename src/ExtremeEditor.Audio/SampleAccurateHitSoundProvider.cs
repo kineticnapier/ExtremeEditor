@@ -67,11 +67,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             clips,
             _totalFrames);
         schedule.Hits.Sort(static (left, right) => left.StartFrame.CompareTo(right.StartFrame));
-        watch.Stop();
 
         _scheduledHits = schedule.Hits;
         _sourceHitCount = schedule.SourceHitCount;
-        _buildSchedule = watch.Elapsed;
         // Prefix maximums let a chunk lookup skip every earlier hit whose
         // sound has already ended, even when a much longer clip starts later.
         _prefixMaxHitEndFrames = new long[_scheduledHits.Count];
@@ -85,6 +83,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             latestEnd = Math.Max(latestEnd, end);
             _prefixMaxHitEndFrames[i] = latestEnd;
         }
+        // Index construction is part of schedule preparation and must be
+        // included in the startup timing reported to audio diagnostics.
+        watch.Stop();
+        _buildSchedule = watch.Elapsed;
         Seek(0);
     }
 
