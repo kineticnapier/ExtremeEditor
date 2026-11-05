@@ -44,6 +44,7 @@ void D2DBackend::Shutdown() noexcept
     background_bitmaps_.clear();
     background_asset_paths_.clear();
     cached_background_assets_version_ = std::numeric_limits<std::uint64_t>::max();
+    ReleaseDecorationResources();
     floor_geometries_.clear();
     visible_candidates_.clear();
     cached_scene_version_ = std::numeric_limits<std::uint64_t>::max();
