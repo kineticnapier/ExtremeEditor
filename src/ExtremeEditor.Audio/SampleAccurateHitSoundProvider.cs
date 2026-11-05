@@ -414,6 +414,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             }
         }
 
+        // Silent chunks are not cached. Skip the PCM renderer entirely when
+        // the immutable schedule proves that no hit overlaps this chunk.
+        // Otherwise long sparse playback would repeatedly render silence.
+        if (!ChunkMayContainScheduledHit(chunkIndex))
+            return [];
+
         long started = realtime ? Stopwatch.GetTimestamp() : 0;
         float[] rendered = RenderChunkMeasured(chunkIndex);
         if (realtime)
@@ -588,6 +594,23 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         // An empty result is silence; callers do not retain zero-byte entries.
         return chunk ?? [];
+    }
+
+    private bool ChunkMayContainScheduledHit(long chunkIndex)
+    {
+        if (chunkIndex < 0 || chunkIndex > long.MaxValue / ChunkFrames)
+            return false;
+
+        long chunkStart = chunkIndex * ChunkFrames;
+        if (chunkStart >= _totalFrames)
+            return false;
+
+        int firstHit = FirstPotentiallyOverlappingHitIndex(chunkStart);
+        if (firstHit >= _scheduledHits.Count)
+            return false;
+
+        long chunkEnd = chunkStart + Math.Min((long)ChunkFrames, _totalFrames - chunkStart);
+        return _scheduledHits[firstHit].StartFrame < chunkEnd;
     }
 
     // The prefix maximum is nondecreasing. Every hit before the returned
