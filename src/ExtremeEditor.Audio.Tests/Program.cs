@@ -26,6 +26,7 @@ RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunMutedHitScheduleChecks();
+RunEmptyHitScheduleCacheChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -222,6 +223,42 @@ static void RunMutedHitScheduleChecks()
     Near(0.0, samples[1 * 2], "muted initial floor is silent");
     Near(0.5, samples[2 * 2], "unmuted floor remains audible");
     Near(0.0, samples[3 * 2], "muted SetHitsound and PlaySound are silent");
+}
+
+static void RunEmptyHitScheduleCacheChecks()
+{
+    const int sampleRate = 1_000;
+    const long totalFrames = 16_384;
+    LevelDocument level = CreateLevel(4, defaultVolumePercent: 0);
+    var timing = new TimingMap([
+        Floor(0, 0.0), Floor(1, 0.001), Floor(2, 0.002), Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(3, provider.Metrics.SourceHitCount, "muted floors remain in diagnostics");
+    Equal(0, provider.Metrics.ScheduledHitCount, "all-muted schedule is empty");
+
+    provider.PrimeRange(0, totalFrames);
+    provider.PrerenderAheadAsync(0, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    var samples = Enumerable.Repeat(1f, 1_024).ToArray();
+    Equal(samples.Length, provider.Read(samples, 0, samples.Length),
+        "muted read returns the requested sample count");
+    Equal(512L, provider.PositionFrames, "muted read advances the sample clock");
+    if (samples.Any(sample => sample != 0f))
+        throw new InvalidOperationException("muted read must overwrite the buffer with silence");
+
+    Equal(0, provider.Metrics.RenderedChunkCount,
+        "all-muted playback must not create empty PCM cache entries");
+    Equal(0L, provider.CachedPcmBytes,
+        "all-muted playback must not allocate cached PCM");
 }
 
 static void RunSongPitchRateChecks()
