@@ -1003,7 +1003,7 @@ internal static class DocumentTabNavigationRegression
             StringComparison.Ordinal);
         int cancel = activation.IndexOf("CancelPendingDocumentTabActivation(",
             StringComparison.Ordinal);
-        int startPreparation = activation.IndexOf("_pendingTabNavigationTarget = tab;",
+        int startPreparation = activation.IndexOf("int activationGeneration = BeginDocumentTabActivation(",
             StringComparison.Ordinal);
         Require(skip >= 0 && cancel > skip && cancel < startPreparation,
             "The already-active early return must cancel older activation before preparing another tab.");
