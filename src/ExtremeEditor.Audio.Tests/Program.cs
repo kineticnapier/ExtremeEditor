@@ -25,6 +25,7 @@ RunClockChecks();
 RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
+RunMutedHitScheduleChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -175,6 +176,52 @@ static void RunNonFiniteHitSoundVolumeChecks()
         Near(0.0, samples[4], "invalid SetHitsound volume is muted");
         Near(0.0, samples[6], "invalid PlaySound volume is muted");
     }
+}
+
+static void RunMutedHitScheduleChecks()
+{
+    const int sampleRate = 1_000;
+    LevelDocument level = CreateLevel(4, new Dictionary<int, LevelAction[]>
+    {
+        [2] = [new LevelAction(2, "SetHitsound", true, null, null, null, null)
+        {
+            HitSoundVolumePercent = 100
+        }],
+        [3] =
+        [
+            new LevelAction(3, "SetHitsound", true, null, null, null, null)
+            {
+                HitSoundVolumePercent = 0
+            },
+            new LevelAction(3, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Kick",
+                HitSoundVolumePercent = 0
+            }
+        ]
+    }, defaultVolumePercent: 0);
+
+    var timing = new TimingMap([
+        Floor(0, 0.0), Floor(1, 0.001), Floor(2, 0.002), Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, 8);
+
+    Equal(4, provider.Metrics.SourceHitCount,
+        "muted floor and PlaySound events remain counted as source hits");
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "only audible hits occupy the PCM schedule");
+
+    var samples = new float[16];
+    provider.Read(samples, 0, samples.Length);
+    Near(0.0, samples[1 * 2], "muted initial floor is silent");
+    Near(0.5, samples[2 * 2], "unmuted floor remains audible");
+    Near(0.0, samples[3 * 2], "muted SetHitsound and PlaySound are silent");
 }
 
 static void RunSongPitchRateChecks()
