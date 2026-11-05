@@ -30,6 +30,7 @@ RunEmptyHitScheduleCacheChecks();
 RunSparsePrerenderCacheChecks();
 RunSparsePrerenderGapChecks();
 RunSparsePrimeRangeChecks();
+RunSparseForegroundSilenceCacheChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -417,6 +418,51 @@ static void RunSparsePrimeRangeChecks()
         "priming an entirely silent gap does no rendering");
     Equal(0, silentGap.Metrics.RenderedChunkCount,
         "silent-gap priming does not cache empty chunks");
+}
+
+static void RunSparseForegroundSilenceCacheChecks()
+{
+    // A sparse chart has an audible hit, so normal foreground reads still
+    // inspect silent chunks. Their zero-byte sentinels must not accumulate
+    // unbounded dictionary/LRU metadata during a long playback or seek.
+    const int sampleRate = 1_000;
+    const long totalFrames = 512L * 4096;
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "sparse foreground fixture must contain an audible hit");
+
+    for (int chunk = 1; chunk <= 384; chunk++)
+    {
+        provider.Seek(chunk * 4096L);
+        var samples = new[] { 1f, 1f };
+        Equal(2, provider.Read(samples, 0, samples.Length),
+            "sparse foreground silent read count");
+        Near(0.0, samples[0], "sparse foreground silence left");
+        Near(0.0, samples[1], "sparse foreground silence right");
+    }
+
+    Equal(0, provider.Metrics.RenderedChunkCount,
+        "foreground silence must not accumulate zero-byte cache entries");
+    Equal(0L, provider.CachedPcmBytes,
+        "foreground silence must not allocate cached PCM");
+
+    provider.Seek(1);
+    var hitSamples = new float[2];
+    Equal(2, provider.Read(hitSamples, 0, hitSamples.Length),
+        "sparse foreground audible read count");
+    Near(0.5, hitSamples[0], "sparse foreground audible left");
+    Near(0.5, hitSamples[1], "sparse foreground audible right");
+    Equal(1, provider.Metrics.RenderedChunkCount,
+        "audible foreground chunks must still be cached");
 }
 
 static void RunSongPitchRateChecks()
