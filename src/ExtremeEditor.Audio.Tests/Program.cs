@@ -947,6 +947,26 @@ static void RunNearLongMaxHitSoundChecks()
         "near-long-max foreground read");
     Near(0.5, pcm[0], "near-long-max foreground PCM");
 
+    // A multi-frame read can cross long.MaxValue even when the hit itself
+    // ends safely. The remaining destination is silence and the next read
+    // must not wrap the playback cursor to a negative sample position.
+    foreground.Seek(long.MaxValue - 1);
+    var boundaryPcm = Enumerable.Repeat(-1f, 8).ToArray();
+    Equal(8, foreground.Read(boundaryPcm, 0, boundaryPcm.Length),
+        "near-long-max crossing read");
+    Near(0.5, boundaryPcm[0], "last audible frame before long max");
+    Near(0.0, boundaryPcm[2], "frame at total length is silent");
+    Near(0.0, boundaryPcm[4], "unrepresentable frame remains silent");
+    Near(0.0, boundaryPcm[6], "second unrepresentable frame remains silent");
+    Equal(long.MaxValue, foreground.PositionFrames,
+        "near-long-max cursor must saturate instead of wrapping");
+    var afterEndPcm = new[] { -1f, -1f };
+    Equal(2, foreground.Read(afterEndPcm, 0, afterEndPcm.Length),
+        "near-long-max read after saturation");
+    Near(0.0, afterEndPcm[0], "read after saturation remains silent");
+    Equal(long.MaxValue, foreground.PositionFrames,
+        "repeated reads must keep the saturated cursor");
+
     var primed = CreateProvider();
     primed.PrimeRange(nearEndFrame, 1024);
     Equal(1L, primed.RenderChunkAttempts,
