@@ -310,7 +310,8 @@ internal static class AudioGraphFactory
             requestedFrames = Math.Min(requestedFrames, int.MaxValue / _channels);
             int sourceSamples = requestedFrames * _channels;
             if (_sourceBuffer.Length < sourceSamples)
-                _sourceBuffer = new float[sourceSamples];
+                // Preserve a partial input frame when the next request is larger.
+                Array.Resize(ref _sourceBuffer, sourceSamples);
 
             while (true)
             {
