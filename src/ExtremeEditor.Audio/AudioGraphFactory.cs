@@ -71,16 +71,29 @@ internal static class AudioGraphFactory
             foreach (LevelAction action in level.ActionStore.Actions)
             {
                 if (!action.Active || action.Kind != LevelActionKind.PlaySound ||
+                    clips is null || string.IsNullOrWhiteSpace(action.HitSound) ||
                     !TryResolveActionChartTime(timingMap, action, out double chartTime))
                 {
                     continue;
                 }
 
-                // ResolveActionChartTime may return a finite but enormous angle
-                // offset. The hit schedule rejects unrepresentable sample frames;
-                // the duration calculation must ignore the same event.
+                // Only a PlaySound cue that can actually be scheduled should
+                // extend the audio. Missing assets, "None" and muted events
+                // must not create a long silent tail after the chart ends.
+                string name = HitSoundLibrary.NormalizeName(action.HitSound);
+                double volume = action.HitSoundVolumePercent ?? 100.0;
+                if (string.Equals(name, "None", StringComparison.OrdinalIgnoreCase) ||
+                    !clips.TryGetValue(name, out RenderedHitSound? clip) ||
+                    !double.IsFinite(volume) || volume <= 0.0)
+                    continue;
+
                 double eventAudio = PlaybackClock.ChartToAudioTime(level, chartTime);
-                if (IsRepresentableAudioTime(eventAudio, sampleRate))
+                double startAudio = eventAudio - clip.OffsetSeconds;
+                // The schedule converts the offset-adjusted start to a sample
+                // position. Match that guard rather than accepting an event
+                // whose source clip cannot be placed on the output clock.
+                if (IsRepresentableAudioTime(eventAudio, sampleRate) &&
+                    IsRepresentableAudioTime(startAudio, sampleRate))
                     chartEndAudio = Math.Max(chartEndAudio, eventAudio);
             }
         }

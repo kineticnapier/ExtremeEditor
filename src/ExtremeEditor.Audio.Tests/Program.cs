@@ -27,6 +27,7 @@ RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunInvalidHitSoundTimestampChecks();
 RunUnrepresentablePlaySoundDurationChecks();
+RunUnscheduledPlaySoundDurationChecks();
 RunHitSoundDurationOverflowChecks();
 RunNearLongMaxHitSoundChecks();
 RunMutedHitScheduleChecks();
@@ -913,6 +914,58 @@ static void RunInvalidHitSoundTimestampChecks()
         Near(0.0, pcm[2], "invalid offset landing is silent");
         Near(0.25, pcm[4], "valid landing after invalid offset remains audible");
     }
+}
+
+static void RunUnscheduledPlaySoundDurationChecks()
+{
+    // Missing or muted PlaySound cues must not add minutes of silence when
+    // their angle offset places them well after the end of the chart.
+    const int sampleRate = 1_000;
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 1.0)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    LevelDocument WithCue(string name, double volume = 100.0) =>
+        CreateLevel(2, new Dictionary<int, LevelAction[]>
+        {
+            [1] = [new LevelAction(1, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = name,
+                HitSoundVolumePercent = volume,
+                AngleOffset = 180_000
+            }]
+        });
+
+    long baseline = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, CreateLevel(2), timing, clips);
+
+    foreach (string name in new[] { "Missing", "None", "" })
+    {
+        Equal(baseline, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue(name), timing, clips),
+            $"unavailable PlaySound '{name}' does not extend duration");
+    }
+
+    foreach (double volume in new[] { 0.0, double.NaN })
+    {
+        Equal(baseline, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue("Kick", volume), timing, clips),
+            $"muted PlaySound volume {volume} does not extend duration");
+    }
+
+    Equal(AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, CreateLevel(2), timing, null),
+        AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue("Kick"), timing, null),
+        "PlaySound without loaded clips does not extend duration");
+
+    long audible = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, WithCue("sndKick"), timing, clips);
+    if (audible <= baseline)
+        throw new InvalidOperationException(
+            "Valid late PlaySound must extend duration (including snd name normalization).");
 }
 
 static void RunUnrepresentablePlaySoundDurationChecks()
