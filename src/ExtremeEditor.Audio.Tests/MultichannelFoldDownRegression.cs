@@ -42,6 +42,41 @@ internal static class MultichannelFoldDownRegression
         Near(0.70710678f / 4f, sixOut[0], "sixth channel contributes to left");
         Near(0.70710678f / 4f, sixOut[1], "sixth channel contributes to right");
 
+        // Short decoder reads may split a 3-channel frame. The partial
+        // samples must survive into the next call without shifting channels.
+        var chunkedThree = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
+            [0f, 0f, 1f, 0.25f, -0.25f, 0f], 2));
+        float[] chunkedOut = new float[6];
+        if (chunkedThree.Read(chunkedOut, 0, 1) != 0)
+            throw new InvalidOperationException("An incomplete stereo request consumed input.");
+        if (chunkedThree.Read(chunkedOut, 1, 2) != 2 ||
+            chunkedThree.Read(chunkedOut, 3, 2) != 2)
+            throw new InvalidOperationException("Chunked 3ch frames were lost.");
+        Near(0.70710678f, chunkedOut[1], "chunked 3ch first left");
+        Near(0.70710678f, chunkedOut[2], "chunked 3ch first right");
+        Near(0.25f, chunkedOut[3], "chunked 3ch second left");
+        Near(-0.25f, chunkedOut[4], "chunked 3ch second right");
+        if (chunkedThree.Read(chunkedOut, 1, 2) != 0)
+            throw new InvalidOperationException("Chunked 3ch source must end.");
+
+        // A six-channel frame may also arrive as 4+2 samples.
+        var chunkedSix = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 6),
+            [0f, 0f, 0f, 0f, 0f, 1f], 4));
+        float[] chunkedSixOut = new float[2];
+        if (chunkedSix.Read(chunkedSixOut, 0, 2) != 2)
+            throw new InvalidOperationException("Chunked 6ch frame was lost.");
+        Near(0.70710678f / 4f, chunkedSixOut[0], "chunked 6ch left");
+        Near(0.70710678f / 4f, chunkedSixOut[1], "chunked 6ch right");
+
+        // An incomplete final frame must never become an output frame.
+        var truncated = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
+            [0.25f, -0.25f], 1));
+        if (truncated.Read(new float[2], 0, 2) != 0)
+            throw new InvalidOperationException("Incomplete final frame was emitted.");
+
         // Existing mono duplication must remain intact.
         var mono = AudioGraphFactory.NormalizeSong(new FixedSamples(
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1), [0.4f]));
@@ -57,6 +92,30 @@ internal static class MultichannelFoldDownRegression
         if (Math.Abs(expected - actual) > 0.00001f)
             throw new InvalidOperationException(
                 $"{name}: expected {expected}, actual {actual}");
+    }
+
+    private sealed class ChunkedSamples : ISampleProvider
+    {
+        private readonly float[] _samples;
+        private readonly int _maxPerRead;
+        private int _position;
+
+        internal ChunkedSamples(WaveFormat waveFormat, float[] samples, int maxPerRead)
+        {
+            WaveFormat = waveFormat;
+            _samples = samples;
+            _maxPerRead = maxPerRead;
+        }
+
+        public WaveFormat WaveFormat { get; }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = Math.Min(Math.Min(count, _maxPerRead), _samples.Length - _position);
+            Array.Copy(_samples, _position, buffer, offset, read);
+            _position += read;
+            return read;
+        }
     }
 
     private sealed class FixedSamples : ISampleProvider
