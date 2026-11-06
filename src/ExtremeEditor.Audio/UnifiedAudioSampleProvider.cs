@@ -29,6 +29,10 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     private volatile bool _hitSoundsEnabled = true;
     private bool _transportWasMuted;
     private float _limiterGain = 1.0f;
+    // A caller may request only part of a stereo frame. Mix and limit the
+    // complete frame once, then return its remaining samples on the next read.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
     private long _readCalls, _readTicks, _maxReadTicks, _songReadTicks,
         _hitSoundReadTicks, _limiterTicks, _overBudgetReadCalls;
     private double _minimumMasterGain = 1.0;
@@ -90,11 +94,49 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     public int Read(float[] buffer, int offset, int count)
     {
         long started = Stopwatch.GetTimestamp();
-        int read = _transportMode
-            ? ReadTransport(buffer, offset, count)
-            : ReadSourceClock(buffer, offset, count);
-        RecordRead(started, read / WaveFormat.Channels);
-        return read;
+        int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Keep the normal frame-aligned callback on the direct mixing path.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+        {
+            int read = _transportMode
+                ? ReadTransport(buffer, offset + written, completeSamples)
+                : ReadSourceClock(buffer, offset + written, completeSamples);
+            written += read;
+            if (read < completeSamples)
+            {
+                RecordRead(started, written / channels);
+                return written;
+            }
+        }
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = _transportMode
+                ? ReadTransport(_pendingOutputFrame, 0, channels)
+                : ReadSourceClock(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        RecordRead(started, written / channels);
+        return written;
     }
 
     private int ReadSourceClock(float[] buffer, int offset, int count)
@@ -133,6 +175,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     public void Seek(long positionFrames)
     {
+        ResetPendingOutput();
         if (_transportMode)
         {
             _positionFrames = Math.Max(0, positionFrames);
@@ -150,6 +193,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     {
         if (!_transportMode)
             return;
+        ResetPendingOutput();
         _positionFrames = Math.Max(0, sourceFrame);
         Volatile.Read(ref _transportHitSounds)?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
         _limiterGain = 1.0f;
@@ -164,6 +208,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         if (hitSounds is not null && !WaveFormat.Equals(hitSounds.WaveFormat))
             throw new ArgumentException("Song and hit-sound formats must match.", nameof(hitSounds));
 
+        ResetPendingOutput();
         long clamped = Math.Max(0, sourceFrame);
         hitSounds?.Seek(clamped);
         Interlocked.Exchange(ref _transportHitSounds, hitSounds);
@@ -223,6 +268,8 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         Interlocked.Add(ref _limiterTicks, Stopwatch.GetElapsedTime(limiterStarted).Ticks);
         return frameCount * channels;
     }
+
+    private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
 
     private void RecordRead(long started, int frames)
     {
