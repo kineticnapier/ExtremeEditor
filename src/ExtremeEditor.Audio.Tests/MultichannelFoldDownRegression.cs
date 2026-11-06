@@ -237,6 +237,69 @@ internal static class MultichannelFoldDownRegression
             throw new InvalidOperationException("Mono frame count changed.");
         Near(0.4f, monoOut[0], "mono left");
         Near(0.4f, monoOut[1], "mono right");
+        VerifyUnifiedOddReads();
+    }
+
+    private static void VerifyUnifiedOddReads()
+    {
+        // Both the transport mixer and the bounded offline mixer must return
+        // partial stereo frames without an early EOF or a channel shift.
+        foreach (bool transport in new[] { false, true })
+        {
+            const string prefix = "unified " ;
+            float[] samples = [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f];
+            UnifiedAudioSampleProvider graph = CreateUnified(samples, transport);
+            float[] output = new float[8];
+            int position = 1;
+            foreach (int requested in new[] { 1, 3, 1, 1 })
+            {
+                int read = graph.Read(output, position, requested);
+                if (read != requested)
+                    throw new InvalidOperationException(
+                        $"Unified {(transport ? "transport" : "offline")} odd read returned {read} for {requested}.");
+                position += read;
+            }
+            if (position != 7 || graph.Read(output, 1, 1) != 0)
+                throw new InvalidOperationException("Unified odd reads must reach EOF only after all samples.");
+            for (int i = 0; i < samples.Length; i++)
+                Near(samples[i], output[i + 1], $"{prefix}sample {i}, transport={transport}");
+            if (output[0] != 0f || output[7] != 0f)
+                throw new InvalidOperationException("Unified odd reads overwrote the output offset.");
+
+            // Seek must discard an unreturned right channel from the old frame.
+            UnifiedAudioSampleProvider seekGraph = CreateUnified(samples, transport);
+            if (seekGraph.Read(new float[1], 0, 1) != 1)
+                throw new InvalidOperationException("Unified one-sample read returned EOF.");
+            seekGraph.Seek(1);
+            float[] afterSeek = new float[2];
+            if (seekGraph.Read(afterSeek, 0, 2) != 2)
+                throw new InvalidOperationException("Unified seek lost the next frame.");
+            Near(0.3f, afterSeek[0], "unified seek left");
+            Near(0.4f, afterSeek[1], "unified seek right");
+
+            // A linked stereo limiter must calculate gain from the entire
+            // frame even if the two channels are returned separately.
+            float[] loud = [1.2f, 0.6f, 0.2f, 0.4f];
+            UnifiedAudioSampleProvider aligned = CreateUnified(loud, transport);
+            UnifiedAudioSampleProvider split = CreateUnified(loud, transport);
+            float[] expected = new float[4];
+            float[] actual = new float[4];
+            if (aligned.Read(expected, 0, 4) != 4 ||
+                split.Read(actual, 0, 1) != 1 ||
+                split.Read(actual, 1, 3) != 3)
+                throw new InvalidOperationException("Unified limiter split read failed.");
+            for (int i = 0; i < 4; i++)
+                Near(expected[i], actual[i], $"unified limiter sample {i}");
+        }
+    }
+
+    private static UnifiedAudioSampleProvider CreateUnified(float[] samples, bool transport)
+    {
+        var source = new FixedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(48_000, 2), samples);
+        return transport
+            ? new UnifiedAudioSampleProvider(source, (TransportHitSoundSampleProvider?)null)
+            : new UnifiedAudioSampleProvider(source, (SampleAccurateHitSoundProvider?)null, samples.Length / 2);
     }
 
     private static void Near(float expected, float actual, string name)
