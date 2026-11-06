@@ -234,6 +234,9 @@ internal static class AudioGraphFactory
     internal sealed class FiniteSilentSampleProvider : ISampleProvider
     {
         private long _positionFrames;
+        // Read may be called with a non-frame-aligned sample count. Remember
+        // how much of the current frame was returned before the next call.
+        private int _partialFrameSamples;
 
         internal FiniteSilentSampleProvider(WaveFormat waveFormat)
         {
@@ -245,18 +248,57 @@ internal static class AudioGraphFactory
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int requestedFrames = count / WaveFormat.Channels;
-            int frames = (int)Math.Min(
-                requestedFrames,
-                Math.Max(0, TotalFrames - _positionFrames));
-            int samples = frames * WaveFormat.Channels;
-            Array.Clear(buffer, offset, samples);
-            _positionFrames += frames;
-            return samples;
+            if (count <= 0)
+                return 0;
+
+            if (_positionFrames >= TotalFrames)
+            {
+                _partialFrameSamples = 0;
+                return 0;
+            }
+
+            int channels = WaveFormat.Channels;
+            int written = 0;
+            if (_partialFrameSamples > 0)
+            {
+                int remainingInFrame = channels - _partialFrameSamples;
+                int take = Math.Min(count, remainingInFrame);
+                written += take;
+                _partialFrameSamples += take;
+                if (_partialFrameSamples == channels)
+                {
+                    _partialFrameSamples = 0;
+                    _positionFrames++;
+                }
+            }
+
+            if (written < count && _positionFrames < TotalFrames)
+            {
+                int frames = (int)Math.Min(
+                    (long)(count - written) / channels,
+                    TotalFrames - _positionFrames);
+                written += frames * channels;
+                _positionFrames += frames;
+
+                if (written < count && _positionFrames < TotalFrames)
+                {
+                    // Return a partial frame instead of reporting EOF for an
+                    // odd-sized request; the rest is returned on the next read.
+                    int partial = count - written;
+                    written += partial;
+                    _partialFrameSamples = partial;
+                }
+            }
+
+            Array.Clear(buffer, offset, written);
+            return written;
         }
 
-        internal void Seek(long frame) =>
+        internal void Seek(long frame)
+        {
             _positionFrames = Math.Clamp(frame, 0, TotalFrames);
+            _partialFrameSamples = 0;
+        }
     }
 
     // Fallback for decoders that expose more than two channels without a

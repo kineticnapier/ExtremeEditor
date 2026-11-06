@@ -39,6 +39,7 @@ RunSparsePrerenderGapChecks();
 RunSparsePrimeRangeChecks();
 RunSparseForegroundSilenceCacheChecks();
 RunLongClipSparseCandidateIndexChecks();
+RunFiniteSilentOddReadChecks();
 RunProviderChecks();
 RunPlaySoundEventChecks();
 RunHitSoundScheduleHotSwapRegression();
@@ -705,6 +706,50 @@ static void RunSongPitchRateChecks()
         songFrames: long.MaxValue, sampleRate: 1_000,
         level: null, timingMap: null, clips: null, songPitch: 0.5),
         "low pitch saturates decoded song duration rather than throwing");
+}
+
+static void RunFiniteSilentOddReadChecks()
+{
+    // A one-sample read is legal for ISampleProvider. It must not return
+    // zero while a silent frame remains, or the caller may treat it as EOF.
+    WaveFormat stereo = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    var song = new AudioGraphFactory.FiniteSilentSampleProvider(stereo)
+    {
+        TotalFrames = 2
+    };
+    float[] samples = Enumerable.Repeat(1f, 6).ToArray();
+    Equal(1, song.Read(samples, 1, 1), "silent one-sample read");
+    Equal(3, song.Read(samples, 2, 3), "silent odd-sized follow-up read");
+    Equal(0, song.Read(samples, 1, 1), "silent EOF after two complete frames");
+    if (samples[0] != 1f || samples[5] != 1f ||
+        samples.Skip(1).Take(4).Any(sample => sample != 0f))
+        throw new InvalidOperationException("Silent odd reads overwrote the wrong samples.");
+
+    // Seeking must discard any partially consumed frame.
+    song.Seek(1);
+    Equal(1, song.Read(samples, 0, 1), "silent read after seek");
+    Equal(1, song.Read(samples, 0, 1), "silent right sample after seek");
+    Equal(0, song.Read(samples, 0, 1), "silent EOF after seek");
+
+    // No frame-count multiplication may overflow near long.MaxValue.
+    var nearLimit = new AudioGraphFactory.FiniteSilentSampleProvider(stereo)
+    {
+        TotalFrames = long.MaxValue
+    };
+    nearLimit.Seek(long.MaxValue - 1);
+    Equal(1, nearLimit.Read(samples, 0, 1), "near-limit silent left");
+    Equal(1, nearLimit.Read(samples, 0, 1), "near-limit silent right");
+    Equal(0, nearLimit.Read(samples, 0, 1), "near-limit silent EOF");
+
+    // The provider is frame-based even when the source format has >2 channels.
+    var three = new AudioGraphFactory.FiniteSilentSampleProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(1_000, 3))
+    {
+        TotalFrames = 1
+    };
+    Equal(2, three.Read(samples, 0, 2), "3ch partial silent frame");
+    Equal(1, three.Read(samples, 0, 1), "3ch final silent sample");
+    Equal(0, three.Read(samples, 0, 1), "3ch silent EOF");
 }
 
 static void RunProviderChecks()
