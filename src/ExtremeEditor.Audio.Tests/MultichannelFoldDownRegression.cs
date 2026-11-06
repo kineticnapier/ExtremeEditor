@@ -126,6 +126,25 @@ internal static class MultichannelFoldDownRegression
         Near(0.70710678f / 4f, chunkedSixOut[0], "chunked 6ch left");
         Near(0.70710678f / 4f, chunkedSixOut[1], "chunked 6ch right");
 
+        // A short read can leave one sample of the next 3ch frame pending.
+        // Growing the input buffer on the next, larger request must preserve it.
+        var resizedThree = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
+            [0.1f, 0.2f, 0f, 0.3f, 0.4f, 0f, 0.5f, 0.6f, 0f], 4));
+        float[] resizedOut = new float[8];
+        if (resizedThree.Read(resizedOut, 0, 4) != 2 ||
+            resizedThree.Read(resizedOut, 2, 6) != 2 ||
+            resizedThree.Read(resizedOut, 4, 4) != 2)
+            throw new InvalidOperationException("Growing the 3ch input buffer lost a partial frame.");
+        Near(0.1f, resizedOut[0], "resized first left");
+        Near(0.2f, resizedOut[1], "resized first right");
+        Near(0.3f, resizedOut[2], "resized second left");
+        Near(0.4f, resizedOut[3], "resized second right");
+        Near(0.5f, resizedOut[4], "resized third left");
+        Near(0.6f, resizedOut[5], "resized third right");
+        if (resizedThree.Read(resizedOut, 0, 2) != 0)
+            throw new InvalidOperationException("Resized 3ch source must reach EOF.");
+
         // An incomplete final frame must never become an output frame.
         var truncated = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
