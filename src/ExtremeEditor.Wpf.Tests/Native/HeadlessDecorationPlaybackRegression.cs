@@ -97,6 +97,7 @@ internal static class HeadlessDecorationPlaybackRegression
 
             VerifyVideoFrames(level, flatTiming, move.StartTime, move.DurationSeconds.Value);
             VerifyNoDecorationAndStaticDecoration(directory);
+            VerifyRgbaPixels(directory);
         }
         finally
         {
@@ -191,6 +192,89 @@ internal static class HeadlessDecorationPlaybackRegression
         staticRenderer.Load(staticPath);
         RequireEqual(staticRenderer.Render(0), staticRenderer.Render(2),
             "static decoration changed solely because time advanced");
+    }
+
+    private static void VerifyRgbaPixels(string directory)
+    {
+        string controlPath = WriteRgbaFixture(directory, "rgba-control.adofai", null, 100, "None", false);
+        string opaquePath = WriteRgbaFixture(directory, "rgba-opaque.adofai", "ff0000ff", 100, "None", false);
+        string sixDigitPath = WriteRgbaFixture(directory, "rgba-rgb.adofai", "ff0000", 100, "None", false);
+        string alpha33Path = WriteRgbaFixture(directory, "rgba-33.adofai", "ff000033", 100, "None", false);
+        string combinedPath = WriteRgbaFixture(directory, "rgba-combined.adofai", "ff000080", 50, "None", false);
+        RenderedFrame control = RenderFixture(controlPath);
+        RenderedFrame opaque = RenderFixture(opaquePath);
+        RenderedFrame sixDigit = RenderFixture(sixDigitPath);
+        RenderedFrame alpha33 = RenderFixture(alpha33Path);
+        RenderedFrame combined = RenderFixture(combinedPath);
+
+        RequireEqual(opaque, sixDigit, "6-digit RGB no longer matches opaque RGBA pixels");
+        long opaqueDifference = PixelDifference(opaque, control);
+        long alpha33Difference = PixelDifference(alpha33, control);
+        long combinedDifference = PixelDifference(combined, control);
+        RequireRatio(alpha33Difference, opaqueDifference, 0.15, 0.25,
+            "ffffff33-style alpha was not applied to actual pixels");
+        RequireRatio(combinedDifference, opaqueDifference, 0.20, 0.31,
+            "color alpha and decoration opacity were not multiplied once");
+
+        foreach (string blend in new[] { "LinearDodge", "Difference" })
+        {
+            RenderedFrame transparent = RenderFixture(WriteRgbaFixture(
+                directory, $"rgba-{blend}-zero.adofai", "ff000000", 100, blend, false));
+            RenderedFrame blendOpaque = RenderFixture(WriteRgbaFixture(
+                directory, $"rgba-{blend}-opaque.adofai", "ff0000ff", 100, blend, false));
+            RenderedFrame blendRgb = RenderFixture(WriteRgbaFixture(
+                directory, $"rgba-{blend}-rgb.adofai", "ff0000", 100, blend, false));
+            RequireEqual(control, transparent, $"{blend} alpha 0 changed the background");
+            RequireEqual(blendOpaque, blendRgb, $"{blend} opaque RGBA changed existing blend output");
+        }
+
+        RenderedFrame maskedZero = RenderFixture(WriteRgbaFixture(
+            directory, "rgba-mask-zero.adofai", "ff000000", 100, "None", true));
+        RenderedFrame maskedHalf = RenderFixture(WriteRgbaFixture(
+            directory, "rgba-mask-half.adofai", "ff000080", 100, "None", true));
+        RequireEqual(control, maskedZero, "masked alpha 0 decoration changed the background");
+        if (PixelDifference(maskedHalf, control) <= 0)
+            throw new InvalidOperationException("mask processing discarded target color alpha");
+    }
+
+    private static RenderedFrame RenderFixture(string path)
+    {
+        using var renderer = new NativeChartFrameRenderer(160, 90);
+        renderer.Load(path);
+        return renderer.Render(0);
+    }
+
+    private static string WriteRgbaFixture(
+        string directory,
+        string fileName,
+        string? color,
+        double opacity,
+        string blend,
+        bool masked)
+    {
+        string colorProperty = color is null ? string.Empty : $", \"color\": \"{color}\"";
+        string mask = masked
+            ? "{ \"floor\": 0, \"eventType\": \"AddDecoration\", \"decorationImage\": \"fade.bmp\", \"relativeTo\": \"Camera\", \"position\": [0,0], \"scale\": [8000,6000], \"opacity\": 100, \"visible\": true, \"maskingType\": \"Mask\", \"depth\": -25, \"lockScale\": true },"
+            : string.Empty;
+        string target = color is null
+            ? string.Empty
+            : $"{{ \"floor\": 0, \"eventType\": \"AddDecoration\", \"decorationImage\": \"fade.bmp\", \"relativeTo\": \"Camera\", \"position\": [0,0], \"scale\": [8000,6000], \"opacity\": {opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}, \"visible\": true, \"depth\": -20, \"blendMode\": \"{blend}\", \"maskingType\": \"{(masked ? "VisibleInsideMask" : "None")}\", \"lockScale\": true{colorProperty} }}";
+        string path = Path.Combine(directory, fileName);
+        File.WriteAllText(path,
+            $"{{\"angleData\":[0],\"settings\":{{\"bpm\":60,\"zoom\":100}},\"decorations\":[{mask}{target}]}}");
+        return path;
+    }
+
+    private static void RequireRatio(
+        long numerator,
+        long denominator,
+        double minimum,
+        double maximum,
+        string message)
+    {
+        double ratio = denominator > 0 ? (double)numerator / denominator : double.NaN;
+        if (!(ratio >= minimum && ratio <= maximum))
+            throw new InvalidOperationException($"{message}: ratio={ratio:G6}");
     }
 
     private static void VerifyTimingParity(LevelDocument level, TimingMap flat)

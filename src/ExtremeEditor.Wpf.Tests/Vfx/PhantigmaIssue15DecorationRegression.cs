@@ -47,6 +47,7 @@ internal static class PhantigmaIssue15DecorationRegression
         LevelDocument level = loaded.Document;
         VfxTimeline timeline = VfxTimelineBuilder.Build(level);
         VerifyTimingParity(level);
+        VerifyNamedRgba(level, timeline);
         LevelDecoration square = level.Decorations.Single(decoration =>
             string.Equals(decoration.Properties["decorationImage"]?.ToString(), "square.png", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(decoration.Properties["tag"]?.ToString(), "60", StringComparison.Ordinal));
@@ -121,6 +122,7 @@ internal static class PhantigmaIssue15DecorationRegression
 
             if (time == 79.571 || time == 106.5)
             {
+                ReportNamedNativeState(level, renderer.StaticDecorations, time);
                 SaveAndValidate(
                     frame,
                     Path.Combine(outputDirectory, $"phantigma-{time:G}.png"));
@@ -136,6 +138,95 @@ internal static class PhantigmaIssue15DecorationRegression
             string.Join(", ", requestedTimes.Select(time => $"{time:G}s")) +
             " and in reverse seek order.");
     }
+
+    private static void VerifyNamedRgba(LevelDocument level, VfxTimeline timeline)
+    {
+        LevelDecoration[] named = level.Decorations.Where(IsNamedRgbaDecoration).ToArray();
+        if (!named.Any(decoration => ImageName(decoration).Equals(
+                "circular_gradient.png", StringComparison.OrdinalIgnoreCase)) ||
+            !named.Any(decoration => ImageName(decoration).Equals(
+                "Bingsu_vin.png", StringComparison.OrdinalIgnoreCase)) ||
+            named.Count(decoration => IsLayerImage(ImageName(decoration))) < 10)
+        {
+            throw new InvalidOperationException(
+                "Phantigma RGBA fixture did not contain circular_gradient, Bingsu_vin, and L1-L21 decorations.");
+        }
+
+        int translucent = 0;
+        foreach (LevelDecoration decoration in named)
+        {
+            string? text = decoration.Properties["color"]?.GetValue<string>().Trim().TrimStart('#');
+            byte expectedAlpha = 0xff;
+            if (text is { Length: >= 8 })
+                expectedAlpha = Convert.ToByte(text.Substring(6, 2), 16);
+            uint actual = DecorationState.CreateInitial(decoration).Color;
+            if ((byte)(actual >> 24) != expectedAlpha)
+            {
+                throw new InvalidOperationException(
+                    $"Phantigma {ImageName(decoration)} source {decoration.SourceIndex} " +
+                    $"alpha differs: {(byte)(actual >> 24)}/{expectedAlpha}.");
+            }
+            if (expectedAlpha is > 0 and < 255)
+                translucent++;
+        }
+
+        if (translucent == 0)
+            throw new InvalidOperationException("Phantigma named RGBA decorations contained no translucent colors.");
+
+        foreach (double time in new[] { 79.571, 106.5 })
+        {
+            int active = named.Count(decoration =>
+            {
+                DecorationState state = DecorationState.Evaluate(decoration, timeline, time);
+                return state.Visible && state.Opacity > 0 && (state.Color >> 24) > 0;
+            });
+            Console.WriteLine(
+                $"Phantigma named RGBA logical state at {time:G}s: " +
+                $"targets={named.Length}, translucentBase={translucent}, active={active}.");
+        }
+    }
+
+    private static void ReportNamedNativeState(
+        LevelDocument level,
+        NativeStaticDecoration[] native,
+        double time)
+    {
+        HashSet<int> namedSources = level.Decorations
+            .Where(IsNamedRgbaDecoration)
+            .Select(decoration => decoration.SourceIndex)
+            .ToHashSet();
+        NativeStaticDecoration[] states = native
+            .Where(instance => namedSources.Contains(instance.SourceIndex))
+            .ToArray();
+        int active = states.Count(instance =>
+            instance.Opacity > 0 && (instance.Color >> 24) > 0 &&
+            (instance.Flags & NativeStaticDecoration.FlagVisible) != 0);
+        double alphaProductSum = states.Sum(instance =>
+            instance.Opacity * ((instance.Color >> 24) / 255.0));
+        Console.WriteLine(
+            $"Phantigma named RGBA native state at {time:G}s: " +
+            $"uploaded={states.Length}, active={active}, finalAlphaSum={alphaProductSum:F3}.");
+    }
+
+    private static bool IsNamedRgbaDecoration(LevelDecoration decoration)
+    {
+        if (!string.Equals(decoration.EventType, "AddDecoration", StringComparison.Ordinal))
+            return false;
+        string image = ImageName(decoration);
+        return image.Equals("circular_gradient.png", StringComparison.OrdinalIgnoreCase) ||
+               image.Equals("Bingsu_vin.png", StringComparison.OrdinalIgnoreCase) ||
+               IsLayerImage(image);
+    }
+
+    private static bool IsLayerImage(string image)
+    {
+        string stem = Path.GetFileNameWithoutExtension(image);
+        return stem.Length >= 2 && stem[0] == 'L' &&
+               int.TryParse(stem.AsSpan(1), out int number) && number is >= 1 and <= 21;
+    }
+
+    private static string ImageName(LevelDecoration decoration) =>
+        decoration.Properties["decorationImage"]?.ToString() ?? string.Empty;
 
     private static void Measure1080p60(LevelDocument level)
     {
@@ -246,6 +337,13 @@ internal static class PhantigmaIssue15DecorationRegression
             throw new InvalidOperationException($"Phantigma frame at {path} is a uniform image.");
 
         ChartFramePngWriter.Save(frame, path);
+        ulong hash = 1469598103934665603UL;
+        foreach (byte value in rgb)
+        {
+            hash ^= value;
+            hash *= 1099511628211UL;
+        }
+        Console.WriteLine($"Phantigma final pixels {Path.GetFileName(path)}: fnv64={hash:X16}.");
     }
 
     private static void RequireNear(double actual, double expected, double tolerance, string message)

@@ -38,6 +38,19 @@ struct PreparedDecorationMask
     Microsoft::WRL::ComPtr<ID2D1Effect> transformed_image;
 };
 
+float DecorationColorAlpha(const EeStaticDecoration& decoration) noexcept
+{
+    return static_cast<float>((decoration.color >> 24) & 0xffu) / 255.0f;
+}
+
+float DecorationFinalAlpha(const EeStaticDecoration& decoration) noexcept
+{
+    // Parent-floor opacity for stickToFloor can be multiplied here when that
+    // behavior is implemented. Keep Color alpha and decoration opacity distinct
+    // in the ABI and combine them exactly once at the renderer boundary.
+    return std::clamp(decoration.opacity, 0.0f, 1.0f) * DecorationColorAlpha(decoration);
+}
+
 const char* PlacementName(std::uint32_t placement) noexcept
 {
     switch (placement)
@@ -143,7 +156,7 @@ Microsoft::WRL::ComPtr<ID2D1Effect> CreateColorizedImage(
     const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
     const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
     const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
-    const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
+    const float alpha = DecorationFinalAlpha(decoration);
     const D2D1_MATRIX_5X4_F matrix =
     {
         red, 0.0f, 0.0f, 0.0f,
@@ -631,7 +644,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
     {
         if (!DecorationIsMask(decoration) &&
             (decoration.flags & EE_DECORATION_VISIBLE) != 0u &&
-            std::isfinite(decoration.opacity) && decoration.opacity > 0.0f &&
+            std::isfinite(decoration.opacity) && DecorationFinalAlpha(decoration) > 0.0f &&
             DecorationHasCustomBlend(decoration))
         {
             use_blend_graph = true;
@@ -666,7 +679,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
             ++rejected.unsupported_flags;
             continue;
         }
-        if (!std::isfinite(decoration.opacity) || decoration.opacity <= 0.0f)
+        if (!std::isfinite(decoration.opacity) || DecorationFinalAlpha(decoration) <= 0.0f)
         {
             ++rejected.invalid_opacity;
             continue;
@@ -861,7 +874,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
             const float red = static_cast<float>((decoration.color >> 16) & 0xffu) / 255.0f;
             const float green = static_cast<float>((decoration.color >> 8) & 0xffu) / 255.0f;
             const float blue = static_cast<float>(decoration.color & 0xffu) / 255.0f;
-            const float alpha = std::clamp(decoration.opacity, 0.0f, 1.0f);
+            const float alpha = DecorationFinalAlpha(decoration);
             const D2D1_MATRIX_5X4_F matrix =
             {
                 red, 0.0f, 0.0f, 0.0f,

@@ -665,16 +665,4 @@ internal static class StaticDecorationSnapshotBuilder
         return defaultValue;
     }
 
-    private static uint ReadColor(JsonNode? node)
-    {
-        string? text = ReadString(node)?.Trim().TrimStart('#');
-        if (string.IsNullOrWhiteSpace(text))
-            return 0x00FF_FFFFu;
-
-        if (text.Length >= 6 &&
-            uint.TryParse(text[..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb))
-            return rgb & 0x00FF_FFFFu;
-
-        return 0x00FF_FFFFu;
-    }
 }

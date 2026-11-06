@@ -689,6 +689,7 @@ internal static class Program
                 StringComparison.Ordinal))
             {
                 MoveDecorationsInterpolationRegression.Run();
+                DecorationRgbaRegression.Run();
                 Console.WriteLine("PASS: MoveDecorations interpolation regression is valid.");
                 return 0;
             }
@@ -1115,6 +1116,7 @@ internal static class Program
             VfxTimelineEdgeRegression.Run();
             MoveDecorationsEvaluationRegression.Run();
             MoveDecorationsInterpolationRegression.Run();
+            DecorationRgbaRegression.Run();
             MoveDecorationsEasingRegression.Run();
             MoveDecorationsFullEaseRegression.Run();
             PhantigmaMoveDecorationsEaseRegression.Run();

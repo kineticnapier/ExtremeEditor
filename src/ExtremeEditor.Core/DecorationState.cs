@@ -16,7 +16,9 @@ public sealed record DecorationState(
     public double PivotOffsetY { get; init; }
     public double ParallaxOffsetX { get; init; }
     public double ParallaxOffsetY { get; init; }
-    public uint Color { get; init; } = 0x00FF_FFFFu;
+    // Native keeps RGB in the low 24 bits. Store ADOFAI's trailing RGBA alpha
+    // in the high byte so the existing ABI and RGB extraction stay unchanged.
+    public uint Color { get; init; } = 0xFFFF_FFFFu;
     public bool Visible { get; init; } = true;
 
     public (double X, double Y) Position => (PositionX, PositionY);
@@ -55,6 +57,7 @@ public sealed record DecorationState(
         var colorR = new ScalarTweenState((state.Color >> 16) & 0xffu);
         var colorG = new ScalarTweenState((state.Color >> 8) & 0xffu);
         var colorB = new ScalarTweenState(state.Color & 0xffu);
+        var colorA = new ScalarTweenState((state.Color >> 24) & 0xffu);
         bool visible = state.Visible;
         string placement = ReadString(decoration.Properties["relativeTo"]) ?? "Tile";
         double moveOffsetScale =
@@ -157,6 +160,7 @@ public sealed record DecorationState(
                 colorR.Start((newColor >> 16) & 0xffu, startTime, durationSeconds, occurrence.Ease);
                 colorG.Start((newColor >> 8) & 0xffu, startTime, durationSeconds, occurrence.Ease);
                 colorB.Start(newColor & 0xffu, startTime, durationSeconds, occurrence.Ease);
+                colorA.Start((newColor >> 24) & 0xffu, startTime, durationSeconds, occurrence.Ease);
             }
 
             if (TryReadComponents(properties["pivotOffset"], out double? newPivotX, out double? newPivotY))
@@ -200,7 +204,8 @@ public sealed record DecorationState(
             Color = PackColor(
                 colorR.ValueAt(timeSeconds),
                 colorG.ValueAt(timeSeconds),
-                colorB.ValueAt(timeSeconds)),
+                colorB.ValueAt(timeSeconds),
+                colorA.ValueAt(timeSeconds)),
             Visible = visible
         };
     }
@@ -226,7 +231,7 @@ public sealed record DecorationState(
             PivotOffsetY = pivotOffsetY,
             ParallaxOffsetX = parallaxOffsetX,
             ParallaxOffsetY = parallaxOffsetY,
-            Color = ReadColor(properties["color"], 0x00FF_FFFFu),
+            Color = ReadColor(properties["color"], 0xFFFF_FFFFu),
             Visible = ReadBool(properties["visible"], defaultValue: true)
         };
     }
@@ -319,11 +324,17 @@ public sealed record DecorationState(
     private static bool TryReadColor(JsonNode? node, out uint color)
     {
         string? text = ReadString(node)?.Trim().TrimStart('#');
-        if (!string.IsNullOrWhiteSpace(text) &&
-            text.Length >= 6 &&
+        if (!string.IsNullOrWhiteSpace(text) && text.Length >= 6 &&
             uint.TryParse(text[..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb))
         {
-            color = rgb & 0x00FF_FFFFu;
+            uint alpha = 0xffu;
+            if (text.Length >= 8 &&
+                !uint.TryParse(text.AsSpan(6, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out alpha))
+            {
+                color = 0;
+                return false;
+            }
+            color = ((alpha & 0xffu) << 24) | (rgb & 0x00FF_FFFFu);
             return true;
         }
 
@@ -331,10 +342,13 @@ public sealed record DecorationState(
         return false;
     }
 
-    private static uint PackColor(double red, double green, double blue)
+    private static uint PackColor(double red, double green, double blue, double alpha)
     {
         static uint Channel(double value) => (uint)Math.Clamp((int)Math.Round(value), 0, 255);
-        return (Channel(red) << 16) | (Channel(green) << 8) | Channel(blue);
+        return (Channel(alpha) << 24) |
+               (Channel(red) << 16) |
+               (Channel(green) << 8) |
+               Channel(blue);
     }
 
     private static double ReadDouble(JsonNode? node, double defaultValue) =>
