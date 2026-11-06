@@ -26,6 +26,7 @@ RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunInvalidHitSoundTimestampChecks();
+RunUnrepresentablePlaySoundDurationChecks();
 RunNearLongMaxHitSoundChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
@@ -911,6 +912,39 @@ static void RunInvalidHitSoundTimestampChecks()
         Near(0.0, pcm[2], "invalid offset landing is silent");
         Near(0.25, pcm[4], "valid landing after invalid offset remains audible");
     }
+}
+
+static void RunUnrepresentablePlaySoundDurationChecks()
+{
+    // Finite angle offsets can still exceed the range of a sample position.
+    // The hit schedule already skips them; hit-sound-only duration must agree.
+    const int sampleRate = 1_000;
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    LevelDocument baseline = CreateLevel(2);
+    LevelDocument withInvalidEvent = CreateLevel(2, new Dictionary<int, LevelAction[]>
+    {
+        [1] = [new LevelAction(1, "PlaySound", true, null, null, null, null)
+        {
+            HitSound = "Kick",
+            AngleOffset = double.MaxValue
+        }]
+    });
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    long expectedFrames = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, baseline, timing, clips);
+    Equal(expectedFrames, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, withInvalidEvent, timing, clips),
+        "unrepresentable PlaySound angle must not extend audio duration");
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        withInvalidEvent, timing, HitSoundTimelineBuilder.Build(withInvalidEvent),
+        clips, expectedFrames);
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "unrepresentable PlaySound is skipped while ordinary landing remains");
 }
 
 static void RunNearLongMaxHitSoundChecks()
