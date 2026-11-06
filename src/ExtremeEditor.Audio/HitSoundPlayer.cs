@@ -114,7 +114,7 @@ internal sealed class HitSoundLibrary
             if (sampleRate != CacheSampleRate)
                 provider = new WdlResamplingSampleProvider(provider, sampleRate);
 
-            int capacity = Math.Max(1024, sound.Samples.Length * sampleRate / CacheSampleRate);
+            int capacity = EstimateRenderCapacity(sound.Samples.Length, sampleRate);
             float[] samples = ReadAll(provider, capacity, $"render:{name}", log);
             double offset = _offsets.TryGetValue(name, out double value) ? value : 0.0;
             rendered[name] = new RenderedHitSound(samples, offset);
@@ -123,6 +123,15 @@ internal sealed class HitSoundLibrary
 
         _renderedBySampleRate[sampleRate] = rendered;
         return rendered;
+    }
+
+    // The sample-count/rate product overflows int for even ordinary one-second
+    // stereo assets. Estimate in long and cap speculative List allocation so
+    // a malformed or very long asset cannot reserve enormous RAM up front.
+    internal static int EstimateRenderCapacity(int sourceSampleCount, int sampleRate)
+    {
+        long estimated = (long)sourceSampleCount * sampleRate / CacheSampleRate;
+        return (int)Math.Clamp(estimated, 1024L, 4_194_304L);
     }
 
     private static CachedHitSound LoadCachedSound(string path, AudioDiagnosticLog? log)
