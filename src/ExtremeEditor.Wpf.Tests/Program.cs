@@ -673,6 +673,17 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_FULL_EASE_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MoveDecorationsFullEaseRegression.Run();
+                PhantigmaMoveDecorationsEaseRegression.Run();
+                Console.WriteLine("PASS: MoveDecorations full DOTween ease regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_MOVE_DECORATIONS_INTERPOLATION_ONLY"),
                 "1",
                 StringComparison.Ordinal))
@@ -1104,6 +1115,8 @@ internal static class Program
             MoveDecorationsEvaluationRegression.Run();
             MoveDecorationsInterpolationRegression.Run();
             MoveDecorationsEasingRegression.Run();
+            MoveDecorationsFullEaseRegression.Run();
+            PhantigmaMoveDecorationsEaseRegression.Run();
             MoveDecorationsCoordinateRegression.Run();
             MoveDecorationsTilePlacementRegression.Run();
             MoveDecorationsRendererIntegrationRegression.Run();
