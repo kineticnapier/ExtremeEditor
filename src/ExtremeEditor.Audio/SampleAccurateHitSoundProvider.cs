@@ -77,9 +77,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         for (int i = 0; i < _scheduledHits.Count; i++)
         {
             ScheduledHit hit = _scheduledHits[i];
-            long end = hit.StartFrame > long.MaxValue - hit.Clip.FrameCount
-                ? long.MaxValue
-                : hit.StartFrame + hit.Clip.FrameCount;
+            long end = GetHitEndFrame(hit);
             latestEnd = Math.Max(latestEnd, end);
             _prefixMaxHitEndFrames[i] = latestEnd;
         }
@@ -196,7 +194,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             if (hit.StartFrame >= 0 && hit.StartFrame / ChunkFrames > lastChunk)
                 break;
 
-            long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+            long hitEndFrame = Math.Min(_totalFrames, GetHitEndFrame(hit));
             if (hitEndFrame <= Math.Max(0, hit.StartFrame))
                 continue;
 
@@ -253,7 +251,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ScheduledHit hit = _scheduledHits[hitIndex];
-                long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+                long hitEndFrame = Math.Min(_totalFrames, GetHitEndFrame(hit));
                 if (hitEndFrame <= Math.Max(0, hit.StartFrame))
                     continue;
 
@@ -599,6 +597,13 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private static long GetPcmBytes(float[] chunk) => checked(chunk.LongLength * sizeof(float));
 
+    // A clip can start near the last representable sample frame. Keep its
+    // ending position consistent across the index, priming and PCM mixing.
+    private static long GetHitEndFrame(ScheduledHit hit) =>
+        hit.StartFrame > long.MaxValue - hit.Clip.FrameCount
+            ? long.MaxValue
+            : hit.StartFrame + hit.Clip.FrameCount;
+
     private float[] RenderChunk(long chunkIndex)
     {
         if (_scheduledHits.Count == 0 || _totalFrames <= 0 || chunkIndex < 0)
@@ -608,7 +613,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (chunkStart < 0 || chunkStart >= _totalFrames)
             return [];
 
-        long chunkEnd = Math.Min(_totalFrames, chunkStart + ChunkFrames);
+        long chunkEnd = chunkStart + Math.Min((long)ChunkFrames, _totalFrames - chunkStart);
         int hitIndex = FirstPotentiallyOverlappingHitIndex(chunkStart);
         float[]? chunk = null;
 
@@ -618,7 +623,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             if (hit.StartFrame >= chunkEnd)
                 break;
 
-            long hitEnd = hit.StartFrame + hit.Clip.FrameCount;
+            long hitEnd = GetHitEndFrame(hit);
             long overlapStart = Math.Max(chunkStart, Math.Max(0, hit.StartFrame));
             long overlapEnd = Math.Min(chunkEnd, hitEnd);
             if (overlapEnd <= overlapStart)

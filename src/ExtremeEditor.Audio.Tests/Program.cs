@@ -26,6 +26,7 @@ RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunInvalidHitSoundTimestampChecks();
+RunNearLongMaxHitSoundChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
 RunSparsePrerenderCacheChecks();
@@ -910,6 +911,59 @@ static void RunInvalidHitSoundTimestampChecks()
         Near(0.0, pcm[2], "invalid offset landing is silent");
         Near(0.25, pcm[4], "valid landing after invalid offset remains audible");
     }
+}
+
+static void RunNearLongMaxHitSoundChecks()
+{
+    // The last PCM chunk ends at long.MaxValue, so both the clip end and
+    // chunk end must be calculated without wrapping to a negative frame.
+    const int sampleRate = 1_024;
+    const long nearEndFrame = long.MaxValue - 4095;
+    const double nearEndSeconds = 9_007_199_254_740_988d; // 2^53 - 4
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, nearEndSeconds)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(
+            Enumerable.Repeat(0.5f, 5_000 * 2).ToArray(), 0.0)
+    };
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+
+    SampleAccurateHitSoundProvider CreateProvider() => new(
+        format, level, timing, timeline, clips, long.MaxValue);
+
+    var foreground = CreateProvider();
+    Equal(1, foreground.Metrics.ScheduledHitCount,
+        "near-long-max hit must remain scheduled");
+    Equal(nearEndFrame, foreground.ScheduledHits[0].StartFrame,
+        "near-long-max start frame");
+    foreground.Seek(nearEndFrame);
+    var pcm = new float[2];
+    Equal(2, foreground.Read(pcm, 0, pcm.Length),
+        "near-long-max foreground read");
+    Near(0.5, pcm[0], "near-long-max foreground PCM");
+
+    var primed = CreateProvider();
+    primed.PrimeRange(nearEndFrame, 1024);
+    Equal(1L, primed.RenderChunkAttempts,
+        "near-long-max priming must render the final chunk");
+    primed.Seek(nearEndFrame);
+    var primedPcm = new float[2];
+    Equal(2, primed.Read(primedPcm, 0, primedPcm.Length),
+        "near-long-max primed read");
+    Near(0.5, primedPcm[0], "near-long-max primed PCM");
+    Equal(1L, primed.RenderChunkAttempts,
+        "near-long-max primed chunk must be reused");
+
+    var ahead = CreateProvider();
+    ahead.PrerenderAheadAsync(nearEndFrame, 4096L * 2 * sizeof(float),
+        CancellationToken.None).GetAwaiter().GetResult();
+    Equal(1L, ahead.RenderChunkAttempts,
+        "near-long-max background prerender must render the final chunk");
 }
 
 static void RunSparseTimelineChecks()
