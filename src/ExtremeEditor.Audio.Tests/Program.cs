@@ -20,6 +20,7 @@ MutedPrerenderRegression.Run();
 MutedTransportRegression.Run();
 RunSampleIndexChecks();
 RunHitSoundRenderCapacityChecks();
+RunHitSoundCacheCapacityChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
@@ -49,6 +50,27 @@ RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
 return 0;
+
+static void RunHitSoundCacheCapacityChecks()
+{
+    // Cached PCM is always 44.1 kHz stereo, even when the input file has
+    // a different sample rate. Reserve from decoded duration to avoid
+    // repeated List growth for ordinary clips longer than one second.
+    Equal(1_024, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.Zero),
+        "empty cached hit-sound reserve");
+    Equal(44_100, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(0.5)),
+        "half-second stereo cached hit-sound reserve");
+    Equal(88_200, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(1)),
+        "one-second stereo cached hit-sound reserve");
+    Equal(176_400, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(2)),
+        "two-second stereo cached hit-sound reserve");
+    Equal(4_194_304, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromMinutes(1)),
+        "long cached hit-sound reserve is bounded");
+    Equal(4_194_304, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.MaxValue),
+        "extreme duration cannot overflow the initial allocation");
+    Equal(1_024, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(-1)),
+        "negative duration cannot create a negative allocation");
+}
 
 static void RunHitSoundRenderCapacityChecks()
 {
