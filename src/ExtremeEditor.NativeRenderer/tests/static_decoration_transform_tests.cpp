@@ -279,5 +279,19 @@ int main()
     if (ee::TryGetDecorationD2DBlendMode(blend, blend_mode))
         return 12;
 
+    // Stock scrVisualDecoration.SetDepth: depth < 0 -> sorting layer Default
+    // (above Floor and Planet), depth >= 0 -> sorting layer Bg (below Floor).
+    EeStaticDecoration layered{};
+    for (const int depth : {-1000, -1, 0, 1, 1000})
+    {
+        layered.depth = depth;
+        const bool background = depth >= 0;
+        if (ee::StaticDecorationInLayer(layered, ee::DecorationSortingLayer::Background) != background ||
+            ee::StaticDecorationInLayer(layered, ee::DecorationSortingLayer::Foreground) == background)
+        {
+            return 13;
+        }
+    }
+
     return 0;
 }

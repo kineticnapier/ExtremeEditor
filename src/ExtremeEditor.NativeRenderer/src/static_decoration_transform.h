@@ -3,6 +3,7 @@
 #include "extreme_editor_renderer.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace ee
 {
@@ -144,6 +145,26 @@ inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     result.m21 = -sy * s;
     result.m22 = sy * c;
     return result;
+}
+
+// Stock scrVisualDecoration.SetDepth assigns sorting layer "Bg" to depth >= 0
+// and "Default" to depth < 0. ADOFAI's TagManager orders sorting layers
+// Bg3, Bg2(Lights), Bg, Floor, FloorCover, FloorTop, Ring, Planet, Default,
+// Petals, FgFlash, ForegroundUI, and the main Camera renders the decoration,
+// floor and planet object layers together. So Background decorations sit
+// below the tiles and Foreground decorations above the tiles and planets.
+enum class DecorationSortingLayer : std::uint8_t
+{
+    Background,
+    Foreground
+};
+
+inline bool StaticDecorationInLayer(
+    const EeStaticDecoration& decoration,
+    DecorationSortingLayer layer) noexcept
+{
+    const bool background = decoration.depth >= 0;
+    return layer == DecorationSortingLayer::Background ? background : !background;
 }
 
 inline bool StaticDecorationDrawOrderLess(

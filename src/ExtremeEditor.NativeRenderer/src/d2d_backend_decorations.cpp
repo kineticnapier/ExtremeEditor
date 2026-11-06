@@ -7,6 +7,7 @@
 #include "static_decoration_transform.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <d2d1effects.h>
@@ -472,14 +473,26 @@ void D2DBackend::DrawStaticDecorationsCamera(
     float camera_y,
     float zoom,
     float camera_rotation,
+    DecorationSortingLayer layer,
     RenderFrameStats& stats) noexcept
 {
-    const auto log_draw_targets = [this](
+    const auto pass_started = std::chrono::steady_clock::now();
+    const auto log_draw_targets = [this, layer, &stats, pass_started](
         std::size_t draw_count,
         const DecorationDrawRejections& rejected) noexcept
     {
-        if (!DecorationDiagnosticsEnabled())
+        if (layer == DecorationSortingLayer::Background)
+            stats.background_decoration_draws = static_cast<std::uint32_t>(draw_count);
+        else
+            stats.foreground_decoration_draws = static_cast<std::uint32_t>(draw_count);
+        stats.decoration_ms += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - pass_started).count();
+
+        // Report one line per frame: the foreground pass runs last and adds
+        // the background pass count recorded in the same frame stats.
+        if (!DecorationDiagnosticsEnabled() || layer == DecorationSortingLayer::Background)
             return;
+        draw_count += stats.background_decoration_draws;
         if (logged_decoration_source_count_ == static_decorations_.size() &&
             logged_decoration_draw_count_ == draw_count &&
             logged_decoration_bitmap_count_ == decoration_bitmaps_.size())
@@ -512,7 +525,14 @@ void D2DBackend::DrawStaticDecorationsCamera(
     };
 
     DecorationDrawRejections rejected;
-    if (!d2d_context_ || !decoration_color_effect_ || static_decorations_.empty())
+    const bool layer_has_targets = std::any_of(
+        static_decorations_.begin(),
+        static_decorations_.end(),
+        [layer](const EeStaticDecoration& decoration) noexcept
+        {
+            return !DecorationIsMask(decoration) && StaticDecorationInLayer(decoration, layer);
+        });
+    if (!d2d_context_ || !decoration_color_effect_ || !layer_has_targets)
     {
         log_draw_targets(0u, rejected);
         return;
@@ -643,6 +663,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
     for (const EeStaticDecoration& decoration : static_decorations_)
     {
         if (!DecorationIsMask(decoration) &&
+            StaticDecorationInLayer(decoration, layer) &&
             (decoration.flags & EE_DECORATION_VISIBLE) != 0u &&
             std::isfinite(decoration.opacity) && DecorationFinalAlpha(decoration) > 0.0f &&
             DecorationHasCustomBlend(decoration))
@@ -671,7 +692,9 @@ void D2DBackend::DrawStaticDecorationsCamera(
 
     for (const EeStaticDecoration& decoration : static_decorations_)
     {
-        if (DecorationIsMask(decoration))
+        // Masks are collected from every sorting layer above: a SpriteMask's
+        // reach is decided by DecorationMaskAppliesTo, not by its own layer.
+        if (DecorationIsMask(decoration) || !StaticDecorationInLayer(decoration, layer))
             continue;
 
         if ((decoration.flags & EE_DECORATION_VISIBLE) == 0u)

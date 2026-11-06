@@ -237,15 +237,25 @@ HRESULT D2DBackend::RenderFrameOffscreen(
     // B0 headless frames intentionally omit editor-only grid, selection, HUD,
     // and viewport border. The scene itself is rendered by the same production
     // floor/icon/decoration/planet pipelines as the interactive viewport.
+    RenderFrameStats stats{};
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
     DrawBackground();
     DrawBackgroundFlash();
+    // Stock sorting layer Bg (depth >= 0) is drawn before Floor.
+    DrawStaticDecorationsCamera(
+        *scene,
+        playback,
+        camera_x,
+        camera_y,
+        zoom,
+        camera_rotation,
+        DecorationSortingLayer::Background,
+        stats);
     HRESULT hr = d2d_context_->EndDraw();
     if (FAILED(hr))
         return hr;
 
-    RenderFrameStats stats{};
     QueryVisibleFloorsCamera(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
     const_cast<LevelScene*>(scene)->EvaluateVisibleTrackVisuals(visible_candidates_);
 
@@ -283,6 +293,8 @@ HRESULT D2DBackend::RenderFrameOffscreen(
 
     d2d_context_->BeginDraw();
     d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
+    DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
+    // Stock sorting layer Default (depth < 0) is above Floor and Planet.
     DrawStaticDecorationsCamera(
         *scene,
         playback,
@@ -290,8 +302,8 @@ HRESULT D2DBackend::RenderFrameOffscreen(
         camera_y,
         zoom,
         camera_rotation,
+        DecorationSortingLayer::Foreground,
         stats);
-    DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
     DrawForegroundFlash();
     hr = d2d_context_->EndDraw();
     if (FAILED(hr))

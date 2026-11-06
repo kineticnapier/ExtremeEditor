@@ -1099,6 +1099,7 @@ internal static class Program
             VideoExportFoundationRegression.Run();
             ChartFrameRendererRegression.Run();
             HeadlessDecorationPlaybackRegression.Run();
+            DecorationTileLayerOrderRegression.Run();
             Console.WriteLine("PASS: headless chart frame renderer regression suite.");
             VideoExportRgb24BufferRegression.Run();
             VideoExportFramePipelineRegression.Run();

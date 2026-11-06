@@ -140,6 +140,20 @@ HRESULT D2DBackend::RenderFrame(
         ++stats.draw_calls;
     }
     DrawBackgroundFlash();
+    // Stock sorting layer Bg (depth >= 0) is drawn before Floor, so background
+    // decorations and their blend sources see only the background.
+    if (scene != nullptr)
+    {
+        DrawStaticDecorationsCamera(
+            *scene,
+            playback,
+            camera_x,
+            camera_y,
+            zoom,
+            camera_rotation,
+            DecorationSortingLayer::Background,
+            stats);
+    }
     const auto setup_finished = std::chrono::steady_clock::now();
     stats.draw_setup_ms = std::chrono::duration<double, std::milli>(
         setup_finished - setup_started).count();
@@ -242,6 +256,11 @@ HRESULT D2DBackend::RenderFrame(
             selected_floor,
             stats);
 
+        DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
+        if (playback.active)
+            stats.draw_calls += 4u;
+
+        // Stock sorting layer Default (depth < 0) is above Floor and Planet.
         DrawStaticDecorationsCamera(
             *scene,
             playback,
@@ -249,18 +268,16 @@ HRESULT D2DBackend::RenderFrame(
             camera_y,
             zoom,
             camera_rotation,
+            DecorationSortingLayer::Foreground,
             stats);
 
+        // Editor-only aids stay above chart content.
         if (!playback.active)
         {
             if (show_floor_numbers_)
                 DrawFloorNumbers(*scene, camera_x, camera_y, zoom, camera_rotation, stats);
             DrawEditorHud(*scene, camera_x, camera_y, zoom, selected_floor, stats);
         }
-
-        DrawPlaybackPlanetsCamera(playback, camera_x, camera_y, zoom, camera_rotation);
-        if (playback.active)
-            stats.draw_calls += 4u;
     }
     else
     {

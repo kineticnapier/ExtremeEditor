@@ -9,6 +9,7 @@
 #include "scene_local_cache.h"
 #include "screen_bloom.h"
 #include "screen_filter.h"
+#include "static_decoration_transform.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
@@ -79,6 +80,9 @@ struct RenderFrameStats
     std::uint32_t floor_draws = 0;
     std::uint32_t icon_draws = 0;
     std::uint32_t draw_calls = 0;
+    std::uint32_t background_decoration_draws = 0;
+    std::uint32_t foreground_decoration_draws = 0;
+    double decoration_ms = 0.0;
 };
 
 RenderFrameStats GetLatestRenderFrameStats() noexcept;
@@ -236,6 +240,7 @@ private:
         float camera_y,
         float zoom,
         float camera_rotation,
+        DecorationSortingLayer layer,
         RenderFrameStats& stats) noexcept;
     void DrawFloorNumbers(
         const LevelScene& scene,
