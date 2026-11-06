@@ -135,7 +135,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         // Deliberately do not clamp this bus. Overlapping hit sounds must remain
         // linear until the song and hit-sound buses reach the single master limiter.
         CopyRenderedPcm(buffer, offset, _positionFrames, frameCount);
-        _positionFrames += frameCount;
+        // A read can straddle the final representable sample frame. Keep the
+        // playback cursor nonnegative rather than wrapping past long.MaxValue.
+        _positionFrames = _positionFrames > long.MaxValue - frameCount
+            ? long.MaxValue
+            : _positionFrames + frameCount;
         return sampleCount;
     }
 
@@ -733,6 +737,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                     samplesToCopy);
             }
 
+            // The destination was cleared by Read. Samples beyond the last
+            // representable frame stay silent; never wrap the local cursor.
+            if (frame > long.MaxValue - framesToCopy)
+                break;
             frame += framesToCopy;
             destinationSample += samplesToCopy;
             framesRemaining -= framesToCopy;
