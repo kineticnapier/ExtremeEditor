@@ -281,6 +281,24 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
         checked((long)Math.Round(audioSeconds * sampleRate, MidpointRounding.AwayFromZero));
 
+    // An invalid chart time or extreme hit-sound offset must not abort
+    // the entire audio graph. Only schedule representable sample positions.
+    private static bool TryAudioTimeToSampleFrame(
+        double audioSeconds, int sampleRate, out long frame)
+    {
+        frame = 0;
+        double rounded = Math.Round(
+            audioSeconds * sampleRate, MidpointRounding.AwayFromZero);
+        // long.MaxValue rounds to 2^63 as a double; that bound is exclusive.
+        if (!double.IsFinite(rounded) ||
+            rounded < -9223372036854775808d ||
+            rounded >= 9223372036854775808d)
+            return false;
+
+        frame = (long)rounded;
+        return true;
+    }
+
     private static ScheduleBuildResult BuildSchedule(
         int sampleRate,
         LevelDocument level,
@@ -326,8 +344,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             double floorAudio = PlaybackClock.ChartToAudioTime(level, timing.EntryTime);
             double startAudio = floorAudio - currentClip.OffsetSeconds;
-            long startFrame = AudioTimeToSampleFrame(startAudio, sampleRate);
-            long endFrame = startFrame + currentClip.FrameCount;
+            if (!TryAudioTimeToSampleFrame(startAudio, sampleRate, out long startFrame))
+                continue;
+            long endFrame = startFrame > long.MaxValue - currentClip.FrameCount
+                ? long.MaxValue : startFrame + currentClip.FrameCount;
             if (endFrame <= 0 || startFrame >= totalFrames)
                 continue;
 
@@ -378,10 +398,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             }
 
             double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
-            long startFrame = AudioTimeToSampleFrame(
-                audioTime - clip.OffsetSeconds,
-                sampleRate);
-            long endFrame = startFrame + clip.FrameCount;
+            if (!TryAudioTimeToSampleFrame(
+                    audioTime - clip.OffsetSeconds, sampleRate, out long startFrame))
+                continue;
+            long endFrame = startFrame > long.MaxValue - clip.FrameCount
+                ? long.MaxValue : startFrame + clip.FrameCount;
             if (endFrame <= 0 || startFrame >= totalFrames)
                 continue;
 

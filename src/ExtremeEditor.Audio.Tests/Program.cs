@@ -25,6 +25,7 @@ RunClockChecks();
 RunSongPitchRateChecks();
 RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
+RunInvalidHitSoundTimestampChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
 RunSparsePrerenderCacheChecks();
@@ -849,6 +850,56 @@ static void RunHitSoundScheduleHotSwapRegression()
     {
         throw new InvalidOperationException(
             "#65: hitsound refresh still rebuilds or reinitializes the WaveOut device.");
+    }
+}
+
+static void RunInvalidHitSoundTimestampChecks()
+{
+    // Finite offsets in the asset manifest can still be too large to map to
+    // sample frames. Skip invalid landings and PlaySound events individually.
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    LevelDocument level = CreateLevel(3, new Dictionary<int, LevelAction[]>
+    {
+        [2] =
+        [
+            new LevelAction(2, "SetHitsound", true, null, null, null, null)
+            {
+                HitSound = "Good"
+            },
+            new LevelAction(2, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Bad"
+            }
+        ]
+    }, defaultHitSound: "Bad");
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 0.001),
+        Floor(2, 0.002)
+    ]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+
+    foreach (double invalidOffset in new[]
+    {
+        double.NaN, double.PositiveInfinity, double.NegativeInfinity,
+        double.MaxValue, -double.MaxValue
+    })
+    {
+        var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Bad"] = new RenderedHitSound([0.5f, 0.5f], invalidOffset),
+            ["Good"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
+        };
+        var provider = new SampleAccurateHitSoundProvider(
+            format, level, timing, timeline, clips, 16);
+        Equal(1, provider.Metrics.ScheduledHitCount,
+            "invalid landing and PlaySound offsets do not suppress valid hits");
+        var pcm = new float[8];
+        Equal(8, provider.Read(pcm, 0, pcm.Length),
+            "invalid offset still permits PCM reads");
+        Near(0.0, pcm[2], "invalid offset landing is silent");
+        Near(0.25, pcm[4], "valid landing after invalid offset remains audible");
     }
 }
 
