@@ -171,6 +171,16 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (length <= 0)
             return;
 
+        // Each audible chunk occupies a full stereo PCM buffer. Priming more
+        // than the cache can hold would evict the beginning of the requested
+        // range, forcing the first playback callback to render it again.
+        const long fullChunkBytes = ChunkFrames * 2L * sizeof(float);
+        long maxPrimeChunks;
+        lock (_cacheLock)
+            maxPrimeChunks = _cacheBudgetBytes / fullChunkBytes;
+        if (maxPrimeChunks == 0)
+            return;
+
         long firstChunk = start / ChunkFrames;
         long lastChunk = (start + length - 1) / ChunkFrames;
 
@@ -178,6 +188,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         // very long silent ranges, and caching empty sentinels for all of them
         // wastes both startup time and dictionary/LRU entries.
         long nextChunk = firstChunk;
+        long primedChunks = 0;
         int firstHitIndex = FirstPotentiallyOverlappingHitIndex(firstChunk * ChunkFrames);
         for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
         {
@@ -195,7 +206,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
             for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+            {
+                if (primedChunks >= maxPrimeChunks)
+                    return;
                 _ = EnsureChunk(chunkIndex);
+                primedChunks++;
+            }
 
             nextChunk = hitLastChunk + 1;
             if (nextChunk > lastChunk)
