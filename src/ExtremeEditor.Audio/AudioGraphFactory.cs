@@ -268,6 +268,9 @@ internal static class AudioGraphFactory
         private readonly int _channels;
         private readonly float _extraWeight;
         private float[] _sourceBuffer = [];
+        // A decoder may return fewer than one complete interleaved frame.
+        // Carry those samples into the next read rather than dropping them.
+        private int _pendingSamples;
 
         internal MultichannelFoldDownSampleProvider(ISampleProvider source)
         {
@@ -284,26 +287,47 @@ internal static class AudioGraphFactory
         public int Read(float[] buffer, int offset, int count)
         {
             int requestedFrames = count / 2;
-            int sourceSamples = requestedFrames * _channels;
+            if (requestedFrames == 0)
+                return 0;
+
+            int sourceSamples = checked(requestedFrames * _channels);
             if (_sourceBuffer.Length < sourceSamples)
                 _sourceBuffer = new float[sourceSamples];
 
-            int read = _source.Read(_sourceBuffer, 0, sourceSamples);
-            int framesRead = read / _channels;
-            for (int frame = 0; frame < framesRead; frame++)
+            while (true)
             {
-                int sourceOffset = frame * _channels;
-                int destination = offset + frame * 2;
-                float extra = 0f;
-                for (int channel = 2; channel < _channels; channel++)
-                    extra += _sourceBuffer[sourceOffset + channel];
+                // Read only the missing samples; the front of the buffer may
+                // contain an incomplete interleaved frame from the last call.
+                int read = _source.Read(
+                    _sourceBuffer, _pendingSamples, sourceSamples - _pendingSamples);
+                if (read <= 0)
+                    return 0;
 
-                float shared = extra * _extraWeight;
-                buffer[destination] = _sourceBuffer[sourceOffset] + shared;
-                buffer[destination + 1] = _sourceBuffer[sourceOffset + 1] + shared;
+                int available = _pendingSamples + read;
+                int framesRead = available / _channels;
+                int trailingSamples = available - framesRead * _channels;
+                for (int frame = 0; frame < framesRead; frame++)
+                {
+                    int sourceOffset = frame * _channels;
+                    int destination = offset + frame * 2;
+                    float extra = 0f;
+                    for (int channel = 2; channel < _channels; channel++)
+                        extra += _sourceBuffer[sourceOffset + channel];
+
+                    float shared = extra * _extraWeight;
+                    buffer[destination] = _sourceBuffer[sourceOffset] + shared;
+                    buffer[destination + 1] = _sourceBuffer[sourceOffset + 1] + shared;
+                }
+
+                if (trailingSamples > 0)
+                    Array.Copy(_sourceBuffer, framesRead * _channels,
+                        _sourceBuffer, 0, trailingSamples);
+                _pendingSamples = trailingSamples;
+                if (framesRead > 0)
+                    return framesRead * 2;
+                // A short read split a frame. Request the rest, without
+                // returning a false end-of-stream to the audio graph.
             }
-
-            return framesRead * 2;
         }
     }
 }
