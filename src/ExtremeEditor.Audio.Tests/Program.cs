@@ -439,6 +439,29 @@ static void RunSparsePrimeRangeChecks()
         "priming an entirely silent gap does no rendering");
     Equal(0, silentGap.Metrics.RenderedChunkCount,
         "silent-gap priming does not cache empty chunks");
+
+    // When the requested prime range exceeds the RAM budget, keep the earliest
+    // audible chunk instead of evicting it to prime later chunks. The first
+    // playback callback must not pay to render the same chunk again.
+    const long oneChunkBudget = 4096L * 2 * sizeof(float);
+    var budgetLimited = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    budgetLimited.SetCacheBudgetBytes(oneChunkBudget);
+    budgetLimited.PrimeRange(0, totalFrames);
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "budgeted priming renders only the first audible chunk");
+    Equal(1, budgetLimited.Metrics.RenderedChunkCount,
+        "budgeted priming retains the first audible chunk");
+    Equal(oneChunkBudget, budgetLimited.CachedPcmBytes,
+        "budgeted priming stays within the PCM cache limit");
+    budgetLimited.Seek(4095);
+    var firstHit = new float[2];
+    Equal(2, budgetLimited.Read(firstHit, 0, firstHit.Length),
+        "budgeted priming first-hit read");
+    Near(0.5, firstHit[0], "budgeted priming first-hit left");
+    Near(0.5, firstHit[1], "budgeted priming first-hit right");
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "first playback callback reuses the primed chunk");
 }
 
 static void RunSparseForegroundSilenceCacheChecks()
