@@ -15,6 +15,8 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
     private readonly float[] _sourceBuffer;
     private readonly float[] _firstFrame;
     private readonly float[] _secondFrame;
+    private readonly float[] _pendingOutputFrame;
+    private int _pendingOutputOffset;
     private int _sourceBufferOffset;
     private int _sourceBufferCount;
     private double _phase;
@@ -30,6 +32,8 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
         _sourceBuffer = new float[SourceBufferFrames * _channels];
         _firstFrame = new float[_channels];
         _secondFrame = new float[_channels];
+        _pendingOutputFrame = new float[_channels];
+        _pendingOutputOffset = _channels;
         PlaybackSpeed = playbackSpeed;
     }
 
@@ -46,38 +50,71 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
-        int requestedFrames = count / _channels;
-        if (requestedFrames <= 0 || !EnsureFrames())
+        if (count <= 0)
             return 0;
 
+        int written = 0;
+        if (_pendingOutputOffset < _channels)
+        {
+            // An earlier odd-sized read may have returned only part of a frame.
+            int pendingCount = Math.Min(count, _channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pendingCount);
+            _pendingOutputOffset += pendingCount;
+            written += pendingCount;
+            if (_pendingOutputOffset < _channels || written == count)
+                return written;
+        }
+
+        if (!EnsureFrames())
+            return written;
+
+        // Preserve the fast path for normal frame-aligned device reads.
+        int requestedFrames = (count - written) / _channels;
         int writtenFrames = 0;
         while (writtenFrames < requestedFrames && _hasFirstFrame)
         {
-            int destination = offset + writtenFrames * _channels;
-            float mix = (float)_phase;
-            for (int channel = 0; channel < _channels; channel++)
-            {
-                float first = _firstFrame[channel];
-                float second = _hasSecondFrame ? _secondFrame[channel] : first;
-                buffer[destination + channel] = first + (second - first) * mix;
-            }
-
+            WriteInterpolatedFrame(buffer, offset + written + writtenFrames * _channels);
             writtenFrames++;
-            _phase += _playbackSpeed;
-            while (_phase >= 1.0 && _hasFirstFrame)
-            {
-                AdvanceSourceFrame();
-                _phase -= 1.0;
-            }
+        }
+        written += writtenFrames * _channels;
+
+        if (written < count && _hasFirstFrame)
+        {
+            // Compute the final frame once and keep the undelivered channels
+            // for the next call. Returning zero for count < Channels is not EOF.
+            WriteInterpolatedFrame(_pendingOutputFrame, 0);
+            int partialCount = count - written;
+            Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partialCount);
+            _pendingOutputOffset = partialCount;
+            written += partialCount;
         }
 
-        return writtenFrames * _channels;
+        return written;
+    }
+
+    private void WriteInterpolatedFrame(float[] buffer, int offset)
+    {
+        float mix = (float)_phase;
+        for (int channel = 0; channel < _channels; channel++)
+        {
+            float first = _firstFrame[channel];
+            float second = _hasSecondFrame ? _secondFrame[channel] : first;
+            buffer[offset + channel] = first + (second - first) * mix;
+        }
+
+        _phase += _playbackSpeed;
+        while (_phase >= 1.0 && _hasFirstFrame)
+        {
+            AdvanceSourceFrame();
+            _phase -= 1.0;
+        }
     }
 
     public void Reset()
     {
         _sourceBufferOffset = 0;
         _sourceBufferCount = 0;
+        _pendingOutputOffset = _channels;
         _phase = 0.0;
         _hasFirstFrame = false;
         _hasSecondFrame = false;
