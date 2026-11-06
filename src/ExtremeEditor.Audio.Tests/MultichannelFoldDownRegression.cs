@@ -152,6 +152,38 @@ internal static class MultichannelFoldDownRegression
         if (truncated.Read(new float[2], 0, 2) != 0)
             throw new InvalidOperationException("Incomplete final frame was emitted.");
 
+        // The song-rate provider must also preserve stereo frames split
+        // across decoder reads. A one-sample read is not an EOF.
+        foreach (int chunkSize in new[] { 1, 3 })
+        {
+            var shortSource = new ChunkedSamples(
+                WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+                [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f], chunkSize);
+            var rate = new VariableRateSampleProvider(shortSource, 1.0);
+            float[] rateOut = new float[8];
+            if (rate.Read(rateOut, 1, 6) != 6 ||
+                rate.Read(rateOut, 0, 2) != 0)
+                throw new InvalidOperationException(
+                    $"Song-rate provider lost a split stereo frame (chunk {chunkSize}).");
+            for (int i = 0; i < 6; i++)
+                Near((i + 1) * 0.1f, rateOut[i + 1],
+                    $"song-rate split stereo sample {i}, chunk {chunkSize}");
+            if (rateOut[0] != 0f || rateOut[7] != 0f)
+                throw new InvalidOperationException("Song-rate output offset was overwritten.");
+        }
+
+        // A truncated final frame must not be emitted as a complete frame.
+        var truncatedRate = new VariableRateSampleProvider(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+            [0.1f, 0.2f, 0.3f], 1), 1.0);
+        float[] truncatedRateOut = new float[4];
+        if (truncatedRate.Read(truncatedRateOut, 0, 4) != 2 ||
+            truncatedRate.Read(truncatedRateOut, 0, 2) != 0)
+            throw new InvalidOperationException(
+                "Song-rate provider emitted an incomplete final stereo frame.");
+        Near(0.1f, truncatedRateOut[0], "truncated song-rate left");
+        Near(0.2f, truncatedRateOut[1], "truncated song-rate right");
+
         // Existing mono duplication must remain intact.
         var mono = AudioGraphFactory.NormalizeSong(new FixedSamples(
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1), [0.4f]));

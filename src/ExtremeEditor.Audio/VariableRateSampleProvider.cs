@@ -109,10 +109,22 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
     {
         if (_sourceBufferCount - _sourceBufferOffset < _channels)
         {
-            _sourceBufferCount = _source.Read(_sourceBuffer, 0, _sourceBuffer.Length);
+            // A decoder may split an interleaved frame across short reads.
+            // Keep its remaining samples when refilling the buffer, instead
+            // of treating the short read as EOF or shifting the channels.
+            int pending = _sourceBufferCount - _sourceBufferOffset;
+            if (pending > 0)
+                Array.Copy(_sourceBuffer, _sourceBufferOffset, _sourceBuffer, 0, pending);
             _sourceBufferOffset = 0;
-            if (_sourceBufferCount < _channels)
-                return false;
+            _sourceBufferCount = pending;
+            while (_sourceBufferCount < _channels)
+            {
+                int read = _source.Read(
+                    _sourceBuffer, _sourceBufferCount, _sourceBuffer.Length - _sourceBufferCount);
+                if (read <= 0)
+                    return false; // Ignore an incomplete final frame.
+                _sourceBufferCount += read;
+            }
         }
 
         Array.Copy(_sourceBuffer, _sourceBufferOffset, destination, 0, _channels);
