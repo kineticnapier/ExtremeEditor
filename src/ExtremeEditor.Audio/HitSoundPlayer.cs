@@ -151,9 +151,18 @@ internal sealed class HitSoundLibrary
         if (provider.WaveFormat.SampleRate != CacheSampleRate)
             provider = new WdlResamplingSampleProvider(provider, CacheSampleRate);
 
-        return new CachedHitSound(ReadAll(provider, Math.Max(1024, reader.WaveFormat.SampleRate),
+        return new CachedHitSound(ReadAll(provider, EstimateCacheCapacity(reader.TotalTime),
                 $"cache:{Path.GetFileName(path)}", log),
             WaveFormat.CreateIeeeFloatWaveFormat(CacheSampleRate, Channels));
+    }
+
+    // Reserve for the decoded stereo PCM duration, not just one second of
+    // the source sample rate. Bound the estimate to avoid huge speculative
+    // allocations for long or malformed audio files.
+    internal static int EstimateCacheCapacity(TimeSpan duration)
+    {
+        double samples = Math.Ceiling(duration.TotalSeconds * CacheSampleRate * Channels);
+        return (int)Math.Clamp(samples, 1024.0, 4_194_304.0);
     }
 
     private static float[] ReadAll(
