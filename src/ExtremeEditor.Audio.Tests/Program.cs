@@ -879,6 +879,12 @@ static void RunInvalidHitSoundTimestampChecks()
         Floor(2, 0.002)
     ]);
     HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var validClips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Good"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
+    };
+    long validDuration = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, validClips);
 
     foreach (double invalidOffset in new[]
     {
@@ -891,6 +897,9 @@ static void RunInvalidHitSoundTimestampChecks()
             ["Bad"] = new RenderedHitSound([0.5f, 0.5f], invalidOffset),
             ["Good"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
         };
+        Equal(validDuration, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, level, timing, clips),
+            "unrepresentable offset must not extend the hit-sound-only duration");
         var provider = new SampleAccurateHitSoundProvider(
             format, level, timing, timeline, clips, 16);
         Equal(1, provider.Metrics.ScheduledHitCount,

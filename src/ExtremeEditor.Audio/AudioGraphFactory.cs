@@ -85,9 +85,14 @@ internal static class AudioGraphFactory
             foreach (RenderedHitSound clip in clips.Values)
             {
                 double clipSeconds = (double)clip.FrameCount / sampleRate;
-                tailSeconds = Math.Max(
-                    tailSeconds,
-                    Math.Max(0.0, clipSeconds - clip.OffsetSeconds));
+                double clipTailSeconds = clipSeconds - clip.OffsetSeconds;
+                double clipTailFrames = clipTailSeconds * sampleRate;
+                // Manifest offsets may be finite but too large for a sample
+                // position. Such clips are omitted by the schedule as well.
+                if (double.IsFinite(clipTailFrames) &&
+                    clipTailFrames > 0.0 &&
+                    clipTailFrames < 9223372036854775808d)
+                    tailSeconds = Math.Max(tailSeconds, clipTailSeconds);
             }
         }
 
