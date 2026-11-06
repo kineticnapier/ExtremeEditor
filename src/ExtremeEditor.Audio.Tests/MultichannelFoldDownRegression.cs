@@ -68,14 +68,19 @@ internal static class MultichannelFoldDownRegression
             [0f, 0f, 1f, 0.25f, -0.25f, 0f, 0.5f, -0.5f, 0f], 2));
         float[] oddOut = new float[6];
         int oddPosition = 0;
-        foreach (int requested in new[] { 1, 1, 3, 1 })
+        // Short reads are legal: a chunked decoder need not fill the entire
+        // requested output, but must never report EOF while frames remain.
+        foreach (int requested in new[] { 1, 1, 3, 1, 1 })
         {
             int returned = oddThree.Read(oddOut, oddPosition, requested);
-            if (returned != requested)
+            if (returned <= 0 || returned > requested)
                 throw new InvalidOperationException(
-                    $"Odd 3ch read returned {returned}, expected {requested}.");
+                    $"Odd 3ch read returned {returned} for request {requested}.");
             oddPosition += returned;
         }
+        if (oddPosition != oddOut.Length)
+            throw new InvalidOperationException(
+                $"Odd 3ch read produced {oddPosition} of {oddOut.Length} samples.");
         Near(0.70710678f, oddOut[0], "odd 3ch first left");
         Near(0.70710678f, oddOut[1], "odd 3ch first right");
         Near(0.25f, oddOut[2], "odd 3ch second left");
@@ -84,6 +89,20 @@ internal static class MultichannelFoldDownRegression
         Near(-0.5f, oddOut[5], "odd 3ch third right");
         if (oddThree.Read(oddOut, 0, 1) != 0)
             throw new InvalidOperationException("Odd 3ch source must reach EOF.");
+
+        // With a full-frame source, an odd request can fill exactly 3
+        // samples, leaving the fourth for the next call.
+        var fullOdd = AudioGraphFactory.NormalizeSong(new FixedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
+            [0f, 0f, 1f, 0.25f, -0.25f, 0f]));
+        float[] fullOddOut = new float[4];
+        if (fullOdd.Read(fullOddOut, 0, 3) != 3 ||
+            fullOdd.Read(fullOddOut, 3, 1) != 1)
+            throw new InvalidOperationException("Full-frame odd request lost a sample.");
+        Near(0.70710678f, fullOddOut[0], "full odd first left");
+        Near(0.70710678f, fullOddOut[1], "full odd first right");
+        Near(0.25f, fullOddOut[2], "full odd second left");
+        Near(-0.25f, fullOddOut[3], "full odd second right");
 
         // One odd-sized request can also end halfway through the final frame.
         var oddSix = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
