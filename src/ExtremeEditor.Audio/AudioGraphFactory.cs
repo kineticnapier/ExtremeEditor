@@ -105,7 +105,13 @@ internal static class AudioGraphFactory
         double totalSeconds = Math.Max(
             HitSoundOnlyMinimumSeconds,
             Math.Max(0.0, chartEndAudio) + tailSeconds + HitSoundOnlyEndPaddingSeconds);
-        return checked((long)Math.Ceiling(totalSeconds * sampleRate));
+        // Each input time can fit in a long sample position while their sum
+        // (including end padding) does not. Saturate the total length rather
+        // than throwing when converting the rounded double frame count.
+        double totalFrames = Math.Ceiling(totalSeconds * sampleRate);
+        return totalFrames >= 9223372036854775808d
+            ? long.MaxValue
+            : (long)totalFrames;
     }
 
     private static bool IsRepresentableAudioTime(double seconds, int sampleRate)
