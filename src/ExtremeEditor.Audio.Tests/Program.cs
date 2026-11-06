@@ -19,6 +19,7 @@ PcmWaveReaderRegression.Run();
 MutedPrerenderRegression.Run();
 MutedTransportRegression.Run();
 RunSampleIndexChecks();
+RunHitSoundRenderCapacityChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
@@ -48,6 +49,22 @@ RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
 return 0;
+
+static void RunHitSoundRenderCapacityChecks()
+{
+    // A one-second stereo hit sound at 44.1 kHz already overflows int when
+    // multiplied by the target rate before division.
+    Equal(1_024, HitSoundLibrary.EstimateRenderCapacity(0, 48_000),
+        "empty hit-sound render reserve");
+    Equal(48_000, HitSoundLibrary.EstimateRenderCapacity(44_100, 48_000),
+        "half-second stereo hit-sound render reserve");
+    Equal(96_000, HitSoundLibrary.EstimateRenderCapacity(88_200, 48_000),
+        "one-second stereo hit-sound render reserve without int overflow");
+    Equal(4_194_304, HitSoundLibrary.EstimateRenderCapacity(4_410_000, 48_000),
+        "long hit-sound initial allocation is bounded");
+    Equal(4_194_304, HitSoundLibrary.EstimateRenderCapacity(int.MaxValue, int.MaxValue),
+        "extreme hit-sound estimate is bounded without overflow");
+}
 
 static void RunDiagnosticLogChecks()
 {
