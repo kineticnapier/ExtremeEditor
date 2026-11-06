@@ -64,7 +64,10 @@ internal static class AudioGraphFactory
         double chartEndAudio = 0.0;
         if (level is not null && timingMap is not null)
         {
-            chartEndAudio = PlaybackClock.ChartToAudioTime(level, timingMap.Duration);
+            // A malformed chart duration must not poison the fallback audio length.
+            double durationAudio = PlaybackClock.ChartToAudioTime(level, timingMap.Duration);
+            if (IsRepresentableAudioTime(durationAudio, sampleRate))
+                chartEndAudio = durationAudio;
             foreach (LevelAction action in level.ActionStore.Actions)
             {
                 if (!action.Active || action.Kind != LevelActionKind.PlaySound ||
@@ -73,9 +76,12 @@ internal static class AudioGraphFactory
                     continue;
                 }
 
-                chartEndAudio = Math.Max(
-                    chartEndAudio,
-                    PlaybackClock.ChartToAudioTime(level, chartTime));
+                // ResolveActionChartTime may return a finite but enormous angle
+                // offset. The hit schedule rejects unrepresentable sample frames;
+                // the duration calculation must ignore the same event.
+                double eventAudio = PlaybackClock.ChartToAudioTime(level, chartTime);
+                if (IsRepresentableAudioTime(eventAudio, sampleRate))
+                    chartEndAudio = Math.Max(chartEndAudio, eventAudio);
             }
         }
 
@@ -100,6 +106,15 @@ internal static class AudioGraphFactory
             HitSoundOnlyMinimumSeconds,
             Math.Max(0.0, chartEndAudio) + tailSeconds + HitSoundOnlyEndPaddingSeconds);
         return checked((long)Math.Ceiling(totalSeconds * sampleRate));
+    }
+
+    private static bool IsRepresentableAudioTime(double seconds, int sampleRate)
+    {
+        double frames = seconds * sampleRate;
+        // long.MaxValue rounds to 2^63 in double, which is exclusive.
+        return double.IsFinite(frames) &&
+               frames >= -9223372036854775808d &&
+               frames < 9223372036854775808d;
     }
 
     internal static bool TryResolveActionChartTime(
