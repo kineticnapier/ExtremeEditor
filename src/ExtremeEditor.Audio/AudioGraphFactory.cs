@@ -271,6 +271,8 @@ internal static class AudioGraphFactory
         // A decoder may return fewer than one complete interleaved frame.
         // Carry those samples into the next read rather than dropping them.
         private int _pendingSamples;
+        private bool _hasPendingRightSample;
+        private float _pendingRightSample;
 
         internal MultichannelFoldDownSampleProvider(ISampleProvider source)
         {
@@ -286,22 +288,40 @@ internal static class AudioGraphFactory
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int requestedFrames = count / 2;
-            if (requestedFrames == 0)
+            if (count <= 0)
                 return 0;
 
-            int sourceSamples = checked(requestedFrames * _channels);
+            int written = 0;
+            // A caller may request an odd number of interleaved stereo samples.
+            // Return the second sample of a previously converted frame first;
+            // returning zero for a one-sample request falsely signals EOF.
+            if (_hasPendingRightSample)
+            {
+                buffer[offset + written++] = _pendingRightSample;
+                _hasPendingRightSample = false;
+                if (written == count)
+                    return written;
+            }
+
+            int remaining = count - written;
+            int requestedFrames = remaining / 2 + (remaining & 1);
+            // A legal output count can overflow when multiplied by the larger
+            // source channel count. A short read is permitted by ISampleProvider.
+            requestedFrames = Math.Min(requestedFrames, int.MaxValue / _channels);
+            int sourceSamples = requestedFrames * _channels;
             if (_sourceBuffer.Length < sourceSamples)
                 _sourceBuffer = new float[sourceSamples];
 
             while (true)
             {
-                // Read only the missing samples; the front of the buffer may
-                // contain an incomplete interleaved frame from the last call.
+                // Read only missing samples, retaining a split input frame.
                 int read = _source.Read(
                     _sourceBuffer, _pendingSamples, sourceSamples - _pendingSamples);
                 if (read <= 0)
-                    return 0;
+                {
+                    _pendingSamples = 0; // Discard an incomplete final input frame.
+                    return written;
+                }
 
                 int available = _pendingSamples + read;
                 int framesRead = available / _channels;
@@ -309,14 +329,20 @@ internal static class AudioGraphFactory
                 for (int frame = 0; frame < framesRead; frame++)
                 {
                     int sourceOffset = frame * _channels;
-                    int destination = offset + frame * 2;
                     float extra = 0f;
                     for (int channel = 2; channel < _channels; channel++)
                         extra += _sourceBuffer[sourceOffset + channel];
 
                     float shared = extra * _extraWeight;
-                    buffer[destination] = _sourceBuffer[sourceOffset] + shared;
-                    buffer[destination + 1] = _sourceBuffer[sourceOffset + 1] + shared;
+                    buffer[offset + written++] = _sourceBuffer[sourceOffset] + shared;
+                    float right = _sourceBuffer[sourceOffset + 1] + shared;
+                    if (written < count)
+                        buffer[offset + written++] = right;
+                    else
+                    {
+                        _pendingRightSample = right;
+                        _hasPendingRightSample = true;
+                    }
                 }
 
                 if (trailingSamples > 0)
@@ -324,9 +350,8 @@ internal static class AudioGraphFactory
                         _sourceBuffer, 0, trailingSamples);
                 _pendingSamples = trailingSamples;
                 if (framesRead > 0)
-                    return framesRead * 2;
-                // A short read split a frame. Request the rest, without
-                // returning a false end-of-stream to the audio graph.
+                    return written;
+                // A short decoder read split a frame. Continue until complete.
             }
         }
     }
