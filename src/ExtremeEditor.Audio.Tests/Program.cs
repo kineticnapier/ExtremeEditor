@@ -27,6 +27,7 @@ RunNonFiniteSongVolumeChecks();
 RunNonFiniteHitSoundVolumeChecks();
 RunInvalidHitSoundTimestampChecks();
 RunUnrepresentablePlaySoundDurationChecks();
+RunHitSoundDurationOverflowChecks();
 RunNearLongMaxHitSoundChecks();
 RunMutedHitScheduleChecks();
 RunEmptyHitScheduleCacheChecks();
@@ -945,6 +946,33 @@ static void RunUnrepresentablePlaySoundDurationChecks()
         clips, expectedFrames);
     Equal(1, provider.Metrics.ScheduledHitCount,
         "unrepresentable PlaySound is skipped while ordinary landing remains");
+}
+
+static void RunHitSoundDurationOverflowChecks()
+{
+    // Both times are individually representable (2^62 sample frames).
+    // Their sum is 2^63 frames, beyond the exclusive long upper bound.
+    const int sampleRate = 1_024;
+    const double largeSeconds = 4_503_599_627_370_496d; // 2^52
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, largeSeconds)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], -largeSeconds)
+    };
+
+    Equal(1L << 62, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, null),
+        "large but representable chart duration remains unchanged");
+    Equal(1L << 62, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, null, null, clips),
+        "large but representable clip tail remains unchanged");
+    Equal(long.MaxValue, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, clips),
+        "combined chart and clip durations saturate instead of overflowing");
 }
 
 static void RunNearLongMaxHitSoundChecks()
