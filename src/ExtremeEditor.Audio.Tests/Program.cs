@@ -653,6 +653,19 @@ static void RunSongPitchRateChecks()
         clips: null,
         songPitch: 2.0),
         "pitch shortens decoded-song transport duration");
+
+    Equal(512L, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: 1_024, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 2.0),
+        "ordinary pitched song frame count remains exact");
+    Equal(long.MaxValue, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: long.MaxValue, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 1.0),
+        "long max decoded song length does not overflow on double rounding");
+    Equal(long.MaxValue, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: long.MaxValue, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 0.5),
+        "low pitch saturates decoded song duration rather than throwing");
 }
 
 static void RunProviderChecks()
