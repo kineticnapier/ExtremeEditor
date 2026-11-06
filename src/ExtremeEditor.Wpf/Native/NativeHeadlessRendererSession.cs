@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
@@ -6,13 +7,26 @@ namespace ExtremeEditor.Wpf.Native;
 
 internal readonly record struct NativeRgbFrame(int Width, int Height, byte[] Rgb);
 
+internal readonly record struct NativeDecorationFrameMetrics(
+    TimeSpan Evaluation,
+    TimeSpan Upload,
+    int AnimatedCount,
+    bool Uploaded);
+
 internal sealed class NativeHeadlessRendererSession : IDisposable
 {
     internal const int DefaultWidth = 320;
     internal const int DefaultHeight = 180;
     private const uint ExpectedBaseApiVersion = NativeRendererSession.ExpectedApiVersion;
+    private static readonly bool DecorationFrameMetricsEnabled = string.Equals(
+        Environment.GetEnvironmentVariable("EXTREMEEDITOR_DECORATION_FRAME_METRICS"),
+        "1",
+        StringComparison.Ordinal);
 
     private nint _renderer;
+    private NativeStaticDecoration[] _staticDecorations = [];
+    private NativeDecorationPlaybackRuntime? _decorationPlayback;
+    private NativeDecorationFrameMetrics _lastDecorationFrameMetrics;
 
     private NativeHeadlessRendererSession(nint renderer, int width, int height)
     {
@@ -23,6 +37,8 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal int Width { get; }
     internal int Height { get; }
+    internal NativeStaticDecoration[] StaticDecorations => _staticDecorations;
+    internal NativeDecorationFrameMetrics LastDecorationFrameMetrics => _lastDecorationFrameMetrics;
 
     internal static NativeHeadlessRendererSession Create(
         LevelDocument level,
@@ -134,6 +150,7 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                 $"RGB buffer length must be exactly {requiredLength} bytes.",
                 nameof(rgb));
         }
+        UpdateDecorationPlayback(sceneTimeSeconds);
         GCHandle handle = default;
         try
         {
@@ -203,6 +220,8 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         }
 
         UploadArray(snapshot.StaticDecorations, NativeRendererNative.SetStaticDecorations, "static-decoration");
+        _staticDecorations = snapshot.StaticDecorations;
+        _decorationPlayback = snapshot.DecorationPlayback;
 
         NativeRendererNative.ClearDecorationAssets(_renderer);
         foreach (NativeDecorationAsset asset in snapshot.DecorationAssets)
@@ -250,6 +269,49 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         UploadArray(prepared.TrackTransformTimeline, NativeRendererNative.SetTrackTransformTimeline, "track-transform");
         UploadArray(prepared.TrackVisualTimeline, NativeRendererNative.SetTrackVisualTimeline, "track-visual");
         UploadTrackAnimation(prepared.TrackAnimationTimeline, prepared.TrackAnimationTimings);
+    }
+
+    private void UpdateDecorationPlayback(double chartTime)
+    {
+        if (_decorationPlayback is not NativeDecorationPlaybackRuntime playback)
+        {
+            _lastDecorationFrameMetrics = default;
+            return;
+        }
+
+        bool measure = DecorationFrameMetricsEnabled;
+        long evaluationStart = measure ? Stopwatch.GetTimestamp() : 0L;
+        bool updated = playback.Update(chartTime);
+        TimeSpan evaluation = measure
+            ? Stopwatch.GetElapsedTime(evaluationStart)
+            : TimeSpan.Zero;
+        if (!updated)
+        {
+            _lastDecorationFrameMetrics = new NativeDecorationFrameMetrics(
+                evaluation, TimeSpan.Zero, playback.AnimatedCount, Uploaded: false);
+            return;
+        }
+
+        try
+        {
+            long uploadStart = measure ? Stopwatch.GetTimestamp() : 0L;
+            UploadArray(
+                _staticDecorations,
+                NativeRendererNative.SetStaticDecorations,
+                "static-decoration playback");
+            _lastDecorationFrameMetrics = new NativeDecorationFrameMetrics(
+                evaluation,
+                measure ? Stopwatch.GetElapsedTime(uploadStart) : TimeSpan.Zero,
+                playback.AnimatedCount,
+                Uploaded: true);
+        }
+        catch
+        {
+            // Match the live viewport: a failed upload must be retried when a
+            // paused/exported frame requests the same chart time again.
+            playback.InvalidateLastTime();
+            throw;
+        }
     }
 
     private delegate int NativeArraySetter(nint renderer, nint pointer, uint count);
@@ -321,6 +383,9 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         if (renderer == nint.Zero)
             return;
         _renderer = nint.Zero;
+        _decorationPlayback = null;
+        _staticDecorations = [];
+        _lastDecorationFrameMetrics = default;
         NativeRendererNative.Destroy(renderer);
         GC.SuppressFinalize(this);
     }

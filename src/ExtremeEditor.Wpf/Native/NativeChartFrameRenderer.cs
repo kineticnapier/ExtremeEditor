@@ -35,6 +35,10 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedCha
     public int Width => _width;
     public int Height => _height;
     public bool IsLoaded => _session is not null;
+    internal NativeStaticDecoration[] StaticDecorations =>
+        _session?.StaticDecorations ?? [];
+    internal NativeDecorationFrameMetrics LastDecorationFrameMetrics =>
+        _session?.LastDecorationFrameMetrics ?? default;
 
     public void Load(string adofaiPath)
     {
