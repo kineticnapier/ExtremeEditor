@@ -10,6 +10,9 @@ namespace ExtremeEditor.Wpf.Tests;
 // its targets along the DOTween curve from the value it started at.
 internal static class PhantigmaMoveDecorationsEaseRegression
 {
+    // The end state is sampled just after the tween ends.
+    private const double EndSampleOffset = 1e-6;
+
     private static readonly HashSet<string> FormerlySkippedEases = new(StringComparer.Ordinal)
     {
         "OutCirc", "InCirc", "InOutCirc", "OutElastic", "OutBack", "OutExpo"
@@ -52,10 +55,11 @@ internal static class PhantigmaMoveDecorationsEaseRegression
                 .ToArray();
             if (targets.Length == 0)
                 continue;
-            // Other events that start while this one runs, on the same targets.
+            // Other events that start while this one runs, up to the end
+            // sample, on the same targets.
             VfxOccurrence[] concurrent = moves.Where(other =>
                     !ReferenceEquals(other, move) &&
-                    other.StartTime >= start - 1e-9 && other.StartTime <= end + 1e-9 &&
+                    other.StartTime >= start - 1e-9 && other.StartTime <= end + EndSampleOffset &&
                     targets.Any(d => MoveDecorationsTargeting.Targets(d, other)))
                 .ToArray();
 
@@ -67,7 +71,7 @@ internal static class PhantigmaMoveDecorationsEaseRegression
             {
                 DecorationState atStart = DecorationState.Evaluate(decoration, timeline, start);
                 DecorationState atMid = DecorationState.Evaluate(decoration, timeline, mid);
-                DecorationState atEnd = DecorationState.Evaluate(decoration, timeline, end + 1e-6);
+                DecorationState atEnd = DecorationState.Evaluate(decoration, timeline, end + EndSampleOffset);
                 foreach ((string name, double? target, Func<DecorationState, double> read) in Targets(properties))
                 {
                     if (target is not double goal)

@@ -357,6 +357,16 @@ public static class VfxTimelineBuilder
             return 0;
 
         FloorTiming floorTiming = timing.Floors[floor];
+        // Stock starts and orders effects on ffxPlusBase.SetStartTime's clock.
+        // Its rounding decides which of two nearly simultaneous events runs
+        // first, so use it whenever the timing builder provided it.
+        if (floorTiming.StockEntryTime is double stockEntryTime &&
+            floorTiming.StockBpm is double stockBpm &&
+            stockBpm > 0)
+        {
+            return stockEntryTime + StockVfxClock.AngleOffsetSeconds(degreeOffset, stockBpm);
+        }
+
         double effectiveBpm = floorTiming.Bpm > 0 ? floorTiming.Bpm : 100.0;
         return floorTiming.EntryTime + degreeOffset / 180.0 * (60.0 / effectiveBpm);
     }

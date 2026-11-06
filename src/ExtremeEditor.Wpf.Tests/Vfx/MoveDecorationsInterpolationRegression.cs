@@ -59,7 +59,7 @@ internal static class MoveDecorationsInterpolationRegression
         VfxOccurrence occurrence = FindOccurrence(timeline, 1, repeated: false);
         TimingMap timing = TimingMapBuilder.Build(level);
         FloorTiming floor = timing.Floors[occurrence.Floor];
-        double expectedStart = floor.EntryTime + 60.0 / floor.Bpm;
+        double expectedStart = StockVfxStartTimeExpectation.For(floor, 180);
         AssertNear(expectedStart, occurrence.StartTime,
             "MoveDecorations fixture did not resolve the expected #15 StartTime.");
 

@@ -35,6 +35,7 @@ public static class FlatTimingMapBuilder
         bool isCcw = false;
         bool threePlanets = false;
         double time = 0.0;
+        var stockClock = new StockVfxClock.Accumulator(level.Angles, floorCount, level.InitialBpm);
 
         LevelActionStore store = level.ActionStore;
         int actionFloorIndex = 0;
@@ -73,9 +74,11 @@ public static class FlatTimingMapBuilder
                             {
                                 bpm = target;
                             }
+                            stockClock.ApplySetSpeed(action);
                             break;
                         case LevelActionKind.Pause when action.Duration is double durationBeats && durationBeats > 0:
                             pauseBeats += durationBeats;
+                            stockClock.AddPause(durationBeats);
                             break;
                     }
                 }
@@ -130,8 +133,11 @@ public static class FlatTimingMapBuilder
                 isCcw,
                 midSpin)
             {
-                PauseSeconds = pauseSeconds
+                PauseSeconds = pauseSeconds,
+                StockEntryTime = stockClock.EntryTime,
+                StockBpm = stockClock.Bpm
             };
+            stockClock.Advance(floor, isCcw, midSpin, threePlanets, previousMidSpin, level.CountdownTicks);
             time = exitTime;
         }
 

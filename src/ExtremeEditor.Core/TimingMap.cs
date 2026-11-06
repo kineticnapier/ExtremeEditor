@@ -14,6 +14,15 @@ public readonly record struct FloorTiming(
     bool MidSpin)
 {
     public double PauseSeconds { get; init; }
+
+    /// <summary>
+    /// Entry time with stock ADOFAI's rounding (<see cref="StockVfxClock"/>);
+    /// VFX events start on this clock. Null for hand-built timings.
+    /// </summary>
+    public double? StockEntryTime { get; init; }
+
+    /// <summary>Stock bpm * floor speed used by ffxPlusBase.SetStartTime.</summary>
+    public double? StockBpm { get; init; }
 }
 
 public readonly record struct PlaybackPose(
@@ -219,6 +228,7 @@ public static class TimingMapBuilder
         bool isCcw = false;
         bool threePlanets = false;
         double time = 0.0;
+        var stockClock = new StockVfxClock.Accumulator(level.Angles, floorCount, level.InitialBpm);
 
         IReadOnlyList<int> actionFloors = level.ActionFloors;
         int actionFloorIndex = 0;
@@ -265,10 +275,12 @@ public static class TimingMapBuilder
                             {
                                 bpm = target;
                             }
+                            stockClock.ApplySetSpeed(action);
                             break;
 
                         case LevelActionKind.Pause when action.Duration is double durationBeats && durationBeats > 0:
                             pauseBeats += durationBeats;
+                            stockClock.AddPause(durationBeats);
                             break;
                     }
                 }
@@ -334,8 +346,11 @@ public static class TimingMapBuilder
                 isCcw,
                 midSpin)
             {
-                PauseSeconds = pauseSeconds
+                PauseSeconds = pauseSeconds,
+                StockEntryTime = stockClock.EntryTime,
+                StockBpm = stockClock.Bpm
             };
+            stockClock.Advance(floor, isCcw, midSpin, threePlanets, previousMidSpin, level.CountdownTicks);
             time = exitTime;
         }
 

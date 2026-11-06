@@ -48,6 +48,7 @@ internal static class PhantigmaIssue15DecorationRegression
         VfxTimeline timeline = VfxTimelineBuilder.Build(level);
         VerifyTimingParity(level);
         VerifyNamedRgba(level, timeline);
+        VerifyLostFade(level, timeline);
         LevelDecoration square = level.Decorations.Single(decoration =>
             string.Equals(decoration.Properties["decorationImage"]?.ToString(), "square.png", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(decoration.Properties["tag"]?.ToString(), "60", StringComparison.Ordinal));
@@ -305,14 +306,58 @@ internal static class PhantigmaIssue15DecorationRegression
         for (int index = 0; index < regular.Floors.Count; index++)
         {
             if (Math.Abs(regular.Floors[index].EntryTime - flat.Floors[index].EntryTime) > 1e-9 ||
-                Math.Abs(regular.Floors[index].ExitTime - flat.Floors[index].ExitTime) > 1e-9)
+                Math.Abs(regular.Floors[index].ExitTime - flat.Floors[index].ExitTime) > 1e-9 ||
+                regular.Floors[index].StockEntryTime != flat.Floors[index].StockEntryTime ||
+                regular.Floors[index].StockBpm != flat.Floors[index].StockBpm)
             {
                 throw new InvalidOperationException(
                     $"Phantigma TimingMapBuilder/FlatTimingMapBuilder differ at floor {index}.");
             }
         }
+        double stockDrift = regular.Floors.Max(floor =>
+            Math.Abs((floor.StockEntryTime ?? double.NaN) - floor.EntryTime));
         Console.WriteLine(
-            $"Phantigma timing maps: {regular.Floors.Count:N0} floors matched numerically.");
+            $"Phantigma timing maps: {regular.Floors.Count:N0} floors matched numerically; " +
+            $"stock VFX clock drift max={stockDrift:E3}s.");
+    }
+
+    // lost.png (tag 18): floor 53 blinks opacity at angleOffset 0/90/180/270/360
+    // and floor 55 fades it to 0 over 14 beats. On stock's clock (measured on
+    // ADOFAI's Mono with -O=-float32) the 360 degree event starts 5.08 ns
+    // before the fade, so the fade wins and LOST disappears by 9.143 s.
+    private static void VerifyLostFade(LevelDocument level, VfxTimeline timeline)
+    {
+        LevelDecoration lost = level.Decorations.Single(decoration =>
+            ImageName(decoration).Equals("lost.png", StringComparison.OrdinalIgnoreCase));
+        VfxOccurrence[] moves = timeline.Occurrences
+            .Where(item => item.EventType == "MoveDecorations" && MoveDecorationsTargeting.Targets(lost, item))
+            .ToArray();
+        VfxOccurrence at360 = moves.Single(item => item.Floor == 53 && item.AngleOffset == 360);
+        VfxOccurrence fade = moves.Single(item => item.Floor == 55);
+        if (at360.StartTime != 8.1428571435347425 || fade.StartTime != 8.1428571486167289)
+        {
+            throw new InvalidOperationException(
+                $"Phantigma LOST start times {at360.StartTime:R}/{fade.StartTime:R} differ from stock.");
+        }
+        VfxOccurrence[] all = timeline.Occurrences.ToArray();
+        if (!(Array.IndexOf(all, at360) < Array.IndexOf(all, fade)))
+            throw new InvalidOperationException("Phantigma LOST 360 degree event did not run before the fade.");
+
+        (double Time, double Opacity, double Tolerance)[] expected =
+        [
+            (8.01, 100, 1e-9),
+            (8.2, 99.981, 0.001),
+            (9.2, 0, 1e-9),
+            (79.571, 0, 1e-9),
+            (106.5, 0, 1e-9),
+            (200.0, 0, 1e-9)
+        ];
+        foreach ((double time, double opacity, double tolerance) in expected)
+        {
+            RequireNear(DecorationState.Evaluate(lost, timeline, time).Opacity, opacity, tolerance,
+                $"Phantigma LOST opacity at {time:G}s differs from stock.");
+        }
+        Console.WriteLine("Phantigma LOST: 360 degree event before the fade; opacity 100/99.981/0/0/0/0 at 8.01/8.2/9.2/79.571/106.5/200s.");
     }
 
     private static bool Near(float left, float right) =>

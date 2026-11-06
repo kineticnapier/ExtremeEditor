@@ -441,10 +441,11 @@ internal static class VfxTimelineExpansionRegression
         VfxOccurrence occurrence = occurrences.Single(item =>
             item.SourceIndex == 1 && !item.IsRepeated);
         FloorTiming floor = timing.Floors[occurrence.Floor];
+        // Stock bpm * floor.speed must follow the level bpm and SetSpeed.
         double floorSpeed = floor.Bpm / level.InitialBpm;
-        double expected = floor.EntryTime +
-                          occurrence.AngleOffset.GetValueOrDefault() / 180.0 *
-                          (60.0 / (level.InitialBpm * floorSpeed));
+        if (Math.Abs((floor.StockBpm ?? 0) - level.InitialBpm * floorSpeed) > floor.Bpm * 1e-6)
+            throw new InvalidOperationException("Stock VFX bpm does not use the level bpm and floor.speed.");
+        double expected = StockVfxStartTimeExpectation.For(floor, occurrence.AngleOffset.GetValueOrDefault());
         AssertNear(expected, ReadStartTime(occurrence),
             "VFX startTime does not use floor.entryTime, bpm, floor.speed, and degreeOffset.");
     }

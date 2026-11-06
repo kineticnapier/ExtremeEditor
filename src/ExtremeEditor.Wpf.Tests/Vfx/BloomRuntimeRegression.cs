@@ -94,8 +94,7 @@ internal static class BloomRuntimeRegression
         VfxOccurrence first = ForSource(timeline, 0);
         FloorTiming floor = timing.Floors[first.Floor];
 
-        double expectedStart = floor.EntryTime +
-            (first.AngleOffset ?? 0) / 180.0 * (60.0 / floor.Bpm);
+        double expectedStart = StockVfxStartTimeExpectation.For(floor, first.AngleOffset ?? 0);
         AssertNear(expectedStart, first.StartTime,
             "Bloom angleOffset trigger time must not include pitch.");
 

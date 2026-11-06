@@ -114,6 +114,21 @@ internal static class FlatTimingMapParityRegression
                 Near(expected.AngleMoved, actual.AngleMoved, label, floor, "AngleMoved");
                 Near(expected.Bpm, actual.Bpm, label, floor, "Bpm");
                 Near(expected.PauseSeconds, actual.PauseSeconds, label, floor, "PauseSeconds");
+                if (expected.StockEntryTime != actual.StockEntryTime ||
+                    expected.StockBpm != actual.StockBpm)
+                {
+                    throw new InvalidOperationException(
+                        $"{label}, floor {floor}: stock VFX clock differs.");
+                }
+
+                // The stock VFX clock only reproduces stock rounding; it must
+                // never drift structurally from the playback timing.
+                if (expected.StockEntryTime is not double stockEntry ||
+                    Math.Abs(stockEntry - expected.EntryTime) > 1e-6 + Math.Abs(expected.EntryTime) * 1e-6)
+                {
+                    throw new InvalidOperationException(
+                        $"{label}, floor {floor}: stock VFX clock {expected.StockEntryTime:R} drifted from {expected.EntryTime:R}.");
+                }
 
                 double midpoint = expected.EntryTime +
                     (expected.ExitTime - expected.EntryTime) * 0.5;

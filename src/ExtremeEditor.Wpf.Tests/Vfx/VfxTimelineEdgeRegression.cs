@@ -178,7 +178,7 @@ internal static class VfxTimelineEdgeRegression
         foreach (VfxOccurrence occurrence in occurrences)
         {
             FloorTiming target = timing.Floors[occurrence.Floor];
-            double expected = target.EntryTime + 20.0 / 180.0 * (60.0 / target.Bpm);
+            double expected = StockVfxStartTimeExpectation.For(target, 20.0);
             AssertNear(expected, occurrence.StartTime,
                 "Moving Floor Repeat StartTime did not use target floor entryTime and speed.");
         }
@@ -195,8 +195,7 @@ internal static class VfxTimelineEdgeRegression
         for (int i = 0; i < occurrences.Length; i++)
         {
             double expectedAngle = 25 + (entryBeats[2 + i] - entryBeats[2]) * 180;
-            double expectedTime = sourceTiming.EntryTime +
-                                  expectedAngle / 180.0 * (60.0 / sourceTiming.Bpm);
+            double expectedTime = StockVfxStartTimeExpectation.For(sourceTiming, expectedAngle);
             AssertNear(expectedAngle, occurrences[i].AngleOffset ?? 0,
                 "Fixed Floor Repeat overwrote rather than composed source angleOffset.");
             AssertNear(expectedTime, occurrences[i].StartTime,
@@ -255,16 +254,19 @@ internal static class VfxTimelineEdgeRegression
 
     private static void VerifyTieOrdering()
     {
-        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        // Floor 1 is a midspin, so it takes no time and floor 2 starts at the
+        // same stock startTime as floor 1. Source order lists floor 2 first.
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
         level.InitialBpm = 120;
+        level.Angles = [0, 999, 0];
+        level.RebuildGeometry();
         TimingMap timing = TimingMapBuilder.Build(level);
-        FloorTiming floor0 = timing.Floors[0];
-        double tieAngle = (timing.Floors[1].EntryTime - floor0.EntryTime) /
-                          (60.0 / floor0.Bpm) * 180.0;
+        if (timing.Floors[1].StockEntryTime != timing.Floors[2].StockEntryTime)
+            throw new InvalidOperationException("Midspin floor did not tie the next floor's stock entry time.");
 
         level.ReplaceActions(
         [
-            CreateVfx(0, 100, tieAngle, "tie-floor-zero"),
+            CreateVfx(2, 100, 0, "tie-next-floor"),
             CreateVfx(1, 101, 0, "tie-first"),
             CreateVfx(1, 102, 0, "tie-second")
         ]);
@@ -272,7 +274,7 @@ internal static class VfxTimelineEdgeRegression
         VfxOccurrence[] tied = VfxTimelineBuilder.Build(level).Occurrences
             .Where(item => item.SourceIndex is 100 or 101 or 102)
             .ToArray();
-        AssertSequenceEqual([100, 101, 102], tied.Select(item => item.SourceIndex),
+        AssertSequenceEqual([101, 102, 100], tied.Select(item => item.SourceIndex),
             "StartTime ties are not ordered by floor.seqID and stable source enumeration.");
     }
 
