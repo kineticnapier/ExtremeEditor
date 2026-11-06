@@ -161,11 +161,20 @@ internal static class AudioGraphFactory
         LevelDocument? level,
         TimingMap? timingMap,
         IReadOnlyDictionary<string, RenderedHitSound>? clips,
-        double songPitch = 1.0) =>
-        Math.Max(
-            checked((long)Math.Ceiling(
-                Math.Max(0, songFrames) / SongRatePolicy.Normalize(songPitch))),
+        double songPitch = 1.0)
+    {
+        double scaledSongFrames = Math.Ceiling(
+            Math.Max(0, songFrames) / SongRatePolicy.Normalize(songPitch));
+        // long.MaxValue rounds to 2^63 in double. A long song or a low
+        // pitch can exceed that bound even when the decoded frame count fits.
+        // Keep the song and hit-sound duration calculations equally bounded.
+        long boundedSongFrames = scaledSongFrames >= 9223372036854775808d
+            ? long.MaxValue
+            : checked((long)scaledSongFrames);
+        return Math.Max(
+            boundedSongFrames,
             CalculateHitSoundOnlyFrames(sampleRate, level, timingMap, clips));
+    }
 
     internal static AudioGraphBuildResult Build(
         ISampleProvider song,
