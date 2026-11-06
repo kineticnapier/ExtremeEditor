@@ -172,6 +172,51 @@ internal static class MultichannelFoldDownRegression
                 throw new InvalidOperationException("Song-rate output offset was overwritten.");
         }
 
+        // Variable-rate output also has to handle odd sample requests.
+        // The input decoder is deliberately split into single samples, so
+        // this covers partial input and output frames at the same time.
+        var oddRate = new VariableRateSampleProvider(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+            [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f], 1), 1.0);
+        float[] oddRateOut = new float[8];
+        int oddRatePosition = 1;
+        foreach (int requested in new[] { 1, 1, 3, 1 })
+        {
+            int returned = oddRate.Read(oddRateOut, oddRatePosition, requested);
+            if (returned != requested)
+                throw new InvalidOperationException(
+                    $"Odd song-rate read lost a stereo sample: requested {requested}, got {returned}.");
+            oddRatePosition += returned;
+        }
+        if (oddRatePosition != 7 || oddRate.Read(oddRateOut, 1, 1) != 0)
+            throw new InvalidOperationException("Odd song-rate read reached EOF too early or too late.");
+        for (int i = 0; i < 6; i++)
+            Near((i + 1) * 0.1f, oddRateOut[i + 1], $"odd song-rate sample {i}");
+        if (oddRateOut[0] != 0f || oddRateOut[7] != 0f)
+            throw new InvalidOperationException("Odd song-rate read overwrote the output offset.");
+
+        // Splitting an interpolated stereo frame must not advance the phase
+        // twice or change its right channel when the next read arrives.
+        var slowOddRate = new VariableRateSampleProvider(new ChunkedSamples(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+            [0f, 0f, 1f, 1f, 2f, 2f], 1), 0.5);
+        float[] slowOddOut = new float[12];
+        int slowPosition = 0;
+        foreach (int requested in new[] { 1, 3, 1, 3, 4 })
+        {
+            int returned = slowOddRate.Read(slowOddOut, slowPosition, requested);
+            if (returned != requested)
+                throw new InvalidOperationException(
+                    $"Interpolated odd read lost samples: requested {requested}, got {returned}.");
+            slowPosition += returned;
+        }
+        float[] slowExpected =
+            [0f, 0f, 0.5f, 0.5f, 1f, 1f, 1.5f, 1.5f, 2f, 2f, 2f, 2f];
+        for (int i = 0; i < slowExpected.Length; i++)
+            Near(slowExpected[i], slowOddOut[i], $"interpolated odd sample {i}");
+        if (slowOddRate.Read(slowOddOut, 0, 1) != 0)
+            throw new InvalidOperationException("Interpolated odd read did not reach EOF.");
+
         // A truncated final frame must not be emitted as a complete frame.
         var truncatedRate = new VariableRateSampleProvider(new ChunkedSamples(
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
