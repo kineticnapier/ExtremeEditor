@@ -65,7 +65,7 @@ internal static class MultichannelFoldDownRegression
         // the right sample must be delivered before the next frame's left.
         var oddThree = AudioGraphFactory.NormalizeSong(new ChunkedSamples(
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 3),
-            [0f, 0f, 1f, 0.25f, -0.25f, 0f], 2));
+            [0f, 0f, 1f, 0.25f, -0.25f, 0f, 0.5f, -0.5f, 0f], 2));
         float[] oddOut = new float[6];
         int oddPosition = 0;
         foreach (int requested in new[] { 1, 1, 3, 1 })
@@ -80,8 +80,8 @@ internal static class MultichannelFoldDownRegression
         Near(0.70710678f, oddOut[1], "odd 3ch first right");
         Near(0.25f, oddOut[2], "odd 3ch second left");
         Near(-0.25f, oddOut[3], "odd 3ch second right");
-        if (oddOut[4] != 0f || oddOut[5] != 0f)
-            throw new InvalidOperationException("Odd 3ch read wrote extra samples.");
+        Near(0.5f, oddOut[4], "odd 3ch third left");
+        Near(-0.5f, oddOut[5], "odd 3ch third right");
         if (oddThree.Read(oddOut, 0, 1) != 0)
             throw new InvalidOperationException("Odd 3ch source must reach EOF.");
 
