@@ -238,6 +238,7 @@ internal static class MultichannelFoldDownRegression
         Near(0.4f, monoOut[0], "mono left");
         Near(0.4f, monoOut[1], "mono right");
         VerifyUnifiedOddReads();
+        VerifyUnifiedChunkedSongReads();
     }
 
     private static void VerifyUnifiedOddReads()
@@ -290,6 +291,39 @@ internal static class MultichannelFoldDownRegression
                 throw new InvalidOperationException("Unified limiter split read failed.");
             for (int i = 0; i < 4; i++)
                 Near(expected[i], actual[i], $"unified limiter sample {i}");
+        }
+    }
+
+
+    private static void VerifyUnifiedChunkedSongReads()
+    {
+        // ISampleProvider may return fewer samples than requested without
+        // reaching EOF. Neither mixer may turn those short reads into silence
+        // or treat an incomplete stereo frame as the end of the song.
+        foreach (bool transport in new[] { false, true })
+        {
+            foreach (int chunkSize in new[] { 1, 3 })
+            {
+                float[] samples = [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f];
+                var source = new ChunkedSamples(
+                    WaveFormat.CreateIeeeFloatWaveFormat(48_000, 2),
+                    samples, chunkSize);
+                var graph = transport
+                    ? new UnifiedAudioSampleProvider(source, (TransportHitSoundSampleProvider?)null)
+                    : new UnifiedAudioSampleProvider(source, (SampleAccurateHitSoundProvider?)null, 3);
+                float[] output = new float[8];
+                int read = graph.Read(output, 1, samples.Length);
+                if (read != samples.Length)
+                    throw new InvalidOperationException(
+                        $"Unified {(transport ? "transport" : "offline")} mixer returned {read} samples from a chunked source (chunk {chunkSize}).");
+                for (int i = 0; i < samples.Length; i++)
+                    Near(samples[i], output[i + 1],
+                        $"unified chunked sample {i}, transport={transport}, chunk={chunkSize}");
+                if (output[0] != 0f || output[7] != 0f)
+                    throw new InvalidOperationException("Unified chunked read overwrote the output offset.");
+                if (graph.Read(output, 1, 2) != 0)
+                    throw new InvalidOperationException("Unified chunked song did not reach EOF.");
+            }
         }
     }
 
