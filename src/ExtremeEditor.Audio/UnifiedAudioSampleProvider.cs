@@ -115,7 +115,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
             written += read;
             if (read < completeSamples)
             {
-                RecordRead(started, written / channels);
+                RecordRead(started, written);
                 return written;
             }
         }
@@ -135,7 +135,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
             }
         }
 
-        RecordRead(started, written / channels);
+        RecordRead(started, written);
         return written;
     }
 
@@ -287,7 +287,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
 
-    private void RecordRead(long started, int frames)
+    private void RecordRead(long started, int samples)
     {
         long ticks = Stopwatch.GetElapsedTime(started).Ticks;
         Interlocked.Increment(ref _readCalls);
@@ -302,9 +302,16 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         }
         // Processing longer than the produced audio is a possible underrun
         // indicator; it does not itself prove that the device underruns.
-        if (frames > 0 && ticks > (double)frames * TimeSpan.TicksPerSecond / WaveFormat.SampleRate)
+        if (IsReadOverBudget(ticks, samples, WaveFormat))
             Interlocked.Increment(ref _overBudgetReadCalls);
     }
+
+    // Audio callbacks may return part of an interleaved frame. Compare the
+    // elapsed time against the actual sample duration, not truncated frames.
+    internal static bool IsReadOverBudget(long elapsedTicks, int sampleCount, WaveFormat format) =>
+        sampleCount > 0 && elapsedTicks >
+        (double)sampleCount * TimeSpan.TicksPerSecond /
+        ((double)format.SampleRate * format.Channels);
 
     private void RecordMinimumMasterGain(float gain)
     {
