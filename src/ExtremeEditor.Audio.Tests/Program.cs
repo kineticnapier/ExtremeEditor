@@ -795,6 +795,45 @@ static void RunProviderChecks()
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
     Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
+
+    // The identity-rate prerendered bus ends at the song boundary, but a hit
+    // starting just before that boundary must finish in the same Read call.
+    WaveFormat tailFormat = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    LevelDocument tailLevel = CreateLevel(2);
+    var tailTiming = new TimingMap([Floor(0, 0.0), Floor(1, 0.007)]);
+    var tailClips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.25f, 8).ToArray(), 0.0)
+    };
+    var tailSchedule = new SampleAccurateHitSoundProvider(
+        tailFormat, tailLevel, tailTiming,
+        HitSoundTimelineBuilder.Build(tailLevel), tailClips, totalFrames: 8);
+    Equal(1, tailSchedule.ScheduledHits.Count, "identity tail test schedule");
+
+    var tailTransport = new TransportHitSoundSampleProvider(tailSchedule, playbackSpeed: 1.0);
+    var tailOutput = new float[24];
+    int tailRead = tailTransport.Read(tailOutput, 0, tailOutput.Length);
+    Equal(22, tailRead, "identity transport must not return short at song EOF");
+    for (int frame = 0; frame < 11; frame++)
+    {
+        double expected = frame >= 7 ? 0.25 : 0.0;
+        Near(expected, tailOutput[frame * 2], $"identity tail left frame {frame}");
+        Near(expected, tailOutput[frame * 2 + 1], $"identity tail right frame {frame}");
+    }
+    Equal(0, tailTransport.Read(new float[4], 0, 4),
+        "identity transport must reach EOF only after the hit tail");
+
+    tailTransport.Seek(0);
+    Equal(16, tailTransport.Read(new float[16], 0, 16),
+        "identity transport exact song-boundary read");
+    var tailAfterBoundary = new float[8];
+    Equal(6, tailTransport.Read(tailAfterBoundary, 0, 8),
+        "identity transport hit tail after a boundary-aligned read");
+    for (int frame = 0; frame < 3; frame++)
+    {
+        Near(0.25, tailAfterBoundary[frame * 2], $"split identity tail left {frame}");
+        Near(0.25, tailAfterBoundary[frame * 2 + 1], $"split identity tail right {frame}");
+    }
 }
 
 static void RunPlaySoundEventChecks()
