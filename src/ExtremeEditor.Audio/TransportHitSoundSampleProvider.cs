@@ -168,6 +168,25 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         foreach (ActiveVoice voice in _activeVoices)
             outputEnd = Math.Max(outputEnd, EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount));
 
+        // The last trigger need not have the longest tail. Before returning a
+        // short read (which audio consumers may interpret as EOF), include
+        // every future voice that starts within this requested block. Earlier
+        // voices are already represented by _activeVoices.
+        long requestEnd = requestedFrames >= long.MaxValue - _outputPositionFrames
+            ? long.MaxValue
+            : _outputPositionFrames + requestedFrames;
+        if (outputEnd < requestEnd)
+        {
+            for (int index = _nextHitIndex; index < _hits.Count; index++)
+            {
+                SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[index];
+                long start = SourceToOutput(hit.StartFrame);
+                if (start >= requestEnd)
+                    break;
+                outputEnd = Math.Max(outputEnd, EndOfVoice(start, hit.Clip.FrameCount));
+            }
+        }
+
         long remaining = Math.Max(0L, outputEnd - _outputPositionFrames);
         return (int)Math.Min(requestedFrames, remaining);
     }

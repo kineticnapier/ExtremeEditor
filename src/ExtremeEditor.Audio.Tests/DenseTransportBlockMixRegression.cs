@@ -18,6 +18,55 @@ internal static class DenseTransportBlockMixRegression
         CheckDenseOverlaps(0.75);
         CheckDenseOverlaps(2.0);
         CheckSpeedChangePreservesExactTriggers();
+        CheckEarlierLongHitOutlastsFinalShortHit();
+    }
+
+    private static void CheckEarlierLongHitOutlastsFinalShortHit()
+    {
+        // The last trigger is short, but an earlier voice lasts far longer.
+        // A short first Read must not signal EOF before that long tail plays.
+        WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+        var longClip = new RenderedHitSound(Enumerable.Repeat(0.25f, 400).ToArray(), 0.0);
+        var shortClip = new RenderedHitSound([0.125f, 0.125f], 0.0);
+        var hits = new[]
+        {
+            new SampleAccurateHitSoundProvider.ScheduledHit(longClip, 10, 1f),
+            new SampleAccurateHitSoundProvider.ScheduledHit(shortClip, 20, 1f)
+        };
+
+        foreach (double speed in new[] { 1.0, 2.0 })
+        {
+            var provider = new TransportHitSoundSampleProvider(
+                format, hits, totalSourceFrames: 0, playbackSpeed: speed);
+            int longStart = (int)Math.Round(10 / speed, MidpointRounding.AwayFromZero);
+            int shortStart = (int)Math.Round(20 / speed, MidpointRounding.AwayFromZero);
+            int totalFrames = longStart + 200;
+            float[] output = new float[totalFrames * 2];
+
+            int first = provider.Read(output, 0, 200);
+            if (first != 200)
+                throw new InvalidOperationException(
+                    $"Long earlier hit was cut off by a later short hit at {speed}x: {first}/200 samples.");
+
+            int remaining = output.Length - first;
+            int second = provider.Read(output, first, remaining);
+            if (second != remaining || provider.Read(new float[2], 0, 2) != 0)
+                throw new InvalidOperationException(
+                    $"Long earlier hit tail did not reach its exact EOF at {speed}x.");
+
+            for (int frame = 0; frame < totalFrames; frame++)
+            {
+                float expected = frame >= longStart ? 0.25f : 0f;
+                if (frame == shortStart)
+                    expected += 0.125f;
+                for (int channel = 0; channel < 2; channel++)
+                {
+                    if (Math.Abs(output[frame * 2 + channel] - expected) > 0.00001f)
+                        throw new InvalidOperationException(
+                            $"Long-hit tail PCM differs at frame {frame}, channel {channel}, speed {speed}x.");
+                }
+            }
+        }
     }
 
     private static void CheckDenseOverlaps(double speed)
