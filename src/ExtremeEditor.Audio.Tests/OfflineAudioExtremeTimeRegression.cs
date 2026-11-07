@@ -25,6 +25,32 @@ internal static class OfflineAudioExtremeTimeRegression
         VerifyInvalidChunkFrames(Array.MaxLength / 2 + 1);
         VerifyInvalidChunkFrames(int.MaxValue);
 
+        // The ffmpeg encoder converts each stereo float frame into eight
+        // bytes. A chunk can fit in float[] yet overflow its PCM byte count.
+        // Test Validate directly so the pre-fix RED cannot allocate gigabytes.
+        int maximumEncodableFrames = Array.MaxLength / (2 * sizeof(float));
+        var tooLargeForEncoder = new OfflineAudioRenderPlan(
+            level, timing, hits, SongPath: null,
+            StartAudioTimeSeconds: 0.0,
+            EndAudioTimeSeconds: 1.0 / 48_000,
+            HitSoundsEnabled: false,
+            ChunkFrames: maximumEncodableFrames + 1);
+        try
+        {
+            tooLargeForEncoder.Validate();
+        }
+        catch (ArgumentOutOfRangeException ex)
+            when (ex.ParamName == nameof(OfflineAudioRenderPlan.ChunkFrames))
+        {
+            goto EncoderChunkLimitRejected;
+        }
+        throw new InvalidOperationException(
+            "A stereo chunk whose PCM byte count exceeds Array.MaxLength was accepted.");
+
+    EncoderChunkLimitRejected:
+        // The exact boundary is a valid plan; do not render a huge buffer.
+        (tooLargeForEncoder with { ChunkFrames = maximumEncodableFrames }).Validate();
+
         // Ordinary one-frame silent exports must remain valid.
         var valid = new OfflineAudioRenderPlan(
             level, timing, hits, SongPath: null,
