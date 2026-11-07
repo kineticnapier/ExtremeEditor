@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -165,7 +166,7 @@ internal sealed class HitSoundLibrary
         return (int)Math.Clamp(samples, 1024.0, 4_194_304.0);
     }
 
-    private static float[] ReadAll(
+    internal static float[] ReadAll(
         ISampleProvider provider,
         int initialCapacity,
         string operation,
@@ -192,8 +193,12 @@ internal sealed class HitSoundLibrary
             Interlocked.Add(ref cumulativeSamples, read);
             log?.Write("hitsounds.read",
                 $"operation={operation} iteration={iterations} read={read} cumulative={cumulativeSamples}");
-            for (int i = 0; i < read; i++)
-                samples.Add(buffer[i]);
+            // Append the decoded block in one span copy instead of calling
+            // List.Add for every sample. SetCount grows the backing array as
+            // needed; the newly exposed range is filled immediately.
+            int previousCount = samples.Count;
+            CollectionsMarshal.SetCount(samples, checked(previousCount + read));
+            buffer.AsSpan(0, read).CopyTo(CollectionsMarshal.AsSpan(samples)[previousCount..]);
         }
 
         log?.Write("hitsounds.read_complete",
