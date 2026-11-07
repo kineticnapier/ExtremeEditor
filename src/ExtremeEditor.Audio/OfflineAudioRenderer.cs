@@ -106,6 +106,20 @@ public sealed class OfflineAudioRenderer
             }
 
             int sampleRate = song.WaveFormat.SampleRate;
+            // Two different audio times can round to the same output frame.
+            // Avoid initializing hit-sound assets or building an audio graph
+            // when this interval cannot produce even one PCM frame.
+            long requestedStartFrame =
+                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    plan.StartAudioTimeSeconds,
+                    sampleRate);
+            long requestedEndFrame =
+                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+                    plan.EndAudioTimeSeconds,
+                    sampleRate);
+            if (requestedEndFrame <= requestedStartFrame)
+                return;
+
             // Video exports have a fixed hit-sound setting for their entire
             // lifetime. Unlike live playback, they do not need a dormant hit
             // schedule or decoded assets when hitsounds are disabled.
@@ -134,17 +148,6 @@ public sealed class OfflineAudioRenderer
 
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;
-
-            long requestedStartFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.StartAudioTimeSeconds,
-                    sampleRate);
-            long requestedEndFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.EndAudioTimeSeconds,
-                    sampleRate);
-            if (requestedEndFrame <= requestedStartFrame)
-                return;
 
             long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
             double fractionalSongFrame = 0.0;
