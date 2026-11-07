@@ -35,6 +35,49 @@ internal static class OfflineAudioExtremeTimeRegression
             throw new InvalidOperationException(
                 $"Normal offline time range produced {frames} frames instead of one.");
 
+        // The smallest representable sample index is valid, but its
+        // negation is not. A range crossing zero can also exceed the
+        // signed 64-bit limit in length. Inspect only the first chunk to
+        // avoid rendering an astronomically long silent interval.
+        double minimumStartSeconds = -9223372036854775808d / 48_000d;
+        foreach (double end in new[] { minimumStartSeconds + 1.0, 0.0 })
+        {
+            using var stop = new CancellationTokenSource();
+            var boundary = new OfflineAudioRenderPlan(
+                level, timing, hits, SongPath: null,
+                StartAudioTimeSeconds: minimumStartSeconds,
+                EndAudioTimeSeconds: end,
+                HitSoundsEnabled: false,
+                ChunkFrames: 16);
+            int chunks = 0;
+            try
+            {
+                renderer.RenderAsync(boundary, (chunk, _) =>
+                {
+                    if (chunk.StartFrame != long.MinValue ||
+                        chunk.FrameCount != 16 ||
+                        chunk.SampleRate != 48_000 ||
+                        !Array.TrueForAll(chunk.Samples, sample => sample == 0f))
+                    {
+                        throw new InvalidOperationException(
+                            "The minimum-frame export must begin with 16 silent frames.");
+                    }
+
+                    chunks++;
+                    stop.Cancel();
+                    return ValueTask.CompletedTask;
+                }, stop.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+                // Expected after the first chunk; no further chunks are needed.
+            }
+
+            if (chunks != 1)
+                throw new InvalidOperationException(
+                    "The minimum-frame export did not emit its first chunk.");
+        }
+
         void VerifyInvalidRange(double start, double end, string expectedParameter)
         {
             var plan = new OfflineAudioRenderPlan(
