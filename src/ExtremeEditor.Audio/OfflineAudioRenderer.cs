@@ -25,10 +25,11 @@ public sealed record OfflineAudioRenderPlan(
         if (!double.IsFinite(EndAudioTimeSeconds) ||
             EndAudioTimeSeconds <= StartAudioTimeSeconds)
             throw new ArgumentOutOfRangeException(nameof(EndAudioTimeSeconds));
-        // The offline renderer normalizes all sources to stereo and
-        // allocates ChunkFrames * 2 float samples. Validate the array
-        // bound before opening audio files or initializing hit sounds.
-        if (ChunkFrames <= 0 || ChunkFrames > Array.MaxLength / 2)
+        // Offline audio is stereo float PCM (8 bytes per frame). The
+        // ffmpeg encoder also copies each chunk to a byte[]; validating
+        // only the float[] length would permit a byte-count overflow.
+        // Reject oversized chunks before opening audio or loading assets.
+        if (ChunkFrames <= 0 || ChunkFrames > Array.MaxLength / (2 * sizeof(float)))
             throw new ArgumentOutOfRangeException(nameof(ChunkFrames));
         // Non-finite volume would propagate NaN into the exported PCM samples.
         if (!double.IsFinite(SongVolumePercent))
