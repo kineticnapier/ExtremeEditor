@@ -199,17 +199,22 @@ public sealed class OfflineAudioRenderer
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // The requested interval can span more than long.MaxValue
+                // frames even though both endpoints are representable.
+                ulong remainingFrames = unchecked(
+                    (ulong)requestedEndFrame - (ulong)currentFrame);
                 int framesRequested = checked((int)Math.Min(
-                    plan.ChunkFrames,
-                    requestedEndFrame - currentFrame));
+                    (ulong)plan.ChunkFrames, remainingFrames));
                 int samplesRequested = checked(framesRequested * channels);
                 int completeSamples;
 
                 if (currentFrame < 0)
                 {
-                    int silentFrames = checked((int)Math.Min(
-                        framesRequested,
-                        -currentFrame));
+                    // Negating long.MinValue overflows. Compare first,
+                    // then negate only when the result fits in an int.
+                    int silentFrames = currentFrame <= -(long)framesRequested
+                        ? framesRequested
+                        : checked((int)-currentFrame);
                     completeSamples = checked(silentFrames * channels);
                     Array.Clear(readBuffer, 0, completeSamples);
                 }
