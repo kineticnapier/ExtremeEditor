@@ -110,6 +110,21 @@ internal sealed class VariableRateSampleProvider : ISampleProvider
         }
     }
 
+    // Offline rendering can start between source frames when pitch is not
+    // an integer ratio. Preserve the fractional interpolation phase instead
+    // of rounding the song seek to the preceding source frame.
+    internal void SetInitialPhase(double fractionalSourceFrame)
+    {
+        if (!double.IsFinite(fractionalSourceFrame) ||
+            fractionalSourceFrame < 0.0 || fractionalSourceFrame >= 1.0)
+            throw new ArgumentOutOfRangeException(nameof(fractionalSourceFrame));
+        if (_hasFirstFrame || _hasSecondFrame || _sourceBufferCount != 0)
+            throw new InvalidOperationException(
+                "Initial phase can only be set before the first source read.");
+
+        _phase = fractionalSourceFrame;
+    }
+
     public void Reset()
     {
         _sourceBufferOffset = 0;
