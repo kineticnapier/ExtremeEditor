@@ -19,6 +19,12 @@ internal static class OfflineAudioExtremeTimeRegression
         VerifyInvalidRange(1e100, 2e100,
             nameof(OfflineAudioRenderPlan.StartAudioTimeSeconds));
 
+        // A huge chunk size can overflow the stereo sample-count
+        // multiplication before any audio is emitted. Reject it during
+        // plan validation instead of leaking an OverflowException.
+        VerifyInvalidChunkFrames(Array.MaxLength / 2 + 1);
+        VerifyInvalidChunkFrames(int.MaxValue);
+
         // Ordinary one-frame silent exports must remain valid.
         var valid = new OfflineAudioRenderPlan(
             level, timing, hits, SongPath: null,
@@ -76,6 +82,29 @@ internal static class OfflineAudioExtremeTimeRegression
             if (chunks != 1)
                 throw new InvalidOperationException(
                     "The minimum-frame export did not emit its first chunk.");
+        }
+
+        void VerifyInvalidChunkFrames(int chunkFrames)
+        {
+            var plan = new OfflineAudioRenderPlan(
+                level, timing, hits, SongPath: null,
+                StartAudioTimeSeconds: 0.0,
+                EndAudioTimeSeconds: 1.0 / 48_000,
+                HitSoundsEnabled: false,
+                ChunkFrames: chunkFrames);
+            try
+            {
+                renderer.RenderAsync(plan, (_, _) => ValueTask.CompletedTask,
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (ArgumentOutOfRangeException ex)
+                when (ex.ParamName == nameof(OfflineAudioRenderPlan.ChunkFrames))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"Oversized offline audio chunk {chunkFrames} was not rejected during validation.");
         }
 
         void VerifyInvalidRange(double start, double end, string expectedParameter)
