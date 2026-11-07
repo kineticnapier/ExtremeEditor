@@ -35,6 +35,7 @@ internal static class OfflineAudioExtremeTimeRegression
             EndAudioTimeSeconds: 1.0 / 48_000,
             HitSoundsEnabled: false,
             ChunkFrames: maximumEncodableFrames + 1);
+        bool rejected = false;
         try
         {
             tooLargeForEncoder.Validate();
@@ -42,12 +43,12 @@ internal static class OfflineAudioExtremeTimeRegression
         catch (ArgumentOutOfRangeException ex)
             when (ex.ParamName == nameof(OfflineAudioRenderPlan.ChunkFrames))
         {
-            goto EncoderChunkLimitRejected;
+            rejected = true;
         }
-        throw new InvalidOperationException(
-            "A stereo chunk whose PCM byte count exceeds Array.MaxLength was accepted.");
+        if (!rejected)
+            throw new InvalidOperationException(
+                "A stereo chunk whose PCM byte count exceeds Array.MaxLength was accepted.");
 
-    EncoderChunkLimitRejected:
         // The exact boundary is a valid plan; do not render a huge buffer.
         (tooLargeForEncoder with { ChunkFrames = maximumEncodableFrames }).Validate();
 
