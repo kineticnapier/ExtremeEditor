@@ -86,7 +86,7 @@ internal sealed class HitSoundLibrary
             }
         }
 
-        LoadManifest(Path.Combine(directory, "hitsounds.tsv"));
+        LoadManifestSafely(Path.Combine(directory, "hitsounds.tsv"), log);
         log?.Write("hitsounds.reload_complete", $"loaded={_sounds.Count} offsets={_offsets.Count}");
     }
 
@@ -204,6 +204,23 @@ internal sealed class HitSoundLibrary
         log?.Write("hitsounds.read_complete",
             $"operation={operation} iterations={iterations} final_read={read} cumulative={cumulativeSamples}");
         return samples.ToArray();
+    }
+
+    // A temporary lock or access failure on the optional manifest must not
+    // prevent the already decoded hit sounds from being used. In particular,
+    // propagating this error from the shared Lazy<HitSoundLibrary> would make
+    // all later attempts fail as well.
+    internal void LoadManifestSafely(string path, AudioDiagnosticLog? log)
+    {
+        try
+        {
+            LoadManifest(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log?.Write("hitsounds.manifest_unavailable",
+                $"file={Path.GetFileName(path)} exception={ex.GetType().Name} message={ex.Message}");
+        }
     }
 
     private void LoadManifest(string path)
