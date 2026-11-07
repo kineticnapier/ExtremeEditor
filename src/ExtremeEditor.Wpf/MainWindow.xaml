@@ -160,6 +160,18 @@
                           Header="Follow _Player"
                           IsCheckable="True"
                           IsChecked="{Binding IsChecked, ElementName=FollowPlayerToggle, Mode=TwoWay}" />
+                <MenuItem x:Name="ViewPreviewAspectMenu" Header="Preview _Aspect Ratio">
+                    <MenuItem x:Name="ViewPreviewAspectFitMenuItem"
+                              Header="_Fit to Area"
+                              Tag="fit"
+                              IsCheckable="True"
+                              Click="PreviewAspectMenuClick" />
+                    <MenuItem x:Name="ViewPreviewAspect16x9MenuItem"
+                              Header="Fixed _16:9"
+                              Tag="16:9"
+                              IsCheckable="True"
+                              Click="PreviewAspectMenuClick" />
+                </MenuItem>
                 <Separator />
                 <MenuItem x:Name="DiagnosticsMenuItem"
                           Header="Show _Diagnostics"
@@ -712,8 +724,10 @@
                 </Border>
             </Grid>
 
-            <native:NativeLevelViewport x:Name="NativeViewport"
-                                        Grid.Column="2" />
+            <native:PreviewAspectPanel x:Name="PreviewAspectHost"
+                                       Grid.Column="2">
+                <native:NativeLevelViewport x:Name="NativeViewport" />
+            </native:PreviewAspectPanel>
 
             <Border x:Name="EventInspectorHost"
                     Grid.Column="3"

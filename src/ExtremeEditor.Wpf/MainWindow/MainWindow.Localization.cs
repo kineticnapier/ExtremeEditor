@@ -51,6 +51,9 @@ public partial class MainWindow
             ["frame"] = ("_Frame", "全体表示"),
             ["follow"] = ("Follow _Player", "プレイヤーを追従"),
             ["diagnostics"] = ("Show _Diagnostics", "診断情報を表示"),
+            ["previewaspect"] = ("Preview _Aspect Ratio", "プレビューの縦横比"),
+            ["previewaspectfit"] = ("_Fit to Area", "領域に合わせる"),
+            ["previewaspect16x9"] = ("Fixed _16:9", "16:9固定"),
             ["assets"] = ("_Assets", "アセット"),
             ["browse"] = ("Browse for ADOFAI…", "ADOFAIの場所を指定…"),
             ["setup"] = ("Setup Assets", "アセットを設定"),
@@ -176,6 +179,9 @@ public partial class MainWindow
         ViewFrameMenu.Header = WelcomeText("frame");
         ViewFollowPlayerMenuItem.Header = WelcomeText("follow");
         DiagnosticsMenuItem.Header = WelcomeText("diagnostics");
+        ViewPreviewAspectMenu.Header = WelcomeText("previewaspect");
+        ViewPreviewAspectFitMenuItem.Header = WelcomeText("previewaspectfit");
+        ViewPreviewAspect16x9MenuItem.Header = WelcomeText("previewaspect16x9");
         AssetsMenu.Header = WelcomeText("assets");
         BrowseAdoFaiMenuItem.Header = WelcomeText("browse");
         SetupAssetsMenuItem.Header = WelcomeText("setup");

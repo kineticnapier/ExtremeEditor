@@ -81,6 +81,7 @@ public partial class MainWindow : Window
         _playbackTimer.Tick += (_, _) => UpdatePlaybackDisplay();
         _playbackTimer.Start();
 
+        InitializePreviewAspect();
         InitializeWelcomeLocalization();
 
         // No implicit unsaved chart on startup.

@@ -33,6 +33,14 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_PREVIEW_ASPECT_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                PreviewAspectRegression.Run();
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_NATIVE_SETTINGS_FOCUS_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -1007,6 +1015,7 @@ internal static class Program
             IncrementalActionPropertyEditRegression.Run();
             LazyLevelMetadataRegression.Run();
             ResponsiveEditorLayoutRegression.Run();
+            PreviewAspectRegression.Run();
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
