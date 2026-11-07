@@ -48,7 +48,8 @@ public readonly record struct OfflineAudioFormat(
 
 public sealed class OfflineAudioRenderer
 {
-    private readonly HitSoundLibrary _hitSoundLibrary = SharedHitSoundLibrary.Instance;
+    // A muted export must not even initialize the shared hit-sound asset cache.
+    private readonly Lazy<HitSoundLibrary> _hitSoundLibrary = new(() => SharedHitSoundLibrary.Instance);
 
     public OfflineAudioFormat ProbeFormat(string? songPath)
     {
@@ -105,14 +106,20 @@ public sealed class OfflineAudioRenderer
             }
 
             int sampleRate = song.WaveFormat.SampleRate;
-            IReadOnlyDictionary<string, RenderedHitSound>? clips =
-                AudioGraphFactory.RenderHitSoundAssets(
-                    _hitSoundLibrary,
+            // Video exports have a fixed hit-sound setting for their entire
+            // lifetime. Unlike live playback, they do not need a dormant hit
+            // schedule or decoded assets when hitsounds are disabled.
+            IReadOnlyDictionary<string, RenderedHitSound>? clips = null;
+            if (plan.HitSoundsEnabled)
+            {
+                clips = AudioGraphFactory.RenderHitSoundAssets(
+                    _hitSoundLibrary.Value,
                     sampleRate,
                     plan.Level,
                     plan.TimingMap,
                     plan.HitSoundTimeline,
                     out _);
+            }
 
             long songFrames = reader is null
                 ? 0
