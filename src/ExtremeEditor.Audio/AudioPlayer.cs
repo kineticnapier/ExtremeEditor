@@ -361,13 +361,13 @@ public sealed class AudioPlayer : IDisposable
         PlaybackState previousState = _output.PlaybackState;
         StopRealtimeDiagnostics();
         _output.Stop();
-        if (_reader is not null)
-            SeekReaderToTransportTime(seconds);
+        double fractionalSongFrame = SeekReaderToTransportTime(seconds);
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(seconds, _outputFormat.SampleRate);
         RestartHitSoundPrerender(frame);
         _silentSong?.Seek(frame);
         _graph.Seek(frame);
         _songRateProvider?.Reset();
+        _songRateProvider?.SetInitialPhase(fractionalSongFrame);
         ResetClock(seconds);
 
         if (previousState == PlaybackState.Playing)
@@ -524,8 +524,7 @@ public sealed class AudioPlayer : IDisposable
         _songRateProvider = null;
         _songVolumeProvider = null;
         _transportHitSoundProvider = null;
-        if (_reader is not null)
-            SeekReaderToTransportTime(position.TotalSeconds);
+        double fractionalSongFrame = SeekReaderToTransportTime(position.TotalSeconds);
 
         _ = BuildGraph();
         double restoredSeconds = Math.Clamp(position.TotalSeconds, 0.0, _transportDurationSeconds);
@@ -535,6 +534,7 @@ public sealed class AudioPlayer : IDisposable
         _silentSong?.Seek(restoredFrame);
         _graph!.Seek(restoredFrame);
         _songRateProvider!.Reset();
+        _songRateProvider.SetInitialPhase(fractionalSongFrame);
         ResetClock(restoredSeconds);
 
         if (state == PlaybackState.Playing)
@@ -600,10 +600,7 @@ public sealed class AudioPlayer : IDisposable
         long restoredFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
             restoredSeconds,
             _outputFormat.SampleRate);
-        if (_reader is not null)
-        {
-            SeekReaderToTransportTime(restoredSeconds);
-        }
+        double fractionalSongFrame = SeekReaderToTransportTime(restoredSeconds);
         if (_silentSong is not null)
         {
             _silentSong.TotalFrames = totalFrames;
@@ -618,6 +615,7 @@ public sealed class AudioPlayer : IDisposable
         _graph.ReplaceTransportHitSounds(transportHitSounds, restoredFrame);
         _songRateProvider.PlaybackSpeed = EffectiveSongRate;
         _songRateProvider.Reset();
+        _songRateProvider.SetInitialPhase(fractionalSongFrame);
         RestartHitSoundPrerender(restoredFrame);
         ResetClock(restoredSeconds);
 
@@ -720,8 +718,7 @@ public sealed class AudioPlayer : IDisposable
 
         _playbackSpeed = normalized;
         _songRateProvider!.PlaybackSpeed = EffectiveSongRate;
-        if (_reader is not null)
-            SeekReaderToTransportTime(sourceSeconds);
+        double fractionalSongFrame = SeekReaderToTransportTime(sourceSeconds);
 
         long frame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
             sourceSeconds,
@@ -730,6 +727,7 @@ public sealed class AudioPlayer : IDisposable
         _silentSong?.Seek(frame);
         _graph!.ReanchorHitSounds(frame, normalized);
         _songRateProvider.Reset();
+        _songRateProvider.SetInitialPhase(fractionalSongFrame);
         ResetClock(sourceSeconds);
 
         if (previousState == PlaybackState.Playing)
@@ -750,14 +748,24 @@ public sealed class AudioPlayer : IDisposable
     private static double ResolveSongPitch(LevelDocument? level)
         => SongRatePolicy.FromPitchPercent(level?.PitchPercent ?? 100.0);
 
-    private void SeekReaderToTransportTime(double transportSeconds)
+    // The transport clock is quantized to output sample frames. Pitch can
+    // place that frame between source samples, so keep the fractional phase
+    // when seeking just as offline video rendering does.
+    private double SeekReaderToTransportTime(double transportSeconds)
     {
         if (_reader is null)
-            return;
+            return 0.0;
 
-        double sourceSeconds = Math.Max(0.0, transportSeconds) * _songPitch;
-        _reader.CurrentTime = TimeSpan.FromSeconds(
-            Math.Min(sourceSeconds, _reader.TotalTime.TotalSeconds));
+        int sampleRate = _outputFormat?.SampleRate ?? _reader.WaveFormat.SampleRate;
+        long outputFrame = SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
+            Math.Max(0.0, transportSeconds), sampleRate);
+        int blockAlign = _reader.WaveFormat.BlockAlign;
+        long sourceFrameCount = _reader.Length / blockAlign;
+        double sourcePosition = Math.Min(
+            (double)outputFrame * _songPitch, sourceFrameCount);
+        long sourceFrame = (long)Math.Floor(sourcePosition);
+        _reader.Position = checked(sourceFrame * blockAlign);
+        return sourcePosition - sourceFrame;
     }
 
     private void DisposePlayback()
