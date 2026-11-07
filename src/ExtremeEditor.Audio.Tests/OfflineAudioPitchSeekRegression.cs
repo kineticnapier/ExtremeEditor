@@ -31,23 +31,37 @@ internal static class OfflineAudioPitchSeekRegression
             TimingMap timing = TimingMapBuilder.Build(level);
             HitSoundTimeline hits = HitSoundTimelineBuilder.Build(level);
 
-            float[] whole = Render(0.0);
-            float[] seeked = Render(0.001); // 48 output frames -> 55.2 source frames.
-            const int startSamples = 48 * 2;
-            if (whole.Length != 960 * 2 ||
-                seeked.Length != whole.Length - startSamples)
+            // Compare partial exports against the same full export at several
+            // playback rates and frame boundaries. Some start frames map to
+            // fractional source positions, others land exactly on a source frame.
+            foreach (double pitch in new[] { 75.0, 100.0, 115.0, 133.0 })
             {
-                throw new InvalidOperationException(
-                    "Pitch-adjusted offline rendering changed its output frame count.");
-            }
-
-            for (int i = 0; i < seeked.Length; i++)
-            {
-                if (Math.Abs(seeked[i] - whole[startSamples + i]) > 0.0002f)
-                {
+                level.PitchPercent = pitch;
+                float[] whole = Render(0.0);
+                if (whole.Length != 960 * 2)
                     throw new InvalidOperationException(
-                        $"Pitch-adjusted offline seek differs at sample {i}: " +
-                        $"full={whole[startSamples + i]} seek={seeked[i]}.");
+                        $"Pitch {pitch}% changed the full offline output length.");
+
+                foreach (double startSeconds in new[] { 0.0005, 0.001, 0.0010625, 0.0017 })
+                {
+                    int startFrame = checked((int)Math.Round(
+                        startSeconds * sampleRate, MidpointRounding.AwayFromZero));
+                    int startSamples = startFrame * 2;
+                    float[] seeked = Render(startSeconds);
+                    if (seeked.Length != whole.Length - startSamples)
+                        throw new InvalidOperationException(
+                            $"Pitch {pitch}%, start frame {startFrame}: " +
+                            "partial offline output length differs.");
+
+                    for (int i = 0; i < seeked.Length; i++)
+                    {
+                        if (Math.Abs(seeked[i] - whole[startSamples + i]) > 0.0002f)
+                        {
+                            throw new InvalidOperationException(
+                                $"Pitch {pitch}%, start frame {startFrame}, sample {i}: " +
+                                $"full={whole[startSamples + i]} seek={seeked[i]}.");
+                        }
+                    }
                 }
             }
 
