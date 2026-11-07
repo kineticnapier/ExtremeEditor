@@ -117,6 +117,19 @@ internal sealed class VideoExportService
         int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
 
         string? songPath = source.SongPath;
+        // Validate mapped audio times before probing the song or creating
+        // the encoder's temporary files and output directory.
+        var audioPlan = new OfflineAudioRenderPlan(
+            level,
+            timingMap,
+            hitSoundTimeline,
+            songPath,
+            startAudio,
+            endAudio,
+            request.SongVolumePercent,
+            request.HitSoundsEnabled);
+        audioPlan.Validate();
+
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
 
@@ -131,16 +144,6 @@ internal sealed class VideoExportService
                 audioFormat.SampleRate,
                 audioFormat.Channels),
             cancellationToken).ConfigureAwait(false);
-
-        var audioPlan = new OfflineAudioRenderPlan(
-            level,
-            timingMap,
-            hitSoundTimeline,
-            songPath,
-            startAudio,
-            endAudio,
-            request.SongVolumePercent,
-            request.HitSoundsEnabled);
 
         progress.Report(new VideoExportProgress("Audio", 0, 0));
         int audioChunks = 0;
