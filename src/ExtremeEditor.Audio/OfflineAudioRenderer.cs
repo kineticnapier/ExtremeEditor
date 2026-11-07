@@ -25,7 +25,10 @@ public sealed record OfflineAudioRenderPlan(
         if (!double.IsFinite(EndAudioTimeSeconds) ||
             EndAudioTimeSeconds <= StartAudioTimeSeconds)
             throw new ArgumentOutOfRangeException(nameof(EndAudioTimeSeconds));
-        if (ChunkFrames <= 0)
+        // The offline renderer normalizes all sources to stereo and
+        // allocates ChunkFrames * 2 float samples. Validate the array
+        // bound before opening audio files or initializing hit sounds.
+        if (ChunkFrames <= 0 || ChunkFrames > Array.MaxLength / 2)
             throw new ArgumentOutOfRangeException(nameof(ChunkFrames));
         // Non-finite volume would propagate NaN into the exported PCM samples.
         if (!double.IsFinite(SongVolumePercent))
