@@ -1,3 +1,4 @@
+using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
 using ExtremeEditor.Wpf.Native;
 
@@ -25,6 +26,50 @@ internal static class VideoExportRgb24BufferRegression
         RequireRendererRejected(0, 1080);
         RequireRendererRejected(int.MaxValue, 1);
         RequireRendererRejected(50_000, 50_000);
+
+        // A non-finite volume must fail request validation, not after
+        // the encoder has already created its temporary output files.
+        VerifyNonFiniteVideoExportVolumeRejected();
+    }
+
+    private static void VerifyNonFiniteVideoExportVolumeRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        var source = new VideoExportSource(
+            level,
+            TimingMapBuilder.Build(level),
+            HitSoundTimelineBuilder.Build(level),
+            SongPath: null);
+        var valid = new VideoExportRequest(
+            Source: source,
+            OutputPath: "volume-regression.mp4",
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 1920,
+            Height: 1080,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+        valid.Validate();
+        (valid with { SongVolumePercent = 0.0 }).Validate();
+
+        foreach (double volume in new[] {
+            double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        {
+            try
+            {
+                (valid with { SongVolumePercent = volume }).Validate();
+            }
+            catch (ArgumentOutOfRangeException ex)
+                when (ex.ParamName == nameof(VideoExportRequest.SongVolumePercent))
+            {
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"Non-finite video export volume {volume} passed request validation.");
+        }
     }
 
     private static void RequireRendererRejected(int width, int height)
