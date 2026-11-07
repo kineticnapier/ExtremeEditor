@@ -150,7 +150,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         int frameCount = (int)Math.Min(requestedFrames, remainingFrames);
         int sampleCount = frameCount * channels;
         long songStarted = Stopwatch.GetTimestamp();
-        int songRead = _song.Read(buffer, offset, sampleCount);
+        int songRead = ReadSongSamples(buffer, offset, sampleCount);
         Interlocked.Add(ref _songReadTicks, Stopwatch.GetElapsedTime(songStarted).Ticks);
         if (songRead < sampleCount)
             Array.Clear(buffer, offset + songRead, sampleCount - songRead);
@@ -226,7 +226,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
         Array.Clear(buffer, offset, requestedSamples);
         long songStarted = Stopwatch.GetTimestamp();
-        int songRead = _song.Read(buffer, offset, requestedSamples);
+        int songRead = ReadSongSamples(buffer, offset, requestedSamples);
         Interlocked.Add(ref _songReadTicks, Stopwatch.GetElapsedTime(songStarted).Ticks);
         int hitRead = 0;
         TransportHitSoundSampleProvider? transportHitSounds = Volatile.Read(ref _transportHitSounds);
@@ -267,6 +267,22 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         ApplyMasterLimiter(buffer, offset, frameCount, channels);
         Interlocked.Add(ref _limiterTicks, Stopwatch.GetElapsedTime(limiterStarted).Ticks);
         return frameCount * channels;
+    }
+
+    private int ReadSongSamples(float[] buffer, int offset, int count)
+    {
+        // A short read is not EOF. Keep filling the requested interleaved
+        // samples so the song does not skip ahead of the hit-sound clock.
+        int written = 0;
+        while (written < count)
+        {
+            int read = _song.Read(buffer, offset + written, count - written);
+            if (read <= 0)
+                break;
+            written += read;
+        }
+
+        return written;
     }
 
     private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
