@@ -1,3 +1,4 @@
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
 using ExtremeEditor.Wpf.Native;
@@ -30,6 +31,7 @@ internal static class VideoExportRgb24BufferRegression
         // A non-finite volume must fail request validation, not after
         // the encoder has already created its temporary output files.
         VerifyNonFiniteVideoExportVolumeRejected();
+        VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory();
     }
 
     private static void VerifyNonFiniteVideoExportVolumeRejected()
@@ -70,6 +72,61 @@ internal static class VideoExportRgb24BufferRegression
             throw new InvalidOperationException(
                 $"Non-finite video export volume {volume} passed request validation.");
         }
+    }
+
+    private static void VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        TimingMap timingMap = TimingMapBuilder.Build(level);
+        HitSoundTimeline hitSounds = HitSoundTimelineBuilder.Build(level);
+        // The chart range is valid, but the chart-to-audio conversion is not.
+        // This must fail before the encoder creates its output directory.
+        level.OffsetMilliseconds = double.NaN;
+
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorVideoPreflight",
+            Guid.NewGuid().ToString("N"));
+        var request = new VideoExportRequest(
+            new VideoExportSource(level, timingMap, hitSounds, SongPath: null),
+            OutputPath: Path.Combine(outputDirectory, "export.mp4"),
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 2,
+            Height: 2,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+
+        bool rejected = false;
+        bool outputDirectoryCreated = false;
+        try
+        {
+            try
+            {
+                new VideoExportService().ExportAsync(
+                    request, new Progress<VideoExportProgress>(),
+                    CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            }
+            catch (ArgumentOutOfRangeException ex)
+                when (ex.ParamName == nameof(OfflineAudioRenderPlan.StartAudioTimeSeconds))
+            {
+                rejected = true;
+            }
+        }
+        finally
+        {
+            outputDirectoryCreated = Directory.Exists(outputDirectory);
+            if (outputDirectoryCreated)
+                Directory.Delete(outputDirectory, recursive: true);
+        }
+
+        if (!rejected)
+            throw new InvalidOperationException(
+                "An invalid mapped audio range must be rejected during export preflight.");
+        if (outputDirectoryCreated)
+            throw new InvalidOperationException(
+                "Invalid audio timing created the output directory before rejection.");
     }
 
     private static void RequireRendererRejected(int width, int height)
