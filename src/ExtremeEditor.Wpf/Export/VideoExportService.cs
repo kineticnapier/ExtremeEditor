@@ -55,6 +55,10 @@ internal sealed record VideoExportRequest(
         if ((Height & 1) != 0)
             throw new ArgumentOutOfRangeException(nameof(Height), "H.264 yuv420p requires an even height.");
         _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
+        // Reject non-finite volume before opening output staging files.
+        // OfflineAudioRenderPlan.Validate also enforces this downstream.
+        if (!double.IsFinite(SongVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
 }
 
