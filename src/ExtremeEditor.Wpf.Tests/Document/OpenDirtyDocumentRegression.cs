@@ -21,10 +21,12 @@ internal static class OpenDirtyDocumentRegression
 
         int dialog = open.IndexOf("dialog.ShowDialog(this)", StringComparison.Ordinal);
         int duplicate = open.IndexOf("_documentTabs.FindByPath(dialog.FileName)", StringComparison.Ordinal);
-        int activation = open.IndexOf("ActivateDocumentTab(", StringComparison.Ordinal);
+        int activation = open.IndexOf("RequestDocumentTabActivation(existing)", StringComparison.Ordinal);
         int loading = open.IndexOf("LoadLevelAsync(dialog.FileName)", StringComparison.Ordinal);
-        Require(dialog >= 0 && duplicate > dialog && activation > duplicate && loading > duplicate,
-            "Opening the same path must select the already-open tab without loading it again.");
+        Require(dialog >= 0 && duplicate > dialog && activation > duplicate && loading > activation &&
+                open.Contains("if (existing is not null)", StringComparison.Ordinal) &&
+                System.Text.RegularExpressions.Regex.IsMatch(open, @"else\s+await\s+LoadLevelAsync\(dialog\.FileName\)\s*;"),
+            "Opening the same path must use observed tab activation; only new paths may load a chart.");
 
         Require(load.Contains("new EditorDocumentTab(", StringComparison.Ordinal) &&
                 load.Contains("_documentTabs.Add(", StringComparison.Ordinal) &&
@@ -33,6 +35,41 @@ internal static class OpenDirtyDocumentRegression
         Require(!load.Contains("EnsureEditorSession();", StringComparison.Ordinal) &&
                 !load.Contains("_audio.Unload();", StringComparison.Ordinal),
             "Loading another chart must not reset tab ownership or unload the previous tab's audio.");
+
+        Require(open.IndexOf("e.Handled = true;", StringComparison.Ordinal) >= 0 &&
+                open.IndexOf("e.Handled = true;", StringComparison.Ordinal) <
+                    open.IndexOf("await ObserveOpenCommandAsync(", StringComparison.Ordinal) &&
+                open.Contains("Could not open chart:", StringComparison.Ordinal),
+            "Open must mark the WPF command handled before observing all setup and load failures.");
+        VerifyOpenCommandObservation();
+    }
+
+    private static void VerifyOpenCommandObservation()
+    {
+        Exception? observed = null;
+        int reports = 0;
+        void Report(Exception ex)
+        {
+            observed = ex;
+            reports++;
+        }
+
+        MainWindow.ObserveOpenCommandAsync(
+            () => Task.CompletedTask, Report).GetAwaiter().GetResult();
+        Require(observed is null && reports == 0,
+            "Successful or canceled Open must not report a failure.");
+
+        var synchronous = new InvalidOperationException("injected dialog failure");
+        MainWindow.ObserveOpenCommandAsync(
+            () => throw synchronous, Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, synchronous) && reports == 1,
+            "A synchronous Open setup failure must be observed once.");
+
+        var asynchronous = new InvalidOperationException("injected load failure");
+        MainWindow.ObserveOpenCommandAsync(
+            () => Task.FromException(asynchronous), Report).GetAwaiter().GetResult();
+        Require(ReferenceEquals(observed, asynchronous) && reports == 2,
+            "An asynchronous Open load failure must be observed once.");
     }
 
     private static void Require(bool condition, string message)

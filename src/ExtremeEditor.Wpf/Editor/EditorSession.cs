@@ -17,6 +17,10 @@ internal readonly record struct FloorStructureEdit(
     int Count,
     int BeforeFloorCount);
 
+// The single action added, removed or replaced by the latest history step.
+// Before is null for an addition; After is null for a removal.
+internal readonly record struct EditorActionChange(LevelAction? Before, LevelAction? After);
+
 internal sealed partial class EditorSession
 {
     private static readonly bool ManagedMutationProfilingEnabled = string.Equals(
@@ -26,6 +30,7 @@ internal sealed partial class EditorSession
 
     private readonly List<double> _angles;
     private readonly List<LevelAction> _actions;
+    private readonly Dictionary<int, int> _actionIndexBySource = [];
     private readonly Stack<EditorHistoryEntry> _undo = new();
     private readonly Stack<EditorHistoryEntry> _redo = new();
     private readonly List<FloorStructureEdit> _structureEdits = new();
@@ -42,6 +47,7 @@ internal sealed partial class EditorSession
     private long _nextRevision;
     private long _currentRevision;
     private long _savedRevision;
+    private EditorActionChange? _lastActionChange;
 
     public EditorSession(
         LevelDocument document,
@@ -51,6 +57,7 @@ internal sealed partial class EditorSession
         Document = document ?? throw new ArgumentNullException(nameof(document));
         _angles = document.Angles.ToList();
         _actions = document.ActionStore.Actions.ToList();
+        RebuildActionSourceIndex();
         _decorations = document.Decorations.Select(CloneDecoration).ToList();
         _saveWriter = saveWriter ?? AdoFaiEditorSaveService.WriteAsync;
         _clipboardStore = clipboardStore ?? new EditorClipboardStore();
@@ -70,6 +77,15 @@ internal sealed partial class EditorSession
     internal IReadOnlyDictionary<int, JsonObject> ActionSourceTemplates => _actionSourceTemplates;
 
     public event EventHandler? Changed;
+
+    // Returns the action change recorded by the latest Execute, Undo or Redo
+    // and clears it, so a later unrelated refresh cannot consume it again.
+    internal EditorActionChange? TakeLastActionChange()
+    {
+        EditorActionChange? change = _lastActionChange;
+        _lastActionChange = null;
+        return change;
+    }
 
     public LevelSettingsSnapshot GetLevelSettings() => new(
         Document.SongFilename,
@@ -271,6 +287,7 @@ internal sealed partial class EditorSession
 
     public void AddAction(int floor, string eventType)
     {
+        _lastActionChange = null;
         if ((uint)floor >= (uint)Document.FloorCount || string.IsNullOrWhiteSpace(eventType))
             return;
 
@@ -298,6 +315,7 @@ internal sealed partial class EditorSession
 
     public void DeleteAction(LevelAction action)
     {
+        _lastActionChange = null;
         EnsureSourceMapping();
         int index = FindActionIndex(action);
         if (index < 0)
@@ -445,6 +463,7 @@ internal sealed partial class EditorSession
 
     public void ReplaceAction(LevelAction oldAction, LevelAction updatedAction)
     {
+        _lastActionChange = null;
         EnsureSourceMapping();
         updatedAction = updatedAction with
         {
@@ -457,9 +476,12 @@ internal sealed partial class EditorSession
 
     public void Undo()
     {
+        _lastActionChange = null;
         if (!_undo.TryPop(out EditorHistoryEntry? entry))
             return;
         entry.Command.Undo(this);
+        if (entry.Command is IActionChangeCommand actionCommand)
+            _lastActionChange = new EditorActionChange(actionCommand.Change.After, actionCommand.Change.Before);
         _redo.Push(entry);
         _currentRevision = entry.BeforeRevision;
         OnChanged();
@@ -467,9 +489,11 @@ internal sealed partial class EditorSession
 
     public void Redo()
     {
+        _lastActionChange = null;
         if (!_redo.TryPop(out EditorHistoryEntry? entry))
             return;
         entry.Command.Execute(this);
+        _lastActionChange = (entry.Command as IActionChangeCommand)?.Change;
         _undo.Push(entry);
         _currentRevision = entry.AfterRevision;
         OnChanged();
@@ -734,7 +758,7 @@ internal sealed partial class EditorSession
     internal void AddActionRaw(LevelAction action)
     {
         _actions.Add(action);
-        RebuildDocument();
+        RebuildActions();
     }
 
     internal void RemoveActionRaw(LevelAction action)
@@ -742,24 +766,37 @@ internal sealed partial class EditorSession
         int index = FindActionIndex(action);
         if (index >= 0)
             _actions.RemoveAt(index);
-        RebuildDocument();
+        RebuildActions();
     }
 
     internal void ReplaceActionRaw(LevelAction oldAction, LevelAction newAction)
     {
         int index = FindActionIndex(oldAction);
-        if (index >= 0)
-            _actions[index] = newAction;
-        // Replacing an action never changes angleData, which is the sole input to
-        // the managed base path positions/bounds. Event-specific native timelines
-        // are refreshed by the window after the command commits.
-        RebuildDocument(rebuildGeometry: false);
+        if (index < 0)
+            return;
+
+        _actions[index] = newAction;
+        if (oldAction.Floor == newAction.Floor)
+        {
+            if (oldAction.Kind == LevelActionKind.SetSpeed || newAction.Kind == LevelActionKind.SetSpeed)
+                RecomputeSpeedRatios();
+            if (Document.TryReplaceActionAt(index, newAction))
+            {
+                if (oldAction.SourceIndex != newAction.SourceIndex)
+                    RebuildActionSourceIndex();
+                return;
+            }
+        }
+        // Event-specific native timelines are refreshed by the window after the
+        // command commits.
+        RebuildActions();
     }
 
     private void Execute(IEditorCommand command)
     {
         long beforeRevision = _currentRevision;
         command.Execute(this);
+        _lastActionChange = (command as IActionChangeCommand)?.Change;
         long afterRevision = ++_nextRevision;
         _undo.Push(new EditorHistoryEntry(command, beforeRevision, afterRevision));
         _redo.Clear();
@@ -797,13 +834,8 @@ internal sealed partial class EditorSession
             phaseWatch = Stopwatch.StartNew();
         }
 
-        if (!_actions.Select(action => action.Floor).SequenceEqual(
-                _actions.Select(action => action.Floor).OrderBy(floor => floor)))
-        {
-            LevelAction[] stableFloorOrder = _actions.OrderBy(action => action.Floor).ToArray();
-            _actions.Clear();
-            _actions.AddRange(stableFloorOrder);
-        }
+        SortActionsByFloor();
+        RebuildActionSourceIndex();
         LogManagedMutationPhase("actionSort", phaseWatch);
 
         phaseWatch?.Restart();
@@ -832,6 +864,28 @@ internal sealed partial class EditorSession
             totalWatch.Stop();
             Console.WriteLine($"[edit-managed] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
         }
+    }
+
+    // Action edits never change angleData, the only input to the managed path
+    // positions and bounds. They skip the floor-sized angle copy and geometry
+    // rebuild, so their cost scales with the action count only.
+    private void RebuildActions()
+    {
+        SortActionsByFloor();
+        RebuildActionSourceIndex();
+        RecomputeSpeedRatios();
+        Document.ReplaceActions(_actions);
+    }
+
+    private void SortActionsByFloor()
+    {
+        if (_actions.Select(action => action.Floor).SequenceEqual(
+                _actions.Select(action => action.Floor).OrderBy(floor => floor)))
+            return;
+
+        LevelAction[] stableFloorOrder = _actions.OrderBy(action => action.Floor).ToArray();
+        _actions.Clear();
+        _actions.AddRange(stableFloorOrder);
     }
 
     private static void LogManagedMutationPhase(string phase, Stopwatch? watch)
@@ -928,13 +982,25 @@ internal sealed partial class EditorSession
 
     private int FindActionIndex(LevelAction action)
     {
-        if (action.SourceIndex != -1)
-        {
-            int bySource = _actions.FindIndex(candidate => candidate.SourceIndex == action.SourceIndex);
-            if (bySource >= 0)
-                return bySource;
-        }
+        if (action.SourceIndex != -1 &&
+            _actionIndexBySource.TryGetValue(action.SourceIndex, out int bySource) &&
+            bySource >= 0)
+            return bySource;
         return _actions.IndexOf(action);
+    }
+
+    private void RebuildActionSourceIndex()
+    {
+        _actionIndexBySource.Clear();
+        for (int index = 0; index < _actions.Count; index++)
+        {
+            int sourceIndex = _actions[index].SourceIndex;
+            if (sourceIndex != -1)
+            {
+                if (!_actionIndexBySource.TryAdd(sourceIndex, index))
+                    _actionIndexBySource[sourceIndex] = -1;
+            }
+        }
     }
 
     private int NextNewSourceIndex() => _nextNewSourceIndex--;
@@ -999,7 +1065,7 @@ internal sealed partial class EditorSession
         }
 
         _sourceMappingInitialized = true;
-        RebuildDocument();
+        RebuildActions();
     }
 
     private void RebaseSource(string path)
@@ -1170,6 +1236,13 @@ internal sealed partial class EditorSession
         void Undo(EditorSession session);
     }
 
+    // Implemented only by commands that change exactly one action and nothing
+    // else. Composite commands deliberately do not expose a change.
+    private interface IActionChangeCommand
+    {
+        EditorActionChange Change { get; }
+    }
+
     private sealed record EditorHistoryEntry(
         IEditorCommand Command,
         long BeforeRevision,
@@ -1253,16 +1326,19 @@ internal sealed partial class EditorSession
         }
     }
 
-    private sealed class AddActionCommand(LevelAction action, string name = "Add event") : IEditorCommand
+    private sealed class AddActionCommand(LevelAction action, string name = "Add event")
+        : IEditorCommand, IActionChangeCommand
     {
         public string Name => name;
+        public EditorActionChange Change => new(null, action);
         public void Execute(EditorSession session) => session.AddActionRaw(action);
         public void Undo(EditorSession session) => session.RemoveActionRaw(action);
     }
 
-    private sealed class DeleteActionCommand(LevelAction action) : IEditorCommand
+    private sealed class DeleteActionCommand(LevelAction action) : IEditorCommand, IActionChangeCommand
     {
         public string Name => "Delete event";
+        public EditorActionChange Change => new(action, null);
         public void Execute(EditorSession session) => session.RemoveActionRaw(action);
         public void Undo(EditorSession session) => session.AddActionRaw(action);
     }
@@ -1270,9 +1346,10 @@ internal sealed partial class EditorSession
     private sealed class ReplaceActionCommand(
         LevelAction before,
         LevelAction after,
-        string name = "Edit event") : IEditorCommand
+        string name = "Edit event") : IEditorCommand, IActionChangeCommand
     {
         public string Name => name;
+        public EditorActionChange Change => new(before, after);
         public void Execute(EditorSession session) => session.ReplaceActionRaw(before, after);
         public void Undo(EditorSession session) => session.ReplaceActionRaw(after, before);
     }

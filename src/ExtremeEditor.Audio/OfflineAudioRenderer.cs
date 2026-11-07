@@ -27,6 +27,9 @@ public sealed record OfflineAudioRenderPlan(
             throw new ArgumentOutOfRangeException(nameof(EndAudioTimeSeconds));
         if (ChunkFrames <= 0)
             throw new ArgumentOutOfRangeException(nameof(ChunkFrames));
+        // Non-finite volume would propagate NaN into the exported PCM samples.
+        if (!double.IsFinite(SongVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
 }
 
@@ -60,12 +63,7 @@ public sealed class OfflineAudioRenderer
                 2);
         }
 
-        using WaveStream reader = string.Equals(
-            Path.GetExtension(resolved),
-            ".ogg",
-            StringComparison.OrdinalIgnoreCase)
-            ? new VorbisWaveReader(resolved)
-            : new AudioFileReader(resolved);
+        using WaveStream reader = SongReaderFactory.Open(resolved);
         ISampleProvider song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
         return new OfflineAudioFormat(
             song.WaveFormat.SampleRate,
@@ -94,12 +92,7 @@ public sealed class OfflineAudioRenderer
                 : Path.GetFullPath(plan.SongPath);
             if (songPath is not null && File.Exists(songPath))
             {
-                reader = string.Equals(
-                    Path.GetExtension(songPath),
-                    ".ogg",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? new VorbisWaveReader(songPath)
-                    : new AudioFileReader(songPath);
+                reader = SongReaderFactory.Open(songPath);
                 song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
             }
             else
@@ -129,7 +122,8 @@ public sealed class OfflineAudioRenderer
                 sampleRate,
                 plan.Level,
                 plan.TimingMap,
-                clips);
+                clips,
+                SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
 
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;
@@ -148,9 +142,10 @@ public sealed class OfflineAudioRenderer
             long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
             if (reader is not null)
             {
+                double songPitch = SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent);
                 reader.CurrentTime = TimeSpan.FromSeconds(
                     Math.Min(
-                        Math.Max(0.0, plan.StartAudioTimeSeconds),
+                        Math.Max(0.0, plan.StartAudioTimeSeconds) * songPitch,
                         reader.TotalTime.TotalSeconds));
             }
             silentSong?.Seek(sourceStartFrame);
@@ -164,7 +159,8 @@ public sealed class OfflineAudioRenderer
                 totalFrames,
                 plan.SongVolumePercent,
                 playbackSpeed: 1.0,
-                plan.HitSoundsEnabled);
+                plan.HitSoundsEnabled,
+                songPitch: SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
 
             UnifiedAudioSampleProvider graph = graphBuild.Graph;
             graph.Seek(sourceStartFrame);

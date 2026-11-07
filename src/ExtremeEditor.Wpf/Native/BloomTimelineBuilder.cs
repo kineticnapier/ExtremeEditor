@@ -25,7 +25,8 @@ internal static class BloomTimelineBuilder
 
     private static NativeBloomEvent ToNative(VfxOccurrence occurrence)
     {
-        JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
+        // Edited values win; otherwise the values loaded from the chart.
+        JsonObject? properties = MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent);
         return new NativeBloomEvent
         {
             StartTime = occurrence.StartTime,
@@ -63,13 +64,15 @@ internal static class BloomTimelineBuilder
 
     private static float ReadPercent(JsonObject? properties, string name, float fallback)
     {
-        if (properties?[name] is not JsonValue value)
-            return fallback / 100f;
-        if (value.TryGetValue(out double number))
-            return (float)(number / 100.0);
-        if (value.TryGetValue(out string? text) &&
-            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
-            return (float)(number / 100.0);
+        if (properties?[name] is JsonValue value &&
+            (value.TryGetValue(out double number) ||
+             (value.TryGetValue(out string? text) &&
+              double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))))
+        {
+            double scaled = number / 100.0;
+            if (double.IsFinite(scaled) && Math.Abs(scaled) <= float.MaxValue)
+                return (float)scaled;
+        }
         return fallback / 100f;
     }
 
@@ -130,10 +133,17 @@ internal static class BloomStateEvaluator
         double chartTime)
     {
         NativeBloomState state = new(false, 0f, 0f, 0xffffffu);
+        if (double.IsNaN(chartTime))
+            return state;
         NativeBloomEvent? previous = null;
 
         foreach (NativeBloomEvent item in events)
         {
+            if (!double.IsFinite(item.StartTime) ||
+                !double.IsFinite(item.DurationSeconds) ||
+                !float.IsFinite(item.Threshold) ||
+                !float.IsFinite(item.Intensity))
+                continue;
             if (item.StartTime > chartTime)
                 break;
 
@@ -141,14 +151,24 @@ internal static class BloomStateEvaluator
             float startThreshold = before?.Threshold ?? item.Threshold;
             float startIntensity = before?.Intensity ?? item.Intensity;
             uint startTint = before?.Tint ?? item.Tint;
-            double progress = item.DurationSeconds <= 1e-9
+            double raw = item.DurationSeconds <= 1e-9
                 ? 1.0
-                : Math.Clamp((chartTime - item.StartTime) / item.DurationSeconds, 0.0, 1.0);
+                : (chartTime - item.StartTime) / item.DurationSeconds;
+            double eased = NativeFilterEaseEvaluator.Evaluate(item.Ease, raw);
+            double progress = double.IsFinite(eased) ? eased : 0.0;
+
+            // Match native Bloom's ease and preserve finite float endpoints
+            // even when Back/Elastic easing overshoots.
+            static float InterpolateFinite(float from, float to, double t)
+            {
+                double value = (double)from + ((double)to - from) * t;
+                return (float)Math.Clamp(value, -(double)float.MaxValue, (double)float.MaxValue);
+            }
 
             state = new NativeBloomState(
                 item.Enabled != 0,
-                (float)(startThreshold + (item.Threshold - startThreshold) * progress),
-                (float)(startIntensity + (item.Intensity - startIntensity) * progress),
+                InterpolateFinite(startThreshold, item.Threshold, progress),
+                InterpolateFinite(startIntensity, item.Intensity, progress),
                 LerpColor(startTint, item.Tint, progress));
             previous = item;
         }

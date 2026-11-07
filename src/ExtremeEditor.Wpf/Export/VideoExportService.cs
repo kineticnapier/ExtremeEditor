@@ -49,6 +49,12 @@ internal sealed record VideoExportRequest(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        // Reject dimensions that the configured libx264/yuv420p output cannot encode.
+        if ((Width & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Width), "H.264 yuv420p requires an even width.");
+        if ((Height & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Height), "H.264 yuv420p requires an even height.");
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
     }
 }
 
@@ -94,6 +100,18 @@ internal sealed class VideoExportService
         if (endAudio <= startAudio)
             throw new InvalidOperationException("Video export audio range is empty.");
 
+        // Validate the complete frame count before ffmpeg or audio output starts.
+        var videoPlan = new VideoExportPlan(
+            startChart,
+            endChart,
+            request.FramesPerSecond,
+            request.Width,
+            request.Height)
+        {
+            ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
+        };
+        int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
+
         string? songPath = source.SongPath;
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
@@ -135,24 +153,17 @@ internal sealed class VideoExportService
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report(new VideoExportProgress("Video", 0, 0));
-        await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
 
+        // Prepare the native scene before starting ffmpeg. A missing native
+        // renderer or failed asset upload must not launch a child process.
         using var frameRenderer = new NativeChartFrameRenderer(
             request.Width,
             request.Height);
         frameRenderer.Load(level, timingMap);
         frameRenderer.SetCleanView(true);
 
-        var videoPlan = new VideoExportPlan(
-            startChart,
-            endChart,
-            request.FramesPerSecond,
-            request.Width,
-            request.Height)
-        {
-            ChartRate = Math.Max(0.000001, level.PitchPercent * 0.01)
-        };
-        int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
+        await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+
         int writtenVideoFrames = 0;
 
         var framePipeline = new VideoExportFramePipeline(frameRenderer);

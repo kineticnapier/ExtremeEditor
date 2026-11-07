@@ -49,7 +49,7 @@ internal static class DocumentTabScaffoldRegression
             "Inactive tab state is independent of the current chart.");
 
         VerifyTabCollection();
-
+        VerifyWindowClosePendingWork();
 
         string root = FindRepositoryRoot();
         string markup = File.ReadAllText(Path.Combine(
@@ -89,16 +89,23 @@ internal static class DocumentTabScaffoldRegression
         Require(controller.Contains("ActivateDocumentTab(", StringComparison.Ordinal) &&
                 controller.Contains("previous.Audio = _audio", StringComparison.Ordinal) &&
                 controller.Contains("previous.SelectedFloors = _selection.SelectedFloors.ToArray()", StringComparison.Ordinal) &&
-                controller.Contains("previous.EditorCamera = NativeViewport.TryGetEditorCamera", StringComparison.Ordinal) &&
+                controller.Contains("previous.EditorCamera = previousCamera", StringComparison.Ordinal) &&
                 controller.Contains("NativeViewport.RestoreEditorCamera", StringComparison.Ordinal) &&
-                controller.Contains("NativeViewport.SetLevel(tab.Document)", StringComparison.Ordinal) &&
+                controller.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document, nativeLevel)", StringComparison.Ordinal) &&
                 controller.Contains("_editor?.Changed -= ActiveEditorSessionChanged", StringComparison.Ordinal),
             "Switching tabs preserves the previous audio, selection and editor session.");
-        Require(controller.Contains("foreach (EditorDocumentTab tab in _documentTabs.Tabs)", StringComparison.Ordinal) &&
+        Require(controller.Contains("for (int index = 0; index < _documentTabs.Tabs.Count; index++)", StringComparison.Ordinal) &&
                 controller.Contains("bool isActive = ReferenceEquals(tab, _documentTabs.ActiveTab)", StringComparison.Ordinal) &&
-                controller.Contains("DocumentTabsHost.Children.Add(tabChrome)", StringComparison.Ordinal) &&
+                controller.Contains("DocumentTabsHost.Children.Insert(index, visual.Chrome)", StringComparison.Ordinal) &&
                 !controller.Contains("if (ReferenceEquals(tab, active))", StringComparison.Ordinal),
             "The active tab is rendered in its original position alongside every other tab.");
+        Require(controller.Contains(
+                    "AutomationProperties.SetName(visual.Activate, $\"Switch to {tab.DisplayName}\")",
+                    StringComparison.Ordinal) &&
+                controller.Contains(
+                    "AutomationProperties.SetName(visual.Close, $\"Close {tab.DisplayName}\")",
+                    StringComparison.Ordinal),
+            "Tab activation and close buttons must expose filename-aware accessible names.");
         string keyboard = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.AdoFaiKeybinds.cs"));
         Require(keyboard.Contains("key == Key.N", StringComparison.Ordinal) &&
@@ -107,13 +114,35 @@ internal static class DocumentTabScaffoldRegression
         string main = File.ReadAllText(Path.Combine(
             root, "src", "ExtremeEditor.Wpf", "MainWindow.xaml.cs"));
         Require(main.Contains("_documentTabs.FindByPath(dialog.FileName)", StringComparison.Ordinal) &&
-                main.Contains("ActivateDocumentTab(existing)", StringComparison.Ordinal) &&
+                main.Contains("RequestDocumentTabActivation(existing)", StringComparison.Ordinal) &&
                 !main.Contains("if (_documentTabs.Tabs.Count > 1)", StringComparison.Ordinal),
             "Open reuses an existing chart tab instead of replacing other tabs.");
-        Require(source.Contains("Other chart tabs have unsaved changes.", StringComparison.Ordinal),
+        Require(source.Contains("_documentTabs.Tabs.Any(static tab => tab.IsDirty)", StringComparison.Ordinal),
             "Closing the window protects modified inactive charts.");
+        Require(source.Contains(
+                    "hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending",
+                    StringComparison.Ordinal) &&
+                source.Contains("_windowCloseApproved = false;", StringComparison.Ordinal) &&
+                source.Contains("if (e.Cancel)", StringComparison.Ordinal),
+            "Window shutdown must defer during tab close/confirmation and clear stale approval.");
         Require(source.Contains("_documentTabs.TryReserveSavePath(saveTab, path!)", StringComparison.Ordinal),
             "Save As must atomically reserve its destination before writing.");
+    }
+
+    private static void VerifyWindowClosePendingWork()
+    {
+        // All eight combinations are checked; a clean document alone must not
+        // authorize shutdown while another asynchronous window operation owns it.
+        for (int mask = 0; mask < 8; mask++)
+        {
+            bool saving = (mask & 1) != 0;
+            bool closingTab = (mask & 2) != 0;
+            bool confirmingClose = (mask & 4) != 0;
+            bool blocked = MainWindow.ShouldBlockWindowCloseForPendingWork(
+                saving, closingTab, confirmingClose);
+            Require(blocked == (mask != 0),
+                $"Window shutdown pending-work guard failed for mask {mask}.");
+        }
     }
 
     private static void VerifyTabCollection()
@@ -132,6 +161,23 @@ internal static class DocumentTabScaffoldRegression
 
         var thirdDocument = LevelDocument.CreateSynthetic(2);
         var third = new EditorDocumentTab(thirdDocument, new EditorSession(thirdDocument));
+
+        // The initial Open/New flow stages its tab before native activation.
+        // A failed first upload must leave no active tab or orphaned entry.
+        var stagedTabs = new EditorDocumentTabs();
+        var stagedDocument = LevelDocument.CreateSynthetic(2);
+        var stagedTab = new EditorDocumentTab(
+            stagedDocument, new EditorSession(stagedDocument));
+        Require(stagedTabs.Add(stagedTab, activate: false) &&
+                stagedTabs.ActiveTab is null && stagedTabs.Tabs.Count == 1,
+            "Staging the first chart must not activate it before native upload.");
+        Require(stagedTabs.Remove(stagedTab) &&
+                stagedTabs.ActiveTab is null && stagedTabs.Tabs.Count == 0,
+            "A failed first activation can remove its uncommitted chart.");
+        Require(stagedTabs.Add(stagedTab, activate: false) &&
+                stagedTabs.Activate(stagedTab) &&
+                ReferenceEquals(stagedTabs.ActiveTab, stagedTab),
+            "The first chart becomes active only after an explicit successful activation.");
 
         Require(tabs.ActiveTab is null && tabs.Tabs.Count == 0,
             "A fresh tab collection has no active chart.");

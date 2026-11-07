@@ -147,6 +147,7 @@ public sealed partial class NativeLevelViewport : HwndHost
     internal NativeLevelUploadMetrics LastLevelUploadMetrics { get; private set; }
     internal NativePlaybackTimelineUploadMetrics LastPlaybackTimelineUploadMetrics { get; private set; }
     internal NativeLevelSnapshot? SnapshotForDiagnostics => _snapshot;
+    internal NativeFlashEvent[] FlashTimelineForDiagnostics => _flashTimeline;
 
     public bool FollowPlayer
     {
@@ -176,8 +177,39 @@ public sealed partial class NativeLevelViewport : HwndHost
     {
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordFullLevelReplacementRequest();
+        SetLevelCore(level, () =>
+        {
+            LastLevelUploadMetrics = UploadPendingLevel();
+            ApplyPendingFrameAll();
+        });
+    }
+
+    // The direct (non-prepared) level path must also preserve its managed
+    // scene when a native upload fails. The native scene itself may still
+    // require recovery by the caller after a partial transfer.
+    internal void SetLevelCore(LevelDocument level, Action upload)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(upload);
         _playbackAnchorGate.Invalidate();
-        bool changedDocument = !ReferenceEquals(_level, level);
+
+        LevelDocument? previousLevel = _level;
+        NativeLevelSnapshot? previousSnapshot = _snapshot;
+        NativeLevelUploadMetrics previousMetrics = LastLevelUploadMetrics;
+        int[] previousSelectedFloors = _selectedFloors;
+        int previousPrimarySelection = _primarySelection;
+        NativeCameraEvent[] previousCamera = _cameraTimeline;
+        NativeFlashEvent[] previousFlash = _flashTimeline;
+        NativeBloomEvent[] previousBloom = _bloomTimeline;
+        NativeScreenTileEvent[] previousScreenTile = _screenTileTimeline;
+        NativeFilterEvent[] previousFilter = _filterTimeline;
+        NativeBackgroundEvent[] previousBackground = _backgroundTimeline;
+        NativeTrackTransformEvent[] previousTrackTransform = _trackTransformTimeline;
+        NativeTrackVisualEvent[] previousTrackVisual = _trackVisualTimeline;
+        NativeTrackAnimationSegment[] previousTrackAnimation = _trackAnimationTimeline;
+        NativeTrackAnimationTiming[] previousTrackTimings = _trackAnimationTimings;
+
+        bool changedDocument = !ReferenceEquals(previousLevel, level);
         _level = level;
         _snapshot = null;
         if (changedDocument)
@@ -195,10 +227,30 @@ public sealed partial class NativeLevelViewport : HwndHost
             _trackAnimationTimeline = [];
             _trackAnimationTimings = [];
         }
-        LastLevelUploadMetrics = UploadPendingLevel();
-        // The host may have been created on the welcome screen, before a
-        // chart existed. Honor a FrameAll request once that first level arrives.
-        ApplyPendingFrameAll();
+
+        try
+        {
+            upload();
+        }
+        catch
+        {
+            _level = previousLevel;
+            _snapshot = previousSnapshot;
+            LastLevelUploadMetrics = previousMetrics;
+            _selectedFloors = previousSelectedFloors;
+            _primarySelection = previousPrimarySelection;
+            _cameraTimeline = previousCamera;
+            _flashTimeline = previousFlash;
+            _bloomTimeline = previousBloom;
+            _screenTileTimeline = previousScreenTile;
+            _filterTimeline = previousFilter;
+            _backgroundTimeline = previousBackground;
+            _trackTransformTimeline = previousTrackTransform;
+            _trackVisualTimeline = previousTrackVisual;
+            _trackAnimationTimeline = previousTrackAnimation;
+            _trackAnimationTimings = previousTrackTimings;
+            throw;
+        }
     }
 
     internal bool TryUpdateFloorIconsFrom(LevelDocument level, int startFloor)
@@ -224,11 +276,93 @@ public sealed partial class NativeLevelViewport : HwndHost
         return true;
     }
 
+    // A Flash edit changes only the Flash timeline and, at most, the icon of
+    // the edited floor. Rebuild those from the unchanged timing map instead of
+    // replacing the floor-sized snapshot and every playback timeline.
+    internal bool TryUpdateFlashTimeline(LevelDocument level, TimingMap timingMap, int iconFloor)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(timingMap);
+        if (_snapshot is null ||
+            !ReferenceEquals(_level, level) ||
+            timingMap.Floors.Count != level.FloorCount ||
+            !FloorIconResolver.TryResolveFloor(level, _snapshot, iconFloor, out NativeFloorIconState icon))
+        {
+            return false;
+        }
+
+        NativeFlashEvent[] flashTimeline = FlashTimelineBuilder.Build(level, timingMap);
+        _playbackAnchorGate.Invalidate();
+        return TryCommitFlashTimelineUpdate(
+            iconFloor,
+            icon,
+            flashTimeline,
+            (floor, state) => _session is null || _session.UpdateFloorIcons(floor, [state]),
+            events => _session?.SetFlashTimeline(events));
+    }
+
+    // The native icon upload can succeed before the Flash timeline upload
+    // fails. Commit neither managed value until both uploads have succeeded.
+    // A false result makes the caller replace the full native scene and
+    // rebuild playback, reconciling any partial native update.
+    internal bool TryCommitFlashTimelineUpdate(
+        int iconFloor,
+        NativeFloorIconState icon,
+        NativeFlashEvent[] flashTimeline,
+        Func<int, NativeFloorIconState, bool> uploadIcon,
+        Action<NativeFlashEvent[]> uploadFlash)
+    {
+        ArgumentNullException.ThrowIfNull(flashTimeline);
+        ArgumentNullException.ThrowIfNull(uploadIcon);
+        ArgumentNullException.ThrowIfNull(uploadFlash);
+        if (_snapshot is null || (uint)iconFloor >= (uint)_snapshot.Floors.Length)
+            return false;
+
+        try
+        {
+            if (!uploadIcon(iconFloor, icon))
+                return false;
+            uploadFlash(flashTimeline);
+        }
+        catch (InvalidOperationException)
+        {
+            // Native timeline setters throw on a failed upload or disposed
+            // renderer. The caller's full replacement handles recovery.
+            return false;
+        }
+
+        icon.ApplyTo(ref _snapshot.Floors[iconFloor]);
+        _flashTimeline = flashTimeline;
+        NativeLevelUpdateDiagnostics.RecordFloorIconUpdateRequest(iconFloor);
+        NativeLevelUpdateDiagnostics.RecordFlashTimelineUpdateRequest();
+        return true;
+    }
+
     public void ReloadAssets()
     {
         _playbackAnchorGate.Invalidate();
+        ReloadAssetsCore(UploadPendingLevel);
+    }
+
+    // Keep the previous managed scene available if rebuilding or uploading
+    // refreshed assets fails. A partial native transfer still requires
+    // renderer recovery by the caller.
+    internal void ReloadAssetsCore(Func<NativeLevelUploadMetrics> upload)
+    {
+        ArgumentNullException.ThrowIfNull(upload);
+        NativeLevelSnapshot? previousSnapshot = _snapshot;
+        NativeLevelUploadMetrics previousMetrics = LastLevelUploadMetrics;
         _snapshot = null;
-        LastLevelUploadMetrics = UploadPendingLevel();
+        try
+        {
+            LastLevelUploadMetrics = upload();
+        }
+        catch
+        {
+            _snapshot = previousSnapshot;
+            LastLevelUploadMetrics = previousMetrics;
+            throw;
+        }
     }
 
     private void SyncBackwardHudButton()
@@ -241,25 +375,33 @@ public sealed partial class NativeLevelViewport : HwndHost
     }
 
     public void SetSelection(IEnumerable<int> floors, int primaryFloor)
-    {
-        if (_level is null)
-        {
-            _selectedFloors = [];
-            _primarySelection = -1;
-            _session?.SetSelection(_selectedFloors, _primarySelection);
-            SyncBackwardHudButton();
-            return;
-        }
+        => SetSelectionCore(floors, primaryFloor,
+            (selected, primary) => _session?.SetSelection(selected, primary));
 
-        _selectedFloors = floors
-            .Where(floor => (uint)floor < (uint)_level.FloorCount)
-            .Distinct()
-            .OrderBy(floor => floor)
-            .ToArray();
-        _primarySelection = _selectedFloors.Contains(primaryFloor)
+    // A native selection upload can throw. Keep the managed selection on the
+    // previous floors until the renderer accepts the new selection.
+    // The delegate permits failure injection without creating a native HWND.
+    internal void SetSelectionCore(
+        IEnumerable<int> floors,
+        int primaryFloor,
+        Action<int[], int> upload)
+    {
+        ArgumentNullException.ThrowIfNull(floors);
+        ArgumentNullException.ThrowIfNull(upload);
+
+        int[] nextFloors = _level is null
+            ? []
+            : floors.Where(floor => (uint)floor < (uint)_level.FloorCount)
+                .Distinct()
+                .OrderBy(floor => floor)
+                .ToArray();
+        int nextPrimary = nextFloors.Contains(primaryFloor)
             ? primaryFloor
-            : _selectedFloors.Length > 0 ? _selectedFloors[^1] : -1;
-        _session?.SetSelection(_selectedFloors, _primarySelection);
+            : nextFloors.Length > 0 ? nextFloors[^1] : -1;
+
+        upload(nextFloors, nextPrimary);
+        _selectedFloors = nextFloors;
+        _primarySelection = nextPrimary;
         SyncBackwardHudButton();
     }
 
@@ -295,17 +437,17 @@ public sealed partial class NativeLevelViewport : HwndHost
     public void SetPlaybackState(double chartTime, double chartRate, bool active, bool playing)
     {
         UpdateDecorationPlayback(chartTime);
-        if (_session is NativeRendererSession session &&
-            _playbackAnchorGate.ShouldSend(chartTime, chartRate, active, playing))
-            session.SetPlaybackAnchor(chartTime, chartRate, active, playing);
+        if (_session is NativeRendererSession session)
+            _playbackAnchorGate.Dispatch(chartTime, chartRate, active, playing,
+                () => session.SetPlaybackAnchor(chartTime, chartRate, active, playing));
     }
 
     public void ClearPlayback()
     {
         UpdateDecorationPlayback(double.NegativeInfinity);
-        if (_session is NativeRendererSession session &&
-            _playbackAnchorGate.ShouldSend(0.0, 1.0, active: false, playing: false))
-            session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false);
+        if (_session is NativeRendererSession session)
+            _playbackAnchorGate.Dispatch(0.0, 1.0, active: false, playing: false,
+                () => session.SetPlaybackAnchor(0.0, 1.0, active: false, playing: false));
     }
 
     internal bool TryGetDiagnostics(out NativeRendererDiagnostics diagnostics)
@@ -494,8 +636,8 @@ public sealed partial class NativeLevelViewport : HwndHost
             pendingSnapshot.StaticDecorations = decorationData.Instances;
             pendingSnapshot.DecorationAssets = decorationData.Assets;
             pendingSnapshot.DecorationPlayback = decorationData.PlaybackRuntime;
-            var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(_level);
             BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(_level);
+            var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(_level, initialBackground);
             pendingSnapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
                 backgroundIds.TryGetValue(initialBackground.Image, out uint imageId) ? imageId : 0u);
             pendingSnapshot.BackgroundAssets = backgroundAssets;

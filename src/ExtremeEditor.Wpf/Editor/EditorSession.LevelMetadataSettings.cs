@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using ExtremeEditor.Core;
 
 namespace ExtremeEditor.Wpf;
 
@@ -6,14 +7,14 @@ internal sealed partial class EditorSession
 {
     public LevelMetadataSettingsSnapshot GetLevelMetadataSettings()
     {
-        JsonObject settings = GetSourceSettings();
+        LevelMetadata metadata = Document.Metadata;
         return new LevelMetadataSettingsSnapshot(
-            ReadOptionalString(settings, "song"),
-            ReadOptionalString(settings, "artist"),
-            ReadOptionalString(settings, "author"),
-            ReadOptionalString(settings, "levelDesc"),
-            ReadOptionalString(settings, "levelTags"),
-            ReadOptionalString(settings, "artistLinks"));
+            metadata.Song,
+            metadata.Artist,
+            metadata.Author,
+            metadata.LevelDescription,
+            metadata.LevelTags,
+            metadata.ArtistLinks);
     }
 
     public void EditLevelMetadataSettings(LevelMetadataSettingsSnapshot settings)
@@ -35,6 +36,13 @@ internal sealed partial class EditorSession
         SetOptionalString(sourceSettings, "levelDesc", settings.LevelDesc);
         SetOptionalString(sourceSettings, "levelTags", settings.LevelTags);
         SetOptionalString(sourceSettings, "artistLinks", settings.ArtistLinks);
+        Document.Metadata = new LevelMetadata(
+            settings.Song,
+            settings.Artist,
+            settings.Author,
+            settings.LevelDesc,
+            settings.LevelTags,
+            settings.ArtistLinks);
     }
 
     private JsonObject GetSourceSettings()
@@ -45,13 +53,6 @@ internal sealed partial class EditorSession
         settings = new JsonObject();
         root["settings"] = settings;
         return settings;
-    }
-
-    private static string? ReadOptionalString(JsonObject settings, string key)
-    {
-        if (!settings.TryGetPropertyValue(key, out JsonNode? node) || node is null)
-            return null;
-        return node.GetValue<string>();
     }
 
     private static void SetOptionalString(JsonObject settings, string key, string? value)

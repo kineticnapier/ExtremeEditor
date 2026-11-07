@@ -1,6 +1,7 @@
 #pragma once
 
 #include "extreme_editor_renderer.h"
+#include "floor_base.h"
 #include "track_transform_runtime.h"
 
 #include <chrono>
@@ -26,6 +27,9 @@ class TrackAnimationRuntime
 {
 public:
     void ResetBase(const std::vector<EeFloor>& floors) noexcept;
+    void ResetBase(FloorBase base) noexcept;
+    const EeFloor* BaseData() const noexcept;
+    std::size_t OwnedFloorBufferBytes() const noexcept;
     bool SetTimeline(
         const EeTrackAnimationSegment* segments,
         std::uint32_t segment_count,
@@ -76,7 +80,30 @@ private:
         float new_x,
         float new_y,
         TrackTransformRuntime::CellMap& cells) noexcept;
-    static bool SameTransformState(const EeFloor& left, const EeFloor& right) noexcept;
+    // The fields SameTransformState compares, copied bit for bit. A last
+    // output is only ever compared, so it does not need a whole EeFloor.
+    struct TransformState
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float entry_angle = 0.0f;
+        float icon_angle = 0.0f;
+        float transform_scale_x = 0.0f;
+        float transform_scale_y = 0.0f;
+        float transform_rotation = 0.0f;
+        float transform_opacity = 0.0f;
+        std::uint32_t track_transform_flags = 0u;
+
+        static TransformState Of(const EeFloor& floor) noexcept
+        {
+            return {floor.x, floor.y, floor.entry_angle, floor.icon_angle,
+                floor.transform_scale_x, floor.transform_scale_y,
+                floor.transform_rotation, floor.transform_opacity,
+                floor.track_transform_flags};
+        }
+    };
+
+    static bool SameTransformState(const EeFloor& left, const TransformState& right) noexcept;
     EeFloor CaptureMoveResolved(std::size_t floor, const EeFloor& candidate) noexcept;
     bool OwnsSharedChannel(
         std::uint32_t floor,
@@ -86,13 +113,16 @@ private:
         double chart_time) const noexcept;
 
     mutable std::recursive_mutex mutex_;
-    std::vector<EeFloor> base_floors_;
+    void ReleaseFloorBuffers() noexcept;
+    const std::vector<EeFloor>& BaseFloors() const noexcept { return FloorsOf(base_); }
+
+    FloorBase base_;
     std::vector<EeTrackAnimationSegment> segments_;
     std::vector<EeTrackAnimationTiming> timings_;
     std::vector<std::size_t> segment_by_floor_;
     std::vector<TrackAnimationFloorState> floor_states_;
     std::vector<EeFloor> move_resolved_floors_;
-    std::vector<EeFloor> last_outputs_;
+    std::vector<TransformState> last_outputs_;
     std::vector<bool> has_last_output_;
     std::unordered_map<std::uint32_t, std::vector<EeTrackTransformEvent>> competing_events_by_floor_;
     bool active_ = false;

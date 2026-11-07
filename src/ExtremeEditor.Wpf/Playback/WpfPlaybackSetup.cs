@@ -16,6 +16,7 @@ internal static class WpfPlaybackSetupBuilder
     public static WpfPlaybackSetup Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
+        Native.NativeLevelUpdateDiagnostics.RecordPlaybackSetupBuild();
 
         var watch = Stopwatch.StartNew();
         TimingMap timingMap = FlatTimingMapBuilder.Build(level);

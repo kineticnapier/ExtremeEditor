@@ -57,6 +57,9 @@ public sealed record VfxTimeline(
 
 public static class VfxTimelineBuilder
 {
+    // A malformed RepeatEvents must not exhaust memory during timeline preparation.
+    // Exceeding the budget fails explicitly instead of silently dropping effects.
+    private const int MaxRepeatedOccurrencesPerTimeline = 200_000;
     public static VfxTimeline Build(LevelDocument level)
     {
         ArgumentNullException.ThrowIfNull(level);
@@ -76,7 +79,9 @@ public static class VfxTimelineBuilder
         ArgumentNullException.ThrowIfNull(timing);
         ArgumentNullException.ThrowIfNull(includeEvent);
         double pitch = Math.Max(0.000001, level.PitchPercent * 0.01);
-        double[] entryBeats = BuildEntryBeats(timing);
+        // Entry beats are a floor-sized prefix sum. Only floor-style
+        // RepeatEvents expansion reads them, so most timelines never build it.
+        var entryBeats = new Lazy<double[]>(() => BuildEntryBeats(timing));
         var occurrences = new List<VfxOccurrence>();
         var repeats = new List<VfxRepeatDescriptor>();
         var repeatsByFloorAndTag = new Dictionary<(int Floor, string Tag), VfxRepeatDescriptor>();
@@ -106,6 +111,7 @@ public static class VfxTimelineBuilder
         }
 
         var usedRepeats = new HashSet<VfxRepeatDescriptor>();
+        int repeatedOccurrences = 0;
         foreach (LevelAction action in sourceActions)
         {
             VfxRepeatDescriptor? repeat = FindMatchingRepeat(action, repeatsByFloorAndTag);
@@ -116,24 +122,56 @@ public static class VfxTimelineBuilder
             }
 
             usedRepeats.Add(repeat);
-            ExpandOccurrences(action, repeat, timing, pitch, entryBeats, occurrences);
+            ExpandOccurrences(action, repeat, timing, pitch, entryBeats, occurrences, ref repeatedOccurrences);
         }
 
         // GREEN-A exposed cross-floor tag association before concrete stock
         // expansion was known. Preserve that non-executable association shape
         // without treating it as a resolved RepeatEvents occurrence.
+        //
+        // Index exact event-tag strings once, rather than scanning every source
+        // for each unused RepeatEvents. Exact matching and source order are
+        // preserved, including tags containing spaces.
+        Dictionary<string, List<LevelAction>>? sourcesByExactTag = null;
         foreach (VfxRepeatDescriptor repeat in repeats)
         {
             if (usedRepeats.Contains(repeat) || string.IsNullOrEmpty(repeat.Tag))
                 continue;
 
-            foreach (LevelAction source in sourceActions)
+            if (sourcesByExactTag is null)
             {
-                string? eventTag = MoveDecorationsTargeting.GetEventTag(source);
-                if (source.Floor == repeat.Floor ||
-                    !string.Equals(eventTag, repeat.Tag, StringComparison.Ordinal))
+                sourcesByExactTag = new Dictionary<string, List<LevelAction>>(StringComparer.Ordinal);
+                foreach (LevelAction source in sourceActions)
                 {
+                    string? eventTag = MoveDecorationsTargeting.GetEventTag(source);
+                    if (string.IsNullOrEmpty(eventTag))
+                        continue;
+                    if (!sourcesByExactTag.TryGetValue(eventTag, out List<LevelAction>? taggedSources))
+                    {
+                        taggedSources = [];
+                        sourcesByExactTag.Add(eventTag, taggedSources);
+                    }
+                    taggedSources.Add(source);
+                }
+            }
+
+            if (!sourcesByExactTag.TryGetValue(repeat.Tag, out List<LevelAction>? matches) ||
+                matches is null)
+                continue;
+
+            foreach (LevelAction source in matches)
+            {
+                if (source.Floor == repeat.Floor)
                     continue;
+
+                // Unresolved associations also allocate occurrences. They must
+                // share the same limit as executable Beat/Floor expansions.
+                if (repeatedOccurrences >= MaxRepeatedOccurrencesPerTimeline)
+                {
+                    throw new InvalidOperationException(
+                        $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                        $"would exceed the timeline limit of {MaxRepeatedOccurrencesPerTimeline} " +
+                        "occurrences with an unresolved cross-floor association.");
                 }
 
                 occurrences.Add(CreateOccurrence(
@@ -144,6 +182,7 @@ public static class VfxTimelineBuilder
                     repeatIteration: -1,
                     repeatAngleOffset: 0,
                     placementResolved: false));
+                repeatedOccurrences++;
             }
         }
 
@@ -159,8 +198,9 @@ public static class VfxTimelineBuilder
         VfxRepeatDescriptor repeat,
         TimingMap timing,
         double pitch,
-        IReadOnlyList<double> entryBeats,
-        List<VfxOccurrence> destination)
+        Lazy<double[]> entryBeats,
+        List<VfxOccurrence> destination,
+        ref int repeatedOccurrences)
     {
         int count = repeat.RepeatType == VfxRepeatType.Beat
             ? Math.Max(0, repeat.Repetitions ?? 0)
@@ -168,8 +208,29 @@ public static class VfxTimelineBuilder
         double interval = repeat.RepeatType == VfxRepeatType.Beat
             ? repeat.Interval ?? 0
             : -1;
+        if (!double.IsFinite(interval))
+        {
+            throw new InvalidOperationException(
+                $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                "has a non-finite interval.");
+        }
         bool beatStyle = interval > 0;
         double originalAngleOffset = source.AngleOffset ?? 0;
+
+        // Count the expansion before allocating. Beat repeats remain on one
+        // floor, so the usual floor-boundary break cannot bound their size.
+        if ((uint)source.Floor >= (uint)timing.Floors.Count)
+            return;
+        long requested = beatStyle
+            ? (long)count + 1
+            : Math.Min((long)count + 1, (long)timing.Floors.Count - source.Floor);
+        if (requested > MaxRepeatedOccurrencesPerTimeline - repeatedOccurrences)
+        {
+            throw new InvalidOperationException(
+                $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                $"would expand to {requested} occurrences; the timeline limit is " +
+                $"{MaxRepeatedOccurrencesPerTimeline}. Reduce repetitions or split the effect.");
+        }
 
         for (int iteration = 0; iteration <= count; iteration++)
         {
@@ -193,10 +254,16 @@ public static class VfxTimelineBuilder
             else
             {
                 repeatAngleOffset =
-                    (entryBeats[indexedFloor] - entryBeats[source.Floor]) * 180.0;
+                    (entryBeats.Value[indexedFloor] - entryBeats.Value[source.Floor]) * 180.0;
             }
 
             double effectiveAngleOffset = originalAngleOffset + repeatAngleOffset;
+            if (!double.IsFinite(repeatAngleOffset) || !double.IsFinite(effectiveAngleOffset))
+            {
+                throw new InvalidOperationException(
+                    $"RepeatEvents at floor {repeat.Floor + 1} (source index {repeat.SourceIndex}) " +
+                    "produced a non-finite angle offset.");
+            }
             destination.Add(CreateOccurrence(
                 source,
                 timing,
@@ -207,6 +274,7 @@ public static class VfxTimelineBuilder
                 iteration,
                 repeatAngleOffset,
                 placementResolved: true));
+            repeatedOccurrences++;
         }
     }
 
@@ -223,8 +291,28 @@ public static class VfxTimelineBuilder
     {
         int floor = effectiveFloor ?? action.Floor;
         double? angleOffset = effectiveAngleOffset ?? action.AngleOffset;
+        if (angleOffset is double offset && !double.IsFinite(offset))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "has a non-finite angle offset.");
+        }
+        if (action.Duration is double duration && !double.IsFinite(duration))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "has a non-finite duration.");
+        }
+
         double startTime = ResolveStartTime(timing, floor, angleOffset ?? 0);
         double? durationSeconds = ResolveDurationSeconds(timing, floor, pitch, action.Duration);
+        if (!double.IsFinite(startTime) ||
+            (durationSeconds is double seconds && !double.IsFinite(seconds)))
+        {
+            throw new InvalidOperationException(
+                $"VFX event at floor {action.Floor + 1} (source index {action.SourceIndex}) " +
+                "produced a non-finite time value.");
+        }
         return new VfxOccurrence(
             floor,
             action.SourceIndex,

@@ -15,13 +15,34 @@ if (string.Equals(Environment.GetEnvironmentVariable("EXTREMEEDITOR_AUDIO_DENSE_
 
 DenseAudioRuntimeDiagnosticsRegression.Run();
 DenseTransportBlockMixRegression.Run();
+PcmWaveReaderRegression.Run();
 MutedPrerenderRegression.Run();
 MutedTransportRegression.Run();
 RunSampleIndexChecks();
+RunHitSoundRenderCapacityChecks();
+RunHitSoundCacheCapacityChecks();
 RunDiagnosticLogChecks();
 RunDiagnosticHeartbeatChecks();
 RunClockChecks();
+RunSongPitchRateChecks();
+RunNonFiniteSongVolumeChecks();
+RunNonFiniteHitSoundVolumeChecks();
+RunInvalidHitSoundTimestampChecks();
+RunUnrepresentablePlaySoundDurationChecks();
+RunUnscheduledPlaySoundDurationChecks();
+RunHitSoundDurationOverflowChecks();
+RunNearLongMaxHitSoundChecks();
+RunMutedHitScheduleChecks();
+RunEmptyHitScheduleCacheChecks();
+RunSparsePrerenderCacheChecks();
+RunSparsePrerenderGapChecks();
+RunSparsePrimeRangeChecks();
+RunSparseForegroundSilenceCacheChecks();
+RunLongClipSparseCandidateIndexChecks();
+RunFiniteSilentOddReadChecks();
 RunProviderChecks();
+RunPlaySoundEventChecks();
+RunHitSoundScheduleHotSwapRegression();
 MultichannelFoldDownRegression.Run();
 RunOffsetOrderingRegression();
 RunNegativeStartTailRegression();
@@ -30,6 +51,43 @@ RunSparseTimelineChecks();
 RunMillionFloorScanBenchmark();
 Console.WriteLine("All audio foundation checks passed.");
 return 0;
+
+static void RunHitSoundCacheCapacityChecks()
+{
+    // Cached PCM is always 44.1 kHz stereo, even when the input file has
+    // a different sample rate. Reserve from decoded duration to avoid
+    // repeated List growth for ordinary clips longer than one second.
+    Equal(1_024, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.Zero),
+        "empty cached hit-sound reserve");
+    Equal(44_100, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(0.5)),
+        "half-second stereo cached hit-sound reserve");
+    Equal(88_200, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(1)),
+        "one-second stereo cached hit-sound reserve");
+    Equal(176_400, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(2)),
+        "two-second stereo cached hit-sound reserve");
+    Equal(4_194_304, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromMinutes(1)),
+        "long cached hit-sound reserve is bounded");
+    Equal(4_194_304, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.MaxValue),
+        "extreme duration cannot overflow the initial allocation");
+    Equal(1_024, HitSoundLibrary.EstimateCacheCapacity(TimeSpan.FromSeconds(-1)),
+        "negative duration cannot create a negative allocation");
+}
+
+static void RunHitSoundRenderCapacityChecks()
+{
+    // A one-second stereo hit sound at 44.1 kHz already overflows int when
+    // multiplied by the target rate before division.
+    Equal(1_024, HitSoundLibrary.EstimateRenderCapacity(0, 48_000),
+        "empty hit-sound render reserve");
+    Equal(48_000, HitSoundLibrary.EstimateRenderCapacity(44_100, 48_000),
+        "half-second stereo hit-sound render reserve");
+    Equal(96_000, HitSoundLibrary.EstimateRenderCapacity(88_200, 48_000),
+        "one-second stereo hit-sound render reserve without int overflow");
+    Equal(4_194_304, HitSoundLibrary.EstimateRenderCapacity(4_410_000, 48_000),
+        "long hit-sound initial allocation is bounded");
+    Equal(4_194_304, HitSoundLibrary.EstimateRenderCapacity(int.MaxValue, int.MaxValue),
+        "extreme hit-sound estimate is bounded without overflow");
+}
 
 static void RunDiagnosticLogChecks()
 {
@@ -78,6 +136,622 @@ static void RunClockChecks()
     Near(2.0, PlaybackClock.AudioToChartTime(level, audio), "clock round trip");
 }
 
+static void RunNonFiniteSongVolumeChecks()
+{
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 1.0)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+
+    foreach (double volume in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+    {
+        var plan = new OfflineAudioRenderPlan(level, timing, timeline, null, 0.0, 1.0, volume);
+        try
+        {
+            plan.Validate();
+            throw new InvalidOperationException("Non-finite offline song volume was accepted.");
+        }
+        catch (ArgumentOutOfRangeException ex) when (
+            ex.ParamName == nameof(OfflineAudioRenderPlan.SongVolumePercent))
+        {
+            // Invalid volume must be rejected before any PCM rendering begins.
+        }
+
+        var song = new AudioGraphFactory.FiniteSilentSampleProvider(format) { TotalFrames = 1_000 };
+        try
+        {
+            _ = AudioGraphFactory.Build(
+                song, null, null, null, null, 1_000, volume, 1.0, false);
+            throw new InvalidOperationException("Non-finite audio graph volume was accepted.");
+        }
+        catch (ArgumentOutOfRangeException ex) when (ex.ParamName == "songVolumePercent")
+        {
+            // Preview and export must not propagate NaN into audio samples.
+        }
+    }
+
+    foreach (double volume in new[] { 0.0, 100.0 })
+    {
+        new OfflineAudioRenderPlan(level, timing, timeline, null, 0.0, 1.0, volume)
+            .Validate();
+    }
+}
+
+static void RunNonFiniteHitSoundVolumeChecks()
+{
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 0.001),
+        Floor(2, 0.002),
+        Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    foreach (double invalidVolume in new[]
+    {
+        double.NaN, double.PositiveInfinity, double.NegativeInfinity
+    })
+    {
+        LevelDocument level = CreateLevel(4, new Dictionary<int, LevelAction[]>
+        {
+            [2] = [new LevelAction(2, "SetHitsound", true, null, null, null, null)
+            {
+                HitSoundVolumePercent = invalidVolume
+            }],
+            [3] = [new LevelAction(3, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Kick",
+                HitSoundVolumePercent = invalidVolume
+            }]
+        });
+        HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+        Near(0.0, timeline.GetStateAtFloor(2).Volume,
+            "non-finite SetHitsound state is normalized at timeline construction");
+        LevelDocument invalidInitial = CreateLevel(2, defaultVolumePercent: invalidVolume);
+        Near(0.0, HitSoundTimelineBuilder.Build(invalidInitial).InitialState.Volume,
+            "non-finite initial hit-sound state is normalized");
+
+        var provider = new SampleAccurateHitSoundProvider(
+            format, level, timing, timeline, clips, 8);
+        var samples = new float[8];
+        provider.Read(samples, 0, samples.Length);
+
+        if (samples.Any(sample => !float.IsFinite(sample)))
+            throw new InvalidOperationException("Non-finite hit-sound volume leaked into PCM.");
+        Near(0.5, samples[2], "normal hit-sound volume remains unchanged");
+        Near(0.0, samples[4], "invalid SetHitsound volume is muted");
+        Near(0.0, samples[6], "invalid PlaySound volume is muted");
+    }
+}
+
+static void RunMutedHitScheduleChecks()
+{
+    const int sampleRate = 1_000;
+    LevelDocument level = CreateLevel(4, new Dictionary<int, LevelAction[]>
+    {
+        [2] = [new LevelAction(2, "SetHitsound", true, null, null, null, null)
+        {
+            HitSoundVolumePercent = 100
+        }],
+        [3] =
+        [
+            new LevelAction(3, "SetHitsound", true, null, null, null, null)
+            {
+                HitSoundVolumePercent = 0
+            },
+            new LevelAction(3, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Kick",
+                HitSoundVolumePercent = 0
+            }
+        ]
+    }, defaultVolumePercent: 0);
+
+    var timing = new TimingMap([
+        Floor(0, 0.0), Floor(1, 0.001), Floor(2, 0.002), Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, 8);
+
+    Equal(4, provider.Metrics.SourceHitCount,
+        "muted floor and PlaySound events remain counted as source hits");
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "only audible hits occupy the PCM schedule");
+
+    var samples = new float[16];
+    provider.Read(samples, 0, samples.Length);
+    Near(0.0, samples[1 * 2], "muted initial floor is silent");
+    Near(0.5, samples[2 * 2], "unmuted floor remains audible");
+    Near(0.0, samples[3 * 2], "muted SetHitsound and PlaySound are silent");
+}
+
+static void RunEmptyHitScheduleCacheChecks()
+{
+    const int sampleRate = 1_000;
+    const long totalFrames = 16_384;
+    LevelDocument level = CreateLevel(4, defaultVolumePercent: 0);
+    var timing = new TimingMap([
+        Floor(0, 0.0), Floor(1, 0.001), Floor(2, 0.002), Floor(3, 0.003)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(3, provider.Metrics.SourceHitCount, "muted floors remain in diagnostics");
+    Equal(0, provider.Metrics.ScheduledHitCount, "all-muted schedule is empty");
+
+    provider.PrimeRange(0, totalFrames);
+    provider.PrerenderAheadAsync(0, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    var samples = Enumerable.Repeat(1f, 1_024).ToArray();
+    Equal(samples.Length, provider.Read(samples, 0, samples.Length),
+        "muted read returns the requested sample count");
+    Equal(512L, provider.PositionFrames, "muted read advances the sample clock");
+    if (samples.Any(sample => sample != 0f))
+        throw new InvalidOperationException("muted read must overwrite the buffer with silence");
+
+    Equal(0, provider.Metrics.RenderedChunkCount,
+        "all-muted playback must not create empty PCM cache entries");
+    Equal(0L, provider.CachedPcmBytes,
+        "all-muted playback must not allocate cached PCM");
+}
+
+static void RunSparsePrerenderCacheChecks()
+{
+    // A single audible hit followed by many silent chunks must not fill the
+    // speculative LRU with zero-byte sentinels (which still use managed memory).
+    const int sampleRate = 1_000;
+    const long totalFrames = 32L * 4096;
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    provider.PrerenderAheadAsync(0, 64 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    Equal(1, provider.Metrics.RenderedChunkCount,
+        "sparse background prerender retains only the audible chunk");
+    Equal(1L, provider.RenderChunkAttempts,
+        "sparse background prerender skips silent chunk rendering");
+    Equal(4096L * 2 * sizeof(float), provider.CachedPcmBytes,
+        "sparse background prerender PCM cache size");
+
+    provider.Seek(1);
+    var hitPcm = new float[2];
+    Equal(2, provider.Read(hitPcm, 0, 2), "sparse cached hit read");
+    Near(0.5, hitPcm[0], "sparse cached hit sample");
+
+    provider.Seek(10L * 4096);
+    var silentPcm = new[] { 1f, 1f };
+    Equal(2, provider.Read(silentPcm, 0, 2), "sparse silent region read");
+    Near(0.0, silentPcm[0], "sparse silent region remains silent");
+    Near(0.0, silentPcm[1], "sparse silent region right channel");
+}
+
+static void RunSparsePrerenderGapChecks()
+{
+    // A clip crossing a chunk boundary needs both chunks. A second hit much
+    // later must not cause every intervening silent chunk to be rendered.
+    const int sampleRate = 1_000;
+    const long totalFrames = 64L * 4096;
+    LevelDocument level = CreateLevel(3);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 4.095),
+        Floor(2, 200.001)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 12).ToArray(), 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    provider.PrerenderAheadAsync(0, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+
+    Equal(3L, provider.RenderChunkAttempts,
+        "sparse background prerender renders only the three audible chunks");
+    Equal(3, provider.Metrics.RenderedChunkCount,
+        "sparse background prerender retains all audible chunks");
+    Equal(3L * 4096 * 2 * sizeof(float), provider.CachedPcmBytes,
+        "sparse background prerender PCM bytes");
+
+    provider.Seek(4095);
+    var crossing = new float[12];
+    Equal(12, provider.Read(crossing, 0, crossing.Length),
+        "cross-boundary hit read");
+    if (crossing.Any(sample => Math.Abs(sample - 0.5f) > 1e-6f))
+        throw new InvalidOperationException("cross-boundary hit samples differ");
+
+    provider.Seek(200_001);
+    var later = new float[2];
+    Equal(2, provider.Read(later, 0, later.Length), "later hit read");
+    Near(0.5, later[0], "later hit left channel");
+    Near(0.5, later[1], "later hit right channel");
+
+    var fromBoundary = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    fromBoundary.PrerenderAheadAsync(4096, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(2L, fromBoundary.RenderChunkAttempts,
+        "seeked prerender retains an earlier hit tail and a later hit");
+    fromBoundary.Seek(4096);
+    var tail = new float[2];
+    Equal(2, fromBoundary.Read(tail, 0, 2), "seeked tail read");
+    Near(0.5, tail[0], "seeked tail remains audible");
+
+    var nearEnd = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    nearEnd.PrerenderAheadAsync(200_000, 128 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, nearEnd.RenderChunkAttempts,
+        "late seek prerenders only the remaining audible chunk");
+
+    // A speculative cache budget that holds exactly one audible chunk must
+    // stop BEFORE rendering the next chunk, not after wasting a full mix.
+    const long oneChunkBytes = 4096L * 2 * sizeof(float);
+    var budgetLimited = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+    budgetLimited.PrerenderAheadAsync(0, oneChunkBytes, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "full speculative cache skips the next expensive chunk render");
+    Equal(1, budgetLimited.Metrics.RenderedChunkCount,
+        "speculative cache retains only the first chunk within budget");
+    Equal(oneChunkBytes, budgetLimited.CachedPcmBytes,
+        "speculative cache never exceeds its supplied budget");
+    budgetLimited.Seek(4096);
+    var uncachedTail = new float[2];
+    Equal(2, budgetLimited.Read(uncachedTail, 0, 2),
+        "foreground still renders an uncached tail after prerender stops");
+    Near(0.5, uncachedTail[0], "uncached tail remains audible");
+}
+
+static void RunSparsePrimeRangeChecks()
+{
+    // Priming a long sparse chart must not retain an empty sentinel for
+    // every silent chunk. A hit crossing a boundary still needs both chunks.
+    const int sampleRate = 1_000;
+    const long totalFrames = 64L * 4096;
+    LevelDocument level = CreateLevel(3);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 4.095),
+        Floor(2, 200.001)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 12).ToArray(), 0.0)
+    };
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+
+    var full = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    full.PrimeRange(0, totalFrames);
+    Equal(3L, full.RenderChunkAttempts,
+        "sparse priming renders only the three audible chunks");
+    Equal(3, full.Metrics.RenderedChunkCount,
+        "sparse priming caches only audible chunks");
+    Equal(3L * 4096 * 2 * sizeof(float), full.CachedPcmBytes,
+        "sparse priming PCM bytes");
+    full.Seek(4096);
+    var tail = new float[2];
+    Equal(2, full.Read(tail, 0, 2), "primed boundary tail read");
+    Near(0.5, tail[0], "primed boundary tail remains audible");
+
+    var fromBoundary = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    fromBoundary.PrimeRange(4096, 4096);
+    Equal(1L, fromBoundary.RenderChunkAttempts,
+        "priming from a boundary includes the earlier hit tail");
+    fromBoundary.Seek(4096);
+    var boundaryTail = new float[2];
+    Equal(2, fromBoundary.Read(boundaryTail, 0, 2),
+        "boundary-only primed tail read");
+    Near(0.5, boundaryTail[0], "boundary-only primed tail sample");
+
+    var silentGap = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    silentGap.PrimeRange(100_000, 1_000);
+    Equal(0L, silentGap.RenderChunkAttempts,
+        "priming an entirely silent gap does no rendering");
+    Equal(0, silentGap.Metrics.RenderedChunkCount,
+        "silent-gap priming does not cache empty chunks");
+
+    // When the requested prime range exceeds the RAM budget, keep the earliest
+    // audible chunk instead of evicting it to prime later chunks. The first
+    // playback callback must not pay to render the same chunk again.
+    const long oneChunkBudget = 4096L * 2 * sizeof(float);
+    var budgetLimited = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, totalFrames);
+    budgetLimited.SetCacheBudgetBytes(oneChunkBudget);
+    budgetLimited.PrimeRange(0, totalFrames);
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "budgeted priming renders only the first audible chunk");
+    Equal(1, budgetLimited.Metrics.RenderedChunkCount,
+        "budgeted priming retains the first audible chunk");
+    Equal(oneChunkBudget, budgetLimited.CachedPcmBytes,
+        "budgeted priming stays within the PCM cache limit");
+    budgetLimited.Seek(4095);
+    var firstHit = new float[2];
+    Equal(2, budgetLimited.Read(firstHit, 0, firstHit.Length),
+        "budgeted priming first-hit read");
+    Near(0.5, firstHit[0], "budgeted priming first-hit left");
+    Near(0.5, firstHit[1], "budgeted priming first-hit right");
+    Equal(1L, budgetLimited.RenderChunkAttempts,
+        "first playback callback reuses the primed chunk");
+}
+
+static void RunSparseForegroundSilenceCacheChecks()
+{
+    // A sparse chart has an audible hit, so normal foreground reads still
+    // inspect silent chunks. Their zero-byte sentinels must not accumulate
+    // unbounded dictionary/LRU metadata during a long playback or seek.
+    const int sampleRate = 1_000;
+    const long totalFrames = 512L * 4096;
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "sparse foreground fixture must contain an audible hit");
+
+    for (int chunk = 1; chunk <= 384; chunk++)
+    {
+        provider.Seek(chunk * 4096L);
+        var samples = new[] { 1f, 1f };
+        Equal(2, provider.Read(samples, 0, samples.Length),
+            "sparse foreground silent read count");
+        Near(0.0, samples[0], "sparse foreground silence left");
+        Near(0.0, samples[1], "sparse foreground silence right");
+    }
+
+    Equal(0, provider.Metrics.RenderedChunkCount,
+        "foreground silence must not accumulate zero-byte cache entries");
+    Equal(0L, provider.CachedPcmBytes,
+        "foreground silence must not allocate cached PCM");
+    Equal(0L, provider.RenderChunkAttempts,
+        "foreground silence must bypass rendering, not just avoid caching");
+
+    provider.Seek(1);
+    var hitSamples = new float[2];
+    Equal(2, provider.Read(hitSamples, 0, hitSamples.Length),
+        "sparse foreground audible read count");
+    Near(0.5, hitSamples[0], "sparse foreground audible left");
+    Near(0.5, hitSamples[1], "sparse foreground audible right");
+    Equal(1, provider.Metrics.RenderedChunkCount,
+        "audible foreground chunks must still be cached");
+    Equal(1L, provider.RenderChunkAttempts,
+        "audible foreground hit still renders once");
+}
+
+static void RunLongClipSparseCandidateIndexChecks()
+{
+    // A future long clip must not force every silent middle chunk to inspect
+    // already-finished short hits. Its tail must still mix with later hits.
+    const int sampleRate = 1_000;
+    const int shortHitCount = 96;
+    const long totalFrames = 850_000;
+    var timings = new FloorTiming[shortHitCount + 3];
+    timings[0] = Floor(0, 0.0);
+    for (int floor = 1; floor <= shortHitCount; floor++)
+        timings[floor] = Floor(floor, floor * 2.0);
+    timings[shortHitCount + 1] = Floor(shortHitCount + 1, 500.0);
+    timings[shortHitCount + 2] = Floor(shortHitCount + 2, 600.0);
+
+    LevelDocument level = CreateLevel(timings.Length, new Dictionary<int, LevelAction[]>
+    {
+        [shortHitCount + 1] = [new LevelAction(shortHitCount + 1, "SetHitsound", true, null, null, null, null)
+        {
+            HitSound = "Long"
+        }],
+        [shortHitCount + 2] = [new LevelAction(shortHitCount + 2, "SetHitsound", true, null, null, null, null)
+        {
+            HitSound = "Kick"
+        }]
+    });
+    var timing = new TimingMap(timings);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0),
+        ["Long"] = new RenderedHitSound(Enumerable.Repeat(0.5f, 300_000 * 2).ToArray(), 0.0)
+    };
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level, timing, HitSoundTimelineBuilder.Build(level), clips, totalFrames);
+
+    Equal(shortHitCount + 2, provider.ScheduledHits.Count, "long-clip sparse schedule");
+    Equal(shortHitCount, provider.FirstPotentiallyOverlappingHitIndex(350_000),
+        "silent gap skips all expired short hits");
+    Equal(shortHitCount, provider.FirstPotentiallyOverlappingHitIndex(600_000),
+        "long tail remains a candidate during later hit");
+    Equal(shortHitCount + 2, provider.FirstPotentiallyOverlappingHitIndex(800_000),
+        "expired long tail is excluded at its exact end");
+
+    // Priming and background prerendering must use the same end-frame index
+    // as foreground reads, including silent seeks and the exclusive tail end.
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    SampleAccurateHitSoundProvider NewProvider() => new(
+        format, level, timing, timeline, clips, totalFrames);
+
+    var silentPrime = NewProvider();
+    silentPrime.PrimeRange(350_000, 4096);
+    Equal(0L, silentPrime.RenderChunkAttempts,
+        "silent middle-range priming skips all expired hits");
+
+    var tailPrime = NewProvider();
+    tailPrime.PrimeRange(600_000, 1);
+    Equal(1L, tailPrime.RenderChunkAttempts,
+        "priming a long tail and later short hit renders their shared chunk once");
+    tailPrime.Seek(600_000);
+    var primedTail = new float[2];
+    Equal(2, tailPrime.Read(primedTail, 0, 2), "primed long-tail read count");
+    Near(0.75, primedTail[0], "primed long-tail overlap left");
+    Near(0.75, primedTail[1], "primed long-tail overlap right");
+
+    // Seeking to the exact end still visits the containing chunk because
+    // that chunk includes earlier tail samples; the next chunk is fully silent.
+    var boundaryPrerender = NewProvider();
+    boundaryPrerender.PrerenderAheadAsync(800_000, 32 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(1L, boundaryPrerender.RenderChunkAttempts,
+        "background prerender keeps the chunk crossing the exclusive tail end");
+    boundaryPrerender.Seek(800_000);
+    var boundaryPcm = new float[2];
+    Equal(2, boundaryPrerender.Read(boundaryPcm, 0, 2),
+        "exclusive tail end read count");
+    Near(0.0, boundaryPcm[0], "exclusive tail end left");
+    Near(0.0, boundaryPcm[1], "exclusive tail end right");
+
+    var expiredPrerender = NewProvider();
+    expiredPrerender.PrerenderAheadAsync(802_816, 32 * 1024, CancellationToken.None)
+        .GetAwaiter().GetResult();
+    Equal(0L, expiredPrerender.RenderChunkAttempts,
+        "background prerender skips the first fully silent chunk after the tail");
+    Equal(0L, expiredPrerender.CachedPcmBytes,
+        "expired background prerender leaves no PCM cache");
+
+    void CheckFrame(long frame, double expected, string label)
+    {
+        provider.Seek(frame);
+        var pcm = new[] { -1f, -1f };
+        Equal(2, provider.Read(pcm, 0, pcm.Length), label + " read");
+        Near(expected, pcm[0], label + " left");
+        Near(expected, pcm[1], label + " right");
+    }
+
+    CheckFrame(350_000, 0.0, "silent gap before future long hit");
+    Equal(0, provider.Metrics.RenderedChunkCount, "silent gap leaves cache empty");
+    Equal(0L, provider.RenderChunkAttempts,
+        "silent gap before a future long hit does not render");
+    CheckFrame(500_000, 0.5, "long clip begins");
+    CheckFrame(600_000, 0.75, "short hit mixes with long clip tail");
+    CheckFrame(799_999, 0.5, "last frame of long clip");
+    CheckFrame(800_000, 0.0, "long clip ends exclusively");
+}
+
+static void RunSongPitchRateChecks()
+{
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    var silent = new AudioGraphFactory.FiniteSilentSampleProvider(format)
+    {
+        TotalFrames = 2_000
+    };
+    AudioGraphBuildResult graph = AudioGraphFactory.Build(
+        silent,
+        level: null,
+        timingMap: null,
+        timeline: null,
+        clips: null,
+        totalFrames: 2_000,
+        songVolumePercent: 100,
+        playbackSpeed: 0.5,
+        hitSoundsEnabled: false,
+        songPitch: 1.5);
+
+    Near(0.75, graph.SongRateProvider.PlaybackSpeed,
+        "song pitch and user speed compose only on the song branch");
+    Equal(1_000L, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: 2_000,
+        sampleRate: 1_000,
+        level: null,
+        timingMap: null,
+        clips: null,
+        songPitch: 2.0),
+        "pitch shortens decoded-song transport duration");
+
+    Equal(512L, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: 1_024, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 2.0),
+        "ordinary pitched song frame count remains exact");
+    Equal(long.MaxValue, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: long.MaxValue, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 1.0),
+        "long max decoded song length does not overflow on double rounding");
+    Equal(long.MaxValue, AudioGraphFactory.CalculatePlaybackFrames(
+        songFrames: long.MaxValue, sampleRate: 1_000,
+        level: null, timingMap: null, clips: null, songPitch: 0.5),
+        "low pitch saturates decoded song duration rather than throwing");
+}
+
+static void RunFiniteSilentOddReadChecks()
+{
+    // A one-sample read is legal for ISampleProvider. It must not return
+    // zero while a silent frame remains, or the caller may treat it as EOF.
+    WaveFormat stereo = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    var song = new AudioGraphFactory.FiniteSilentSampleProvider(stereo)
+    {
+        TotalFrames = 2
+    };
+    float[] samples = Enumerable.Repeat(1f, 6).ToArray();
+    Equal(1, song.Read(samples, 1, 1), "silent one-sample read");
+    Equal(3, song.Read(samples, 2, 3), "silent odd-sized follow-up read");
+    Equal(0, song.Read(samples, 1, 1), "silent EOF after two complete frames");
+    if (samples[0] != 1f || samples[5] != 1f ||
+        samples.Skip(1).Take(4).Any(sample => sample != 0f))
+        throw new InvalidOperationException("Silent odd reads overwrote the wrong samples.");
+
+    // Seeking must discard any partially consumed frame.
+    song.Seek(1);
+    Equal(1, song.Read(samples, 0, 1), "silent read after seek");
+    Equal(1, song.Read(samples, 0, 1), "silent right sample after seek");
+    Equal(0, song.Read(samples, 0, 1), "silent EOF after seek");
+
+    // No frame-count multiplication may overflow near long.MaxValue.
+    var nearLimit = new AudioGraphFactory.FiniteSilentSampleProvider(stereo)
+    {
+        TotalFrames = long.MaxValue
+    };
+    nearLimit.Seek(long.MaxValue - 1);
+    Equal(1, nearLimit.Read(samples, 0, 1), "near-limit silent left");
+    Equal(1, nearLimit.Read(samples, 0, 1), "near-limit silent right");
+    Equal(0, nearLimit.Read(samples, 0, 1), "near-limit silent EOF");
+
+    // The provider is frame-based even when the source format has >2 channels.
+    var three = new AudioGraphFactory.FiniteSilentSampleProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(1_000, 3))
+    {
+        TotalFrames = 1
+    };
+    Equal(2, three.Read(samples, 0, 2), "3ch partial silent frame");
+    Equal(1, three.Read(samples, 0, 1), "3ch final silent sample");
+    Equal(0, three.Read(samples, 0, 1), "3ch silent EOF");
+}
+
 static void RunProviderChecks()
 {
     const int sampleRate = 48_000;
@@ -121,6 +795,446 @@ static void RunProviderChecks()
     var seekBuffer = new float[20];
     provider.Read(seekBuffer, 0, seekBuffer.Length);
     Near(0.25, seekBuffer[0], "seek reconstructs an audible tail");
+
+    // The identity-rate prerendered bus ends at the song boundary, but a hit
+    // starting just before that boundary must finish in the same Read call.
+    WaveFormat tailFormat = WaveFormat.CreateIeeeFloatWaveFormat(1_000, 2);
+    LevelDocument tailLevel = CreateLevel(2);
+    var tailTiming = new TimingMap([Floor(0, 0.0), Floor(1, 0.007)]);
+    var tailClips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(Enumerable.Repeat(0.25f, 8).ToArray(), 0.0)
+    };
+    var tailSchedule = new SampleAccurateHitSoundProvider(
+        tailFormat, tailLevel, tailTiming,
+        HitSoundTimelineBuilder.Build(tailLevel), tailClips, totalFrames: 8);
+    Equal(1, tailSchedule.ScheduledHits.Count, "identity tail test schedule");
+
+    var tailTransport = new TransportHitSoundSampleProvider(tailSchedule, playbackSpeed: 1.0);
+    var tailOutput = new float[24];
+    int tailRead = tailTransport.Read(tailOutput, 0, tailOutput.Length);
+    Equal(22, tailRead, "identity transport must not return short at song EOF");
+    for (int frame = 0; frame < 11; frame++)
+    {
+        double expected = frame >= 7 ? 0.25 : 0.0;
+        Near(expected, tailOutput[frame * 2], $"identity tail left frame {frame}");
+        Near(expected, tailOutput[frame * 2 + 1], $"identity tail right frame {frame}");
+    }
+    Equal(0, tailTransport.Read(new float[4], 0, 4),
+        "identity transport must reach EOF only after the hit tail");
+
+    tailTransport.Seek(0);
+    Equal(16, tailTransport.Read(new float[16], 0, 16),
+        "identity transport exact song-boundary read");
+    var tailAfterBoundary = new float[8];
+    Equal(6, tailTransport.Read(tailAfterBoundary, 0, 8),
+        "identity transport hit tail after a boundary-aligned read");
+    for (int frame = 0; frame < 3; frame++)
+    {
+        Near(0.25, tailAfterBoundary[frame * 2], $"split identity tail left {frame}");
+        Near(0.25, tailAfterBoundary[frame * 2 + 1], $"split identity tail right {frame}");
+    }
+}
+
+static void RunPlaySoundEventChecks()
+{
+    const int sampleRate = 1_000;
+    var active = new LevelAction(1, "PlaySound", true, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 50,
+        AngleOffset = 90
+    };
+    var inactive = new LevelAction(1, "PlaySound", false, null, null, null, null)
+    {
+        HitSound = "Hat",
+        HitSoundVolumePercent = 100
+    };
+    LevelDocument level = CreateLevel(2, new Dictionary<int, LevelAction[]>
+    {
+        [1] = [active, inactive]
+    });
+    var timing = new TimingMap([
+        new FloorTiming(0, 0.0, 1.0, 0, 0, Math.PI, 100, false, false),
+        new FloorTiming(1, 1.0, 2.0, 0, 0, Math.PI, 100, false, false)
+    ]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.25f, 0.25f], 0.0),
+        ["Hat"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        level,
+        timing,
+        timeline,
+        clips,
+        totalFrames: 2_000);
+
+    Equal(2, provider.ScheduledHits.Count,
+        "PlaySound adds one independent cue and ignores inactive events");
+    SampleAccurateHitSoundProvider.ScheduledHit eventHit = provider.ScheduledHits
+        .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
+    Equal(1_300L, eventHit.StartFrame, "PlaySound angleOffset sample frame");
+    Near(0.5, eventHit.Volume, "PlaySound volume");
+
+    // Verify audible PCM, not just the schedule: the event must survive seeking
+    // and remain independent of the ordinary floor landing sound.
+    var landingPcm = new float[2];
+    provider.Seek(1_000);
+    Equal(2, provider.Read(landingPcm, 0, landingPcm.Length), "PlaySound landing read");
+    Near(0.25, landingPcm[0], "ordinary landing PCM");
+
+    var eventPcm = new float[2];
+    provider.Seek(1_300);
+    Equal(2, provider.Read(eventPcm, 0, eventPcm.Length), "PlaySound event read after seek");
+    Near(0.25, eventPcm[0], "PlaySound event left PCM");
+    Near(0.25, eventPcm[1], "PlaySound event right PCM");
+
+    // A chart pitch of 200% must advance both landing and PlaySound cues
+    // on the same transport clock, without changing their relative volume.
+    LevelDocument pitchedLevel = WithSettings(
+        level, offsetMilliseconds: 0, pitchPercent: 200,
+        countdownTicks: 0, separateCountdownTime: false, initialBpm: 100);
+    var pitchedProvider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        pitchedLevel,
+        timing,
+        HitSoundTimelineBuilder.Build(pitchedLevel),
+        clips,
+        totalFrames: 2_000);
+    SampleAccurateHitSoundProvider.ScheduledHit pitchedEvent = pitchedProvider.ScheduledHits
+        .Single(hit => ReferenceEquals(hit.Clip, clips["Hat"]));
+    Equal(650L, pitchedEvent.StartFrame, "PlaySound chart pitch sample frame");
+    var pitchedPcm = new float[2];
+    pitchedProvider.Seek(650);
+    Equal(2, pitchedProvider.Read(pitchedPcm, 0, pitchedPcm.Length), "pitched PlaySound read");
+    Near(0.25, pitchedPcm[0], "pitched PlaySound PCM");
+
+    // Exercise the complete preview/offline audio graph, not just the
+    // scheduled hit-sound layer. Pitch must affect the song branch while
+    // the landing and PlaySound remain aligned on the output sample clock.
+    var silentSong = new AudioGraphFactory.FiniteSilentSampleProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2))
+    {
+        TotalFrames = 2_000
+    };
+    AudioGraphBuildResult fullGraph = AudioGraphFactory.Build(
+        silentSong,
+        pitchedLevel,
+        timing,
+        HitSoundTimelineBuilder.Build(pitchedLevel),
+        clips,
+        totalFrames: 2_000,
+        songVolumePercent: 100,
+        playbackSpeed: 1.0,
+        hitSoundsEnabled: true,
+        songPitch: 2.0);
+    Near(2.0, fullGraph.SongRateProvider.PlaybackSpeed,
+        "PlaySound full graph song pitch");
+    var mixedPcm = new float[1_400]; // 700 stereo output frames
+    Equal(mixedPcm.Length, fullGraph.Graph.Read(mixedPcm, 0, mixedPcm.Length),
+        "PlaySound full graph read");
+    Near(0.25, mixedPcm[500 * 2], "PlaySound full graph landing PCM");
+    Near(0.25, mixedPcm[650 * 2], "PlaySound full graph event PCM");
+    Near(0.0, mixedPcm[649 * 2], "PlaySound full graph pre-event silence");
+}
+
+static void RunHitSoundScheduleHotSwapRegression()
+{
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.010)]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    var firstSchedule = new SampleAccurateHitSoundProvider(
+        format, level, timing, timeline, clips, 100);
+    var graph = new UnifiedAudioSampleProvider(
+        new AudioGraphFactory.FiniteSilentSampleProvider(format) { TotalFrames = 100 },
+        new TransportHitSoundSampleProvider(firstSchedule, playbackSpeed: 1.0));
+
+    var before = new float[20];
+    graph.Read(before, 0, before.Length);
+    Near(0.0, before[^2], "old schedule before hot swap");
+
+    var movedTiming = new TimingMap([Floor(0, 0.0), Floor(1, 0.020)]);
+    var movedSchedule = new SampleAccurateHitSoundProvider(
+        format, level, movedTiming, timeline, clips, 100);
+    graph.ReplaceTransportHitSounds(
+        new TransportHitSoundSampleProvider(movedSchedule, playbackSpeed: 1.0),
+        sourceFrame: 10);
+
+    var after = new float[22];
+    graph.Read(after, 0, after.Length);
+    Near(0.0, after[18], "replacement schedule before moved hit");
+    Near(0.5, after[20], "replacement schedule moved hit");
+
+    string playerSource = File.ReadAllText(Path.Combine(
+        Environment.CurrentDirectory, "src", "ExtremeEditor.Audio", "AudioPlayer.cs"));
+    int methodStart = playerSource.IndexOf(
+        "private void RefreshHitSoundGraphPreservingDevice()", StringComparison.Ordinal);
+    if (methodStart < 0)
+        throw new InvalidOperationException("#65: AudioPlayer has no device-preserving hitsound refresh path.");
+    int methodEnd = playerSource.IndexOf("\n    private ", methodStart + 1, StringComparison.Ordinal);
+    string method = playerSource[methodStart..(methodEnd < 0 ? playerSource.Length : methodEnd)];
+    if (method.Contains("BuildGraph(", StringComparison.Ordinal) ||
+        method.Contains("_output.Dispose", StringComparison.Ordinal) ||
+        method.Contains("_output.Init", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "#65: hitsound refresh still rebuilds or reinitializes the WaveOut device.");
+    }
+}
+
+static void RunInvalidHitSoundTimestampChecks()
+{
+    // Finite offsets in the asset manifest can still be too large to map to
+    // sample frames. Skip invalid landings and PlaySound events individually.
+    const int sampleRate = 1_000;
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    LevelDocument level = CreateLevel(3, new Dictionary<int, LevelAction[]>
+    {
+        [2] =
+        [
+            new LevelAction(2, "SetHitsound", true, null, null, null, null)
+            {
+                HitSound = "Good"
+            },
+            new LevelAction(2, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = "Bad"
+            }
+        ]
+    }, defaultHitSound: "Bad");
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, 0.001),
+        Floor(2, 0.002)
+    ]);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+    var validClips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Good"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
+    };
+    long validDuration = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, validClips);
+
+    foreach (double invalidOffset in new[]
+    {
+        double.NaN, double.PositiveInfinity, double.NegativeInfinity,
+        double.MaxValue, -double.MaxValue
+    })
+    {
+        var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Bad"] = new RenderedHitSound([0.5f, 0.5f], invalidOffset),
+            ["Good"] = new RenderedHitSound([0.25f, 0.25f], 0.0)
+        };
+        Equal(validDuration, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, level, timing, clips),
+            "unrepresentable offset must not extend the hit-sound-only duration");
+        var provider = new SampleAccurateHitSoundProvider(
+            format, level, timing, timeline, clips, 16);
+        Equal(1, provider.Metrics.ScheduledHitCount,
+            "invalid landing and PlaySound offsets do not suppress valid hits");
+        var pcm = new float[8];
+        Equal(8, provider.Read(pcm, 0, pcm.Length),
+            "invalid offset still permits PCM reads");
+        Near(0.0, pcm[2], "invalid offset landing is silent");
+        Near(0.25, pcm[4], "valid landing after invalid offset remains audible");
+    }
+}
+
+static void RunUnscheduledPlaySoundDurationChecks()
+{
+    // Missing or muted PlaySound cues must not add minutes of silence when
+    // their angle offset places them well after the end of the chart.
+    const int sampleRate = 1_000;
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 1.0)]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+
+    LevelDocument WithCue(string name, double volume = 100.0) =>
+        CreateLevel(2, new Dictionary<int, LevelAction[]>
+        {
+            [1] = [new LevelAction(1, "PlaySound", true, null, null, null, null)
+            {
+                HitSound = name,
+                HitSoundVolumePercent = volume,
+                AngleOffset = 180_000
+            }]
+        });
+
+    long baseline = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, CreateLevel(2), timing, clips);
+
+    foreach (string name in new[] { "Missing", "None", "" })
+    {
+        Equal(baseline, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue(name), timing, clips),
+            $"unavailable PlaySound '{name}' does not extend duration");
+    }
+
+    foreach (double volume in new[] { 0.0, double.NaN })
+    {
+        Equal(baseline, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue("Kick", volume), timing, clips),
+            $"muted PlaySound volume {volume} does not extend duration");
+    }
+
+    Equal(AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, CreateLevel(2), timing, null),
+        AudioGraphFactory.CalculateHitSoundOnlyFrames(
+            sampleRate, WithCue("Kick"), timing, null),
+        "PlaySound without loaded clips does not extend duration");
+
+    long audible = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, WithCue("sndKick"), timing, clips);
+    if (audible <= baseline)
+        throw new InvalidOperationException(
+            "Valid late PlaySound must extend duration (including snd name normalization).");
+}
+
+static void RunUnrepresentablePlaySoundDurationChecks()
+{
+    // Finite angle offsets can still exceed the range of a sample position.
+    // The hit schedule already skips them; hit-sound-only duration must agree.
+    const int sampleRate = 1_000;
+    var timing = new TimingMap([Floor(0, 0.0), Floor(1, 0.001)]);
+    LevelDocument baseline = CreateLevel(2);
+    LevelDocument withInvalidEvent = CreateLevel(2, new Dictionary<int, LevelAction[]>
+    {
+        [1] = [new LevelAction(1, "PlaySound", true, null, null, null, null)
+        {
+            HitSound = "Kick",
+            AngleOffset = double.MaxValue
+        }]
+    });
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], 0.0)
+    };
+    long expectedFrames = AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, baseline, timing, clips);
+    Equal(expectedFrames, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, withInvalidEvent, timing, clips),
+        "unrepresentable PlaySound angle must not extend audio duration");
+
+    var provider = new SampleAccurateHitSoundProvider(
+        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+        withInvalidEvent, timing, HitSoundTimelineBuilder.Build(withInvalidEvent),
+        clips, expectedFrames);
+    Equal(1, provider.Metrics.ScheduledHitCount,
+        "unrepresentable PlaySound is skipped while ordinary landing remains");
+}
+
+static void RunHitSoundDurationOverflowChecks()
+{
+    // Both times are individually representable (2^62 sample frames).
+    // Their sum is 2^63 frames, beyond the exclusive long upper bound.
+    const int sampleRate = 1_024;
+    const double largeSeconds = 4_503_599_627_370_496d; // 2^52
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, largeSeconds)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound([0.5f, 0.5f], -largeSeconds)
+    };
+
+    Equal(1L << 62, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, null),
+        "large but representable chart duration remains unchanged");
+    Equal(1L << 62, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, null, null, clips),
+        "large but representable clip tail remains unchanged");
+    Equal(long.MaxValue, AudioGraphFactory.CalculateHitSoundOnlyFrames(
+        sampleRate, level, timing, clips),
+        "combined chart and clip durations saturate instead of overflowing");
+}
+
+static void RunNearLongMaxHitSoundChecks()
+{
+    // The last PCM chunk ends at long.MaxValue, so both the clip end and
+    // chunk end must be calculated without wrapping to a negative frame.
+    const int sampleRate = 1_024;
+    const long nearEndFrame = long.MaxValue - 4095;
+    const double nearEndSeconds = 9_007_199_254_740_988d; // 2^53 - 4
+    LevelDocument level = CreateLevel(2);
+    var timing = new TimingMap([
+        Floor(0, 0.0),
+        Floor(1, nearEndSeconds)
+    ]);
+    var clips = new Dictionary<string, RenderedHitSound>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Kick"] = new RenderedHitSound(
+            Enumerable.Repeat(0.5f, 5_000 * 2).ToArray(), 0.0)
+    };
+    WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2);
+    HitSoundTimeline timeline = HitSoundTimelineBuilder.Build(level);
+
+    SampleAccurateHitSoundProvider CreateProvider() => new(
+        format, level, timing, timeline, clips, long.MaxValue);
+
+    var foreground = CreateProvider();
+    Equal(1, foreground.Metrics.ScheduledHitCount,
+        "near-long-max hit must remain scheduled");
+    Equal(nearEndFrame, foreground.ScheduledHits[0].StartFrame,
+        "near-long-max start frame");
+    foreground.Seek(nearEndFrame);
+    var pcm = new float[2];
+    Equal(2, foreground.Read(pcm, 0, pcm.Length),
+        "near-long-max foreground read");
+    Near(0.5, pcm[0], "near-long-max foreground PCM");
+
+    // A multi-frame read can cross long.MaxValue even when the hit itself
+    // ends safely. The remaining destination is silence and the next read
+    // must not wrap the playback cursor to a negative sample position.
+    foreground.Seek(long.MaxValue - 1);
+    var boundaryPcm = Enumerable.Repeat(-1f, 8).ToArray();
+    Equal(8, foreground.Read(boundaryPcm, 0, boundaryPcm.Length),
+        "near-long-max crossing read");
+    Near(0.5, boundaryPcm[0], "last audible frame before long max");
+    Near(0.0, boundaryPcm[2], "frame at total length is silent");
+    Near(0.0, boundaryPcm[4], "unrepresentable frame remains silent");
+    Near(0.0, boundaryPcm[6], "second unrepresentable frame remains silent");
+    Equal(long.MaxValue, foreground.PositionFrames,
+        "near-long-max cursor must saturate instead of wrapping");
+    var afterEndPcm = new[] { -1f, -1f };
+    Equal(2, foreground.Read(afterEndPcm, 0, afterEndPcm.Length),
+        "near-long-max read after saturation");
+    Near(0.0, afterEndPcm[0], "read after saturation remains silent");
+    Equal(long.MaxValue, foreground.PositionFrames,
+        "repeated reads must keep the saturated cursor");
+
+    var primed = CreateProvider();
+    primed.PrimeRange(nearEndFrame, 1024);
+    Equal(1L, primed.RenderChunkAttempts,
+        "near-long-max priming must render the final chunk");
+    primed.Seek(nearEndFrame);
+    var primedPcm = new float[2];
+    Equal(2, primed.Read(primedPcm, 0, primedPcm.Length),
+        "near-long-max primed read");
+    Near(0.5, primedPcm[0], "near-long-max primed PCM");
+    Equal(1L, primed.RenderChunkAttempts,
+        "near-long-max primed chunk must be reused");
+
+    var ahead = CreateProvider();
+    ahead.PrerenderAheadAsync(nearEndFrame, 4096L * 2 * sizeof(float),
+        CancellationToken.None).GetAwaiter().GetResult();
+    Equal(1L, ahead.RenderChunkAttempts,
+        "near-long-max background prerender must render the final chunk");
 }
 
 static void RunSparseTimelineChecks()
@@ -263,7 +1377,8 @@ static FloorTiming Floor(int floor, double entry) =>
 static LevelDocument CreateLevel(
     int floors,
     IReadOnlyDictionary<int, LevelAction[]>? actions = null,
-    string defaultHitSound = "Kick") => new()
+    string defaultHitSound = "Kick",
+    double defaultVolumePercent = 100.0) => new()
 {
     SourcePath = "<test>",
     Angles = new double[Math.Max(0, floors - 1)],
@@ -284,7 +1399,7 @@ static LevelDocument CreateLevel(
     CountdownTicks = 0,
     SeparateCountdownTime = false,
     DefaultHitSound = defaultHitSound,
-    HitSoundVolumePercent = 100,
+    HitSoundVolumePercent = defaultVolumePercent,
     Bounds = default
 };
 

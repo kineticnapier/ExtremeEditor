@@ -2,6 +2,12 @@
 
 This branch is the single working branch for accumulating verified fixes to open issues in ExtremeEditor.
 
+## Current integration cycle
+
+- Consolidated batch PR #112 was integrated into `feature/segment-model-poc` on 2026-10-30.
+- Integration PR #119 merged the verified prototype state into `main` on 2026-10-30.
+- Subsequent issue fixes continue through a new draft PR targeting `main`; no fix is claimed by this tracking-only update.
+
 ## Workflow
 
 - Before each change, check open/closed issues and existing pull requests to avoid duplicate work.

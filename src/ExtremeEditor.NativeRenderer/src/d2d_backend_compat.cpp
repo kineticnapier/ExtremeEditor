@@ -302,6 +302,13 @@ HRESULT D2DBackend::RenderFrame(
         return hr;
     }
 
+    hr = ApplyScreenFilter();
+    if (FAILED(hr))
+    {
+        PublishRenderFrameStats(stats);
+        return hr;
+    }
+
     const auto present_started = std::chrono::steady_clock::now();
     hr = swap_chain_->Present(1, 0);
     const auto present_finished = std::chrono::steady_clock::now();

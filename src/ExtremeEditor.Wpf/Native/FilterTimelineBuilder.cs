@@ -41,7 +41,8 @@ internal static class FilterTimelineBuilder
 
     private static NativeFilterEvent ToNative(VfxOccurrence occurrence)
     {
-        JsonObject? properties = occurrence.SourceEvent.PropertyOverrides;
+        // Edited values win; otherwise the values loaded from the chart.
+        JsonObject? properties = MoveDecorationsTargeting.GetProperties(occurrence.SourceEvent);
         string name = ReadString(properties, "filter", "Grayscale");
         uint filter = FilterIds.TryGetValue(name, out uint id) ? id : uint.MaxValue;
 
@@ -78,13 +79,15 @@ internal static class FilterTimelineBuilder
 
     private static float ReadPercent(JsonObject? properties, string name, float fallback)
     {
-        if (properties?[name] is not JsonValue value)
-            return fallback / 100f;
-        if (value.TryGetValue(out double number))
-            return (float)(number / 100.0);
-        if (value.TryGetValue(out string? text) &&
-            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
-            return (float)(number / 100.0);
+        if (properties?[name] is JsonValue value &&
+            (value.TryGetValue(out double number) ||
+             (value.TryGetValue(out string? text) &&
+              double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))))
+        {
+            double scaled = number / 100.0;
+            if (double.IsFinite(scaled) && Math.Abs(scaled) <= float.MaxValue)
+                return (float)scaled;
+        }
         return fallback / 100f;
     }
 
@@ -126,30 +129,80 @@ internal static class FilterTimelineBuilder
 
 internal static class FilterStateEvaluator
 {
+    // Match the native filter timeline: a new event completes the prior tween,
+    // while a disabled filter begins its next tween at its stock default.
     internal static NativeFilterState[] Evaluate(IReadOnlyList<NativeFilterEvent> events, double chartTime)
     {
+        ArgumentNullException.ThrowIfNull(events);
+
         var intensity = new float[41];
         var enabled = new bool[41];
+        var tweenFrom = new float[41];
+        var activeTweens = new NativeFilterEvent?[41];
+        for (int i = 0; i < intensity.Length; i++)
+            intensity[i] = DefaultIntensity(i);
 
-        foreach (NativeFilterEvent item in events)
+        if (!double.IsNaN(chartTime))
         {
-            if (item.StartTime > chartTime || item.Filter >= 41)
-                continue;
-
-            int index = checked((int)item.Filter);
-            if ((item.Flags & NativeFilterEvent.FlagDisableOthers) != 0)
+            foreach (NativeFilterEvent item in events)
             {
-                for (int i = 0; i < enabled.Length; i++)
-                    if (i != index)
-                        enabled[i] = false;
+                if (!double.IsFinite(item.StartTime) ||
+                    !double.IsFinite(item.DurationSeconds) ||
+                    !float.IsFinite(item.TargetIntensity) ||
+                    item.StartTime > chartTime || item.Filter >= 41)
+                    continue;
+
+                int index = checked((int)item.Filter);
+                if (activeTweens[index] is NativeFilterEvent interrupted)
+                {
+                    intensity[index] = interrupted.TargetIntensity;
+                    enabled[index] = interrupted.Enabled != 0;
+                    activeTweens[index] = null;
+                }
+
+                if (item.DurationSeconds <= 1e-9)
+                {
+                    intensity[index] = item.TargetIntensity;
+                    enabled[index] = item.Enabled != 0;
+                }
+                else
+                {
+                    if (!enabled[index])
+                        intensity[index] = DefaultIntensity(index);
+                    tweenFrom[index] = intensity[index];
+                    activeTweens[index] = item;
+                    enabled[index] = item.Enabled != 0;
+                }
+
+                if ((item.Flags & NativeFilterEvent.FlagDisableOthers) != 0)
+                {
+                    for (int other = 0; other < enabled.Length; other++)
+                    {
+                        if (other == index)
+                            continue;
+                        if (activeTweens[other] is NativeFilterEvent pending)
+                        {
+                            intensity[other] = pending.TargetIntensity;
+                            activeTweens[other] = null;
+                        }
+                        enabled[other] = false;
+                    }
+                }
             }
 
-            double progress = item.DurationSeconds <= 1e-9
-                ? 1.0
-                : Math.Clamp((chartTime - item.StartTime) / item.DurationSeconds, 0.0, 1.0);
-            intensity[index] = (float)(intensity[index] +
-                (item.TargetIntensity - intensity[index]) * progress);
-            enabled[index] = item.Enabled != 0;
+            for (int i = 0; i < activeTweens.Length; i++)
+            {
+                if (activeTweens[i] is not NativeFilterEvent tween)
+                    continue;
+                // Match the native filter timeline, including Back/Elastic
+                // overshoot, before narrowing the result to a finite float.
+                double raw = (chartTime - tween.StartTime) / tween.DurationSeconds;
+                double progress = NativeFilterEaseEvaluator.Evaluate(tween.Ease, raw);
+                double value = (double)tweenFrom[i] +
+                    ((double)tween.TargetIntensity - tweenFrom[i]) * progress;
+                intensity[i] = (float)Math.Clamp(
+                    value, -(double)float.MaxValue, (double)float.MaxValue);
+            }
         }
 
         var result = new NativeFilterState[41];
@@ -157,30 +210,49 @@ internal static class FilterStateEvaluator
         {
             uint filter = checked((uint)i);
             result[i] = new NativeFilterState(
-                filter,
-                enabled[i],
-                intensity[i],
-                ApplyFilterIntensity(filter, intensity[i]));
+                filter, enabled[i], intensity[i], ApplyFilterIntensity(filter, intensity[i]));
         }
         return result;
     }
 
-    internal static float ApplyFilterIntensity(uint filter, float intensity) => filter switch
+    private static float DefaultIntensity(int filter) => filter switch
     {
-        3 => 0.212f * intensity,
-        7 => MathF.Round(5f * intensity),
-        8 => 0.5f * intensity,
-        10 => 0.9f + 0.1f * intensity,
-        11 => 3f * intensity,
-        13 => 4f * intensity,
-        14 => 10f * intensity,
-        16 => 32f * intensity,
-        17 => 0.375f * intensity,
-        19 => 0.04f * intensity - 0.02f,
-        27 => 2f * intensity,
-        31 => 20f * intensity,
-        33 => 1f + intensity,
-        38 => 2.4f * intensity,
-        _ => intensity
+        7 or 9 => 1f,
+        13 => 0.01f,
+        18 or 19 => 0.5f,
+        _ => 0f
     };
+
+    internal static float ApplyFilterIntensity(uint filter, float intensity)
+    {
+        if (!float.IsFinite(intensity))
+            return 0f;
+
+        return filter switch
+        {
+            3 => ScaleFinite(0.212f, intensity),
+            7 => MathF.Round(ScaleFinite(5f, intensity), MidpointRounding.AwayFromZero),
+            8 => ScaleFinite(0.5f, intensity),
+            10 => 0.9f + ScaleFinite(0.1f, intensity),
+            11 => ScaleFinite(3f, intensity),
+            13 => ScaleFinite(4f, intensity),
+            14 => ScaleFinite(10f, intensity),
+            16 => ScaleFinite(32f, intensity),
+            17 => ScaleFinite(0.375f, intensity),
+            19 => ScaleFinite(0.04f, intensity) - 0.02f,
+            27 => ScaleFinite(2f, intensity),
+            31 => ScaleFinite(20f, intensity),
+            33 => 1f + intensity,
+            38 => ScaleFinite(2.4f, intensity),
+            _ => intensity
+        };
+    }
+
+    private static float ScaleFinite(float multiplier, float intensity)
+    {
+        // Widen before multiplication: finite float inputs may overflow float
+        // when a filter applies its effect-specific multiplier.
+        double scaled = (double)multiplier * intensity;
+        return (float)Math.Clamp(scaled, -(double)float.MaxValue, (double)float.MaxValue);
+    }
 }

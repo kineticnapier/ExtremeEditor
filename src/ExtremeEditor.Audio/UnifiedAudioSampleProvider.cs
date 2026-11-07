@@ -21,7 +21,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     private readonly ISampleProvider _song;
     private readonly SampleAccurateHitSoundProvider? _hitSounds;
-    private readonly TransportHitSoundSampleProvider? _transportHitSounds;
+    private TransportHitSoundSampleProvider? _transportHitSounds;
     private readonly long _totalFrames;
     private readonly bool _transportMode;
     private float[] _hitBuffer = [];
@@ -29,6 +29,10 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     private volatile bool _hitSoundsEnabled = true;
     private bool _transportWasMuted;
     private float _limiterGain = 1.0f;
+    // A caller may request only part of a stereo frame. Mix and limit the
+    // complete frame once, then return its remaining samples on the next read.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
     private long _readCalls, _readTicks, _maxReadTicks, _songReadTicks,
         _hitSoundReadTicks, _limiterTicks, _overBudgetReadCalls;
     private double _minimumMasterGain = 1.0;
@@ -90,11 +94,49 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     public int Read(float[] buffer, int offset, int count)
     {
         long started = Stopwatch.GetTimestamp();
-        int read = _transportMode
-            ? ReadTransport(buffer, offset, count)
-            : ReadSourceClock(buffer, offset, count);
-        RecordRead(started, read / WaveFormat.Channels);
-        return read;
+        int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Keep the normal frame-aligned callback on the direct mixing path.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+        {
+            int read = _transportMode
+                ? ReadTransport(buffer, offset + written, completeSamples)
+                : ReadSourceClock(buffer, offset + written, completeSamples);
+            written += read;
+            if (read < completeSamples)
+            {
+                RecordRead(started, written);
+                return written;
+            }
+        }
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = _transportMode
+                ? ReadTransport(_pendingOutputFrame, 0, channels)
+                : ReadSourceClock(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        RecordRead(started, written);
+        return written;
     }
 
     private int ReadSourceClock(float[] buffer, int offset, int count)
@@ -108,7 +150,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         int frameCount = (int)Math.Min(requestedFrames, remainingFrames);
         int sampleCount = frameCount * channels;
         long songStarted = Stopwatch.GetTimestamp();
-        int songRead = _song.Read(buffer, offset, sampleCount);
+        int songRead = ReadSongSamples(buffer, offset, sampleCount);
         Interlocked.Add(ref _songReadTicks, Stopwatch.GetElapsedTime(songStarted).Ticks);
         if (songRead < sampleCount)
             Array.Clear(buffer, offset + songRead, sampleCount - songRead);
@@ -133,6 +175,7 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
     public void Seek(long positionFrames)
     {
+        ResetPendingOutput();
         if (_transportMode)
         {
             _positionFrames = Math.Max(0, positionFrames);
@@ -150,8 +193,27 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
     {
         if (!_transportMode)
             return;
+        ResetPendingOutput();
         _positionFrames = Math.Max(0, sourceFrame);
-        _transportHitSounds?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
+        Volatile.Read(ref _transportHitSounds)?.ReanchorPlaybackSpeed(_positionFrames, playbackSpeed);
+        _limiterGain = 1.0f;
+    }
+
+    internal void ReplaceTransportHitSounds(
+        TransportHitSoundSampleProvider? hitSounds,
+        long sourceFrame)
+    {
+        if (!_transportMode)
+            throw new InvalidOperationException("Hit-sound replacement requires a transport graph.");
+        if (hitSounds is not null && !WaveFormat.Equals(hitSounds.WaveFormat))
+            throw new ArgumentException("Song and hit-sound formats must match.", nameof(hitSounds));
+
+        ResetPendingOutput();
+        long clamped = Math.Max(0, sourceFrame);
+        hitSounds?.Seek(clamped);
+        Interlocked.Exchange(ref _transportHitSounds, hitSounds);
+        _positionFrames = clamped;
+        _transportWasMuted = false;
         _limiterGain = 1.0f;
     }
 
@@ -164,16 +226,17 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
 
         Array.Clear(buffer, offset, requestedSamples);
         long songStarted = Stopwatch.GetTimestamp();
-        int songRead = _song.Read(buffer, offset, requestedSamples);
+        int songRead = ReadSongSamples(buffer, offset, requestedSamples);
         Interlocked.Add(ref _songReadTicks, Stopwatch.GetElapsedTime(songStarted).Ticks);
         int hitRead = 0;
-        if (_transportHitSounds is not null)
+        TransportHitSoundSampleProvider? transportHitSounds = Volatile.Read(ref _transportHitSounds);
+        if (transportHitSounds is not null)
         {
             if (!_hitSoundsEnabled)
             {
                 // Keep the silent transport duration and hit clock, but do
                 // not allocate a mix buffer or render muted hit samples.
-                hitRead = _transportHitSounds.AdvanceMuted(requestedSamples / channels) * channels;
+                hitRead = transportHitSounds.AdvanceMuted(requestedSamples / channels) * channels;
                 _transportWasMuted = true;
             }
             else
@@ -182,13 +245,13 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
                 // so a mute toggle cannot race with transport Read.
                 if (_transportWasMuted)
                 {
-                    _transportHitSounds.ResumeAfterMute();
+                    transportHitSounds.ResumeAfterMute();
                     _transportWasMuted = false;
                 }
                 if (_hitBuffer.Length < requestedSamples)
                     _hitBuffer = new float[requestedSamples];
                 long hitStarted = Stopwatch.GetTimestamp();
-                hitRead = _transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
+                hitRead = transportHitSounds.Read(_hitBuffer, 0, requestedSamples);
                 Interlocked.Add(ref _hitSoundReadTicks, Stopwatch.GetElapsedTime(hitStarted).Ticks);
                 for (int i = 0; i < hitRead; i++)
                     buffer[offset + i] += _hitBuffer[i];
@@ -206,7 +269,25 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         return frameCount * channels;
     }
 
-    private void RecordRead(long started, int frames)
+    private int ReadSongSamples(float[] buffer, int offset, int count)
+    {
+        // A short read is not EOF. Keep filling the requested interleaved
+        // samples so the song does not skip ahead of the hit-sound clock.
+        int written = 0;
+        while (written < count)
+        {
+            int read = _song.Read(buffer, offset + written, count - written);
+            if (read <= 0)
+                break;
+            written += read;
+        }
+
+        return written;
+    }
+
+    private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
+
+    private void RecordRead(long started, int samples)
     {
         long ticks = Stopwatch.GetElapsedTime(started).Ticks;
         Interlocked.Increment(ref _readCalls);
@@ -221,9 +302,16 @@ internal sealed class UnifiedAudioSampleProvider : ISampleProvider
         }
         // Processing longer than the produced audio is a possible underrun
         // indicator; it does not itself prove that the device underruns.
-        if (frames > 0 && ticks > (double)frames * TimeSpan.TicksPerSecond / WaveFormat.SampleRate)
+        if (IsReadOverBudget(ticks, samples, WaveFormat))
             Interlocked.Increment(ref _overBudgetReadCalls);
     }
+
+    // Audio callbacks may return part of an interleaved frame. Compare the
+    // elapsed time against the actual sample duration, not truncated frames.
+    internal static bool IsReadOverBudget(long elapsedTicks, int sampleCount, WaveFormat format) =>
+        sampleCount > 0 && elapsedTicks >
+        (double)sampleCount * TimeSpan.TicksPerSecond /
+        ((double)format.SampleRate * format.Channels);
 
     private void RecordMinimumMasterGain(float gain)
     {

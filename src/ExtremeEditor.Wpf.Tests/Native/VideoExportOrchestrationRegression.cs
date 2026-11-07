@@ -81,6 +81,15 @@ internal static class VideoExportOrchestrationRegression
         if (!source.Contains("ThrowIfCancellationRequested", StringComparison.Ordinal))
             failures.Add("service must observe cancellation");
 
+        int planIndex = source.IndexOf("var videoPlan = new VideoExportPlan(", StringComparison.Ordinal);
+        int countIndex = source.IndexOf(
+            "int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);",
+            StringComparison.Ordinal);
+        int encoderIndex = source.IndexOf(
+            "await using var encoder = new FfmpegVideoEncoder(", StringComparison.Ordinal);
+        if (planIndex < 0 || countIndex <= planIndex || encoderIndex <= countIndex)
+            failures.Add("service must validate the frame count before starting ffmpeg");
+
         if (failures.Count != 0)
         {
             throw new InvalidOperationException(

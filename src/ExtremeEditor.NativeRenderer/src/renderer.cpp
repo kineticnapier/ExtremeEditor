@@ -1,4 +1,6 @@
+#include "bloom_interpolation.h"
 #include "renderer.h"
+#include "screen_bloom.h"
 #include "background_timeline_lookup.h"
 #include "shutdown_diagnostics.h"
 #include "d2d_backend.h"
@@ -137,11 +139,14 @@ bool Renderer::SetLevel(std::shared_ptr<LevelScene> scene) noexcept
     // Every scene created by a full upload may replace the inactive cache.
     // Keep the previous scene only when it was registered from a prepared
     // managed snapshot. Untracked edits explicitly clear that registration.
-    cached_scene_ = current_scene_cache_key_ == 0u ? nullptr : std::move(scene_);
+    const bool cache_previous = current_scene_cache_key_ != 0u;
+    cached_scene_ = cache_previous ? std::move(scene_) : nullptr;
     cached_scene_key_ = cached_scene_ ? current_scene_cache_key_ : 0u;
+    cached_icon_assets_ = cache_previous ? icon_assets_ : nullptr;
+    cached_background_assets_ = cache_previous ? background_assets_ : nullptr;
     current_scene_cache_key_ = 0u;
     scene_ = std::move(scene);
-    pending_icon_states_.clear();
+    pending_icon_batches_.clear();
     delete_hud_button_ = -1; // WPF will refresh this after updating the selected floor.
 
     if (!had_scene)
@@ -175,9 +180,23 @@ bool Renderer::TryActivateCachedLevel(std::uint64_t scene_key) noexcept
     cached_scene_ = previous_key == 0u ? nullptr : std::move(previous);
     cached_scene_key_ = cached_scene_ ? previous_key : 0u;
 
+    std::shared_ptr<const IconAssetTable> previous_icons = std::move(icon_assets_);
+    icon_assets_ = cached_icon_assets_
+        ? std::move(cached_icon_assets_)
+        : std::make_shared<IconAssetTable>();
+    cached_icon_assets_ = cached_scene_ ? std::move(previous_icons) : nullptr;
+    ++icon_assets_version_;
+
+    auto previous_backgrounds = std::move(background_assets_);
+    background_assets_ = cached_background_assets_
+        ? std::move(cached_background_assets_)
+        : std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+    cached_background_assets_ = cached_scene_ ? std::move(previous_backgrounds) : nullptr;
+    ++background_assets_version_;
+
     // Match SetLevel's activation contract; tab-specific selections, assets
     // and playback timelines are restored by WPF after scene activation.
-    pending_icon_states_.clear();
+    pending_icon_batches_.clear();
     delete_hud_button_ = -1;
     if (!had_scene)
     {
@@ -202,6 +221,8 @@ void Renderer::RememberCurrentLevel(std::uint64_t scene_key) noexcept
         // inactive scene whose snapshots may be obsolete.
         cached_scene_.reset();
         cached_scene_key_ = 0u;
+        cached_icon_assets_.reset();
+        cached_background_assets_.reset();
     }
 }
 
@@ -222,14 +243,40 @@ bool Renderer::UpdateFloorIcons(
             return false;
         }
 
-        pending_icon_start_floor_ = start_floor;
-        pending_icon_states_.assign(states, states + state_count);
+        pending_icon_batches_.push_back(PendingFloorIconBatch{
+            start_floor,
+            std::vector<EeFloorIconState>(states, states + state_count)});
         return true;
     }
     catch (...)
     {
         return false;
     }
+}
+
+// Caller holds scene_mutex_ and has checked scene_. Batches were validated
+// against the scene they were queued for; SetLevel clears them on replacement.
+void Renderer::ApplyPendingFloorIconsLocked() noexcept
+{
+    if (pending_icon_batches_.empty())
+        return;
+
+    for (const PendingFloorIconBatch& batch : pending_icon_batches_)
+    {
+        for (std::size_t i = 0; i < batch.states.size(); ++i)
+        {
+            const std::size_t floor_index = static_cast<std::size_t>(batch.start_floor) + i;
+            if (floor_index >= scene_->floors.size())
+                break;
+            EeFloor& floor = scene_->floors[floor_index];
+            const EeFloorIconState& state = batch.states[i];
+            floor.icon_id = state.icon_id;
+            floor.icon_flags = state.icon_flags;
+            floor.icon_angle = state.icon_angle;
+        }
+    }
+    pending_icon_batches_.clear();
+    ++scene_version_;
 }
 
 void Renderer::FrameAll() noexcept
@@ -489,28 +536,36 @@ BloomVisualState ResolveBloomAtTime(
     double chart_time) noexcept
 {
     BloomVisualState result;
-    if (events == nullptr || events->empty())
+    if (events == nullptr || events->empty() || std::isnan(chart_time))
         return result;
 
     const EeBloomEvent* previous = nullptr;
     for (const EeBloomEvent& item : *events)
     {
+        if (!std::isfinite(item.start_time) ||
+            !std::isfinite(item.duration_seconds) ||
+            !std::isfinite(item.threshold) ||
+            !std::isfinite(item.intensity))
+            continue;
         if (item.start_time > chart_time)
             break;
 
-        const float start_threshold = previous ? previous->threshold : item.threshold;
-        const float start_intensity = previous ? previous->intensity : item.intensity;
-        const std::uint32_t start_tint = previous ? previous->tint : item.tint;
+        // Each event kills the running tweens with completion and tweens from
+        // there; before the first event VideoBloom holds its defaults.
+        const float start_threshold = previous ? previous->threshold : BloomDefaultThreshold;
+        const float start_intensity = previous ? previous->intensity : BloomDefaultIntensity;
+        const std::uint32_t start_tint = previous ? previous->tint : BloomDefaultTint;
         const double raw = item.duration_seconds <= 1e-9
             ? 1.0
             : (chart_time - item.start_time) / item.duration_seconds;
-        const double progress = ApplyFlashEase(item.ease, raw);
+        const double eased = ApplyFlashEase(item.ease, raw);
+        const double progress = std::isfinite(eased) ? eased : 0.0;
 
         result.enabled = item.enabled != 0u;
-        result.threshold = start_threshold +
-            (item.threshold - start_threshold) * static_cast<float>(progress);
-        result.intensity = start_intensity +
-            (item.intensity - start_intensity) * static_cast<float>(progress);
+        result.threshold = InterpolateBloomFinite(
+            start_threshold, item.threshold, progress);
+        result.intensity = InterpolateBloomFinite(
+            start_intensity, item.intensity, progress);
         result.tint = LerpBloomColor(start_tint, item.tint, progress);
         previous = &item;
     }
@@ -733,6 +788,32 @@ bool Renderer::SetBackgroundAsset(
     catch (...) { return false; }
 }
 
+bool Renderer::ReplaceBackgroundAssets(
+    const std::uint32_t* asset_ids,
+    const wchar_t* const* image_paths,
+    std::uint32_t asset_count) noexcept
+{
+    if (asset_count > 0u && (asset_ids == nullptr || image_paths == nullptr))
+        return false;
+    try
+    {
+        auto next = std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+        next->reserve(asset_count);
+        for (std::uint32_t index = 0u; index < asset_count; ++index)
+        {
+            if (asset_ids[index] == 0u || image_paths[index] == nullptr)
+                return false;
+            (*next)[asset_ids[index]] = image_paths[index];
+        }
+
+        std::lock_guard lock(scene_mutex_);
+        background_assets_ = std::move(next);
+        ++background_assets_version_;
+        return true;
+    }
+    catch (...) { return false; }
+}
+
 bool Renderer::SetFilterTimeline(
     const EeFilterEvent* events,
     std::uint32_t event_count) noexcept
@@ -763,63 +844,16 @@ bool Renderer::SetFilterTimeline(
     }
 }
 
-float ApplyFilterIntensity(std::uint32_t filter, float intensity) noexcept
-{
-    switch (filter)
-    {
-    case 3u: return 0.212f * intensity;
-    case 7u: return std::round(5.0f * intensity);
-    case 8u: return 0.5f * intensity;
-    case 10u: return 0.9f + 0.1f * intensity;
-    case 11u: return 3.0f * intensity;
-    case 13u: return 4.0f * intensity;
-    case 14u: return 10.0f * intensity;
-    case 16u: return 32.0f * intensity;
-    case 17u: return 0.375f * intensity;
-    case 19u: return 0.04f * intensity - 0.02f;
-    case 27u: return 2.0f * intensity;
-    case 31u: return 20.0f * intensity;
-    case 33u: return 1.0f + intensity;
-    case 38u: return 2.4f * intensity;
-    default: return intensity;
-    }
-}
-
 FilterVisualState ResolveFilterStateAtTime(
     const std::vector<EeFilterEvent>* events,
     double chart_time) noexcept
 {
-    FilterVisualState result;
-    if (events == nullptr)
-        return result;
-
-    for (const EeFilterEvent& item : *events)
-    {
-        if (item.start_time > chart_time)
-            break;
-        if (item.filter >= 41u)
-            continue;
-
-        if ((item.flags & EE_FILTER_DISABLE_OTHERS) != 0u)
-        {
-            for (std::uint32_t i = 0u; i < 41u; ++i)
-            {
-                if (i != item.filter)
-                    result.entries[i].enabled = false;
-            }
-        }
-
-        const double raw = item.duration_seconds <= 1e-9
-            ? 1.0
-            : (chart_time - item.start_time) / item.duration_seconds;
-        const double progress = ApplyFlashEase(item.ease, raw);
-        FilterVisualEntry& entry = result.entries[item.filter];
-        entry.intensity = entry.intensity +
-            (item.target_intensity - entry.intensity) * static_cast<float>(progress);
-        entry.enabled = item.enabled != 0u;
-        entry.applied_value = ApplyFilterIntensity(item.filter, entry.intensity);
-    }
-
+    const EeFilterEvent* data = events != nullptr && !events->empty() ? events->data() : nullptr;
+    const std::size_t count = events != nullptr ? events->size() : 0u;
+    FilterVisualState result = ResolveScreenFilters(data, count, chart_time, ApplyFlashEase);
+    for (std::uint32_t filter = 0u; filter < FilterCount; ++filter)
+        result.entries[filter].applied_value =
+            ApplyFilterIntensity(filter, result.entries[filter].intensity);
     return result;
 }
 
@@ -1293,19 +1327,8 @@ void Renderer::RenderLoop() noexcept
         std::chrono::steady_clock::time_point anchor_steady;
         {
             std::lock_guard lock(scene_mutex_);
-            if (scene_ && !pending_icon_states_.empty())
-            {
-                for (std::size_t i = 0; i < pending_icon_states_.size(); ++i)
-                {
-                    EeFloor& floor = scene_->floors[pending_icon_start_floor_ + i];
-                    const EeFloorIconState& state = pending_icon_states_[i];
-                    floor.icon_id = state.icon_id;
-                    floor.icon_flags = state.icon_flags;
-                    floor.icon_angle = state.icon_angle;
-                }
-                pending_icon_states_.clear();
-                ++scene_version_;
-            }
+            if (scene_)
+                ApplyPendingFloorIconsLocked();
             scene = scene_;
             icon_assets = icon_assets_;
             playback_timings = playback_timings_;

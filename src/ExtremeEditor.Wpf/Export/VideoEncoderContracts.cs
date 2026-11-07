@@ -17,6 +17,15 @@ internal sealed record VideoEncoderStartInfo(
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)
             throw new ArgumentOutOfRangeException(nameof(Height));
+        // libx264 with yuv420p cannot encode odd frame dimensions.
+        if ((Width & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Width), "H.264 yuv420p requires an even width.");
+        if ((Height & 1) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Height), "H.264 yuv420p requires an even height.");
+        // RGB24 frames are passed as byte[]; reject dimensions that cannot fit
+        // in a single managed array before creating files or starting ffmpeg.
+        if ((long)Width * Height > Array.MaxLength / 3)
+            throw new ArgumentOutOfRangeException(nameof(Width), "RGB24 frame exceeds the maximum supported array length.");
         if (FramesPerSecond <= 0)
             throw new ArgumentOutOfRangeException(nameof(FramesPerSecond));
         if (AudioSampleRate <= 0)

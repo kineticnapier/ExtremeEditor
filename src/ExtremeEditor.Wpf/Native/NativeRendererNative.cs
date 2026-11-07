@@ -140,6 +140,49 @@ internal static class NativeRendererNative
     [DllImport(DllName, EntryPoint = "ee_renderer_set_background_asset", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     internal static extern int SetBackgroundAsset(nint renderer, uint assetId, string imagePath);
 
+    [DllImport(DllName, EntryPoint = "ee_renderer_replace_background_assets", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ReplaceBackgroundAssetTable(
+        nint renderer, nint assetIds, nint imagePaths, uint assetCount);
+
+    internal static int ReplaceBackgroundAssets(
+        nint renderer,
+        IReadOnlyList<NativeBackgroundAsset> assets)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+        if (assets.Count == 0)
+            return ReplaceBackgroundAssetTable(renderer, nint.Zero, nint.Zero, 0u);
+
+        uint[] ids = new uint[assets.Count];
+        nint[] paths = new nint[assets.Count];
+        GCHandle idsHandle = default;
+        GCHandle pathsHandle = default;
+        try
+        {
+            for (int index = 0; index < assets.Count; index++)
+            {
+                ids[index] = assets[index].Id;
+                paths[index] = Marshal.StringToHGlobalUni(assets[index].ImagePath);
+            }
+            idsHandle = GCHandle.Alloc(ids, GCHandleType.Pinned);
+            pathsHandle = GCHandle.Alloc(paths, GCHandleType.Pinned);
+            return ReplaceBackgroundAssetTable(
+                renderer,
+                idsHandle.AddrOfPinnedObject(),
+                pathsHandle.AddrOfPinnedObject(),
+                checked((uint)assets.Count));
+        }
+        finally
+        {
+            if (pathsHandle.IsAllocated) pathsHandle.Free();
+            if (idsHandle.IsAllocated) idsHandle.Free();
+            foreach (nint path in paths)
+            {
+                if (path != nint.Zero)
+                    Marshal.FreeHGlobal(path);
+            }
+        }
+    }
+
     [DllImport(DllName, EntryPoint = "ee_renderer_set_filter_timeline", CallingConvention = CallingConvention.Cdecl)]
     internal static extern int SetFilterTimeline(nint renderer, nint events, uint eventCount);
 

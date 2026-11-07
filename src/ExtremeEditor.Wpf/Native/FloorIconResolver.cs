@@ -112,30 +112,17 @@ internal static class FloorIconResolver
             NativeFloorIconState state = NativeFloorIconState.None;
             if (actionFloorIndex < store.ActionFloorCount && store.GetFloor(actionFloorIndex) == floor)
             {
-                ReadOnlySpan<LevelAction> actions = store.GetActionsAt(actionFloorIndex++);
-                float baseEntryAngle = snapshot.Floors[floor].EntryAngle - snapshot.IconRotationOffsets[floor];
-                float exitAngle = GetExitAngle(floor, level.Angles, baseEntryAngle);
-                bool midSpin = IsMidSpin(level.Angles, floor);
-                if (IsSingleActiveTwirl(actions))
-                {
-                    isCcw = !isCcw;
-                    state = ResolveSingleTwirl(
-                        baseEntryAngle,
-                        exitAngle,
-                        isCcw,
-                        midSpin,
-                        hasSwirlRed,
-                        swirlRed,
-                        hasSwirlBlue,
-                        swirlBlue);
-                }
-                else
-                {
-                    ToggleTwirlState(actions, ref isCcw);
-                    state = ResolveFloor(actions, baseEntryAngle, exitAngle, isCcw, midSpin, assets);
-                }
-                if (state.IconId != NativeFloor.NoIcon)
-                    state.IconAngle += snapshot.IconRotationOffsets[floor];
+                state = ResolveSnapshotFloor(
+                    level,
+                    snapshot,
+                    floor,
+                    store.GetActionsAt(actionFloorIndex++),
+                    ref isCcw,
+                    assets,
+                    hasSwirlRed,
+                    swirlRed,
+                    hasSwirlBlue,
+                    swirlBlue);
             }
             states[floor - startFloor] = state;
         }
@@ -160,6 +147,106 @@ internal static class FloorIconResolver
 
         resolution = new FloorIconSuffixResolution(states, ccwBeforeFloorSuffix);
         return true;
+    }
+
+    // Resolves one floor of an uploaded snapshot when the edit leaves that
+    // floor's Twirl parity unchanged. Every later floor then keeps its icon and
+    // counter-clockwise state, so only this floor needs a native update.
+    internal static bool TryResolveFloor(
+        LevelDocument level,
+        NativeLevelSnapshot snapshot,
+        int floor,
+        out NativeFloorIconState state)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        state = default;
+
+        int floorCount = snapshot.Floors.Length;
+        if ((uint)floor >= (uint)floorCount ||
+            level.FloorCount != floorCount ||
+            snapshot.CcwBeforeFloor.Length != floorCount ||
+            snapshot.IconRotationOffsets.Length != floorCount)
+        {
+            return false;
+        }
+
+        // The terminal floor carries the Portal rule; its one-floor suffix is
+        // already resolved by the general path.
+        if (floor == floorCount - 1)
+        {
+            if (!TryResolveFrom(level, snapshot, floor, out FloorIconSuffixResolution suffix))
+                return false;
+            state = suffix.States[0];
+            return true;
+        }
+
+        var assets = new AssetResolver(snapshot.IconAssets.ToList(), allowNewAssets: false);
+        bool hasSwirlRed = assets.TryFloorIcon("SwirlRed", 0f, false, out NativeFloorIconState swirlRed);
+        bool hasSwirlBlue = assets.TryFloorIcon("SwirlBlue", 0f, false, out NativeFloorIconState swirlBlue);
+        bool isCcw = snapshot.CcwBeforeFloor[floor];
+        LevelActionStore store = level.ActionStore;
+        int actionFloorIndex = LowerBound(store.Floors, floor);
+        NativeFloorIconState resolved = NativeFloorIconState.None;
+        if (actionFloorIndex < store.ActionFloorCount && store.GetFloor(actionFloorIndex) == floor)
+        {
+            resolved = ResolveSnapshotFloor(
+                level,
+                snapshot,
+                floor,
+                store.GetActionsAt(actionFloorIndex),
+                ref isCcw,
+                assets,
+                hasSwirlRed,
+                swirlRed,
+                hasSwirlBlue,
+                swirlBlue);
+        }
+
+        if (isCcw != snapshot.CcwBeforeFloor[floor + 1] || assets.RequiredAssetUnavailable)
+            return false;
+
+        state = resolved;
+        return true;
+    }
+
+    private static NativeFloorIconState ResolveSnapshotFloor(
+        LevelDocument level,
+        NativeLevelSnapshot snapshot,
+        int floor,
+        ReadOnlySpan<LevelAction> actions,
+        ref bool isCcw,
+        AssetResolver assets,
+        bool hasSwirlRed,
+        NativeFloorIconState swirlRed,
+        bool hasSwirlBlue,
+        NativeFloorIconState swirlBlue)
+    {
+        float baseEntryAngle = snapshot.Floors[floor].EntryAngle - snapshot.IconRotationOffsets[floor];
+        float exitAngle = GetExitAngle(floor, level.Angles, baseEntryAngle);
+        bool midSpin = IsMidSpin(level.Angles, floor);
+        NativeFloorIconState state;
+        if (IsSingleActiveTwirl(actions))
+        {
+            isCcw = !isCcw;
+            state = ResolveSingleTwirl(
+                baseEntryAngle,
+                exitAngle,
+                isCcw,
+                midSpin,
+                hasSwirlRed,
+                swirlRed,
+                hasSwirlBlue,
+                swirlBlue);
+        }
+        else
+        {
+            ToggleTwirlState(actions, ref isCcw);
+            state = ResolveFloor(actions, baseEntryAngle, exitAngle, isCcw, midSpin, assets);
+        }
+        if (state.IconId != NativeFloor.NoIcon)
+            state.IconAngle += snapshot.IconRotationOffsets[floor];
+        return state;
     }
 
     private static NativeFloorIconState ResolveFloor(

@@ -101,8 +101,11 @@ public partial class MainWindow
             return;
         }
         JsonObject current = AdoFaiEditorSaveService.BuildEditableActionJson(editor, before);
+        // Newly created actions may omit fields that the editor displays as defaults.
+        // Use the displayed baseline to detect the first numeric edit correctly.
+        JsonObject conversionBaseline = _eventPropertyDraftBaseline ?? current;
         bool setSpeedDraftSynchronized = _level is not null &&
-            SetSpeedEditorConversion.SynchronizeDraft(_level, before, current, draft);
+            SetSpeedEditorConversion.SynchronizeDraft(_level, before, conversionBaseline, draft);
         if (setSpeedDraftSynchronized)
         {
             _eventPropertyDraft = (JsonObject)draft.DeepClone();
@@ -141,6 +144,20 @@ public partial class MainWindow
             return;
 
         StopPlayback();
+
+        // Flash edits update only the Flash timeline and the edited floor's
+        // icon. A failed fast path has already replaced the native level and
+        // continues below, where the Flash edit refreshes playback timelines.
+        if (EnsureEditorSession()?.TakeLastActionChange() is EditorActionChange change &&
+            NativeActionEditUpdate.CreatePlan(change.Before, change.After).Kind ==
+                NativeActionEditKind.FlashTimeline &&
+            NativeActionEditUpdate.Apply(NativeViewport, _level, change.Before, change.After, _timingMap) ==
+                NativeActionEditKind.FlashTimeline)
+        {
+            UpdateEditorStatus();
+            CommandManager.InvalidateRequerySuggested();
+            return;
+        }
 
         bool timingChanged = AffectsEditorTiming(before) || AffectsEditorTiming(after);
         bool cameraChanged = IsCameraEvent(before.EventType) || IsCameraEvent(after.EventType);

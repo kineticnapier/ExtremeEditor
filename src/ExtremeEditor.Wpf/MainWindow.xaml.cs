@@ -154,7 +154,13 @@ public partial class MainWindow : Window
         if (confirmed && !_isClosed)
         {
             _windowCloseApproved = true;
-            Close();
+            // Discard can complete synchronously while OnClosing is still running.
+            // Defer the second Close until WPF has finished cancelling the first.
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+            {
+                if (!_isClosed)
+                    Close();
+            }));
         }
     }
 
@@ -175,30 +181,56 @@ public partial class MainWindow : Window
 
     private async void ExecuteOpen(object sender, ExecutedRoutedEventArgs e)
     {
-        if (!CanSwitchDocumentTabs())
-        {
-            e.Handled = true;
-            return;
-        }
-
-        EnsureEditorSession();
-
-        var dialog = new OpenFileDialog
-        {
-            Filter = "ADOFAI levels (*.adofai)|*.adofai|All files (*.*)|*.*",
-            Title = "Open ADOFAI level"
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
-            if (existing is not null)
-                _ = ActivateDocumentTab(existing);
-            else
-                await LoadLevelAsync(dialog.FileName);
-        }
-
+        // WPF async-void handlers must observe failures from both synchronous
+        // setup (including the file dialog) and asynchronous chart loading.
         e.Handled = true;
+        await ObserveOpenCommandAsync(
+            async () =>
+            {
+                if (!CanSwitchDocumentTabs())
+                    return;
+
+                EnsureEditorSession();
+
+                var dialog = new OpenFileDialog
+                {
+                    Filter = "ADOFAI levels (*.adofai)|*.adofai|All files (*.*)|*.*",
+                    Title = "Open ADOFAI level"
+                };
+
+                if (dialog.ShowDialog(this) != true)
+                    return;
+
+                EditorDocumentTab? existing = _documentTabs.FindByPath(dialog.FileName);
+                if (existing is not null)
+                    // Reopening an existing chart uses the same observed activation
+                    // path as a tab click, so native failures reach the status bar.
+                    RequestDocumentTabActivation(existing);
+                else
+                    await LoadLevelAsync(dialog.FileName);
+            },
+            ex =>
+            {
+                if (!_isClosed)
+                    StatusText.Text = $"Could not open chart: {ex.Message}";
+            });
+    }
+
+    // Keep unexpected exceptions out of the WPF dispatcher, including
+    // failures thrown before the first await in the open command.
+    internal static async Task ObserveOpenCommandAsync(
+        Func<Task> open, Action<Exception> reportFailure)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        ArgumentNullException.ThrowIfNull(reportFailure);
+        try
+        {
+            await open();
+        }
+        catch (Exception ex)
+        {
+            reportFailure(ex);
+        }
     }
 
     private void CanExecuteOpen(object sender, CanExecuteRoutedEventArgs e)
@@ -267,7 +299,26 @@ public partial class MainWindow : Window
             // editor/selection/audio remain owned by the preceding tab.
             _isLoading = false;
             var switchWatch = Stopwatch.StartNew();
-            await ActivateDocumentTab(tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            bool activated = false;
+            try
+            {
+                activated = await ActivateDocumentTab(
+                    tab, preparedNativeLevel, deferPlaybackTimeline: true);
+            }
+            finally
+            {
+                // An unsuccessful or faulted activation must not leave a tab
+                // that was never committed as the active workspace.
+                if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                    _documentTabs.Remove(tab))
+                {
+                    tab.Audio?.Dispose();
+                    RefreshActiveDocumentTab();
+                }
+            }
+            if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+                return;
+
             TimeSpan tabSwitch = switchWatch.Elapsed;
             Native.NativeLevelUploadMetrics nativeMetrics = NativeViewport.LastLevelUploadMetrics;
 
@@ -333,10 +384,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            NativePlaybackLoadMetrics nativePlaybackMetrics =
-                NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+            NativePlaybackLoadMetrics nativePlaybackMetrics;
+            try
+            {
+                nativePlaybackMetrics =
+                    NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback);
+                ApplySharedPlaybackPreferences(preparedAudio.Player);
+            }
+            catch
+            {
+                // Playback preparation already allocated a new audio player.
+                // Do not leak it if native timeline upload or setup fails
+                // before ownership is transferred to the active tab.
+                preparedAudio.Dispose();
+                throw;
+            }
 
-            ApplySharedPlaybackPreferences(preparedAudio.Player);
             AudioPlayer previousAudio = _audio;
             _audio = preparedAudio.Player;
             tab.Audio = _audio;
@@ -422,6 +485,7 @@ public partial class MainWindow : Window
     private void CanExecutePlayback(object sender, CanExecuteRoutedEventArgs e)
     {
         e.CanExecute = !_playbackPreparationPending &&
+                       _documentTabs.ActiveTab?.AudioPreparationPending != true &&
                        _level is not null &&
                        (_timingMap is not null || _editorPlaybackRefreshPending);
         e.Handled = true;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "extreme_editor_renderer.h"
+#include "floor_base.h"
 
 #include <chrono>
 #include <cstdint>
@@ -13,10 +14,15 @@ class TrackVisualRuntime
 {
 public:
     void ResetBase(const std::vector<EeFloor>& floors) noexcept;
+    void ResetBase(FloorBase base) noexcept;
     bool SetTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     void SetPlaybackAnchor(double chart_time, double chart_rate, std::uint32_t flags) noexcept;
     void Update(std::vector<EeFloor>& floors) noexcept;
     void EvaluateAt(double chart_time, std::vector<EeFloor>& floors) noexcept;
+    // Diagnostics for tests: the base floor array in use and the bytes of
+    // floor-sized buffers this runtime owns apart from a shared base.
+    const EeFloor* BaseData() const noexcept;
+    std::size_t OwnedFloorBufferBytes() const noexcept;
 
 private:
     struct FloorEvent
@@ -58,7 +64,9 @@ private:
     static std::uint32_t LerpColor(std::uint32_t from, std::uint32_t to, float progress) noexcept;
 
     mutable std::mutex mutex_;
-    std::vector<EeFloor> base_floors_;
+    const std::vector<EeFloor>& BaseFloors() const noexcept { return FloorsOf(base_); }
+
+    FloorBase base_;
     std::vector<FloorTrack> tracks_;
     std::vector<RuntimeState> runtime_states_;
     std::vector<ScheduleEntry> schedule_;

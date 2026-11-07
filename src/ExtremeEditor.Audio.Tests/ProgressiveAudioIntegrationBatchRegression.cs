@@ -21,6 +21,7 @@ internal static class ProgressiveAudioIntegrationBatchRegression
         CheckForegroundBoundedCache(failures);
         CheckPrerenderLifecycle(failures);
         CheckAudioPlayerWiring(failures);
+        CheckExceptionUnwrapping(failures);
 
         if (failures.Count > 0)
         {
@@ -259,8 +260,16 @@ internal static class ProgressiveAudioIntegrationBatchRegression
             throw new InvalidOperationException($"{name}: expected {expected}, actual {actual}");
     }
 
+    private static void CheckExceptionUnwrapping(List<string> failures)
+    {
+        var inner = new InvalidOperationException("original failure");
+        var wrapped = new TargetInvocationException(inner);
+        if (!ReferenceEquals(Unwrap(wrapped), inner) || !ReferenceEquals(Unwrap(inner), inner))
+            failures.Add("Reflection failures must preserve the original inner exception.");
+    }
+
     private static Exception Unwrap(Exception exception) =>
-        exception is TargetInvocationException { InnerException: not null } invocation
-            ? invocation.InnerException
+        exception is TargetInvocationException { InnerException: Exception inner }
+            ? inner
             : exception;
 }

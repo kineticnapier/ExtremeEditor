@@ -30,6 +30,277 @@ internal static class VfxTimelineExpansionRegression
         VerifyStockOrdering(first.Occurrences);
         VerifyDeterministicEnumeration(first, second);
         VerifySourceWasNotMutated(level, before);
+        VerifyExtremeBeatRepeatRejected();
+        VerifyNonFiniteRepeatInputsRejected();
+        VerifyNonFiniteSourceEventValuesRejected();
+        VerifyHugeFloorRepeatStopsAtChartEnd();
+        VerifyBeatRepeatExpansionBudgetBoundary();
+        VerifyBeatRepeatBudgetAccumulatesAcrossSources();
+        VerifyUnresolvedCrossFloorRepeatBudget();
+    }
+
+    private static void VerifyExtremeBeatRepeatRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "huge"),
+            CreateRepeat(1, 1, "Beat", "huge", active: true,
+                repetitions: int.MaxValue, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("RepeatEvents", StringComparison.Ordinal) &&
+            ex.Message.Contains("source index 1", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "An excessive Beat RepeatEvents must fail before allocating occurrences.");
+    }
+
+    private static void VerifyNonFiniteRepeatInputsRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        foreach (string interval in new[] { "Infinity", "NaN" })
+        {
+            LevelAction repeat = CreateRepeat(1, 1, "Beat", "bad-interval",
+                active: true, repetitions: 1, interval: null, floorCount: null,
+                executeOnCurrentFloor: false);
+            repeat.PropertyOverrides!["interval"] = interval;
+            level.ReplaceActions([CreateVfx(1, 0, 0, "bad-interval"), repeat]);
+
+            try
+            {
+                _ = VfxTimelineBuilder.Build(level);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("source index 1", StringComparison.Ordinal) &&
+                ex.Message.Contains("non-finite interval", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"RepeatEvents must reject the non-finite interval '{interval}'.");
+        }
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "overflow"),
+            CreateRepeat(1, 1, "Beat", "overflow", active: true,
+                repetitions: 1, interval: double.MaxValue, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 1", StringComparison.Ordinal) &&
+            ex.Message.Contains("non-finite angle offset", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "RepeatEvents must reject finite intervals whose angle multiplication overflows.");
+    }
+
+    private static void VerifyNonFiniteSourceEventValuesRejected()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        foreach ((double angle, double duration, string expected) in new[]
+        {
+            (double.PositiveInfinity, 1.25, "non-finite angle offset"),
+            (0.0, double.NaN, "non-finite duration")
+        })
+        {
+            level.ReplaceActions(
+            [
+                new LevelAction(1, "MoveDecorations", true, null, null, null, null)
+                {
+                    SourceIndex = 0,
+                    AngleOffset = angle,
+                    Duration = duration
+                }
+            ]);
+            RequireRejected(expected);
+        }
+
+        // Both source fields are finite, but converting an enormous duration
+        // at a very low pitch can still overflow the computed duration.
+        level.PitchPercent = 0.0001;
+        level.ReplaceActions(
+        [
+            new LevelAction(1, "MoveDecorations", true, null, null, null, null)
+            {
+                SourceIndex = 0,
+                AngleOffset = 0,
+                Duration = double.MaxValue
+            }
+        ]);
+        RequireRejected("non-finite time value");
+
+        void RequireRejected(string expected)
+        {
+            try
+            {
+                _ = VfxTimelineBuilder.Build(level);
+            }
+            catch (InvalidOperationException ex) when (
+                ex.Message.Contains("source index 0", StringComparison.Ordinal) &&
+                ex.Message.Contains(expected, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"VFX timeline must reject {expected} before creating an occurrence.");
+        }
+    }
+
+    private static void VerifyHugeFloorRepeatStopsAtChartEnd()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "bounded"),
+            CreateRepeat(1, 1, "Floor", "bounded", active: true,
+                repetitions: null, interval: null, floorCount: int.MaxValue,
+                executeOnCurrentFloor: true)
+        ]);
+
+        VfxOccurrence[] occurrences = VfxTimelineBuilder.Build(level).Occurrences
+            .Where(item => item.SourceIndex == 0).ToArray();
+        AssertSequenceEqual([1, 2], occurrences.Select(item => item.Floor),
+            "Floor RepeatEvents must stop at the last floor even with a huge count.");
+    }
+
+    private static void VerifyBeatRepeatExpansionBudgetBoundary()
+    {
+        // The exact limit must remain valid; the next occurrence must be rejected.
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "limit"),
+            CreateRepeat(1, 1, "Beat", "limit", active: true,
+                repetitions: 199_999, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        VfxTimeline accepted = VfxTimelineBuilder.Build(level);
+        if (ForSource(accepted, 0).Length != 200_000)
+            throw new InvalidOperationException("RepeatEvents must accept exactly 200,000 occurrences.");
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "limit"),
+            CreateRepeat(1, 1, "Beat", "limit", active: true,
+                repetitions: 200_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("200001", StringComparison.Ordinal) &&
+            ex.Message.Contains("200000", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("RepeatEvents must reject 200,001 occurrences.");
+    }
+
+    private static void VerifyBeatRepeatBudgetAccumulatesAcrossSources()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "first"),
+            CreateRepeat(1, 1, "Beat", "first", active: true,
+                repetitions: 100_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false),
+            CreateVfx(1, 2, 0, "second"),
+            CreateRepeat(1, 3, "Beat", "second", active: true,
+                repetitions: 100_000, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 3", StringComparison.Ordinal) &&
+            ex.Message.Contains("100001", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "RepeatEvents must apply the expansion budget across all matching sources.");
+    }
+
+    private static void VerifyUnresolvedCrossFloorRepeatBudget()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(4);
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "orphan"),
+            CreateVfx(1, 2, 0, "orphan extra"),
+            CreateRepeat(2, 1, "Beat", "orphan", active: true,
+                repetitions: 1, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        // An unused cross-floor RepeatEvents retains one unresolved
+        // association. Its exact tag must not match a multi-tag string.
+        VfxOccurrence[] unresolved = VfxTimelineBuilder.Build(level).Occurrences
+            .Where(item => item.RepeatSourceIndex == 1).ToArray();
+        if (unresolved.Length != 1 ||
+            unresolved[0].SourceIndex != 0 ||
+            unresolved[0].RepeatIteration != -1 ||
+            unresolved[0].RepeatPlacementIsResolved)
+        {
+            throw new InvalidOperationException(
+                "Cross-floor RepeatEvents must preserve exact-tag unresolved association semantics.");
+        }
+
+        level.ReplaceActions(
+        [
+            CreateVfx(1, 0, 0, "bulk"),
+            CreateRepeat(1, 1, "Beat", "bulk", active: true,
+                repetitions: 199_999, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false),
+            CreateVfx(1, 2, 0, "orphan"),
+            CreateRepeat(2, 3, "Beat", "orphan", active: true,
+                repetitions: 1, interval: 1, floorCount: null,
+                executeOnCurrentFloor: false)
+        ]);
+
+        try
+        {
+            _ = VfxTimelineBuilder.Build(level);
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("source index 3", StringComparison.Ordinal) &&
+            ex.Message.Contains("200000", StringComparison.Ordinal) &&
+            ex.Message.Contains("unresolved cross-floor association", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "Unresolved cross-floor RepeatEvents must share the executable expansion budget.");
     }
 
     private static LevelDocument CreateFixture()

@@ -53,16 +53,8 @@ inline PlaybackVisualState CalculatePlaybackVisual(
     const double angle = static_cast<double>(timing.entry_angle) +
         direction * static_cast<double>(timing.angle_moved) * progress;
 
-    float orbit_distance = DefaultPlanetDistance;
-    if (floor + 1u < scene->floors.size())
-    {
-        const EeFloor& next_floor = scene->floors[floor + 1u];
-        const float dx = next_floor.x - stationary.x;
-        const float dy = next_floor.y - stationary.y;
-        const float resolved_distance = std::hypot(dx, dy);
-        if (std::isfinite(resolved_distance) && resolved_distance > 0.000001f)
-            orbit_distance = resolved_distance;
-    }
+    // Keep the orbit independent of ScaleRadius and displaced tile geometry.
+    constexpr float orbit_distance = DefaultPlanetDistance;
 
     result.active = true;
     result.floor = static_cast<std::int32_t>(floor);

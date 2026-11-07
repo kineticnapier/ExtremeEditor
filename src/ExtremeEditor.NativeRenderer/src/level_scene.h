@@ -64,6 +64,17 @@ struct LevelScene
     TrackTransformUpdateMetrics TrackTransformMetrics() const noexcept;
     TrackAnimationFloorState TrackAnimationState(std::uint32_t floor) const noexcept;
 
+    struct RuntimeFloorBufferReport
+    {
+        const EeFloor* transform_base = nullptr;
+        const EeFloor* visual_base = nullptr;
+        const EeFloor* animation_base = nullptr;
+        std::size_t owned_floor_buffer_bytes = 0;
+    };
+    // Test diagnostics: which base arrays the track runtimes read, and how
+    // many bytes of floor-sized buffers they own on top of the scene floors.
+    RuntimeFloorBufferReport RuntimeFloorBuffers() const noexcept;
+
     bool SetStaticDecorations(const EeStaticDecoration* decorations, std::uint32_t decoration_count) noexcept;
     void ClearDecorationAssets() noexcept;
     bool SetDecorationAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;

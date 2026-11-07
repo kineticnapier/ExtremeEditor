@@ -139,19 +139,9 @@ public sealed class TimingMap
         int stationaryFloor = Math.Min(floor, level.Positions.Length - 1);
         Vector2 stationary = level.Positions[stationaryFloor];
 
-        // ScaleRadius changes the center-to-center distance to the destination
-        // floor. The orbit radius must use that same resolved geometry distance;
-        // otherwise the orbit ends short/long and the planet visibly teleports
-        // when the stationary floor advances.
-        float orbitRadius = PathBuilder.DefaultLongTileSize;
-        if (stationaryFloor + 1 < level.Positions.Length)
-        {
-            float resolvedRadius = Vector2.Distance(
-                stationary,
-                level.Positions[stationaryFloor + 1]);
-            if (float.IsFinite(resolvedRadius) && resolvedRadius > 0.000001f)
-                orbitRadius = resolvedRadius;
-        }
+        // Keep the orbit radius fixed even when ScaleRadius or track events
+        // change the floor geometry.
+        const float orbitRadius = PathBuilder.DefaultLongTileSize;
 
         double direction = timing.IsCcw ? -1.0 : 1.0;
         double angle = timing.EntryAngle + direction * timing.AngleMoved * progress;

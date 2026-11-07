@@ -29,8 +29,9 @@ public sealed partial class NativeLevelViewport
         ArgumentNullException.ThrowIfNull(level);
         NativeLevelUpdateDiagnostics.RecordPrepareLevel();
 
-        Console.WriteLine(
-            $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine(
+                $"[native-prepare] begin floors={level.FloorCount} actions={level.ActionCount} decorations={level.DecorationCount}");
 
         if (DecorationDiagnostics.Enabled)
             DecorationBlendDiagnostics.Log(level);
@@ -39,23 +40,26 @@ public sealed partial class NativeLevelViewport
         var phaseWatch = Stopwatch.StartNew();
         NativeLevelSnapshotBuildResult result = FlatNativeLevelSnapshotBuilder.BuildProfiled(level);
         phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] snapshot={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
 
         phaseWatch.Restart();
         StaticDecorationSnapshotData decorationData = StaticDecorationSnapshotBuilder.Build(level);
         result.Snapshot.StaticDecorations = decorationData.Instances;
         result.Snapshot.DecorationAssets = decorationData.Assets;
         result.Snapshot.DecorationPlayback = decorationData.PlaybackRuntime;
-        var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(level);
         BackgroundSourceState initialBackground = BackgroundSourceReader.ReadInitial(level);
+        var (backgroundAssets, backgroundIds) = BackgroundAssetResolver.Build(level, initialBackground);
         result.Snapshot.BackgroundState = BackgroundNativeEncoding.Encode(initialBackground,
             backgroundIds.TryGetValue(initialBackground.Image, out uint backgroundId) ? backgroundId : 0u);
         result.Snapshot.BackgroundAssets = backgroundAssets;
         phaseWatch.Stop();
-        Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] decorations={phaseWatch.Elapsed.TotalMilliseconds:F1}ms");
 
         totalWatch.Stop();
-        Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
+        if (NativePreparationLog.Enabled)
+            Console.WriteLine($"[native-prepare] total={totalWatch.Elapsed.TotalMilliseconds:F1}ms");
         return new PreparedNativeLevel(result.Snapshot, result.Metrics, totalWatch.Elapsed);
     }
 
@@ -118,7 +122,8 @@ public sealed partial class NativeLevelViewport
     internal void SetPreparedLevelCore(
         LevelDocument level,
         PreparedNativeLevel prepared,
-        Action<NativeLevelSnapshot, int[], int> upload)
+        Action<NativeLevelSnapshot, int[], int> upload,
+        Action? applyPendingFrameAll = null)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(upload);
@@ -132,7 +137,22 @@ public sealed partial class NativeLevelViewport
         upload(prepared.Snapshot, selectedFloors, primaryFloor);
         uploadWatch.Stop();
 
-        // Only a successful upload may replace the active managed scene.
+        // A pending FrameAll can fail after the native level upload. Temporarily
+        // expose the new document for the pending-frame check, but do not publish
+        // the new managed scene unless that final native operation also succeeds.
+        LevelDocument? previousLevel = _level;
+        _level = level;
+        try
+        {
+            (applyPendingFrameAll ?? ApplyPendingFrameAll)();
+        }
+        catch
+        {
+            _level = previousLevel;
+            throw;
+        }
+
+        // Only a successful upload and pending-frame operation may commit the scene.
         _level = level;
         _snapshot = prepared.Snapshot;
         if (changedDocument)
@@ -162,10 +182,7 @@ public sealed partial class NativeLevelViewport
             metrics.IconAssetCount,
             metrics.ActionFloorCount);
 
-        // Normal tab activation uses the prepared upload path rather than
-        // SetLevel. Apply a welcome-screen FrameAll request here as well.
-        // A missing renderer or a failed upload keeps the request pending.
-        ApplyPendingFrameAll();
+        // A missing renderer leaves a FrameAll request pending for host creation.
     }
 
     internal void SetPreparedPlayback(PreparedNativePlayback prepared)

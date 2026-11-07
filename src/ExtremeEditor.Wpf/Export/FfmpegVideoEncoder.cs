@@ -99,6 +99,16 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 nameof(chunk));
         }
 
+        ArgumentNullException.ThrowIfNull(chunk.Samples);
+        // Partial interleaved frames shift subsequent channel boundaries.
+        // Reject malformed chunks before writing any PCM bytes.
+        if (chunk.Samples.Length % startInfo.AudioChannels != 0)
+        {
+            throw new ArgumentException(
+                "Audio chunk must contain complete sample frames.",
+                nameof(chunk));
+        }
+
         int byteCount = checked(chunk.Samples.Length * sizeof(float));
         byte[] bytes = ArrayPool<byte>.Shared.Rent(byteCount);
         try
@@ -128,9 +138,34 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _audioStream = null;
         if (audio is not null)
         {
-            await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
-            await audio.DisposeAsync().ConfigureAwait(false);
+            // Even a canceled or failed flush must close the detached stream.
+            // DisposeAsync cannot find it once _audioStream has been cleared.
+            Exception? flushFailure = null;
+            try
+            {
+                await audio.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                flushFailure = ex;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    await audio.DisposeAsync().ConfigureAwait(false);
+                }
+                catch when (flushFailure is not null)
+                {
+                    // Keep the original flush/cancellation error if disposal also fails.
+                }
+            }
         }
+
+        // A cancellation during the audio flush may not be observed by a stream
+        // that completes FlushAsync successfully. Do not start ffmpeg afterward.
+        cancellationToken.ThrowIfCancellationRequested();
 
         string audioPath = _audioTempPath
             ?? throw new InvalidOperationException("Audio temporary path is unavailable.");
@@ -170,6 +205,13 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         }
         catch
         {
+            // Process.Start may succeed before stream setup fails.
+            // Never leave a started ffmpeg process running without an owner.
+            if (_ffmpegProcess is not null)
+            {
+                TryKill(_ffmpegProcess);
+                await TryWaitForExitAsync(_ffmpegProcess).ConfigureAwait(false);
+            }
             DisposeProcessState();
             throw;
         }
@@ -225,9 +267,32 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         {
             if (_videoInput is not null)
             {
-                await _videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await _videoInput.DisposeAsync().ConfigureAwait(false);
+                // A failed or canceled flush must still dispose the video pipe.
+                // Detach first so the outer cleanup does not dispose it twice.
+                Stream videoInput = _videoInput;
                 _videoInput = null;
+                Exception? flushFailure = null;
+                try
+                {
+                    await videoInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    flushFailure = ex;
+                    throw;
+                }
+                finally
+                {
+                    try
+                    {
+                        await videoInput.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch when (flushFailure is not null)
+                    {
+                        // Keep the original flush/cancellation failure if disposal
+                        // also fails. The outer finally still stops ffmpeg.
+                    }
+                }
             }
 
             try
@@ -252,11 +317,18 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                     $"ffmpeg exited with code {process.ExitCode}: {stderr.Trim()}");
             }
 
-            CommitVideoOutput();
+            CommitVideoOutput(cancellationToken);
             _completed = true;
         }
         finally
         {
+            // Flush, pipe close, or waiting for ffmpeg can fail before it exits.
+            // Process.Dispose only releases the handle; it does not stop ffmpeg.
+            if (!_completed)
+            {
+                TryKill(process);
+                await TryWaitForExitAsync(process).ConfigureAwait(false);
+            }
             DisposeProcessState();
             DeleteTemporaryFiles();
         }
@@ -270,17 +342,42 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _disposed = true;
         try
         {
-            if (_videoInput is not null)
-                await _videoInput.DisposeAsync().ConfigureAwait(false);
-            if (_audioStream is not null)
-                await _audioStream.DisposeAsync().ConfigureAwait(false);
+            Exception? videoDisposeFailure = null;
+            try
+            {
+                if (_videoInput is not null)
+                    await _videoInput.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                videoDisposeFailure = ex;
+                throw;
+            }
+            finally
+            {
+                // Always close audio, but preserve an earlier video disposal error.
+                if (_audioStream is not null)
+                {
+                    try
+                    {
+                        await _audioStream.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch when (videoDisposeFailure is not null)
+                    {
+                        // The first disposal error identifies the original failure.
+                    }
+                }
+            }
         }
         finally
         {
             _videoInput = null;
             _audioStream = null;
             if (_ffmpegProcess is not null)
+            {
                 TryKill(_ffmpegProcess);
+                await TryWaitForExitAsync(_ffmpegProcess).ConfigureAwait(false);
+            }
             DisposeProcessState();
             DeleteTemporaryFiles();
         }
@@ -338,8 +435,12 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         _videoTempPath = null;
     }
 
-    private void CommitVideoOutput()
+    private void CommitVideoOutput(CancellationToken cancellationToken)
     {
+        // Cancellation may arrive after ffmpeg exits while its output is finalized.
+        // Do not replace a completed destination with a canceled export.
+        cancellationToken.ThrowIfCancellationRequested();
+
         string temporary = _videoTempPath
             ?? throw new InvalidOperationException("Video temporary path is unavailable.");
         string destination = _finalOutputPath
@@ -387,6 +488,22 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         catch
         {
             // Cancellation/disposal should retain its original exception.
+        }
+    }
+
+    // Wait for a terminated encoder to release its output file handles before
+    // deleting staging files. A bounded best-effort wait preserves the original
+    // cancellation or encoding exception when process cleanup itself fails.
+    private static async Task TryWaitForExitAsync(Process process)
+    {
+        try
+        {
+            await process.WaitForExitAsync(CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Process exit may fail or time out; cleanup remains best-effort.
         }
     }
 

@@ -90,10 +90,22 @@ internal static class NativeSceneReuseRegression
         string session = ReadSource("src/ExtremeEditor.Wpf/Native/NativeRendererSession.cs");
         Require(session.Contains("TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
                 session.Contains("RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)", StringComparison.Ordinal) &&
-                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal),
+                session.Contains("NativeRendererNative.SetLevel(", StringComparison.Ordinal) &&
+                session.Contains("ReplaceBackgroundAssets(", StringComparison.Ordinal),
             "Prepared scene activation must bypass native scene creation on a hit and fall back to a full upload on a miss.");
-        Require(session.Contains("SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal),
-            "Scene reuse must still restore the active document's decorations and visual resources.");
+        VerifyPreparedSceneCacheCommitOrder(session);
+        VerifyBackgroundAssetReplacementFailure(session);
+        VerifyDecorationAssetFailurePublication(session);
+        VerifyCachedDecorationWarnings(session);
+
+        int cacheGuard = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
+        int cacheReturn = cacheGuard < 0 ? -1 : session.IndexOf("return;", cacheGuard, StringComparison.Ordinal);
+        int staticAssets = session.IndexOf("SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal);
+        int decorationAssets = session.IndexOf("ClearDecorationAssets(_renderer)", StringComparison.Ordinal);
+        int iconAssets = session.IndexOf("ClearIconAssets(_renderer)", StringComparison.Ordinal);
+        Require(cacheGuard >= 0 && cacheReturn > cacheGuard &&
+                cacheReturn < staticAssets && cacheReturn < decorationAssets && cacheReturn < iconAssets,
+            "#67: a cache hit must not clear and reload static decorations, decoration images, or icon images.");
 
         string exports = ReadSource("src/ExtremeEditor.NativeRenderer/src/exports.cpp");
         string header = ReadSource("src/ExtremeEditor.NativeRenderer/include/extreme_editor_renderer.h");
@@ -106,8 +118,10 @@ internal static class NativeSceneReuseRegression
         string renderer = ReadSource("src/ExtremeEditor.NativeRenderer/src/renderer.h");
         Require(renderer.Contains("TryActivateCachedLevel(", StringComparison.Ordinal) &&
                 renderer.Contains("RememberCurrentLevel(", StringComparison.Ordinal) &&
-                renderer.Contains("std::shared_ptr<LevelScene> cached_scene_", StringComparison.Ordinal),
-            "Native scene reuse must retain at most one inactive scene instead of an unbounded scene map.");
+                renderer.Contains("std::shared_ptr<LevelScene> cached_scene_", StringComparison.Ordinal) &&
+                renderer.Contains("cached_icon_assets_", StringComparison.Ordinal) &&
+                renderer.Contains("cached_background_assets_", StringComparison.Ordinal),
+            "#67: native scene reuse must retain the inactive scene's icon and background asset tables.");
 
         string cache = ReadSource("src/ExtremeEditor.Wpf/Services/NativeLoadPreparationCache.cs");
         Require(cache.Contains("ByLevel.Remove(level)", StringComparison.Ordinal),
@@ -120,6 +134,170 @@ internal static class NativeSceneReuseRegression
         string tabs = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
         Require(tabs.Contains("NativeViewport.SetPreparedLevelProfiled(tab.Document,", StringComparison.Ordinal),
             "Tab reactivation must continue through the prepared viewport path.");
+    }
+
+    private static void VerifyPreparedSceneCacheCommitOrder(string session)
+    {
+        // A failed background or icon upload leaves the native scene incomplete.
+        // Its cache identity must not be published before the final asset succeeds:
+        // otherwise a later tab switch can reuse that incomplete scene.
+        int start = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int end = start < 0 ? -1 : session.IndexOf(
+            "internal void SetStaticDecorations(", start, StringComparison.Ordinal);
+        Require(start >= 0 && end > start,
+            "The native scene upload must remain available for cache-order checks.");
+
+        string upload = session[start..end];
+        int clearUnpreparedCache = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, 0u)",
+            StringComparison.Ordinal);
+        int level = upload.IndexOf("NativeRendererNative.SetLevel(", StringComparison.Ordinal);
+        int decorations = upload.IndexOf(
+            "SetStaticDecorations(snapshot.StaticDecorations", StringComparison.Ordinal);
+        int backgrounds = upload.IndexOf(
+            "NativeRendererNative.ReplaceBackgroundAssets(", StringComparison.Ordinal);
+        int icons = upload.IndexOf(
+            "NativeRendererNative.SetIconAsset(", StringComparison.Ordinal);
+        int cacheCommit = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)",
+            StringComparison.Ordinal);
+
+        Require(clearUnpreparedCache >= 0 && clearUnpreparedCache < level &&
+                level < decorations && decorations < backgrounds &&
+                backgrounds < icons && icons < cacheCommit,
+            "A prepared scene must be registered for cache reuse only after " +
+            "geometry, decorations, backgrounds and icons are uploaded; " +
+            "ordinary unprepared uploads must still clear stale cache identities.");
+    }
+
+    private static void VerifyDecorationAssetFailurePublication(string session)
+    {
+        // A non-fatal decoration image warning belongs to the scene that
+        // actually finished uploading. A later required background/icon
+        // failure must not publish warnings from an uncommitted scene.
+        int start = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int end = start < 0 ? -1 : session.IndexOf(
+            "internal void SetStaticDecorations(", start, StringComparison.Ordinal);
+        Require(start >= 0 && end > start,
+            "Native level upload must remain available for warning-publication checks.");
+
+        string upload = session[start..end];
+        int iconUpload = upload.IndexOf("NativeRendererNative.SetIconAsset(", StringComparison.Ordinal);
+        int cacheCommit = upload.IndexOf(
+            "NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey)",
+            StringComparison.Ordinal);
+        int warningPublish = upload.IndexOf(
+            "LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());", StringComparison.Ordinal);
+        Require(iconUpload >= 0 && iconUpload < cacheCommit && cacheCommit < warningPublish,
+            "Decoration image warnings must only be published after required " +
+            "background/icon uploads and scene-cache registration succeed.");
+    }
+
+    private static void VerifyCachedDecorationWarnings(string session)
+    {
+        // A cached tab can have non-fatal missing decoration images. Switching
+        // to another tab and back must restore its warning list, not erase it.
+        var warnings = new NativeSceneDecorationWarnings();
+        var original = new List<string> { "missing-a.png" };
+        warnings.Remember(11u, original);
+        original[0] = "mutated.png";
+        IReadOnlyList<string> published = warnings.ForScene(11u);
+        bool mutationBlocked = published is not IList<string>;
+        if (!mutationBlocked)
+        {
+            try
+            {
+                ((IList<string>)published)[0] = "tampered.png";
+            }
+            catch (NotSupportedException)
+            {
+                mutationBlocked = true;
+            }
+        }
+        Require(mutationBlocked && published[0] == "missing-a.png",
+            "Cached decoration warnings must reject mutation through their public read-only view.");
+        warnings.Remember(12u, ["missing-b.png"]);
+        Require(warnings.ForScene(11u).Count == 1 &&
+                warnings.ForScene(11u)[0] == "missing-a.png" &&
+                warnings.ForScene(12u).Count == 1 &&
+                warnings.ForScene(12u)[0] == "missing-b.png",
+            "Cached scene warnings must be independent and snapshot their inputs.");
+
+        warnings.Remember(12u, []);
+        Require(warnings.ForScene(12u).Count == 0 &&
+                warnings.ForScene(11u).Count == 1 &&
+                warnings.ForScene(0u).Count == 0 &&
+                warnings.ForScene(999u).Count == 0,
+            "A successful reload may clear one scene's warnings without affecting another.");
+
+        for (ulong key = 13u; key <= 25u; key++)
+            warnings.Remember(key, ["missing-new.png"]);
+        Require(warnings.ForScene(11u).Count == 0 &&
+                warnings.ForScene(25u).Count == 1,
+            "Warning history must remain bounded across many edited scenes.");
+        warnings.Clear();
+        Require(warnings.ForScene(25u).Count == 0,
+            "An uncached upload must discard stale scene warning history.");
+
+        int cacheHit = session.IndexOf("if (cacheHit)", StringComparison.Ordinal);
+        int cacheReturn = cacheHit < 0 ? -1 : session.IndexOf("return;", cacheHit, StringComparison.Ordinal);
+        Require(cacheHit >= 0 && cacheReturn > cacheHit &&
+                session[cacheHit..cacheReturn].Contains(
+                    "LastDecorationAssetFailures = _decorationWarnings.ForScene(snapshot.SceneCacheKey);",
+                    StringComparison.Ordinal),
+            "A native cache hit must restore that scene's decoration warnings.");
+        int warningCommit = session.IndexOf(
+            "LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());", StringComparison.Ordinal);
+        int warningRemember = session.IndexOf(
+            "_decorationWarnings.Remember(snapshot.SceneCacheKey, decorationAssetFailures);",
+            StringComparison.Ordinal);
+        Require(warningCommit >= 0 && warningRemember > warningCommit &&
+                session.Contains("_decorationWarnings.Clear();", StringComparison.Ordinal),
+            "Only a completed prepared upload may record warnings, and uncached uploads must clear them.");
+    }
+
+    private static void VerifyBackgroundAssetReplacementFailure(string session)
+    {
+        // A native error during background clearing must not be silently
+        // accepted. Exercise the shared result check without a native HWND.
+        NativeRendererSession.RequireBackgroundAssetReplacementSuccess(0);
+        foreach (int result in new[] { -1, 1 })
+        {
+            bool reported = false;
+            try
+            {
+                NativeRendererSession.RequireBackgroundAssetReplacementSuccess(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                reported = ex.Message.Contains(result.ToString(), StringComparison.Ordinal);
+            }
+
+            Require(reported,
+                "A failed native background asset replacement must report its result.");
+        }
+
+        int clearStart = session.IndexOf("internal void ClearBackgroundAssets()", StringComparison.Ordinal);
+        int clearEnd = session.IndexOf("internal void SetBackgroundTimeline(", clearStart, StringComparison.Ordinal);
+        Require(clearStart >= 0 && clearEnd > clearStart,
+            "Background asset clearing must remain available.");
+        string clear = session[clearStart..clearEnd];
+        Require(clear.Contains("RequireBackgroundAssetReplacementSuccess(", StringComparison.Ordinal) &&
+                clear.Contains("NativeRendererNative.ReplaceBackgroundAssets(_renderer, [])", StringComparison.Ordinal),
+            "Background clearing must check the native replacement result.");
+
+        int levelStart = session.IndexOf(
+            "internal void SetLevel(NativeLevelSnapshot snapshot, bool useCache = false)",
+            StringComparison.Ordinal);
+        int levelEnd = session.IndexOf("internal void SetStaticDecorations(", levelStart, StringComparison.Ordinal);
+        Require(levelStart >= 0 && levelEnd > levelStart &&
+                session[levelStart..levelEnd].Contains(
+                    "RequireBackgroundAssetReplacementSuccess(", StringComparison.Ordinal),
+            "Full scene upload and background clearing must share the same error check.");
     }
 
     private static void VerifyNativeDpiExtents()
@@ -188,10 +366,13 @@ internal static class NativeSceneReuseRegression
         Require(preparedStart >= 0 && preparedEnd > preparedStart,
             "Prepared level upload must have a bounded implementation.");
         string preparedUpload = preparedSource[preparedStart..preparedEnd];
+        int preparedStage = preparedUpload.IndexOf("_level = level;", StringComparison.Ordinal);
+        int preparedFrame = preparedUpload.IndexOf("(applyPendingFrameAll ?? ApplyPendingFrameAll)();", StringComparison.Ordinal);
+        int preparedRollback = preparedUpload.IndexOf("_level = previousLevel;", StringComparison.Ordinal);
         int preparedCommit = preparedUpload.IndexOf("_snapshot = prepared.Snapshot;", StringComparison.Ordinal);
-        int preparedFrame = preparedUpload.IndexOf("ApplyPendingFrameAll();", StringComparison.Ordinal);
-        Require(preparedCommit >= 0 && preparedFrame > preparedCommit,
-            "Prepared level activation must apply deferred FrameAll after committing the uploaded chart.");
+        Require(preparedStage >= 0 && preparedStage < preparedFrame &&
+                preparedFrame < preparedRollback && preparedRollback < preparedCommit,
+            "Prepared level activation must stage the chart for deferred FrameAll, roll back on failure, and commit the snapshot only after success.");
 
         string preparation = ReadSource("src/ExtremeEditor.Wpf/Native/NativeLevelViewport.Preparation.cs");
         int setLevelStart = preparation.IndexOf("public void SetLevel(", StringComparison.Ordinal);

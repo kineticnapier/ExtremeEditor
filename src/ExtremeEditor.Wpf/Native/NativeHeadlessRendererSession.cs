@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Native;
 
@@ -31,10 +32,25 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(timingMap);
-        if (width <= 0)
-            throw new ArgumentOutOfRangeException(nameof(width));
-        if (height <= 0)
-            throw new ArgumentOutOfRangeException(nameof(height));
+        ValidateFrameDimensions(width, height);
+        return CreateFromPrepared(
+            () => NativeLevelViewport.PrepareLevel(level),
+            () => NativeLevelViewport.PreparePlayback(level, timingMap),
+            width,
+            height);
+    }
+
+    // Uploads already prepared data. The preparations run after the native
+    // renderer exists, matching Create's order of failures.
+    internal static NativeHeadlessRendererSession CreateFromPrepared(
+        Func<PreparedNativeLevel> prepareLevel,
+        Func<PreparedNativePlayback> preparePlayback,
+        int width = DefaultWidth,
+        int height = DefaultHeight)
+    {
+        ArgumentNullException.ThrowIfNull(prepareLevel);
+        ArgumentNullException.ThrowIfNull(preparePlayback);
+        ValidateFrameDimensions(width, height);
 
         uint apiVersion = NativeRendererNative.GetApiVersion();
         if (apiVersion != ExpectedBaseApiVersion)
@@ -57,8 +73,8 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         var session = new NativeHeadlessRendererSession(renderer, width, height);
         try
         {
-            PreparedNativeLevel levelData = NativeLevelViewport.PrepareLevel(level);
-            PreparedNativePlayback playback = NativeLevelViewport.PreparePlayback(level, timingMap);
+            PreparedNativeLevel levelData = prepareLevel();
+            PreparedNativePlayback playback = preparePlayback();
             session.SetLevel(levelData.Snapshot);
             session.SetPlayback(playback);
             NativeRendererNative.SetFollowPlayer(renderer, 1);
@@ -69,6 +85,18 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
             session.Dispose();
             throw;
         }
+    }
+
+    // This internal factory can be used without NativeChartFrameRenderer.
+    // Validate before any native API call; the helper is testable without
+    // risking a huge native allocation when the validation regresses.
+    internal static void ValidateFrameDimensions(int width, int height)
+    {
+        if (width <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width));
+        if (height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(height));
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
     }
 
     internal NativeRgbFrame Render(double chartTimeSeconds) =>
@@ -82,15 +110,30 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
 
     internal NativeRgbFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
     {
-        if (_renderer == nint.Zero)
-            throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
-        if (!double.IsFinite(sceneTimeSeconds))
-            throw new ArgumentOutOfRangeException(nameof(sceneTimeSeconds));
-        if (!double.IsFinite(visualTimeSeconds))
-            throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
-
+        // Reject invalid requests before allocating a potentially large RGB24 frame.
+        ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
         int stride = checked(Width * 3);
         byte[] rgb = new byte[checked(stride * Height)];
+        RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
+        return new NativeRgbFrame(Width, Height, rgb);
+    }
+
+    internal void RenderInto(
+        double sceneTimeSeconds,
+        double visualTimeSeconds,
+        byte[] rgb)
+    {
+        ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
+
+        int stride = checked(Width * 3);
+        ArgumentNullException.ThrowIfNull(rgb);
+        int requiredLength = checked(stride * Height);
+        if (rgb.Length != requiredLength)
+        {
+            throw new ArgumentException(
+                $"RGB buffer length must be exactly {requiredLength} bytes.",
+                nameof(rgb));
+        }
         GCHandle handle = default;
         try
         {
@@ -112,7 +155,16 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
                 handle.Free();
         }
 
-        return new NativeRgbFrame(Width, Height, rgb);
+    }
+
+    internal void ValidateRenderRequest(double sceneTimeSeconds, double visualTimeSeconds)
+    {
+        if (_renderer == nint.Zero)
+            throw new ObjectDisposedException(nameof(NativeHeadlessRendererSession));
+        if (!double.IsFinite(sceneTimeSeconds))
+            throw new ArgumentOutOfRangeException(nameof(sceneTimeSeconds));
+        if (!double.IsFinite(visualTimeSeconds))
+            throw new ArgumentOutOfRangeException(nameof(visualTimeSeconds));
     }
 
     private void SetLevel(NativeLevelSnapshot snapshot)
@@ -162,13 +214,11 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
         }
 
         // Export must receive the same background image table as the live viewport.
-        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
-        {
-            int result = NativeRendererNative.SetBackgroundAsset(_renderer, asset.Id, asset.ImagePath);
-            if (result != 0)
-                throw new InvalidOperationException(
-                    $"Native background asset upload failed for {asset.ImagePath} with result {result}.");
-        }
+        int backgroundResult = NativeRendererNative.ReplaceBackgroundAssets(
+            _renderer, snapshot.BackgroundAssets);
+        if (backgroundResult != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {backgroundResult}.");
 
         NativeRendererNative.ClearIconAssets(_renderer);
         foreach (NativeIconAsset asset in snapshot.IconAssets)

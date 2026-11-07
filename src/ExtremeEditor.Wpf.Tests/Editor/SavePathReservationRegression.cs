@@ -19,6 +19,7 @@ internal static class SavePathReservationRegression
         EditorDocumentTab first = NewTab();
         EditorDocumentTab second = NewTab();
         Require(tabs.Add(first) && tabs.Add(second, activate: false), "test tabs were not added.");
+        Require(!tabs.HasPendingSaves, "A new tab collection must have no pending saves.");
 
         string directory = Path.Combine(Path.GetTempPath(), $"ExtremeEditor-SaveReservation-{Guid.NewGuid():N}");
         string shared = Path.Combine(directory, "shared.adofai");
@@ -28,8 +29,26 @@ internal static class SavePathReservationRegression
             ?? throw new InvalidOperationException("RED: the first Save As destination was not reserved.");
         try
         {
+            Require(tabs.HasPendingSave(first), "The saving tab must expose its pending save.");
+            Require(tabs.HasPendingSaves,
+                "A window close must be blocked while any tab owns a save reservation.");
+            Require(!tabs.Remove(first),
+                "RED: a tab was removed while its Save As was still writing.");
+            Require(ReferenceEquals(tabs.ActiveTab, first) && tabs.Tabs.Count == 2,
+                "A rejected close must keep the active tab and tab count unchanged.");
             Require(Reserve(reserve, tabs, second, shared) is null,
                 "RED: another tab acquired an already-reserved save destination.");
+
+            // An Open racing with Save As must not create a second tab for
+            // the destination before the pending write has completed.
+            LevelDocument competingDocument = LevelDocument.CreateSynthetic(2);
+            competingDocument.SourcePath = shared;
+            var competingTab = new EditorDocumentTab(
+                competingDocument, new EditorSession(competingDocument));
+            Require(!tabs.Add(competingTab, activate: false),
+                "RED: a tab opened a destination reserved by another tab's Save As.");
+            Require(tabs.Tabs.Count == 2,
+                "A rejected tab must not change the collection.");
             Require(Reserve(reserve, tabs, first, other) is null,
                 "RED: one tab started a second Save As while its first save was pending.");
             using IDisposable? independent = Reserve(reserve, tabs, second, other);
@@ -41,12 +60,76 @@ internal static class SavePathReservationRegression
             firstLease.Dispose();
         }
 
-        using IDisposable? released = Reserve(reserve, tabs, second, shared);
-        Require(released is not null, "A completed/failed save must release its destination.");
+        Require(!tabs.HasPendingSave(first), "The completed save must clear its owner guard.");
+        Require(!tabs.HasPendingSaves,
+            "A completed save must allow the window to close again.");
+        using (IDisposable? released = Reserve(reserve, tabs, second, shared))
+        {
+            Require(released is not null, "A completed/failed save must release its destination.");
+            Require(!tabs.Remove(second), "RED: a second tab was removed during its pending save.");
+            Require(tabs.HasPendingSaves,
+                "A save in an inactive tab must still block window close.");
+        }
 
+        Require(!tabs.HasPendingSave(second), "The second save must release its owner guard.");
+        Require(!tabs.HasPendingSaves,
+            "The window close guard must clear after the final reservation ends.");
+        Require(tabs.Remove(first), "A tab must be removable after its save finishes.");
+        LevelDocument reopenedDocument = LevelDocument.CreateSynthetic(2);
+        reopenedDocument.SourcePath = shared;
+        Require(tabs.Add(new EditorDocumentTab(
+            reopenedDocument, new EditorSession(reopenedDocument)), activate: false),
+            "A destination must be openable again after its save reservation is released.");
+
+        string closeSource = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs");
+        Require(closeSource.Contains("if (_documentTabs.HasPendingSave(tab))", StringComparison.Ordinal),
+            "RED: CloseDocumentTab does not block closing a tab with an in-flight save.");
         string source = ReadSource("src/ExtremeEditor.Wpf/MainWindow/MainWindow.Editor.cs");
+        // OnClosing now shares its pending-work guard with tab-close and
+        // close-confirmation handling. Verify the call precedes the clean
+        // document fast path rather than requiring the old inline if.
+        int saveStateRead = source.IndexOf(
+            "bool hasPendingSaves = _documentTabs.HasPendingSaves;", StringComparison.Ordinal);
+        int pendingWorkGuard = source.IndexOf(
+            "if (ShouldBlockWindowCloseForPendingWork(", StringComparison.Ordinal);
+        int dirtyCloseCheck = source.IndexOf(
+            "if (_windowCloseApproved || !_documentTabs.Tabs.Any", StringComparison.Ordinal);
+        Require(saveStateRead >= 0 && pendingWorkGuard > saveStateRead &&
+                dirtyCloseCheck > pendingWorkGuard &&
+                source[pendingWorkGuard..dirtyCloseCheck].Contains(
+                    "hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending",
+                    StringComparison.Ordinal) &&
+                MainWindow.ShouldBlockWindowCloseForPendingWork(
+                    hasPendingSaves: true,
+                    tabCloseOperationPending: false,
+                    windowCloseConfirmationPending: false),
+            "RED: window close can bypass an in-flight save when the chart is clean.");
         Require(source.Contains("ReferenceEquals(_documentTabs.ActiveTab, saveTab)", StringComparison.Ordinal),
             "RED: async save completion does not verify which tab owns the visible title/status.");
+        int saveHandler = source.IndexOf(
+            "private async void ExecuteSave(", StringComparison.Ordinal);
+        int saveAsHandler = source.IndexOf(
+            "private async void ExecuteSaveAs(", StringComparison.Ordinal);
+        int commandGuard = source.IndexOf(
+            "private async Task ExecuteSaveCommandAsync(", StringComparison.Ordinal);
+        int saveImplementation = source.IndexOf(
+            "private async Task<bool> SaveCurrentAsync(", StringComparison.Ordinal);
+        Require(saveHandler >= 0 && saveAsHandler > saveHandler &&
+                commandGuard > saveAsHandler && saveImplementation > commandGuard,
+            "RED: save command exception boundary is missing.");
+        string saveEntry = source[saveHandler..saveAsHandler];
+        string saveAsEntry = source[saveAsHandler..commandGuard];
+        string saveGuard = source[commandGuard..saveImplementation];
+        Require(saveEntry.Contains("e.Handled = true;", StringComparison.Ordinal) &&
+                saveEntry.Contains("await ExecuteSaveCommandAsync(saveAs: false);", StringComparison.Ordinal) &&
+                saveAsEntry.Contains("e.Handled = true;", StringComparison.Ordinal) &&
+                saveAsEntry.Contains("await ExecuteSaveCommandAsync(saveAs: true);", StringComparison.Ordinal),
+            "RED: a WPF save command bypasses the shared exception boundary.");
+        Require(saveGuard.Contains("try", StringComparison.Ordinal) &&
+                saveGuard.Contains("await SaveCurrentAsync(saveAs);", StringComparison.Ordinal) &&
+                saveGuard.Contains("catch (Exception ex)", StringComparison.Ordinal) &&
+                saveGuard.Contains("StatusText.Text =", StringComparison.Ordinal),
+            "RED: pre-write save failures can escape an async void WPF command.");
     }
 
     private static IDisposable? Reserve(

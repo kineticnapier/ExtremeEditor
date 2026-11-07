@@ -95,18 +95,31 @@ internal static class PlaybackRasterPrefetchRegression
 
     private static void VerifyMissingChunkRequestDoesNotBlockPlaybackUpdate()
     {
-        LevelViewport viewport = CreateDenseViewport(out _);
-        viewport.FollowPlayer = true;
-        Render(viewport);
+        // A single wall-clock sample can include a CI host scheduling pause.
+        // Use independent cold viewports so a transient pause cannot turn an
+        // asynchronous cache miss into a false performance regression.
+        const int attempts = 3;
+        long fastestMilliseconds = long.MaxValue;
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            LevelViewport viewport = CreateDenseViewport(out _);
+            viewport.FollowPlayer = true;
+            Render(viewport);
 
-        var watch = Stopwatch.StartNew();
-        viewport.SetPlaybackPose(new PlaybackPose(0, 0.5, new Vector2(40f, 0f), new Vector2(41f, 0f), true, false));
-        watch.Stop();
+            var watch = Stopwatch.StartNew();
+            viewport.SetPlaybackPose(new PlaybackPose(0, 0.5, new Vector2(40f, 0f), new Vector2(41f, 0f), true, false));
+            watch.Stop();
 
-        if (ReadInt(viewport, "RasterChunkRequestsQueued") <= 0)
-            throw new InvalidOperationException("Playback cache miss must enqueue raster work.");
-        if (watch.ElapsedMilliseconds >= 33)
-            throw new InvalidOperationException($"Playback update blocked for {watch.ElapsedMilliseconds} ms while raster was unavailable.");
+            if (ReadInt(viewport, "RasterChunkRequestsQueued") <= 0)
+                throw new InvalidOperationException("Playback cache miss must enqueue raster work.");
+            fastestMilliseconds = Math.Min(fastestMilliseconds, watch.ElapsedMilliseconds);
+        }
+
+        // Synchronous raster construction would block every cold attempt.
+        // A single slow attempt is not evidence of synchronous work.
+        if (fastestMilliseconds >= 33)
+            throw new InvalidOperationException(
+                $"Playback update blocked for at least {fastestMilliseconds} ms across {attempts} cold cache misses.");
     }
 
     private static void VerifyLevelResetAdvancesRasterGeneration()
