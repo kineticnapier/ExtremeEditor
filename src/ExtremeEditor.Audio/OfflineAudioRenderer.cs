@@ -147,13 +147,20 @@ public sealed class OfflineAudioRenderer
                 return;
 
             long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
+            double fractionalSongFrame = 0.0;
             if (reader is not null)
             {
+                // A pitch-adjusted output frame can land between two source
+                // frames. Seek to the integral source frame and retain the
+                // fractional phase for the interpolation provider.
                 double songPitch = SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent);
-                reader.CurrentTime = TimeSpan.FromSeconds(
-                    Math.Min(
-                        Math.Max(0.0, plan.StartAudioTimeSeconds) * songPitch,
-                        reader.TotalTime.TotalSeconds));
+                int sourceBlockAlign = reader.WaveFormat.BlockAlign;
+                long sourceFrameCount = reader.Length / sourceBlockAlign;
+                double sourcePosition = Math.Min(
+                    (double)sourceStartFrame * songPitch, sourceFrameCount);
+                long integralSourceFrame = (long)Math.Floor(sourcePosition);
+                fractionalSongFrame = sourcePosition - integralSourceFrame;
+                reader.Position = checked(integralSourceFrame * sourceBlockAlign);
             }
             silentSong?.Seek(sourceStartFrame);
 
@@ -168,6 +175,9 @@ public sealed class OfflineAudioRenderer
                 playbackSpeed: 1.0,
                 plan.HitSoundsEnabled,
                 songPitch: SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
+
+            if (reader is not null)
+                graphBuild.SongRateProvider.SetInitialPhase(fractionalSongFrame);
 
             UnifiedAudioSampleProvider graph = graphBuild.Graph;
             graph.Seek(sourceStartFrame);
