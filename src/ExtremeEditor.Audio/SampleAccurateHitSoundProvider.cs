@@ -43,6 +43,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private long _cachedPcmBytes;
     private long _cacheBudgetBytes = long.MaxValue;
     private long _positionFrames;
+    // A sample callback may stop between stereo channels. Keep the remaining
+    // channel so a short read does not falsely signal EOF or skip PCM.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
 
     public SampleAccurateHitSoundProvider(
         WaveFormat waveFormat,
@@ -126,6 +130,40 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
+        int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Preserve the direct chunk-copy path for ordinary aligned callbacks.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+            written += ReadAligned(buffer, offset + written, completeSamples);
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = ReadAligned(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        return written;
+    }
+
+    private int ReadAligned(float[] buffer, int offset, int count)
+    {
         int frameCount = count / WaveFormat.Channels;
         int sampleCount = frameCount * WaveFormat.Channels;
         Array.Clear(buffer, offset, sampleCount);
@@ -145,6 +183,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     public void Seek(long positionFrames)
     {
+        // A seek invalidates the unreturned channel from the previous frame.
+        _pendingOutputOffset = WaveFormat.Channels;
         _positionFrames = Math.Max(0, positionFrames);
     }
 
