@@ -325,7 +325,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     // An invalid chart time or extreme hit-sound offset must not abort
     // the entire audio graph. Only schedule representable sample positions.
-    private static bool TryAudioTimeToSampleFrame(
+    internal static bool TryAudioTimeToSampleFrame(
         double audioSeconds, int sampleRate, out long frame)
     {
         frame = 0;
