@@ -293,11 +293,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (remainingFrames <= 0)
         {
             // The prerendered identity bus is bounded by the song duration.
-            // Hand off only the post-song portion to the block voice mixer so a
-            // hit that began before EOF can finish without being triggered twice.
-            _identitySourcePcmFastPath = false;
-            _nextHitIndex = UpperBound(_totalSourceFrames);
-            RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
+            // Continue with live voices, including any tail crossing that edge.
+            SwitchFromIdentityPcmToVoiceMixer();
             return Read(buffer, offset, requestedFrames * WaveFormat.Channels);
         }
 
@@ -306,7 +303,29 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         int read = _sourcePcm.Read(buffer, offset, sampleCount);
         int readFrames = read / WaveFormat.Channels;
         _outputPositionFrames += readFrames;
+
+        // Do not signal EOF merely because this request crossed the song end:
+        // a hit triggered before EOF may still be audible. Finish the same
+        // callback from the voice mixer so the consumer receives one complete
+        // block (or a genuine final short read).
+        if (readFrames == framesToRead && framesToRead < requestedFrames)
+        {
+            SwitchFromIdentityPcmToVoiceMixer();
+            int prefixSamples = readFrames * WaveFormat.Channels;
+            int tailSamples = Read(
+                buffer, offset + prefixSamples,
+                (requestedFrames - readFrames) * WaveFormat.Channels);
+            return prefixSamples + tailSamples;
+        }
+
         return readFrames * WaveFormat.Channels;
+    }
+
+    private void SwitchFromIdentityPcmToVoiceMixer()
+    {
+        _identitySourcePcmFastPath = false;
+        _nextHitIndex = UpperBound(_totalSourceFrames);
+        RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
     }
 
     private void RebuildActiveVoices(long sourceAnchor, bool includeAnchor)
