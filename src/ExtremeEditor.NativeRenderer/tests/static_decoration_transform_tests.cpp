@@ -293,5 +293,63 @@ int main()
         }
     }
 
+    // Stock scrDecoration.UpdatePosition passes the decoration position P to
+    // scrParallax.SetNewStartPosition and also stores it in posCamAtStart, so
+    // scrParallax.SetTrans places the decoration at
+    // (camera - P) * multiplier + P (+ parallaxOffset). A parallax decoration
+    // therefore sits at its own position whenever the camera is centred on
+    // it, however far it is from the first floor.
+    EeStaticDecoration parallax{};
+    parallax.position_x = 3.0f;
+    parallax.position_y = -2.0f;
+    parallax.scale_x = 1.0f;
+    parallax.scale_y = 1.0f;
+    parallax.scale_multiplier = 1.0f;
+    parallax.parallax_x = 0.9f;
+    parallax.parallax_y = 0.75f;
+    const float far_anchor_x = 300.0f;
+    const float far_anchor_y = 40.0f;
+    const ee::StaticDecorationScreenTransform centred =
+        ee::CalculateStaticDecorationScreenTransform(
+            parallax, far_anchor_x, far_anchor_y,
+            far_anchor_x + 3.0f, far_anchor_y - 2.0f,
+            100.0f, 0.0f, 800u, 600u, 100.0f,
+            0.0f, 1.0f, 1.0f);
+    if (!NearPixel(centred.world_x, far_anchor_x + 3.0f) ||
+        !NearPixel(centred.world_y, far_anchor_y - 2.0f) ||
+        !NearPixel(centred.center_x, 400.0f) ||
+        !NearPixel(centred.center_y, 300.0f))
+    {
+        return 14;
+    }
+
+    // Camera 10 units right and 4 up of P: the decoration follows by
+    // multiplier * offset, i.e. it lags (1 - multiplier) * offset behind.
+    const ee::StaticDecorationScreenTransform moved =
+        ee::CalculateStaticDecorationScreenTransform(
+            parallax, far_anchor_x, far_anchor_y,
+            far_anchor_x + 13.0f, far_anchor_y + 2.0f,
+            100.0f, 0.0f, 800u, 600u, 100.0f,
+            0.0f, 1.0f, 1.0f);
+    if (!NearPixel(moved.world_x, far_anchor_x + 3.0f + 0.9f * 10.0f) ||
+        !NearPixel(moved.world_y, far_anchor_y - 2.0f + 0.75f * 4.0f) ||
+        !NearPixel(moved.center_x, 400.0f - 100.0f * 0.1f * 10.0f) ||
+        !NearPixel(moved.center_y, 300.0f + 100.0f * 0.25f * 4.0f))
+    {
+        return 15;
+    }
+
+    // The pivot offset belongs to the child sprite and is not part of P.
+    EeStaticDecoration pivoted = parallax;
+    pivoted.pivot_offset_x = 1.0f;
+    const ee::StaticDecorationScreenTransform pivot_moved =
+        ee::CalculateStaticDecorationScreenTransform(
+            pivoted, far_anchor_x, far_anchor_y,
+            far_anchor_x + 13.0f, far_anchor_y + 2.0f,
+            100.0f, 0.0f, 800u, 600u, 100.0f,
+            0.0f, 1.0f, 1.0f);
+    if (!NearPixel(pivot_moved.world_x, moved.world_x + 1.0f))
+        return 16;
+
     return 0;
 }

@@ -60,9 +60,7 @@ inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     float pixels_per_unit,
     float parent_rotation = 0.0f,
     float parent_scale_x = 1.0f,
-    float parent_scale_y = 1.0f,
-    float camera_start_x = 0.0f,
-    float camera_start_y = 0.0f) noexcept
+    float parent_scale_y = 1.0f) noexcept
 {
     const bool stick_to_floor = (decoration.flags & EE_DECORATION_STICK_TO_FLOOR) != 0u;
     const bool lock_rotation = (decoration.flags & EE_DECORATION_LOCK_ROTATION) != 0u;
@@ -84,13 +82,20 @@ inline StaticDecorationScreenTransform CalculateStaticDecorationScreenTransform(
     const float rotated_pivot_y =
         local_s * decoration.pivot_offset_x + local_c * decoration.pivot_offset_y;
 
-    float world_x = anchor_x + decoration.position_x + rotated_pivot_x;
-    float world_y = anchor_y + decoration.position_y + rotated_pivot_y;
+    // Stock scrDecoration.UpdatePosition passes the decoration position P
+    // to scrParallax.SetNewStartPosition and stores it in posCamAtStart, so
+    // scrParallax.SetTrans places the root at (camera - P) * multiplier + P
+    // (+ parallaxOffset). The pivot offset moves the child sprite and is not
+    // part of P.
+    float position_x = anchor_x + decoration.position_x;
+    float position_y = anchor_y + decoration.position_y;
     if (decoration.parallax_x != 0.0f || decoration.parallax_y != 0.0f)
     {
-        world_x += (camera_x - camera_start_x) * decoration.parallax_x + decoration.parallax_offset_x;
-        world_y += (camera_y - camera_start_y) * decoration.parallax_y + decoration.parallax_offset_y;
+        position_x += (camera_x - position_x) * decoration.parallax_x + decoration.parallax_offset_x;
+        position_y += (camera_y - position_y) * decoration.parallax_y + decoration.parallax_offset_y;
     }
+    const float world_x = position_x + rotated_pivot_x;
+    const float world_y = position_y + rotated_pivot_y;
     const float dx = world_x - camera_x;
     const float dy = world_y - camera_y;
     const float camera_c = std::cos(camera_rotation);

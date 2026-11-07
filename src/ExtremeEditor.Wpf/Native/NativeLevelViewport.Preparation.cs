@@ -49,7 +49,6 @@ internal sealed class NativeEditorActionRequestedEventArgs : RoutedEventArgs
 public sealed partial class NativeLevelViewport : HwndHost
 {
     private const int WmKillFocus = 0x0008;
-    private const float PlaybackReferenceHeight = 560f;
 
     internal static readonly RoutedEvent FloorSelectionRequestedEvent = EventManager.RegisterRoutedEvent(
         "FloorSelectionRequested",
@@ -700,22 +699,9 @@ public sealed partial class NativeLevelViewport : HwndHost
             _cameraUploadedHeight == viewportHeight)
             return;
 
-        float zoomScale = PlaybackReferenceHeight / Math.Max(1f, viewportHeight);
-        if (_cameraTimeline.Length == 0 || Math.Abs(zoomScale - 1f) < 0.000001f)
-        {
-            _session.SetCameraTimeline(_cameraTimeline);
-        }
-        else
-        {
-            var adjusted = new NativeCameraEvent[_cameraTimeline.Length];
-            for (int i = 0; i < _cameraTimeline.Length; i++)
-            {
-                adjusted[i] = _cameraTimeline[i];
-                adjusted[i].StartZoom *= zoomScale;
-                adjusted[i].TargetZoom *= zoomScale;
-            }
-            _session.SetCameraTimeline(adjusted);
-        }
+        // Shared with headless rendering so GUI playback and video export use
+        // the same stock height-proportional board scale.
+        _session.SetCameraTimeline(NativeCameraZoomScale.ForViewportHeight(_cameraTimeline, viewportHeight));
 
         // Update cache only after a successful native upload.
         _cameraUploadSession = _session;

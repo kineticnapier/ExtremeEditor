@@ -204,22 +204,38 @@ internal static class DecorationTileLayerOrderRegression
         return path;
     }
 
+    // Opaque tile interior only: every pixel within two pixels must be board.
+    // At the stock height-proportional scale a 90 px frame draws tiles about
+    // 13 px wide, so a one-pixel margin would still include the planets'
+    // semi-transparent anti-aliased rims, which correctly show a background
+    // decoration through them.
+    private const int InteriorMargin = 2;
+
     private static int[] InteriorTilePixels(RenderedFrame control)
     {
         var pixels = new List<int>();
-        for (int y = 1; y < Height - 1; y++)
+        for (int y = InteriorMargin; y < Height - InteriorMargin; y++)
         {
-            for (int x = 1; x < Width - 1; x++)
+            for (int x = InteriorMargin; x < Width - InteriorMargin; x++)
             {
-                int index = y * Width + x;
-                if (IsTile(control, index) && IsTile(control, index - 1) && IsTile(control, index + 1) &&
-                    IsTile(control, index - Width) && IsTile(control, index + Width))
-                {
-                    pixels.Add(index);
-                }
+                if (IsInterior(control, x, y))
+                    pixels.Add(y * Width + x);
             }
         }
         return pixels.ToArray();
+    }
+
+    private static bool IsInterior(RenderedFrame control, int x, int y)
+    {
+        for (int dy = -InteriorMargin; dy <= InteriorMargin; dy++)
+        {
+            for (int dx = -InteriorMargin; dx <= InteriorMargin; dx++)
+            {
+                if (!IsTile(control, (y + dy) * Width + x + dx))
+                    return false;
+            }
+        }
+        return true;
     }
 
     private static int[] InsideRight(int[] tile) =>

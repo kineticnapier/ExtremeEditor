@@ -612,9 +612,7 @@ void D2DBackend::DrawStaticDecorationsCamera(
             pixels_per_unit,
             parent_rotation,
             parent_scale_x,
-            parent_scale_y,
-            scene.floors.empty() ? 0.0f : scene.floors.front().x,
-            scene.floors.empty() ? 0.0f : scene.floors.front().y);
+            parent_scale_y);
         return true;
     };
 

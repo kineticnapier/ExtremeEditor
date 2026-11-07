@@ -33,6 +33,14 @@ internal static class Program
             }
 
             if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_HEADLESS_ZOOM_SCALE_ONLY"),
+                "1", StringComparison.Ordinal))
+            {
+                HeadlessCameraZoomScaleRegression.Run();
+                return 0;
+            }
+
+            if (string.Equals(
                 Environment.GetEnvironmentVariable("EXTREMEEDITOR_PREVIEW_ASPECT_ONLY"),
                 "1", StringComparison.Ordinal))
             {
@@ -1107,6 +1115,7 @@ internal static class Program
             // CI must exercise the focused video export and background suites too.
             VideoExportFoundationRegression.Run();
             ChartFrameRendererRegression.Run();
+            HeadlessCameraZoomScaleRegression.Run();
             HeadlessDecorationPlaybackRegression.Run();
             DecorationTileLayerOrderRegression.Run();
             Console.WriteLine("PASS: headless chart frame renderer regression suite.");

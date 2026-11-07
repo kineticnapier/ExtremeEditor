@@ -260,7 +260,12 @@ internal sealed class NativeHeadlessRendererSession : IDisposable
     private void SetPlayback(PreparedNativePlayback prepared)
     {
         UploadArray(prepared.PlaybackTimeline, NativeRendererNative.SetPlaybackTimeline, "playback");
-        UploadArray(prepared.CameraTimeline, NativeRendererNative.SetCameraTimeline, "camera");
+        // Same height conversion as the realtime viewport: the board must scale
+        // with the output height like stock ADOFAI's orthographic camera.
+        UploadArray(
+            NativeCameraZoomScale.ForViewportHeight(prepared.CameraTimeline, checked((uint)Height)),
+            NativeRendererNative.SetCameraTimeline,
+            "camera");
         UploadArray(prepared.FlashTimeline, NativeRendererNative.SetFlashTimeline, "flash");
         UploadArray(prepared.BloomTimeline, NativeRendererNative.SetBloomTimeline, "bloom");
         UploadArray(prepared.ScreenTileTimeline, NativeRendererNative.SetScreenTileTimeline, "screen-tile");
