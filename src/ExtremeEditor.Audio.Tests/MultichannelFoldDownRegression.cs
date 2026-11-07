@@ -239,6 +239,24 @@ internal static class MultichannelFoldDownRegression
         Near(0.4f, monoOut[1], "mono right");
         VerifyUnifiedOddReads();
         VerifyUnifiedChunkedSongReads();
+        VerifyUnifiedReadBudgetAccounting();
+    }
+
+    private static void VerifyUnifiedReadBudgetAccounting()
+    {
+        // One stereo sample is half a frame (about 104.17 ticks at 48 kHz).
+        // Truncating the returned sample count to whole frames would make
+        // every one-sample callback invisible to the over-budget counter.
+        WaveFormat format = WaveFormat.CreateIeeeFloatWaveFormat(48_000, 2);
+        if (UnifiedAudioSampleProvider.IsReadOverBudget(100, 1, format) ||
+            !UnifiedAudioSampleProvider.IsReadOverBudget(105, 1, format) ||
+            UnifiedAudioSampleProvider.IsReadOverBudget(208, 2, format) ||
+            !UnifiedAudioSampleProvider.IsReadOverBudget(209, 2, format) ||
+            UnifiedAudioSampleProvider.IsReadOverBudget(long.MaxValue, 0, format))
+        {
+            throw new InvalidOperationException(
+                "Unified read budget must use the actual sample count, including odd reads.");
+        }
     }
 
     private static void VerifyUnifiedOddReads()
