@@ -109,14 +109,19 @@ public sealed class OfflineAudioRenderer
             // Two different audio times can round to the same output frame.
             // Avoid initializing hit-sound assets or building an audio graph
             // when this interval cannot produce even one PCM frame.
-            long requestedStartFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.StartAudioTimeSeconds,
-                    sampleRate);
-            long requestedEndFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.EndAudioTimeSeconds,
-                    sampleRate);
+            // Finite times can still overflow a 64-bit sample index after
+            // multiplication by the source rate. Reject them as invalid
+            // export ranges instead of leaking an OverflowException.
+            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                    plan.StartAudioTimeSeconds, sampleRate, out long requestedStartFrame))
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan.StartAudioTimeSeconds), plan.StartAudioTimeSeconds,
+                    "The export start time exceeds the representable sample range.");
+            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                    plan.EndAudioTimeSeconds, sampleRate, out long requestedEndFrame))
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan.EndAudioTimeSeconds), plan.EndAudioTimeSeconds,
+                    "The export end time exceeds the representable sample range.");
             if (requestedEndFrame <= requestedStartFrame)
                 return;
 
