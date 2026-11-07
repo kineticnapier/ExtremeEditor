@@ -19,6 +19,10 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     private int _nextHitIndex;
     private double _playbackSpeed;
     private bool _identitySourcePcmFastPath;
+    // Keep the remainder of a complete interleaved frame when the caller
+    // requests fewer samples than the number of channels.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
 
     public TransportHitSoundSampleProvider(
         SampleAccurateHitSoundProvider schedule,
@@ -67,6 +71,45 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     public int Read(float[] buffer, int offset, int count)
     {
         int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Preserve the existing block mixer for frame-aligned callbacks.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+        {
+            int read = ReadAligned(buffer, offset + written, completeSamples);
+            written += read;
+            if (read < completeSamples)
+                return written;
+        }
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = ReadAligned(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        return written;
+    }
+
+    private int ReadAligned(float[] buffer, int offset, int count)
+    {
+        int channels = WaveFormat.Channels;
         int requestedFrames = count / channels;
         if (requestedFrames <= 0)
             return 0;
@@ -87,6 +130,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         return framesToRead * channels;
     }
 
+    private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
+
     // Advance the transport clock without decoding PCM or mixing any voices.
     // The final hit tail still determines the silent transport duration.
     internal int AdvanceMuted(int requestedFrames)
@@ -94,6 +139,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (requestedFrames <= 0)
             return 0;
 
+        ResetPendingOutput();
         int frames = CalculateReadableFrames(requestedFrames);
         _outputPositionFrames += frames;
         _activeVoices.Clear();
@@ -105,6 +151,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     // Rebuild only voices overlapping that block; never replay elapsed hits.
     internal void ResumeAfterMute()
     {
+        ResetPendingOutput();
         if (_sourcePcm is not null && _segments.Count == 1 &&
             Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon &&
             OutputToSource(_outputPositionFrames) < _totalSourceFrames)
@@ -250,6 +297,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 
     internal void Seek(long sourceFrame)
     {
+        ResetPendingOutput();
         long clamped = Math.Clamp(sourceFrame, 0, _totalSourceFrames);
         _segments.Clear();
         _segments.Add(new RateSegment(clamped, 0, _playbackSpeed));
@@ -266,6 +314,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (!PlaybackSpeedPolicy.TryNormalize(playbackSpeed, out double normalized))
             return;
 
+        ResetPendingOutput();
         long clamped = Math.Clamp(sourceFrame, 0, _totalSourceFrames);
         long outputAnchor = SourceToOutput(clamped);
 
