@@ -30,6 +30,7 @@ internal static class VideoExportEncoderRegression
 
         VerifyEncoderContract(encoderType!, startInfoType!);
         VerifyMuxPipelineContract(muxPipelineType!, encoderType!);
+        VerifyCompletionRequiresVideoPhase();
         VerifySourceContract();
     }
 
@@ -113,6 +114,69 @@ internal static class VideoExportEncoderRegression
             throw new InvalidOperationException(
                 $"{type.Name}.{name} has the wrong streaming contract.");
         }
+    }
+
+    private static void VerifyCompletionRequiresVideoPhase()
+    {
+        // The mux must reject premature completion itself, even if the
+        // injected encoder would otherwise accept it.
+        var encoder = new RecordingVideoEncoder();
+        var mux = new VideoExportMuxPipeline(encoder);
+        var startInfo = new VideoEncoderStartInfo(
+            "phase-check.mp4", 2, 2, 30, 44100, 2);
+
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+
+        bool rejected = false;
+        try
+        {
+            mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("video phase", StringComparison.OrdinalIgnoreCase))
+        {
+            rejected = true;
+        }
+
+        if (!rejected || encoder.CompleteCalls != 0)
+            throw new InvalidOperationException(
+                "Mux completion before BeginVideoAsync must fail without calling the encoder.");
+
+        // A rejected early completion must leave the mux usable.
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (encoder.CompleteCalls != 1)
+            throw new InvalidOperationException(
+                "Mux completion must be successful and idempotent after BeginVideoAsync.");
+    }
+
+    private sealed class RecordingVideoEncoder : IVideoEncoder
+    {
+        internal int CompleteCalls { get; private set; }
+
+        public ValueTask BeginAsync(
+            VideoEncoderStartInfo startInfo, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask WriteVideoFrameAsync(
+            byte[] rgb, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask WriteAudioChunkAsync(
+            ExtremeEditor.Audio.OfflineAudioChunk chunk, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask BeginVideoAsync(CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask CompleteAsync(CancellationToken cancellationToken)
+        {
+            CompleteCalls++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private static void VerifySourceContract()
