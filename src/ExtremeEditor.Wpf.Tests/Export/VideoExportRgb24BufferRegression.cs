@@ -33,6 +33,7 @@ internal static class VideoExportRgb24BufferRegression
         // the encoder has already created its temporary output files.
         VerifyNonFiniteVideoExportVolumeRejected();
         VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory();
+        VerifyInvalidOutputPathRejectedBeforeNativePreparation();
         VerifyInvalidSongPathRejectedBeforeNativePreparation();
         VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
         VerifyCancellationFromNativeFactoryDoesNotStartExport();
@@ -131,6 +132,64 @@ internal static class VideoExportRgb24BufferRegression
         if (outputDirectoryCreated)
             throw new InvalidOperationException(
                 "Invalid audio timing created the output directory before rejection.");
+    }
+
+    private static void VerifyInvalidOutputPathRejectedBeforeNativePreparation()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorInvalidOutputPreflight",
+            Guid.NewGuid().ToString("N"));
+        var request = new VideoExportRequest(
+            new VideoExportSource(
+                level,
+                TimingMapBuilder.Build(level),
+                HitSoundTimelineBuilder.Build(level),
+                SongPath: null),
+            OutputPath: Path.Combine(outputDirectory, "invalid\0export.mp4"),
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 2,
+            Height: 2,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+
+        int nativeFactoryCalls = 0;
+        var service = new VideoExportService((_, _) =>
+        {
+            nativeFactoryCalls++;
+            throw new InvalidOperationException("Native renderer must not be initialized.");
+        });
+        bool rejected = false;
+        bool outputDirectoryCreated = false;
+        try
+        {
+            try
+            {
+                service.ExportAsync(
+                    request, new Progress<VideoExportProgress>(),
+                    CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            }
+            catch (ArgumentException)
+            {
+                rejected = true;
+            }
+        }
+        finally
+        {
+            outputDirectoryCreated = Directory.Exists(outputDirectory);
+            if (outputDirectoryCreated)
+                Directory.Delete(outputDirectory, recursive: true);
+        }
+
+        if (!rejected || nativeFactoryCalls != 0)
+            throw new InvalidOperationException(
+                "Invalid output path was not rejected before native preparation.");
+        if (outputDirectoryCreated)
+            throw new InvalidOperationException(
+                "Invalid output path created the video output directory.");
     }
 
     private static void VerifyInvalidSongPathRejectedBeforeNativePreparation()
