@@ -32,6 +32,7 @@ internal static class VideoExportEncoderRegression
         VerifyEncoderContract(encoderType!, startInfoType!);
         VerifyMuxPipelineContract(muxPipelineType!, encoderType!);
         VerifyCompletionRequiresVideoPhase();
+        VerifyCancellationDuringPhaseTransitions();
         VerifySourceContract();
     }
 
@@ -152,24 +153,133 @@ internal static class VideoExportEncoderRegression
                 "Mux completion must be successful and idempotent after BeginVideoAsync.");
     }
 
+    private static void VerifyCancellationDuringPhaseTransitions()
+    {
+        var startInfo = new VideoEncoderStartInfo(
+            "cancellation-check.mp4", 2, 2, 30, 44100, 2);
+
+        // The injected encoder ignores cancellation and returns successfully.
+        // The mux must still observe a cancellation raised during BeginAsync.
+        using var beginCancellation = new CancellationTokenSource();
+        var beginEncoder = new RecordingVideoEncoder
+        {
+            OnBegin = () => beginCancellation.Cancel()
+        };
+        var beginMux = new VideoExportMuxPipeline(beginEncoder);
+        bool beginCanceled = false;
+        try
+        {
+            beginMux.BeginAsync(startInfo, beginCancellation.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex)
+            when (ex.CancellationToken == beginCancellation.Token)
+        {
+            beginCanceled = true;
+        }
+        if (!beginCanceled)
+            throw new InvalidOperationException(
+                "Mux BeginAsync ignored cancellation raised by the encoder.");
+
+        bool remainedUnbegun = false;
+        try
+        {
+            beginMux.BeginVideoAsync(CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException)
+        {
+            remainedUnbegun = true;
+        }
+        if (!remainedUnbegun)
+            throw new InvalidOperationException(
+                "Canceled mux BeginAsync incorrectly published a begun state.");
+
+        // Cancellation after the encoder starts its video phase must not
+        // allow a subsequent frame write or successful completion.
+        using var videoCancellation = new CancellationTokenSource();
+        var videoEncoder = new RecordingVideoEncoder
+        {
+            OnBeginVideo = () => videoCancellation.Cancel()
+        };
+        var videoMux = new VideoExportMuxPipeline(videoEncoder);
+        videoMux.BeginAsync(startInfo, CancellationToken.None)
+            .GetAwaiter().GetResult();
+
+        bool videoCanceled = false;
+        try
+        {
+            videoMux.BeginVideoAsync(videoCancellation.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex)
+            when (ex.CancellationToken == videoCancellation.Token)
+        {
+            videoCanceled = true;
+        }
+        if (!videoCanceled)
+            throw new InvalidOperationException(
+                "Mux BeginVideoAsync ignored cancellation raised by the encoder.");
+
+        bool frameRejected = false;
+        try
+        {
+            videoMux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException)
+        {
+            frameRejected = true;
+        }
+        if (!frameRejected || videoEncoder.VideoFrameCalls != 0)
+            throw new InvalidOperationException(
+                "Canceled video-phase start allowed frame writing.");
+
+        bool completionRejected = false;
+        try
+        {
+            videoMux.CompleteAsync(CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException)
+        {
+            completionRejected = true;
+        }
+        if (!completionRejected || videoEncoder.CompleteCalls != 0)
+            throw new InvalidOperationException(
+                "Canceled video-phase start allowed premature completion.");
+    }
+
     private sealed class RecordingVideoEncoder : IVideoEncoder
     {
         internal int CompleteCalls { get; private set; }
+        internal int VideoFrameCalls { get; private set; }
+        internal Action? OnBegin { get; init; }
+        internal Action? OnBeginVideo { get; init; }
 
         public ValueTask BeginAsync(
-            VideoEncoderStartInfo startInfo, CancellationToken cancellationToken) =>
-            ValueTask.CompletedTask;
+            VideoEncoderStartInfo startInfo, CancellationToken cancellationToken)
+        {
+            OnBegin?.Invoke();
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask WriteVideoFrameAsync(
-            byte[] rgb, CancellationToken cancellationToken) =>
-            ValueTask.CompletedTask;
+            byte[] rgb, CancellationToken cancellationToken)
+        {
+            VideoFrameCalls++;
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask WriteAudioChunkAsync(
             ExtremeEditor.Audio.OfflineAudioChunk chunk, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
 
-        public ValueTask BeginVideoAsync(CancellationToken cancellationToken) =>
-            ValueTask.CompletedTask;
+        public ValueTask BeginVideoAsync(CancellationToken cancellationToken)
+        {
+            OnBeginVideo?.Invoke();
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask CompleteAsync(CancellationToken cancellationToken)
         {
