@@ -73,6 +73,14 @@ internal sealed record VideoExportProgress(
 
 internal sealed class VideoExportService
 {
+    private readonly Func<int, int, NativeChartFrameRenderer> _rendererFactory;
+
+    internal VideoExportService(Func<int, int, NativeChartFrameRenderer>? rendererFactory = null)
+    {
+        _rendererFactory = rendererFactory ??
+            ((width, height) => new NativeChartFrameRenderer(width, height));
+    }
+
     internal async ValueTask ExportAsync(
         VideoExportRequest request,
         IProgress<VideoExportProgress> progress,
@@ -130,6 +138,14 @@ internal sealed class VideoExportService
             request.HitSoundsEnabled);
         audioPlan.Validate();
 
+        // Prepare the native scene before opening encoder staging files or
+        // rendering the audio. Failed native initialization must not create
+        // an output directory or spend time writing temporary PCM data.
+        using var frameRenderer = _rendererFactory(request.Width, request.Height)
+            ?? throw new InvalidOperationException("Native frame renderer factory returned null.");
+        frameRenderer.Load(level, timingMap);
+        frameRenderer.SetCleanView(true);
+
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
 
@@ -160,14 +176,6 @@ internal sealed class VideoExportService
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report(new VideoExportProgress("Video", 0, 0));
-
-        // Prepare the native scene before starting ffmpeg. A missing native
-        // renderer or failed asset upload must not launch a child process.
-        using var frameRenderer = new NativeChartFrameRenderer(
-            request.Width,
-            request.Height);
-        frameRenderer.Load(level, timingMap);
-        frameRenderer.SetCleanView(true);
 
         await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
 
