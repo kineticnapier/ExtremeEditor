@@ -30,6 +30,7 @@ internal static class VideoExportOrchestrationRegression
 
         VerifyServiceApi(serviceType!, requestType!, progressType!);
         VerifyServiceSourceContract();
+        VerifyCanceledSnapshotSkipsDisk();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
     }
@@ -95,6 +96,26 @@ internal static class VideoExportOrchestrationRegression
             throw new InvalidOperationException(
                 "VE5 orchestration source contract failed:\n- " +
                 string.Join("\n- ", failures));
+        }
+    }
+
+    private static void VerifyCanceledSnapshotSkipsDisk()
+    {
+        MethodInfo snapshot = typeof(MainWindow).GetMethod(
+                "CreateVideoExportSnapshot", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export snapshot helper is missing.");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        string nonexistent = Path.Combine(Path.GetTempPath(),
+            $"ExtremeEditor-CancelledSnapshot-{Guid.NewGuid():N}.adofai");
+        try
+        {
+            snapshot.Invoke(null, [nonexistent, cancellation.Token]);
+            throw new InvalidOperationException("A cancelled snapshot unexpectedly loaded a chart.");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is OperationCanceledException)
+        {
+            // Cancellation must win before the first disk read.
         }
     }
 
@@ -167,12 +188,28 @@ internal static class VideoExportOrchestrationRegression
         }
 
         if (!core.Contains("await SaveCurrentAsync(", StringComparison.Ordinal) ||
-            !core.Contains("await Task.Run(() => CreateVideoExportSnapshot(chartPath))", StringComparison.Ordinal) ||
+            !core.Contains("CreateVideoExportSnapshot(chartPath, cancellation.Token)", StringComparison.Ordinal) ||
             !core.Contains("await service.ExportAsync(", StringComparison.Ordinal) ||
             core.Contains("_videoExportInProgress = true;", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 "Save, snapshot preparation, and encoding must all execute inside the guarded core.");
+        }
+
+        int cancelSetup = core.IndexOf("using var cancellation = new CancellationTokenSource();", StringComparison.Ordinal);
+        int enableCancel = core.IndexOf("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal);
+        int snapshotStart = core.IndexOf("VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
+        int snapshotToken = core.IndexOf("CreateVideoExportSnapshot(chartPath, cancellation.Token)", StringComparison.Ordinal);
+        int taskToken = core.IndexOf("            cancellation.Token);", StringComparison.Ordinal);
+        int capturedHitSounds = core.IndexOf("bool hitSoundsEnabled = HitSoundsToggle.IsChecked == true;", StringComparison.Ordinal);
+        if (cancelSetup < 0 || enableCancel <= cancelSetup ||
+            snapshotStart <= enableCancel || snapshotToken <= snapshotStart ||
+            taskToken <= snapshotToken || capturedHitSounds <= enableCancel ||
+            capturedHitSounds >= snapshotStart ||
+            !core.Contains("HitSoundsEnabled: hitSoundsEnabled", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Cancellation and export options must be available before asynchronous snapshot preparation.");
         }
 
         if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||

@@ -124,8 +124,18 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        // Cancellation is available while the chart snapshot is being built,
+        // not only after encoding begins. The individual builders are synchronous,
+        // so cancellation is observed between stages rather than mid-stage.
+        using var cancellation = new CancellationTokenSource();
+        _videoExportCancellation = cancellation;
+        CancelVideoExportMenuItem.IsEnabled = true;
         Mouse.OverrideCursor = Cursors.Wait;
-        VideoExportSource source = await Task.Run(() => CreateVideoExportSnapshot(chartPath));
+        StatusText.Text = "Export Video — preparing…";
+        bool hitSoundsEnabled = HitSoundsToggle.IsChecked == true;
+        VideoExportSource source = await Task.Run(
+            () => CreateVideoExportSnapshot(chartPath, cancellation.Token),
+            cancellation.Token);
 
         var request = new VideoExportRequest(
             source,
@@ -137,11 +147,7 @@ public partial class MainWindow
             Width: 1920,
             Height: 1080,
             SongVolumePercent: source.Level.SongVolumePercent,
-            HitSoundsEnabled: HitSoundsToggle.IsChecked == true);
-
-        using var cancellation = new CancellationTokenSource();
-        _videoExportCancellation = cancellation;
-        CancelVideoExportMenuItem.IsEnabled = true;
+            HitSoundsEnabled: hitSoundsEnabled);
 
         var progress = new Progress<VideoExportProgress>(value =>
         {
@@ -153,7 +159,6 @@ public partial class MainWindow
             StatusText.Text = $"Export Video — {value.Stage}{suffix}";
         });
 
-        StatusText.Text = "Export Video — preparing…";
         var service = new VideoExportService();
         await service.ExportAsync(request, progress, cancellation.Token);
         StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
@@ -170,11 +175,16 @@ public partial class MainWindow
         string.IsNullOrWhiteSpace(tab.Document.SourcePath) ||
         string.Equals(tab.Document.SourcePath, "<synthetic>", StringComparison.Ordinal);
 
-    private static VideoExportSource CreateVideoExportSnapshot(string chartPath)
+    private static VideoExportSource CreateVideoExportSnapshot(
+        string chartPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         LevelDocument level = WpfLevelLoader.Load(chartPath).Document;
+        cancellationToken.ThrowIfCancellationRequested();
         TimingMap timingMap = TimingMapBuilder.Build(level);
+        cancellationToken.ThrowIfCancellationRequested();
         HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        cancellationToken.ThrowIfCancellationRequested();
         return new VideoExportSource(level, timingMap, hitSoundTimeline, level.ResolveSongPath());
     }
 
