@@ -27,6 +27,7 @@ internal static class WindowCloseUnsavedTabsRegression
         VerifySaveFailureAndNewEditCancelClose();
         VerifySuccessfulSaveAndDiscardAllowClose();
         VerifyCloseRetryIsDeferred(window);
+        VerifyActiveVideoExportBlocksClose(editor);
     }
 
     private static void VerifyCloseRetryIsDeferred(string window)
@@ -40,6 +41,41 @@ internal static class WindowCloseUnsavedTabsRegression
             !method.Contains("Close();", StringComparison.Ordinal))
             throw new InvalidOperationException(
                 "RED: discard must defer the second Close until the first WPF OnClosing returns.");
+    }
+
+    private static void VerifyActiveVideoExportBlocksClose(string editor)
+    {
+        // Keep the existing three-argument close guard compatible with callers.
+        if (!MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, false, true) ||
+            MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(true, false, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(false, true, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, true, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(true, false, false))
+        {
+            throw new InvalidOperationException(
+                "An active video export or other pending work must block window shutdown.");
+        }
+
+        int closingStart = editor.IndexOf("protected override void OnClosing(", StringComparison.Ordinal);
+        int closingEnd = editor.IndexOf("private void InitializeEditorCommandBindings(",
+            closingStart, StringComparison.Ordinal);
+        if (closingStart < 0 || closingEnd <= closingStart)
+            throw new InvalidOperationException("Could not inspect the window closing handler.");
+
+        string closing = editor[closingStart..closingEnd];
+        int pendingGuard = closing.IndexOf("if (ShouldBlockWindowCloseForPendingWork(",
+            StringComparison.Ordinal);
+        int approval = closing.IndexOf("if (_windowCloseApproved ||", StringComparison.Ordinal);
+        if (pendingGuard < 0 || approval <= pendingGuard ||
+            !closing.Contains("_windowCloseConfirmationPending, _videoExportInProgress))",
+                StringComparison.Ordinal) ||
+            !closing.Contains("Cancel the video export and wait for it to stop",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Window closing must reject active exports before the approved/clean-tab fast path.");
+        }
     }
 
     private static void VerifyCancelPreservesAllDirtyTabs()
