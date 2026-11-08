@@ -149,8 +149,14 @@ internal sealed class VideoExportService
                     "Native frame renderer factory returned null.");
             try
             {
+                // Cancellation can arrive while the factory creates a renderer
+                // or while native scene loading is in progress. Avoid doing
+                // additional native work and dispose the partial scene.
+                cancellationToken.ThrowIfCancellationRequested();
                 renderer.Load(level, timingMap);
+                cancellationToken.ThrowIfCancellationRequested();
                 renderer.SetCleanView(true);
+                cancellationToken.ThrowIfCancellationRequested();
                 return renderer;
             }
             catch
