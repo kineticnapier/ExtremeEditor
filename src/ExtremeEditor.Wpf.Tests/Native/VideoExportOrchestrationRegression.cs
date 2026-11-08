@@ -31,6 +31,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyServiceApi(serviceType!, requestType!, progressType!);
         VerifyServiceSourceContract();
         VerifyCanceledSnapshotSkipsDisk();
+        VerifyProgressLifecycle();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
     }
@@ -117,6 +118,28 @@ internal static class VideoExportOrchestrationRegression
         {
             // Cancellation must win before the first disk read.
         }
+    }
+
+    private static void VerifyProgressLifecycle()
+    {
+        MethodInfo gate = typeof(MainWindow).GetMethod(
+                "ShouldReportVideoExportProgress",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export progress guard is missing.");
+
+        using var cancellation = new CancellationTokenSource();
+        bool ShouldReport(bool active) =>
+            (bool)(gate.Invoke(null, [active, cancellation.Token])
+                ?? throw new InvalidOperationException("Progress guard returned null."));
+
+        if (!ShouldReport(true) || ShouldReport(false))
+            throw new InvalidOperationException(
+                "Video export progress must be reported only while the export is active.");
+
+        cancellation.Cancel();
+        if (ShouldReport(true))
+            throw new InvalidOperationException(
+                "Video export progress must not overwrite cancellation status.");
     }
 
     private static void VerifyUiContract()
@@ -210,6 +233,23 @@ internal static class VideoExportOrchestrationRegression
         {
             throw new InvalidOperationException(
                 "Cancellation and export options must be available before asynchronous snapshot preparation.");
+        }
+
+        int progressGuard = core.IndexOf(
+            "if (!ShouldReportVideoExportProgress(progressActive, cancellation.Token))",
+            StringComparison.Ordinal);
+        int progressStatus = core.IndexOf(
+            "StatusText.Text = $" + "\"Export Video — {value.Stage}{suffix}\";",
+            StringComparison.Ordinal);
+        int progressDisable = core.IndexOf("progressActive = false;", StringComparison.Ordinal);
+        int exportAwait = core.IndexOf("await service.ExportAsync(", StringComparison.Ordinal);
+        if (!core.Contains("bool progressActive = true;", StringComparison.Ordinal) ||
+            progressGuard < 0 || progressStatus <= progressGuard ||
+            progressDisable <= exportAwait ||
+            !core.Contains("finally\n        {\n            progressActive = false;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Late video export progress must be ignored after completion or cancellation.");
         }
 
         if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||

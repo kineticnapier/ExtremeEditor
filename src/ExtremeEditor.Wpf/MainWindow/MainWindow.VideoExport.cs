@@ -149,8 +149,14 @@ public partial class MainWindow
             SongVolumePercent: source.Level.SongVolumePercent,
             HitSoundsEnabled: hitSoundsEnabled);
 
+        // Progress<T> posts to the UI context. A queued callback may arrive
+        // after ExportAsync has completed or cancellation has been requested.
+        bool progressActive = true;
         var progress = new Progress<VideoExportProgress>(value =>
         {
+            if (!ShouldReportVideoExportProgress(progressActive, cancellation.Token))
+                return;
+
             string suffix = value.Total > 0
                 ? $" {value.Completed:N0}/{value.Total:N0}"
                 : value.Completed > 0
@@ -160,7 +166,15 @@ public partial class MainWindow
         });
 
         var service = new VideoExportService();
-        await service.ExportAsync(request, progress, cancellation.Token);
+        try
+        {
+            await service.ExportAsync(request, progress, cancellation.Token);
+        }
+        finally
+        {
+            progressActive = false;
+        }
+
         StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
         MessageBox.Show(
             this,
@@ -169,6 +183,10 @@ public partial class MainWindow
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }
+
+    internal static bool ShouldReportVideoExportProgress(
+        bool progressActive, CancellationToken cancellationToken) =>
+        progressActive && !cancellationToken.IsCancellationRequested;
 
     internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
         tab.IsDirty ||
