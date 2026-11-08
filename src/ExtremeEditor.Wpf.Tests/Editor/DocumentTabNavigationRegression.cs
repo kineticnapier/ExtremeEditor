@@ -69,10 +69,38 @@ internal static class DocumentTabNavigationRegression
         VerifyRapidNavigation();
         VerifySameTabNavigationCancelsPendingActivation();
         VerifyRejectedNavigationCancelsOlderPreparation();
+        VerifySupersededActivationSkipsNativePreparation();
         VerifyFailedPendingTargetCleanup();
         VerifyFailedNewTabCleanup();
         VerifyFailedChartOpenCleanup();
         VerifyPreparedAudioFailureCleanup();
+    }
+
+    private static void VerifySupersededActivationSkipsNativePreparation()
+    {
+        // Building a timing map can yield to a newer tab-selection request.
+        // The superseded request must not launch expensive native preparations
+        // after its asynchronous managed setup has finished.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source, "private async Task<bool> ActivateDocumentTab(");
+        int timingReady = activate.IndexOf(
+            "targetHitSoundTimeline = tab.HitSoundTimeline", StringComparison.Ordinal);
+        int staleCheck = activate.IndexOf(
+            "if (activationGeneration != _tabActivationGeneration || _isClosed ||",
+            timingReady, StringComparison.Ordinal);
+        int levelStart = activate.IndexOf(
+            "NativeLoadPreparationCache.StartLevel(tab.Document)", StringComparison.Ordinal);
+        int playbackStart = activate.IndexOf(
+            "NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap)",
+            StringComparison.Ordinal);
+        int clearPending = activate.IndexOf(
+            "ClearFailedPendingTabTarget(", staleCheck, StringComparison.Ordinal);
+
+        Require(timingReady >= 0 && staleCheck > timingReady &&
+                levelStart > staleCheck && playbackStart > staleCheck &&
+                clearPending > staleCheck && clearPending < levelStart,
+            "Superseded tab preparation must stop and clear its pending target before launching native work.");
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
