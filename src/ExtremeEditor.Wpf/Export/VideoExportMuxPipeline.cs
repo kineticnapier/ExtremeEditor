@@ -73,6 +73,10 @@ internal sealed class VideoExportMuxPipeline
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (_completed)
             return;
+        // A direct mux caller must not finalize an encoder before video begins.
+        // Keep this contract independent of the concrete ffmpeg implementation.
+        if (!_videoBegun)
+            throw new InvalidOperationException("Video export video phase has not begun.");
 
         cancellationToken.ThrowIfCancellationRequested();
         await _encoder.CompleteAsync(cancellationToken).ConfigureAwait(false);
