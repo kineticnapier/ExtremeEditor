@@ -15,6 +15,14 @@ internal sealed record VideoExportSource(
         ArgumentNullException.ThrowIfNull(Level);
         ArgumentNullException.ThrowIfNull(TimingMap);
         ArgumentNullException.ThrowIfNull(HitSoundTimeline);
+        // A directory is not a song. File.Exists would treat it as missing,
+        // silently producing a video without the requested music.
+        // Preserve the intentional silent fallback for null/missing files.
+        if (!string.IsNullOrWhiteSpace(SongPath) &&
+            Directory.Exists(Path.GetFullPath(SongPath)))
+            throw new ArgumentException(
+                "Video export song path must name a file, not a directory.",
+                nameof(SongPath));
     }
 }
 
