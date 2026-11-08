@@ -27,6 +27,7 @@ internal static class WindowCloseUnsavedTabsRegression
         VerifySaveFailureAndNewEditCancelClose();
         VerifySuccessfulSaveAndDiscardAllowClose();
         VerifyCloseRetryIsDeferred(window);
+        VerifyCloseGuardWhitespaceTolerance();
         VerifyActiveVideoExportBlocksClose(editor);
     }
 
@@ -41,6 +42,28 @@ internal static class WindowCloseUnsavedTabsRegression
             !method.Contains("Close();", StringComparison.Ordinal))
             throw new InvalidOperationException(
                 "RED: discard must defer the second Close until the first WPF OnClosing returns.");
+    }
+
+    // Source-level order checks must not depend on C# line wrapping.
+    internal static bool ContainsCloseGuardArguments(string source)
+    {
+        string compact = string.Concat(source.Where(static c => !char.IsWhiteSpace(c)));
+        return compact.Contains(
+            "hasPendingSaves,_tabCloseOperationPending,_windowCloseConfirmationPending,_videoExportInProgress",
+            StringComparison.Ordinal);
+    }
+
+    private static void VerifyCloseGuardWhitespaceTolerance()
+    {
+        const string wrapped = "hasPendingSaves,\r\n  _tabCloseOperationPending,\n" +
+            "\t_windowCloseConfirmationPending,\r\n _videoExportInProgress";
+        if (!ContainsCloseGuardArguments(wrapped) ||
+            ContainsCloseGuardArguments(wrapped.Replace(
+                "_videoExportInProgress", "false", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "Close guard source checks must tolerate whitespace but require all four arguments.");
+        }
     }
 
     private static void VerifyActiveVideoExportBlocksClose(string editor)
@@ -68,9 +91,7 @@ internal static class WindowCloseUnsavedTabsRegression
             StringComparison.Ordinal);
         int approval = closing.IndexOf("if (_windowCloseApproved ||", StringComparison.Ordinal);
         if (pendingGuard < 0 || approval <= pendingGuard ||
-            !closing.Contains("hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending,",
-                StringComparison.Ordinal) ||
-            !closing.Contains("_videoExportInProgress))", StringComparison.Ordinal) ||
+            !ContainsCloseGuardArguments(closing[pendingGuard..approval]) ||
             !closing.Contains("Cancel the video export and wait for it to stop",
                 StringComparison.Ordinal))
         {
