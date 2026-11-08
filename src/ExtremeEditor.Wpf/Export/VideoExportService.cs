@@ -139,12 +139,26 @@ internal sealed class VideoExportService
         audioPlan.Validate();
 
         // Prepare the native scene before opening encoder staging files or
-        // rendering the audio. Failed native initialization must not create
-        // an output directory or spend time writing temporary PCM data.
-        using var frameRenderer = _rendererFactory(request.Width, request.Height)
-            ?? throw new InvalidOperationException("Native frame renderer factory returned null.");
-        frameRenderer.Load(level, timingMap);
-        frameRenderer.SetCleanView(true);
+        // rendering audio. Keep expensive native loading off the WPF UI thread.
+        // A failed load must dispose the partially initialized renderer.
+        using var frameRenderer = await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var renderer = _rendererFactory(request.Width, request.Height)
+                ?? throw new InvalidOperationException(
+                    "Native frame renderer factory returned null.");
+            try
+            {
+                renderer.Load(level, timingMap);
+                renderer.SetCleanView(true);
+                return renderer;
+            }
+            catch
+            {
+                renderer.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
 
         var offlineAudio = new OfflineAudioRenderer();
         OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
