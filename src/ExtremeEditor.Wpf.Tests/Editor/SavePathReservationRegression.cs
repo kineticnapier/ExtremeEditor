@@ -96,9 +96,8 @@ internal static class SavePathReservationRegression
             "if (_windowCloseApproved || !_documentTabs.Tabs.Any", StringComparison.Ordinal);
         Require(saveStateRead >= 0 && pendingWorkGuard > saveStateRead &&
                 dirtyCloseCheck > pendingWorkGuard &&
-                source[pendingWorkGuard..dirtyCloseCheck].Contains(
-                    "hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending",
-                    StringComparison.Ordinal) &&
+                WindowCloseUnsavedTabsRegression.ContainsCloseGuardArguments(
+                    source[pendingWorkGuard..dirtyCloseCheck]) &&
                 MainWindow.ShouldBlockWindowCloseForPendingWork(
                     hasPendingSaves: true,
                     tabCloseOperationPending: false,

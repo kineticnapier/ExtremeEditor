@@ -135,11 +135,19 @@ public partial class MainWindow
         if (CanSkipDocumentTabActivation(
                 _documentTabs.ActiveTab, tab, _level, _nativeSceneRecoveryFailed))
         {
+            // A previous activation may still be preparing another tab.
+            // Returning to the already-active tab is a newer navigation request:
+            // invalidate that older task before it can commit its native upload.
+            CancelPendingDocumentTabActivation(
+                ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
             HideWelcomePage();
             return true;
         }
 
-        _pendingTabNavigationTarget = tab;
+        // Even a rejected navigation supersedes an older asynchronous switch.
+        // Invalidate its generation before validating the current settings.
+        int activationGeneration = BeginDocumentTabActivation(
+            ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
         if (!TryCommitSettingsBeforeDocumentChange())
         {
             _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
@@ -147,7 +155,6 @@ public partial class MainWindow
             return false;
         }
 
-        int activationGeneration = ++_tabActivationGeneration;
         TimingMap targetTimingMap;
         HitSoundTimeline targetHitSoundTimeline;
         Task<Native.PreparedNativeLevel> levelPreparation;
@@ -162,6 +169,18 @@ public partial class MainWindow
                 (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
             targetHitSoundTimeline = tab.HitSoundTimeline ??
                 builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
+
+            // Managed timing-map construction can yield to another tab request.
+            // Do not start expensive native preparation for a superseded or
+            // removed tab. Only clear the pending target for this generation.
+            if (activationGeneration != _tabActivationGeneration || _isClosed ||
+                !_documentTabs.Tabs.Contains(tab))
+            {
+                if (activationGeneration == _tabActivationGeneration)
+                    _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                        _pendingTabNavigationTarget, tab);
+                return false;
+            }
 
             levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
                 ? Task.FromResult(readyLevel)
@@ -367,6 +386,28 @@ public partial class MainWindow
         !nativeRecoveryFailed &&
         ReferenceEquals(activeTab, targetTab) &&
         ReferenceEquals(activeLevel, targetTab.Document);
+
+    // A same-tab navigation is still a request. Cancel any older asynchronous
+    // preparation and remove this request from the pending Ctrl+Tab origin.
+    internal static void CancelPendingDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab activeTab)
+    {
+        activationGeneration++;
+        pendingTarget = ClearFailedPendingTabTarget(pendingTarget, activeTab);
+    }
+
+    // A failed settings commit must not allow an earlier prepared tab to
+    // activate after the newer navigation was rejected.
+    internal static int BeginDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab targetTab)
+    {
+        pendingTarget = targetTab;
+        return ++activationGeneration;
+    }
 
     // The upload may fail after changing only part of the shared native scene.
     // Keep the managed tab unchanged and attempt to restore the old scene.

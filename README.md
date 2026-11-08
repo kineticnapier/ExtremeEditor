@@ -6,19 +6,22 @@ ExtremeEditor is a standalone Windows editor for very large A Dance of Fire and 
 (`.adofai`) levels. The production application is WPF with a native C++ viewport;
 it has no Unity, UMM, Harmony, or Workbench runtime dependency.
 
-The current version is `0.0.484-prototype`. `main` is the default development
-branch. The WinForms-to-WPF migration and removal of the legacy WinForms host are
-complete.
+The current version is defined in `src/ExtremeEditor.Core/EditorVersion.cs`. It
+is deliberately not repeated here, so this file cannot fall behind. `main` is the
+default development branch. The WinForms-to-WPF migration and removal of the
+legacy WinForms host are complete.
 
 ## Releases
 
 Public builds are currently **alpha-quality**. The first public release line is
 `v0.1.0-alpha.*`.
 
-Release ZIPs are intended for Windows x64 and are published as self-contained
-builds, so installing the .NET runtime separately is not required. ExtremeEditor
-does **not** redistribute ADOFAI game assets; asset setup reads them from a
-legally installed local copy of the game.
+Release ZIPs are intended for Windows x64 and are planned as self-contained
+builds, so installing the .NET runtime separately would not be required. The
+portable artifact currently produced by CI is **not** self-contained
+(`--self-contained false` in `.github/workflows/ci.yml`) and needs the .NET 8
+Desktop Runtime. ExtremeEditor does **not** redistribute ADOFAI game assets;
+asset setup reads them from a legally installed local copy of the game.
 
 ## Requirements
 
@@ -93,6 +96,31 @@ C# is authoritative for editing semantics, the level document, timing, undo/redo
 save/load, audio, and selection. C++ owns production viewport rendering, culling,
 hit testing, camera interaction, and native viewport input. Immutable native
 snapshots cross a flat P/Invoke boundary.
+
+Playback pose and orbit radius are currently computed on both sides of that
+boundary: `TimingMap.GetPose()` in C# and `CalculatePlaybackVisual()` in C++.
+The two must agree. Any open disagreement between them is tracked in
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md),
+which preserves the 2026-10-14 snapshot and appends later dated updates. Check
+the relevant entry's date against the current code.
+
+## Solution layout
+
+There is no `.sln` file; each project under `src/` is built through its own
+`.csproj` (or CMake for the native renderer).
+
+| Project | Role |
+| --- | --- |
+| `ExtremeEditor.Wpf` | Production WPF application and the managed side of the native viewport. |
+| `ExtremeEditor.NativeRenderer` | C++ renderer DLL (D3D11 / DXGI / Direct2D), built with CMake. Also exposes headless rendering exports. |
+| `ExtremeEditor.Core` | Level document, `.adofai` loading, timing map, and shared editor model. No UI dependency. |
+| `ExtremeEditor.Audio` | Song and hit-sound playback and offline rendering. |
+| `ExtremeEditor.Rendering` | Floor geometry, sprite and texture metadata, asset-cache types, and GDI renderers used by the WPF project. |
+| `ExtremeEditor.AssetExtractor` | Standalone executable that extracts assets from a local ADOFAI install (see Asset setup). |
+| `ExtremeEditor.Headless` | Command-line tool that renders a single chart frame to PNG through the native renderer. Part of the video-export groundwork; still in development. |
+| `ExtremeEditor.Bench` | Headless Core benchmark. |
+| `ExtremeEditor.AssetIndexer` | Developer tool for inspecting ADOFAI Unity assets and assemblies. Not shipped with the app. |
+| `*.Tests` | Regression suites for Core, Audio, Wpf, and AssetExtractor. |
 
 `src/ExtremeEditor.Wpf/LevelViewport*.cs` is intentionally retained for
 comparison and regression coverage of the older WPF temporal/raster rendering
@@ -193,6 +221,11 @@ Next:
 
 1. Sample-accurate hit-sound pre-render
 2. Consolidate the production song + hit-sound unified audio graph
+
+Known unfinished work is listed in
+[`docs/DEVELOPMENT_STATUS_2026-10-14.md`](docs/DEVELOPMENT_STATUS_2026-10-14.md).
+The file preserves the 2026-10-14 snapshot and appends later dated updates.
+Check the relevant entry's date against the current code.
 
 Detailed documents under `docs/superpowers` are historical design and
 implementation snapshots. See `docs/README.md` before using them; their

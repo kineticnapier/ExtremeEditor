@@ -32,7 +32,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private readonly Dictionary<long, LinkedListNode<long>> _cacheLruNodes = [];
     private readonly object _cacheLock = new();
     private readonly long _totalFrames;
-    private readonly long _maxClipFrames;
+    private readonly long[] _prefixMaxHitEndFrames;
     private readonly TimeSpan _buildSchedule;
     private readonly int _sourceHitCount;
     private long _renderChunksElapsedTicks;
@@ -43,6 +43,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private long _cachedPcmBytes;
     private long _cacheBudgetBytes = long.MaxValue;
     private long _positionFrames;
+    // A sample callback may stop between stereo channels. Keep the remaining
+    // channel so a short read does not falsely signal EOF or skip PCM.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
 
     public SampleAccurateHitSoundProvider(
         WaveFormat waveFormat,
@@ -67,14 +71,24 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             clips,
             _totalFrames);
         schedule.Hits.Sort(static (left, right) => left.StartFrame.CompareTo(right.StartFrame));
-        watch.Stop();
 
         _scheduledHits = schedule.Hits;
         _sourceHitCount = schedule.SourceHitCount;
+        // Prefix maximums let a chunk lookup skip every earlier hit whose
+        // sound has already ended, even when a much longer clip starts later.
+        _prefixMaxHitEndFrames = new long[_scheduledHits.Count];
+        long latestEnd = long.MinValue;
+        for (int i = 0; i < _scheduledHits.Count; i++)
+        {
+            ScheduledHit hit = _scheduledHits[i];
+            long end = GetHitEndFrame(hit);
+            latestEnd = Math.Max(latestEnd, end);
+            _prefixMaxHitEndFrames[i] = latestEnd;
+        }
+        // Index construction is part of schedule preparation and must be
+        // included in the startup timing reported to audio diagnostics.
+        watch.Stop();
         _buildSchedule = watch.Elapsed;
-        _maxClipFrames = _scheduledHits.Count == 0
-            ? 0
-            : _scheduledHits.Max(static hit => (long)hit.Clip.FrameCount);
         Seek(0);
     }
 
@@ -116,6 +130,40 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     public int Read(float[] buffer, int offset, int count)
     {
+        int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Preserve the direct chunk-copy path for ordinary aligned callbacks.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+            written += ReadAligned(buffer, offset + written, completeSamples);
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = ReadAligned(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        return written;
+    }
+
+    private int ReadAligned(float[] buffer, int offset, int count)
+    {
         int frameCount = count / WaveFormat.Channels;
         int sampleCount = frameCount * WaveFormat.Channels;
         Array.Clear(buffer, offset, sampleCount);
@@ -125,12 +173,18 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         // Deliberately do not clamp this bus. Overlapping hit sounds must remain
         // linear until the song and hit-sound buses reach the single master limiter.
         CopyRenderedPcm(buffer, offset, _positionFrames, frameCount);
-        _positionFrames += frameCount;
+        // A read can straddle the final representable sample frame. Keep the
+        // playback cursor nonnegative rather than wrapping past long.MaxValue.
+        _positionFrames = _positionFrames > long.MaxValue - frameCount
+            ? long.MaxValue
+            : _positionFrames + frameCount;
         return sampleCount;
     }
 
     public void Seek(long positionFrames)
     {
+        // A seek invalidates the unreturned channel from the previous frame.
+        _pendingOutputOffset = WaveFormat.Channels;
         _positionFrames = Math.Max(0, positionFrames);
     }
 
@@ -159,6 +213,16 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (length <= 0)
             return;
 
+        // Each audible chunk occupies a full stereo PCM buffer. Priming more
+        // than the cache can hold would evict the beginning of the requested
+        // range, forcing the first playback callback to render it again.
+        const long fullChunkBytes = ChunkFrames * 2L * sizeof(float);
+        long maxPrimeChunks;
+        lock (_cacheLock)
+            maxPrimeChunks = _cacheBudgetBytes / fullChunkBytes;
+        if (maxPrimeChunks == 0)
+            return;
+
         long firstChunk = start / ChunkFrames;
         long lastChunk = (start + length - 1) / ChunkFrames;
 
@@ -166,15 +230,15 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         // very long silent ranges, and caching empty sentinels for all of them
         // wastes both startup time and dictionary/LRU entries.
         long nextChunk = firstChunk;
-        long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
-        int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        long primedChunks = 0;
+        int firstHitIndex = FirstPotentiallyOverlappingHitIndex(firstChunk * ChunkFrames);
         for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
         {
             ScheduledHit hit = _scheduledHits[hitIndex];
             if (hit.StartFrame >= 0 && hit.StartFrame / ChunkFrames > lastChunk)
                 break;
 
-            long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+            long hitEndFrame = Math.Min(_totalFrames, GetHitEndFrame(hit));
             if (hitEndFrame <= Math.Max(0, hit.StartFrame))
                 continue;
 
@@ -184,7 +248,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             long hitFirstChunk = Math.Max(nextChunk, Math.Max(0, hit.StartFrame) / ChunkFrames);
             for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
+            {
+                if (primedChunks >= maxPrimeChunks)
+                    return;
                 _ = EnsureChunk(chunkIndex);
+                primedChunks++;
+            }
 
             nextChunk = hitLastChunk + 1;
             if (nextChunk > lastChunk)
@@ -219,15 +288,14 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             // overlap an audible clip instead of scanning every silent chunk
             // until the end of a long sparse chart.
             long nextChunk = firstChunk;
-            // A seek into a dense chart must not rescan every earlier hit.
-            // The longest clip bounds how far back a hit could still overlap.
-            long earliestRelevantStart = firstChunk * ChunkFrames - _maxClipFrames + 1;
-            int firstHitIndex = LowerBoundStartFrame(earliestRelevantStart);
+            // Skip all expired hits while retaining any long tail crossing
+            // the seek position, regardless of other future clip lengths.
+            int firstHitIndex = FirstPotentiallyOverlappingHitIndex(firstChunk * ChunkFrames);
             for (int hitIndex = firstHitIndex; hitIndex < _scheduledHits.Count; hitIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ScheduledHit hit = _scheduledHits[hitIndex];
-                long hitEndFrame = Math.Min(_totalFrames, hit.StartFrame + hit.Clip.FrameCount);
+                long hitEndFrame = Math.Min(_totalFrames, GetHitEndFrame(hit));
                 if (hitEndFrame <= Math.Max(0, hit.StartFrame))
                     continue;
 
@@ -254,6 +322,24 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     internal static long AudioTimeToSampleFrame(double audioSeconds, int sampleRate) =>
         checked((long)Math.Round(audioSeconds * sampleRate, MidpointRounding.AwayFromZero));
+
+    // An invalid chart time or extreme hit-sound offset must not abort
+    // the entire audio graph. Only schedule representable sample positions.
+    internal static bool TryAudioTimeToSampleFrame(
+        double audioSeconds, int sampleRate, out long frame)
+    {
+        frame = 0;
+        double rounded = Math.Round(
+            audioSeconds * sampleRate, MidpointRounding.AwayFromZero);
+        // long.MaxValue rounds to 2^63 as a double; that bound is exclusive.
+        if (!double.IsFinite(rounded) ||
+            rounded < -9223372036854775808d ||
+            rounded >= 9223372036854775808d)
+            return false;
+
+        frame = (long)rounded;
+        return true;
+    }
 
     private static ScheduleBuildResult BuildSchedule(
         int sampleRate,
@@ -300,8 +386,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
             double floorAudio = PlaybackClock.ChartToAudioTime(level, timing.EntryTime);
             double startAudio = floorAudio - currentClip.OffsetSeconds;
-            long startFrame = AudioTimeToSampleFrame(startAudio, sampleRate);
-            long endFrame = startFrame + currentClip.FrameCount;
+            if (!TryAudioTimeToSampleFrame(startAudio, sampleRate, out long startFrame))
+                continue;
+            long endFrame = startFrame > long.MaxValue - currentClip.FrameCount
+                ? long.MaxValue : startFrame + currentClip.FrameCount;
             if (endFrame <= 0 || startFrame >= totalFrames)
                 continue;
 
@@ -352,10 +440,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             }
 
             double audioTime = PlaybackClock.ChartToAudioTime(level, chartTime);
-            long startFrame = AudioTimeToSampleFrame(
-                audioTime - clip.OffsetSeconds,
-                sampleRate);
-            long endFrame = startFrame + clip.FrameCount;
+            if (!TryAudioTimeToSampleFrame(
+                    audioTime - clip.OffsetSeconds, sampleRate, out long startFrame))
+                continue;
+            long endFrame = startFrame > long.MaxValue - clip.FrameCount
+                ? long.MaxValue : startFrame + clip.FrameCount;
             if (endFrame <= 0 || startFrame >= totalFrames)
                 continue;
 
@@ -403,6 +492,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 return existing;
             }
         }
+
+        // Silent chunks are not cached. Skip the PCM renderer entirely when
+        // the immutable schedule proves that no hit overlaps this chunk.
+        // Otherwise long sparse playback would repeatedly render silence.
+        if (!ChunkMayContainScheduledHit(chunkIndex))
+            return [];
 
         long started = realtime ? Stopwatch.GetTimestamp() : 0;
         float[] rendered = RenderChunkMeasured(chunkIndex);
@@ -462,6 +557,14 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 TouchCacheEntry(chunkIndex);
                 return true;
             }
+
+            // Audible chunks always allocate a full stereo PCM buffer. When
+            // speculative space is exhausted, avoid mixing a chunk that cannot
+            // be cached. Foreground reads can still render it on demand.
+            const long fullChunkBytes = ChunkFrames * 2L * sizeof(float);
+            long effectiveBudget = Math.Min(_cacheBudgetBytes, Math.Max(0, cacheBudgetBytes));
+            if (fullChunkBytes > effectiveBudget - Math.Min(_cachedPcmBytes, effectiveBudget))
+                return false;
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex);
@@ -538,6 +641,13 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private static long GetPcmBytes(float[] chunk) => checked(chunk.LongLength * sizeof(float));
 
+    // A clip can start near the last representable sample frame. Keep its
+    // ending position consistent across the index, priming and PCM mixing.
+    private static long GetHitEndFrame(ScheduledHit hit) =>
+        hit.StartFrame > long.MaxValue - hit.Clip.FrameCount
+            ? long.MaxValue
+            : hit.StartFrame + hit.Clip.FrameCount;
+
     private float[] RenderChunk(long chunkIndex)
     {
         if (_scheduledHits.Count == 0 || _totalFrames <= 0 || chunkIndex < 0)
@@ -547,9 +657,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         if (chunkStart < 0 || chunkStart >= _totalFrames)
             return [];
 
-        long chunkEnd = Math.Min(_totalFrames, chunkStart + ChunkFrames);
-        long earliestRelevantStart = chunkStart - _maxClipFrames + 1;
-        int hitIndex = LowerBoundStartFrame(earliestRelevantStart);
+        long chunkEnd = chunkStart + Math.Min((long)ChunkFrames, _totalFrames - chunkStart);
+        int hitIndex = FirstPotentiallyOverlappingHitIndex(chunkStart);
         float[]? chunk = null;
 
         for (; hitIndex < _scheduledHits.Count; hitIndex++)
@@ -558,7 +667,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             if (hit.StartFrame >= chunkEnd)
                 break;
 
-            long hitEnd = hit.StartFrame + hit.Clip.FrameCount;
+            long hitEnd = GetHitEndFrame(hit);
             long overlapStart = Math.Max(chunkStart, Math.Max(0, hit.StartFrame));
             long overlapEnd = Math.Min(chunkEnd, hitEnd);
             if (overlapEnd <= overlapStart)
@@ -581,14 +690,33 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         return chunk ?? [];
     }
 
-    private int LowerBoundStartFrame(long startFrame)
+    private bool ChunkMayContainScheduledHit(long chunkIndex)
+    {
+        if (chunkIndex < 0 || chunkIndex > long.MaxValue / ChunkFrames)
+            return false;
+
+        long chunkStart = chunkIndex * ChunkFrames;
+        if (chunkStart >= _totalFrames)
+            return false;
+
+        int firstHit = FirstPotentiallyOverlappingHitIndex(chunkStart);
+        if (firstHit >= _scheduledHits.Count)
+            return false;
+
+        long chunkEnd = chunkStart + Math.Min((long)ChunkFrames, _totalFrames - chunkStart);
+        return _scheduledHits[firstHit].StartFrame < chunkEnd;
+    }
+
+    // The prefix maximum is nondecreasing. Every hit before the returned
+    // index ends at or before the requested frame and cannot contribute PCM.
+    internal int FirstPotentiallyOverlappingHitIndex(long frame)
     {
         int low = 0;
-        int high = _scheduledHits.Count;
+        int high = _prefixMaxHitEndFrames.Length;
         while (low < high)
         {
             int middle = low + ((high - low) >> 1);
-            if (_scheduledHits[middle].StartFrame < startFrame)
+            if (_prefixMaxHitEndFrames[middle] <= frame)
                 low = middle + 1;
             else
                 high = middle;
@@ -649,6 +777,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                     samplesToCopy);
             }
 
+            // The destination was cleared by Read. Samples beyond the last
+            // representable frame stay silent; never wrap the local cursor.
+            if (frame > long.MaxValue - framesToCopy)
+                break;
             frame += framesToCopy;
             destinationSample += samplesToCopy;
             framesRemaining -= framesToCopy;

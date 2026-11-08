@@ -15,6 +15,14 @@ internal sealed record VideoExportSource(
         ArgumentNullException.ThrowIfNull(Level);
         ArgumentNullException.ThrowIfNull(TimingMap);
         ArgumentNullException.ThrowIfNull(HitSoundTimeline);
+        // A directory is not a song. File.Exists would treat it as missing,
+        // silently producing a video without the requested music.
+        // Preserve the intentional silent fallback for null/missing files.
+        if (!string.IsNullOrWhiteSpace(SongPath) &&
+            Directory.Exists(Path.GetFullPath(SongPath)))
+            throw new ArgumentException(
+                "Video export song path must name a file, not a directory.",
+                nameof(SongPath));
     }
 }
 
@@ -35,9 +43,27 @@ internal sealed record VideoExportRequest(
         ArgumentNullException.ThrowIfNull(Source);
         Source.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
+        // Reject malformed destinations before probing audio or loading native
+        // scenes. FfmpegVideoEncoder.BeginAsync also resolves this path, but
+        // doing so there is too late for an expensive export preflight.
+        string resolvedOutputPath = Path.GetFullPath(OutputPath);
+        // A directory cannot be replaced with an encoded MP4. Reject it
+        // before audio probing and expensive native scene preparation.
+        if (Path.EndsInDirectorySeparator(OutputPath) || Directory.Exists(resolvedOutputPath))
+            throw new ArgumentException("Video output path must name a file, not a directory.", nameof(OutputPath));
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
+        // Finalization replaces an existing destination. Never allow an export
+        // to overwrite the source audio or the ffmpeg executable itself.
+        if (string.Equals(resolvedOutputPath, Path.GetFullPath(FfmpegPath),
+                StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(Source.SongPath) &&
+             string.Equals(resolvedOutputPath, Path.GetFullPath(Source.SongPath),
+                 StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException(
+                "Video output path must differ from the song and ffmpeg executable paths.",
+                nameof(OutputPath));
         if (!double.IsFinite(StartChartTimeSeconds) || StartChartTimeSeconds < 0.0)
             throw new ArgumentOutOfRangeException(nameof(StartChartTimeSeconds));
         if (!double.IsFinite(EndChartTimeSeconds) ||
@@ -55,6 +81,10 @@ internal sealed record VideoExportRequest(
         if ((Height & 1) != 0)
             throw new ArgumentOutOfRangeException(nameof(Height), "H.264 yuv420p requires an even height.");
         _ = VideoExportRgb24Buffer.GetRequiredByteCount(Width, Height);
+        // Reject non-finite volume before opening output staging files.
+        // OfflineAudioRenderPlan.Validate also enforces this downstream.
+        if (!double.IsFinite(SongVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
 }
 
@@ -69,6 +99,14 @@ internal sealed record VideoExportProgress(
 
 internal sealed class VideoExportService
 {
+    private readonly Func<int, int, NativeChartFrameRenderer> _rendererFactory;
+
+    internal VideoExportService(Func<int, int, NativeChartFrameRenderer>? rendererFactory = null)
+    {
+        _rendererFactory = rendererFactory ??
+            ((width, height) => new NativeChartFrameRenderer(width, height));
+    }
+
     internal async ValueTask ExportAsync(
         VideoExportRequest request,
         IProgress<VideoExportProgress> progress,
@@ -113,8 +151,55 @@ internal sealed class VideoExportService
         int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);
 
         string? songPath = source.SongPath;
+        // Validate mapped audio times before probing the song or creating
+        // the encoder's temporary files and output directory.
+        var audioPlan = new OfflineAudioRenderPlan(
+            level,
+            timingMap,
+            hitSoundTimeline,
+            songPath,
+            startAudio,
+            endAudio,
+            request.SongVolumePercent,
+            request.HitSoundsEnabled);
+        audioPlan.Validate();
+
+        // Probe the source before expensive native initialization. A malformed
+        // audio file must not load the native scene or create output staging.
+        // Keep audio probing off the WPF UI thread as well.
         var offlineAudio = new OfflineAudioRenderer();
-        OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
+        OfflineAudioFormat audioFormat = await Task.Run(
+            () => offlineAudio.ProbeFormat(songPath),
+            cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Prepare the native scene before opening encoder staging files or
+        // rendering audio. Keep expensive native loading off the WPF UI thread.
+        // A failed load must dispose the partially initialized renderer.
+        using var frameRenderer = await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var renderer = _rendererFactory(request.Width, request.Height)
+                ?? throw new InvalidOperationException(
+                    "Native frame renderer factory returned null.");
+            try
+            {
+                // Cancellation can arrive while the factory creates a renderer
+                // or while native scene loading is in progress. Avoid doing
+                // additional native work and dispose the partial scene.
+                cancellationToken.ThrowIfCancellationRequested();
+                renderer.Load(level, timingMap);
+                cancellationToken.ThrowIfCancellationRequested();
+                renderer.SetCleanView(true);
+                cancellationToken.ThrowIfCancellationRequested();
+                return renderer;
+            }
+            catch
+            {
+                renderer.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
 
         await using var encoder = new FfmpegVideoEncoder(request.FfmpegPath);
         var mux = new VideoExportMuxPipeline(encoder);
@@ -127,16 +212,6 @@ internal sealed class VideoExportService
                 audioFormat.SampleRate,
                 audioFormat.Channels),
             cancellationToken).ConfigureAwait(false);
-
-        var audioPlan = new OfflineAudioRenderPlan(
-            level,
-            timingMap,
-            hitSoundTimeline,
-            songPath,
-            startAudio,
-            endAudio,
-            request.SongVolumePercent,
-            request.HitSoundsEnabled);
 
         progress.Report(new VideoExportProgress("Audio", 0, 0));
         int audioChunks = 0;
@@ -153,14 +228,6 @@ internal sealed class VideoExportService
 
         cancellationToken.ThrowIfCancellationRequested();
         progress.Report(new VideoExportProgress("Video", 0, 0));
-
-        // Prepare the native scene before starting ffmpeg. A missing native
-        // renderer or failed asset upload must not launch a child process.
-        using var frameRenderer = new NativeChartFrameRenderer(
-            request.Width,
-            request.Height);
-        frameRenderer.Load(level, timingMap);
-        frameRenderer.SetCleanView(true);
 
         await mux.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
 

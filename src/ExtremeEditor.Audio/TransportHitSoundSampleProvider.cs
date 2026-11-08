@@ -19,6 +19,10 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     private int _nextHitIndex;
     private double _playbackSpeed;
     private bool _identitySourcePcmFastPath;
+    // Keep the remainder of a complete interleaved frame when the caller
+    // requests fewer samples than the number of channels.
+    private float[]? _pendingOutputFrame;
+    private int _pendingOutputOffset;
 
     public TransportHitSoundSampleProvider(
         SampleAccurateHitSoundProvider schedule,
@@ -67,6 +71,45 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     public int Read(float[] buffer, int offset, int count)
     {
         int channels = WaveFormat.Channels;
+        int written = 0;
+        if (count > 0 && _pendingOutputFrame is not null &&
+            _pendingOutputOffset < channels)
+        {
+            int pending = Math.Min(count, channels - _pendingOutputOffset);
+            Array.Copy(_pendingOutputFrame, _pendingOutputOffset, buffer, offset, pending);
+            _pendingOutputOffset += pending;
+            written += pending;
+        }
+
+        // Preserve the existing block mixer for frame-aligned callbacks.
+        int completeSamples = (count - written) / channels * channels;
+        if (completeSamples > 0)
+        {
+            int read = ReadAligned(buffer, offset + written, completeSamples);
+            written += read;
+            if (read < completeSamples)
+                return written;
+        }
+
+        if (written < count)
+        {
+            _pendingOutputFrame ??= new float[channels];
+            int read = ReadAligned(_pendingOutputFrame, 0, channels);
+            if (read > 0)
+            {
+                int partial = Math.Min(count - written, read);
+                Array.Copy(_pendingOutputFrame, 0, buffer, offset + written, partial);
+                _pendingOutputOffset = partial;
+                written += partial;
+            }
+        }
+
+        return written;
+    }
+
+    private int ReadAligned(float[] buffer, int offset, int count)
+    {
+        int channels = WaveFormat.Channels;
         int requestedFrames = count / channels;
         if (requestedFrames <= 0)
             return 0;
@@ -87,6 +130,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         return framesToRead * channels;
     }
 
+    private void ResetPendingOutput() => _pendingOutputOffset = WaveFormat.Channels;
+
     // Advance the transport clock without decoding PCM or mixing any voices.
     // The final hit tail still determines the silent transport duration.
     internal int AdvanceMuted(int requestedFrames)
@@ -94,6 +139,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (requestedFrames <= 0)
             return 0;
 
+        ResetPendingOutput();
         int frames = CalculateReadableFrames(requestedFrames);
         _outputPositionFrames += frames;
         _activeVoices.Clear();
@@ -105,6 +151,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
     // Rebuild only voices overlapping that block; never replay elapsed hits.
     internal void ResumeAfterMute()
     {
+        ResetPendingOutput();
         if (_sourcePcm is not null && _segments.Count == 1 &&
             Math.Abs(_playbackSpeed - 1.0) <= double.Epsilon &&
             OutputToSource(_outputPositionFrames) < _totalSourceFrames)
@@ -167,6 +214,25 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 
         foreach (ActiveVoice voice in _activeVoices)
             outputEnd = Math.Max(outputEnd, EndOfVoice(voice.StartOutputFrame, voice.Hit.Clip.FrameCount));
+
+        // The last trigger need not have the longest tail. Before returning a
+        // short read (which audio consumers may interpret as EOF), include
+        // every future voice that starts within this requested block. Earlier
+        // voices are already represented by _activeVoices.
+        long requestEnd = requestedFrames >= long.MaxValue - _outputPositionFrames
+            ? long.MaxValue
+            : _outputPositionFrames + requestedFrames;
+        if (outputEnd < requestEnd)
+        {
+            for (int index = _nextHitIndex; index < _hits.Count; index++)
+            {
+                SampleAccurateHitSoundProvider.ScheduledHit hit = _hits[index];
+                long start = SourceToOutput(hit.StartFrame);
+                if (start >= requestEnd)
+                    break;
+                outputEnd = Math.Max(outputEnd, EndOfVoice(start, hit.Clip.FrameCount));
+            }
+        }
 
         long remaining = Math.Max(0L, outputEnd - _outputPositionFrames);
         return (int)Math.Min(requestedFrames, remaining);
@@ -231,6 +297,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
 
     internal void Seek(long sourceFrame)
     {
+        ResetPendingOutput();
         long clamped = Math.Clamp(sourceFrame, 0, _totalSourceFrames);
         _segments.Clear();
         _segments.Add(new RateSegment(clamped, 0, _playbackSpeed));
@@ -247,6 +314,7 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (!PlaybackSpeedPolicy.TryNormalize(playbackSpeed, out double normalized))
             return;
 
+        ResetPendingOutput();
         long clamped = Math.Clamp(sourceFrame, 0, _totalSourceFrames);
         long outputAnchor = SourceToOutput(clamped);
 
@@ -274,11 +342,8 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         if (remainingFrames <= 0)
         {
             // The prerendered identity bus is bounded by the song duration.
-            // Hand off only the post-song portion to the block voice mixer so a
-            // hit that began before EOF can finish without being triggered twice.
-            _identitySourcePcmFastPath = false;
-            _nextHitIndex = UpperBound(_totalSourceFrames);
-            RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
+            // Continue with live voices, including any tail crossing that edge.
+            SwitchFromIdentityPcmToVoiceMixer();
             return Read(buffer, offset, requestedFrames * WaveFormat.Channels);
         }
 
@@ -287,7 +352,29 @@ internal sealed class TransportHitSoundSampleProvider : ISampleProvider
         int read = _sourcePcm.Read(buffer, offset, sampleCount);
         int readFrames = read / WaveFormat.Channels;
         _outputPositionFrames += readFrames;
+
+        // Do not signal EOF merely because this request crossed the song end:
+        // a hit triggered before EOF may still be audible. Finish the same
+        // callback from the voice mixer so the consumer receives one complete
+        // block (or a genuine final short read).
+        if (readFrames == framesToRead && framesToRead < requestedFrames)
+        {
+            SwitchFromIdentityPcmToVoiceMixer();
+            int prefixSamples = readFrames * WaveFormat.Channels;
+            int tailSamples = Read(
+                buffer, offset + prefixSamples,
+                (requestedFrames - readFrames) * WaveFormat.Channels);
+            return prefixSamples + tailSamples;
+        }
+
         return readFrames * WaveFormat.Channels;
+    }
+
+    private void SwitchFromIdentityPcmToVoiceMixer()
+    {
+        _identitySourcePcmFastPath = false;
+        _nextHitIndex = UpperBound(_totalSourceFrames);
+        RebuildActiveVoices(_totalSourceFrames, includeAnchor: true);
     }
 
     private void RebuildActiveVoices(long sourceAnchor, bool includeAnchor)

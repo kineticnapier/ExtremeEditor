@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -85,7 +86,7 @@ internal sealed class HitSoundLibrary
             }
         }
 
-        LoadManifest(Path.Combine(directory, "hitsounds.tsv"));
+        LoadManifestSafely(Path.Combine(directory, "hitsounds.tsv"), log);
         log?.Write("hitsounds.reload_complete", $"loaded={_sounds.Count} offsets={_offsets.Count}");
     }
 
@@ -114,7 +115,7 @@ internal sealed class HitSoundLibrary
             if (sampleRate != CacheSampleRate)
                 provider = new WdlResamplingSampleProvider(provider, sampleRate);
 
-            int capacity = Math.Max(1024, sound.Samples.Length * sampleRate / CacheSampleRate);
+            int capacity = EstimateRenderCapacity(sound.Samples.Length, sampleRate);
             float[] samples = ReadAll(provider, capacity, $"render:{name}", log);
             double offset = _offsets.TryGetValue(name, out double value) ? value : 0.0;
             rendered[name] = new RenderedHitSound(samples, offset);
@@ -123,6 +124,15 @@ internal sealed class HitSoundLibrary
 
         _renderedBySampleRate[sampleRate] = rendered;
         return rendered;
+    }
+
+    // The sample-count/rate product overflows int for even ordinary one-second
+    // stereo assets. Estimate in long and cap speculative List allocation so
+    // a malformed or very long asset cannot reserve enormous RAM up front.
+    internal static int EstimateRenderCapacity(int sourceSampleCount, int sampleRate)
+    {
+        long estimated = (long)sourceSampleCount * sampleRate / CacheSampleRate;
+        return (int)Math.Clamp(estimated, 1024L, 4_194_304L);
     }
 
     private static CachedHitSound LoadCachedSound(string path, AudioDiagnosticLog? log)
@@ -142,12 +152,21 @@ internal sealed class HitSoundLibrary
         if (provider.WaveFormat.SampleRate != CacheSampleRate)
             provider = new WdlResamplingSampleProvider(provider, CacheSampleRate);
 
-        return new CachedHitSound(ReadAll(provider, Math.Max(1024, reader.WaveFormat.SampleRate),
+        return new CachedHitSound(ReadAll(provider, EstimateCacheCapacity(reader.TotalTime),
                 $"cache:{Path.GetFileName(path)}", log),
             WaveFormat.CreateIeeeFloatWaveFormat(CacheSampleRate, Channels));
     }
 
-    private static float[] ReadAll(
+    // Reserve for the decoded stereo PCM duration, not just one second of
+    // the source sample rate. Bound the estimate to avoid huge speculative
+    // allocations for long or malformed audio files.
+    internal static int EstimateCacheCapacity(TimeSpan duration)
+    {
+        double samples = Math.Ceiling(duration.TotalSeconds * CacheSampleRate * Channels);
+        return (int)Math.Clamp(samples, 1024.0, 4_194_304.0);
+    }
+
+    internal static float[] ReadAll(
         ISampleProvider provider,
         int initialCapacity,
         string operation,
@@ -174,13 +193,34 @@ internal sealed class HitSoundLibrary
             Interlocked.Add(ref cumulativeSamples, read);
             log?.Write("hitsounds.read",
                 $"operation={operation} iteration={iterations} read={read} cumulative={cumulativeSamples}");
-            for (int i = 0; i < read; i++)
-                samples.Add(buffer[i]);
+            // Append the decoded block in one span copy instead of calling
+            // List.Add for every sample. SetCount grows the backing array as
+            // needed; the newly exposed range is filled immediately.
+            int previousCount = samples.Count;
+            CollectionsMarshal.SetCount(samples, checked(previousCount + read));
+            buffer.AsSpan(0, read).CopyTo(CollectionsMarshal.AsSpan(samples)[previousCount..]);
         }
 
         log?.Write("hitsounds.read_complete",
             $"operation={operation} iterations={iterations} final_read={read} cumulative={cumulativeSamples}");
         return samples.ToArray();
+    }
+
+    // A temporary lock or access failure on the optional manifest must not
+    // prevent the already decoded hit sounds from being used. In particular,
+    // propagating this error from the shared Lazy<HitSoundLibrary> would make
+    // all later attempts fail as well.
+    internal void LoadManifestSafely(string path, AudioDiagnosticLog? log)
+    {
+        try
+        {
+            LoadManifest(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log?.Write("hitsounds.manifest_unavailable",
+                $"file={Path.GetFileName(path)} exception={ex.GetType().Name} message={ex.Message}");
+        }
     }
 
     private void LoadManifest(string path)

@@ -13,6 +13,12 @@ internal sealed record VideoEncoderStartInfo(
     internal void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
+        // Reject directory destinations before creating output or temporary files.
+        // This also protects direct encoder callers that bypass VideoExportRequest.
+        string fullOutputPath = Path.GetFullPath(OutputPath);
+        if (Path.EndsInDirectorySeparator(OutputPath) || Directory.Exists(fullOutputPath))
+            throw new ArgumentException(
+                "Video output path must name a file, not a directory.", nameof(OutputPath));
         if (Width <= 0)
             throw new ArgumentOutOfRangeException(nameof(Width));
         if (Height <= 0)

@@ -105,7 +105,10 @@ internal static class VideoExportTrackParityRegression
         }
         if (!service.Contains("request.Source", StringComparison.Ordinal))
             failures.Add("VideoExportService must consume the prepared VideoExportSource from the request");
-        if (!service.Contains("frameRenderer.Load(level, timingMap)", StringComparison.Ordinal))
+        // Native preparation may use a local renderer inside Task.Run before the encoder starts.
+        // Both paths must load the already-prepared document and timing map.
+        if (!service.Contains("frameRenderer.Load(level, timingMap)", StringComparison.Ordinal) &&
+            !service.Contains("renderer.Load(level, timingMap)", StringComparison.Ordinal))
             failures.Add("headless renderer must receive the same prepared LevelDocument and TimingMap");
         if (!renderer.Contains("Load(LevelDocument level, TimingMap timingMap)", StringComparison.Ordinal))
             failures.Add("NativeChartFrameRenderer must expose a prepared-document load path");
