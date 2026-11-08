@@ -32,6 +32,7 @@ internal static class VideoExportFfmpegEncoderRegression
 
         VerifyYuv420pDimensionValidation(ffmpegType);
         VerifyOutputDirectoryValidation(ffmpegType);
+        VerifyExecutableOutputCollision(ffmpegType, constructor);
         VerifyAudioChunkFrameAlignment(ffmpegType, constructor);
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: false);
@@ -90,6 +91,59 @@ internal static class VideoExportFfmpegEncoderRegression
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void VerifyExecutableOutputCollision(Type encoderType, ConstructorInfo constructor)
+    {
+        // The direct encoder API must not overwrite the ffmpeg executable.
+        string root = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-FfmpegCollision-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        object? encoder = null;
+        try
+        {
+            string executable = Path.Combine(root, "ffmpeg.exe");
+            File.WriteAllText(executable, "preserve executable");
+            encoder = constructor.Invoke([executable]);
+
+            Type startInfoType = encoderType.Assembly.GetType(
+                "ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+                ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+            ConstructorInfo startConstructor = startInfoType.GetConstructors(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Single(ctor => ctor.GetParameters().Length == 6);
+            // Path.GetFullPath resolves the redundant '.' component.
+            object startInfo = startConstructor.Invoke([
+                Path.Combine(root, ".", "ffmpeg.exe"), 2, 2, 30, 44100, 2
+            ]);
+            MethodInfo begin = encoderType.GetMethod("BeginAsync")
+                ?? throw new InvalidOperationException("Encoder BeginAsync is missing.");
+
+            bool rejected = false;
+            try
+            {
+                if (begin.Invoke(encoder, [startInfo, CancellationToken.None]) is not ValueTask task)
+                    throw new InvalidOperationException("BeginAsync must return ValueTask.");
+                task.GetAwaiter().GetResult();
+            }
+            catch (TargetInvocationException ex) when (
+                ex.InnerException is ArgumentException { ParamName: "OutputPath" })
+            {
+                rejected = true;
+            }
+
+            if (!rejected)
+                throw new InvalidOperationException("Encoder accepted its own executable as output.");
+            if (File.ReadAllText(executable) != "preserve executable" ||
+                Directory.GetFiles(root).Length != 1)
+                throw new InvalidOperationException("Rejected encoder output modified the executable.");
+        }
+        finally
+        {
+            if (encoder is IAsyncDisposable disposable)
+                disposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
             Directory.Delete(root, recursive: true);
         }
     }
