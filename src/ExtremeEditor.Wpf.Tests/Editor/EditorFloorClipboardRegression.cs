@@ -14,7 +14,10 @@ internal static class EditorFloorClipboardRegression
     internal static void Run()
     {
         VerifySingleFloorBoundary();
+        VerifySingleFloorToMultipleSelection();
         VerifyRangePasteAndDeepCopy();
+        VerifyRangeReplacementAndRoundTrip();
+        VerifyRepeatedRangePaste();
         VerifyPasteAtEnd();
         VerifyProtectedFloorZeroSelection();
         VerifyShortcutRoutingContract();
@@ -24,20 +27,139 @@ internal static class EditorFloorClipboardRegression
     private static void VerifySingleFloorBoundary()
     {
         LevelDocument level = LevelDocument.CreateSynthetic(4);
+        level.ReplaceActions(
+        [
+            new LevelAction(1, "Twirl", true, null, null, null, null)
+            {
+                SourceIndex = -2,
+                PropertyOverrides = new JsonObject
+                {
+                    ["floor"] = 1,
+                    ["eventType"] = "Twirl",
+                    ["marker"] = "copied"
+                }
+            },
+            new LevelAction(2, "SetSpeed", true, "Bpm", 180, null, null)
+            {
+                SourceIndex = -3,
+                PropertyOverrides = new JsonObject
+                {
+                    ["floor"] = 2,
+                    ["eventType"] = "SetSpeed",
+                    ["marker"] = "replaced"
+                }
+            }
+        ]);
+        level.ReplaceDecorations(
+        [
+            new LevelDecoration(1, "AddDecoration")
+            {
+                SourceIndex = -4,
+                Properties = new JsonObject
+                {
+                    ["floor"] = 1,
+                    ["relativeTo"] = "Tile",
+                    ["tag"] = "tile-copy"
+                }
+            },
+            new LevelDecoration(1, "AddDecoration")
+            {
+                SourceIndex = -5,
+                Properties = new JsonObject
+                {
+                    ["floor"] = 1,
+                    ["relativeTo"] = "Camera",
+                    ["tag"] = "camera-skip"
+                }
+            },
+            new LevelDecoration(2, "AddDecoration")
+            {
+                SourceIndex = -6,
+                Properties = new JsonObject
+                {
+                    ["floor"] = 2,
+                    ["relativeTo"] = "Tile",
+                    ["tag"] = "target-retained"
+                }
+            }
+        ]);
         var editor = new EditorSession(level);
         editor.CopyFloors([1]);
-        EditorPasteResult boundaryPaste = editor.PasteFloors(0)
-            ?? throw new InvalidOperationException("Boundary paste returned no result.");
+        EditorPasteResult boundaryPaste = editor.PasteFloors(2)
+            ?? throw new InvalidOperationException("Single-floor event paste returned no result.");
 
-        if (level.FloorCount != 5)
-            throw new InvalidOperationException("Single-floor paste did not insert exactly one floor.");
-        if (boundaryPaste.FirstFloor != 1 || !boundaryPaste.Floors.SequenceEqual([1]))
-            throw new InvalidOperationException("Floor-zero paste did not clamp safely to the first editable floor.");
+        if (level.FloorCount != 4)
+            throw new InvalidOperationException("Single-floor paste changed the tile count instead of replacing events.");
+        if (boundaryPaste.FirstFloor != 2 || !boundaryPaste.Floors.SequenceEqual([2]))
+            throw new InvalidOperationException("Single-floor paste did not retain the target selection.");
+        LevelAction[] atTarget = level.ActionStore.Actions.Where(action => action.Floor == 2).ToArray();
+        if (atTarget.Length != 1 || atTarget[0].EventType != "Twirl" ||
+            atTarget[0].PropertyOverrides?["marker"]?.GetValue<string>() != "copied")
+        {
+            throw new InvalidOperationException("Single-floor paste did not replace target events with copied events.");
+        }
+        if (!level.Angles.SequenceEqual([0.0, 0.0, 0.0]))
+            throw new InvalidOperationException("Single-floor event paste changed path angles.");
+        if (!level.Decorations.Any(decoration => decoration.Floor == 2 &&
+                decoration.Properties["tag"]?.GetValue<string>() == "target-retained") ||
+            !level.Decorations.Any(decoration => decoration.Floor == 2 &&
+                decoration.Properties["tag"]?.GetValue<string>() == "tile-copy") ||
+            level.Decorations.Any(decoration => decoration.Floor == 2 &&
+                decoration.Properties["tag"]?.GetValue<string>() == "camera-skip"))
+        {
+            throw new InvalidOperationException(
+                "Single-floor event paste did not retain target decorations or filter non-Tile source decorations.");
+        }
         if (editor.UndoName != "Paste floors")
             throw new InvalidOperationException("Paste must be one undo operation.");
         editor.Undo();
-        if (level.FloorCount != 4)
-            throw new InvalidOperationException("Single-floor paste undo did not restore the document.");
+        if (level.FloorCount != 4 ||
+            !level.ActionStore.Actions.Any(action => action.Floor == 2 && action.EventType == "SetSpeed"))
+        {
+            throw new InvalidOperationException("Single-floor paste undo did not restore target events.");
+        }
+    }
+
+    private static void VerifySingleFloorToMultipleSelection()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(7);
+        level.Angles = [0, 30, 60, 90, 120, 150];
+        level.RebuildGeometry();
+        level.ReplaceActions(
+        [
+            Action(1, "Twirl", "source"),
+            Action(3, "SetSpeed", "replace-3"),
+            Action(4, "CustomUntouched", "untouched"),
+            Action(5, "SetHitsound", "replace-5")
+        ]);
+        var editor = new EditorSession(level);
+        editor.CopyFloors([1]);
+        EditorPasteResult result = editor.PasteFloors([3, 5], primaryFloor: 3)
+            ?? throw new InvalidOperationException("Single-floor multi-selection paste was rejected.");
+
+        if (level.FloorCount != 7 || !result.Floors.SequenceEqual([3, 5]) || result.PrimaryFloor != 3)
+            throw new InvalidOperationException("Single-floor multi-selection paste changed floors or selection.");
+        if (level.ActionStore.Actions.Count(action =>
+                (action.Floor == 3 || action.Floor == 5) && action.EventType == "Twirl") != 2 ||
+            level.ActionStore.Actions.Any(action =>
+                (action.Floor == 3 || action.Floor == 5) && action.EventType != "Twirl") ||
+            !level.ActionStore.Actions.Any(action => action.Floor == 4 && action.EventType == "CustomUntouched"))
+        {
+            throw new InvalidOperationException("Single-floor paste did not replace only selected floor events.");
+        }
+
+        editor.Undo();
+        if (!level.ActionStore.Actions.Any(action => action.Floor == 3 && action.EventType == "SetSpeed") ||
+            !level.ActionStore.Actions.Any(action => action.Floor == 5 && action.EventType == "SetHitsound"))
+        {
+            throw new InvalidOperationException("Multi-target event paste undo did not restore original events.");
+        }
+        editor.Redo();
+        if (level.ActionStore.Actions.Count(action =>
+                (action.Floor == 3 || action.Floor == 5) && action.EventType == "Twirl") != 2)
+        {
+            throw new InvalidOperationException("Multi-target event paste redo did not restore copied events.");
+        }
     }
 
     private static void VerifyRangePasteAndDeepCopy()
@@ -80,12 +202,12 @@ internal static class EditorFloorClipboardRegression
 
         if (level.FloorCount != 9)
             throw new InvalidOperationException("Range paste did not insert both copied floors.");
-        if (rangePaste.FirstFloor != 5 || !rangePaste.Floors.SequenceEqual([5, 6]))
-            throw new InvalidOperationException("Paste result did not expose the new selection range.");
-        AssertNear(30, level.Angles[4], "first pasted angle at primary floor");
-        AssertNear(60, level.Angles[5], "second pasted angle relative offset");
+        if (rangePaste.FirstFloor != 6 || !rangePaste.Floors.SequenceEqual([7]))
+            throw new InvalidOperationException("Range paste did not insert after the primary floor and select only its last floor.");
+        AssertNear(30, level.Angles[5], "first pasted angle after primary floor");
+        AssertNear(60, level.Angles[6], "second pasted angle relative offset");
 
-        LevelAction pasted = level.ActionStore.Actions.SingleOrDefault(candidate => candidate.Floor == 5)
+        LevelAction pasted = level.ActionStore.Actions.SingleOrDefault(candidate => candidate.Floor == 6)
             ?? throw new InvalidOperationException("Pasted action did not use primary floor as its start.");
         if (pasted.SourceIndex == action.SourceIndex)
             throw new InvalidOperationException("Pasted action reused source identity.");
@@ -94,13 +216,119 @@ internal static class EditorFloorClipboardRegression
         if (pasted.PropertyOverrides?["unknownClipboardPayload"]?.GetValue<string>() != "preserve-me")
             throw new InvalidOperationException("Unknown action JSON was not deep-copied at copy time.");
 
-        if (!level.Decorations.Any(decoration => decoration.Floor == 6 &&
+        if (!level.Decorations.Any(decoration => decoration.Floor == 7 &&
                 decoration.Properties["tag"]?.GetValue<string>() == "floor-owned"))
         {
             throw new InvalidOperationException("Floor-owned decoration did not preserve its relative floor.");
         }
         if (level.Decorations.Count(decoration => decoration.Floor is null) != 1)
             throw new InvalidOperationException("Global decoration was copied as though it belonged to a floor.");
+    }
+
+    private static void VerifyRangeReplacementAndRoundTrip()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-PasteRange-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            LevelDocument level = LevelDocument.CreateSynthetic(10);
+            level.Angles = [0, 30, 999, 60, 90, 120, 150, 180, 210];
+            level.RebuildGeometry();
+            level.ReplaceActions(
+            [
+                Action(2, "PositionTrack", "source-first"),
+                Action(3, "Twirl", "source-twirl"),
+                Action(5, "SetSpeed", "remove-5"),
+                Action(6, "SetHitsound", "remove-6"),
+                Action(7, "Flash", "remove-7"),
+                Action(8, "CustomAfter", "shift-after")
+            ]);
+            var editor = new EditorSession(level);
+            editor.CopyFloors([2, 3]);
+
+            int beforeCount = level.FloorCount;
+            double[] beforeAngles = level.Angles.ToArray();
+            EditorPasteResult result = editor.PasteFloors([5, 6, 7], primaryFloor: 7)
+                ?? throw new InvalidOperationException("Range replacement was rejected.");
+            if (level.FloorCount != beforeCount - 1 || result.PrimaryFloor != 6 ||
+                !result.Floors.SequenceEqual([6]))
+            {
+                throw new InvalidOperationException("Range replacement count or final-floor selection is incorrect.");
+            }
+            if (editor.UndoName != "Paste floors")
+                throw new InvalidOperationException("Range delete/insert was not grouped into one undo operation.");
+            if (level.Angles[4] != 30 || level.Angles[5] != 999)
+                throw new InvalidOperationException("Range replacement did not preserve copied angle/Midspin order.");
+            if (!level.ActionStore.Actions.Any(action => action.Floor == 5 && action.EventType == "PositionTrack") ||
+                !level.ActionStore.Actions.Any(action => action.Floor == 6 && action.EventType == "Twirl") ||
+                !level.ActionStore.Actions.Any(action => action.Floor == 7 && action.EventType == "CustomAfter") ||
+                level.ActionStore.Actions.Any(action =>
+                    action.PropertyOverrides?["marker"]?.GetValue<string>()?.StartsWith("remove-") == true))
+            {
+                throw new InvalidOperationException("Range replacement did not replace/offset events correctly.");
+            }
+
+            editor.Undo();
+            if (level.FloorCount != beforeCount || !level.Angles.SequenceEqual(beforeAngles) ||
+                !level.ActionStore.Actions.Any(action => action.Floor == 7 && action.EventType == "Flash"))
+            {
+                throw new InvalidOperationException("Range replacement undo did not restore floors and events.");
+            }
+            editor.Redo();
+            if (level.FloorCount != beforeCount - 1 ||
+                !level.ActionStore.Actions.Any(action => action.Floor == 6 && action.EventType == "Twirl"))
+            {
+                throw new InvalidOperationException("Range replacement redo did not restore pasted floors.");
+            }
+
+            string saved = Path.Combine(directory, "saved.adofai");
+            editor.SaveAsync(saved).GetAwaiter().GetResult();
+            LevelDocument reloaded = AdoFaiLoader.Load(saved).Document;
+            if (!reloaded.Angles.SequenceEqual(level.Angles) ||
+                !reloaded.ActionStore.Actions.Any(action => action.Floor == 6 && action.EventType == "Twirl") ||
+                !reloaded.ActionStore.Actions.Any(action => action.Floor == 7 && action.EventType == "CustomAfter"))
+            {
+                throw new InvalidOperationException("Saved range replacement did not reload with stable floors/events.");
+            }
+
+            LevelDocument rejectedLevel = LevelDocument.CreateSynthetic(7);
+            var rejected = new EditorSession(rejectedLevel);
+            rejected.CopyFloors([2, 3]);
+            double[] rejectedAngles = rejectedLevel.Angles.ToArray();
+            if (rejected.PasteFloors([0, 1], primaryFloor: 1) is not null ||
+                !rejectedLevel.Angles.SequenceEqual(rejectedAngles))
+            {
+                throw new InvalidOperationException("Range replacement containing floor zero was not rejected atomically.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyRepeatedRangePaste()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(6);
+        level.Angles = [0, 30, 60, 90, 120];
+        level.RebuildGeometry();
+        var editor = new EditorSession(level);
+        editor.CopyFloors([1, 2]);
+
+        int selected = 4;
+        for (int iteration = 0; iteration < 3; iteration++)
+        {
+            EditorPasteResult result = editor.PasteFloors([selected], selected)
+                ?? throw new InvalidOperationException($"Repeated paste {iteration + 1} was rejected.");
+            int expectedLast = 6 + iteration * 2;
+            if (result.PrimaryFloor != expectedLast || !result.Floors.SequenceEqual([expectedLast]))
+                throw new InvalidOperationException("Repeated paste did not select only the last inserted floor.");
+            selected = result.PrimaryFloor;
+        }
+
+        if (!level.Angles.Skip(4).SequenceEqual([0.0, 30.0, 0.0, 30.0, 0.0, 30.0, 120.0]))
+            throw new InvalidOperationException("Three repeated pastes did not extend forward in clipboard order.");
     }
 
 
@@ -134,11 +362,11 @@ internal static class EditorFloorClipboardRegression
         if (!editor.CopyFloors([2, 3]))
             throw new InvalidOperationException("Unable to copy the trailing floor range.");
 
-        // Ctrl+V keeps its existing before-last-floor semantics.
-        EditorPasteResult existingPaste = editor.PasteFloors(level.FloorCount)
+        // Normal paste inserts after the selected floor.
+        EditorPasteResult existingPaste = editor.PasteFloors(2)
             ?? throw new InvalidOperationException("Existing paste failed.");
         if (existingPaste.FirstFloor != 3)
-            throw new InvalidOperationException("Normal paste unexpectedly changed its insertion position.");
+            throw new InvalidOperationException("Normal paste did not insert after the selected floor.");
         editor.Undo();
 
         // The explicit menu command may insert after the final floor.
@@ -167,6 +395,18 @@ internal static class EditorFloorClipboardRegression
                 BindingFlags.Instance | BindingFlags.NonPublic) is null)
             throw new InvalidOperationException("Paste at end menu handler is missing.");
     }
+
+    private static LevelAction Action(int floor, string eventType, string marker) =>
+        new(floor, eventType, true, null, null, null, null)
+        {
+            SourceIndex = -1000 - floor,
+            PropertyOverrides = new JsonObject
+            {
+                ["floor"] = floor,
+                ["eventType"] = eventType,
+                ["marker"] = marker
+            }
+        };
 
     private static void VerifyProtectedFloorZeroSelection()
     {

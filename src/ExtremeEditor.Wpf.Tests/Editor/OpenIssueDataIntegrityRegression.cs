@@ -126,12 +126,29 @@ internal static class OpenIssueDataIntegrityRegression
     private static void VerifyClipboardIsSharedAcrossTabs()
     {
         var shared = new EditorClipboardStore();
-        var first = new EditorSession(LevelDocument.CreateSynthetic(5), clipboardStore: shared);
+        LevelDocument source = LevelDocument.CreateSynthetic(5);
+        source.ReplaceActions(
+        [
+            new LevelAction(2, "Twirl", true, null, null, null, null)
+            {
+                SourceIndex = -2,
+                PropertyOverrides = new JsonObject
+                {
+                    ["floor"] = 2,
+                    ["eventType"] = "Twirl"
+                }
+            }
+        ]);
+        var first = new EditorSession(source, clipboardStore: shared);
         var second = new EditorSession(LevelDocument.CreateSynthetic(5), clipboardStore: shared);
         if (!first.CopyFloors([2]) || !second.HasClipboard || second.PasteFloors(3) is null)
             throw new InvalidOperationException("#48: copied floors are not available in another tab.");
-        if (second.Document.FloorCount != 6)
-            throw new InvalidOperationException("#48: cross-tab paste did not mutate only the destination chart.");
+        if (second.Document.FloorCount != 5 ||
+            !second.Document.ActionStore.Actions.Any(action =>
+                action.Floor == 3 && action.EventType == "Twirl"))
+        {
+            throw new InvalidOperationException("#48: cross-tab event paste did not mutate only the destination chart.");
+        }
         if (first.Document.FloorCount != 5)
             throw new InvalidOperationException("#48: cross-tab paste mutated the source chart.");
     }

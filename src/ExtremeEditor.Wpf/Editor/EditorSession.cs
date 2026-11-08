@@ -222,7 +222,8 @@ internal sealed partial class EditorSession
         var decorations = new List<ClipboardDecoration>();
         foreach (LevelDecoration decoration in _decorations)
         {
-            if (decoration.Floor is not int floor || !floorSet.Contains(floor))
+            if (decoration.Floor is not int floor || !floorSet.Contains(floor) ||
+                !IsTileRelativeDecoration(decoration))
                 continue;
             decorations.Add(new ClipboardDecoration(
                 floor - firstFloor,
@@ -250,17 +251,21 @@ internal sealed partial class EditorSession
         return true;
     }
 
-    // Existing paste positions remain unchanged; append is an explicit operation.
+    // Paste at End is an EE-specific append operation and deliberately keeps its
+    // existing selection behavior.
     public EditorPasteResult? PasteFloors(int startFloor, bool allowEnd = false)
     {
         if (_clipboardStore.Value is not { Angles.Length: > 0 } clipboard)
             return null;
 
+        if (!allowEnd)
+            return PasteFloors([startFloor], startFloor);
+
         EnsureSourceMapping();
-        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount - (allowEnd ? 0 : 1)));
+        int firstFloor = Math.Clamp(startFloor, 1, Math.Max(1, Document.FloorCount));
         if (AdoFaiPathDirection.PointsBackwards(
                 _angles,
-                firstFloor,
+                Math.Min(firstFloor, Document.FloorCount - 1),
                 clipboard.Angles[0]))
         {
             return null;
@@ -272,7 +277,88 @@ internal sealed partial class EditorSession
             clipboard.Actions,
             clipboard.Decorations,
             "Paste floors"));
-        return new EditorPasteResult(firstFloor, clipboard.Angles.Length);
+        int[] inserted = Enumerable.Range(firstFloor, clipboard.Angles.Length).ToArray();
+        return new EditorPasteResult(firstFloor, clipboard.Angles.Length, firstFloor, inserted);
+    }
+
+    public EditorPasteResult? PasteFloors(
+        IEnumerable<int> selectedFloors,
+        int primaryFloor = -1)
+    {
+        if (_clipboardStore.Value is not { Angles.Length: > 0 } clipboard)
+            return null;
+
+        int[] targets = selectedFloors
+            .Where(floor => floor >= 0 && floor < Document.FloorCount)
+            .Distinct()
+            .OrderBy(floor => floor)
+            .ToArray();
+        if (targets.Length == 0)
+            return null;
+        if (!targets.Contains(primaryFloor))
+            primaryFloor = targets[^1];
+
+        EnsureSourceMapping();
+        if (clipboard.Angles.Length == 1)
+        {
+            Execute(new PasteEventsCommand(
+                targets,
+                clipboard.Actions,
+                clipboard.Decorations));
+            return new EditorPasteResult(targets[0], 1, primaryFloor, targets);
+        }
+
+        if (targets.Length == 1)
+        {
+            int afterFloor = targets[0];
+            if (AdoFaiPathDirection.PointsBackwards(_angles, afterFloor, clipboard.Angles[0]))
+                return null;
+
+            Execute(new InsertFloorsCommand(
+                afterFloor,
+                clipboard.Angles,
+                clipboard.Actions,
+                clipboard.Decorations,
+                "Paste floors"));
+            int firstFloor = afterFloor + 1;
+            int lastFloor = firstFloor + clipboard.Angles.Length - 1;
+            return new EditorPasteResult(firstFloor, clipboard.Angles.Length, lastFloor, [lastFloor]);
+        }
+
+        // Stock rejects replacement when floor zero participates. Do not silently
+        // discard it and replace the remaining selected floors.
+        if (targets[0] == 0 || !IsContinuousFloorRange(targets))
+            return null;
+
+        int replacementFirst = targets[0];
+        IEditorCommand replace = new CompositeEditorCommand(
+            "Paste floors",
+            [
+                new DeleteFloorRangeCommand(targets[0], targets[^1]),
+                new InsertFloorsCommand(
+                    targets[0] - 1,
+                    clipboard.Angles,
+                    clipboard.Actions,
+                    clipboard.Decorations,
+                    "Paste floors")
+            ]);
+        Execute(replace);
+        int replacementLast = replacementFirst + clipboard.Angles.Length - 1;
+        return new EditorPasteResult(
+            replacementFirst,
+            clipboard.Angles.Length,
+            replacementLast,
+            [replacementLast]);
+    }
+
+    private static bool IsTileRelativeDecoration(LevelDecoration decoration)
+    {
+        string? relativeTo = decoration.Properties["relativeTo"] is JsonValue value &&
+                             value.TryGetValue(out string? text)
+            ? text
+            : null;
+        return string.IsNullOrWhiteSpace(relativeTo) ||
+               string.Equals(relativeTo, "Tile", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsContinuousFloorRange(IReadOnlyList<int> floors)
@@ -1309,6 +1395,90 @@ internal sealed partial class EditorSession
         }
     }
 
+    private sealed class PasteEventsCommand(
+        int[] targetFloors,
+        IReadOnlyList<ClipboardAction> actions,
+        IReadOnlyList<ClipboardDecoration> decorations) : IEditorCommand
+    {
+        private readonly List<LevelAction> _removedActions = [];
+        private readonly List<LevelAction> _createdActions = [];
+        private readonly List<LevelDecoration> _createdDecorations = [];
+        private readonly Dictionary<int, JsonObject> _createdTemplates = [];
+        private bool _initialized;
+
+        public string Name => "Paste floors";
+
+        public void Execute(EditorSession session)
+        {
+            if (!_initialized)
+            {
+                _removedActions.AddRange(session._actions.Where(action =>
+                    targetFloors.Contains(action.Floor)));
+                int propertyRevision = session._structureEdits.Count;
+                foreach (int targetFloor in targetFloors)
+                {
+                    foreach (ClipboardAction item in actions)
+                    {
+                        int sourceIndex = session.NextNewSourceIndex();
+                        LevelAction created = item.Action with
+                        {
+                            Floor = targetFloor,
+                            SourceIndex = sourceIndex,
+                            Kind = LevelActionKinds.FromEventType(item.Action.EventType),
+                            SourceProperties = item.Action.SourceProperties is null
+                                ? null
+                                : (JsonObject)item.Action.SourceProperties.DeepClone(),
+                            PropertyOverrides = item.Action.PropertyOverrides is null
+                                ? null
+                                : (JsonObject)item.Action.PropertyOverrides.DeepClone(),
+                            PropertyOverridesStructureRevision = propertyRevision
+                        };
+                        _createdActions.Add(created);
+                        if (item.Template is JsonObject template)
+                        {
+                            JsonObject copiedTemplate = (JsonObject)template.DeepClone();
+                            _createdTemplates[sourceIndex] = copiedTemplate;
+                            session._newActionTemplates[sourceIndex] =
+                                (JsonObject)copiedTemplate.DeepClone();
+                        }
+                    }
+
+                    foreach (ClipboardDecoration item in decorations)
+                    {
+                        _createdDecorations.Add(new LevelDecoration(targetFloor, item.EventType)
+                        {
+                            SourceIndex = session.NextNewSourceIndex(),
+                            Properties = (JsonObject)item.Properties.DeepClone()
+                        });
+                    }
+                }
+                _initialized = true;
+            }
+            else
+            {
+                foreach ((int sourceIndex, JsonObject template) in _createdTemplates)
+                    session._newActionTemplates[sourceIndex] = (JsonObject)template.DeepClone();
+            }
+
+            session._actions.RemoveAll(action => targetFloors.Contains(action.Floor));
+            session._actions.AddRange(_createdActions);
+            session._decorations.AddRange(_createdDecorations);
+            session.RebuildDocument();
+        }
+
+        public void Undo(EditorSession session)
+        {
+            var createdActionIds = _createdActions.Select(action => action.SourceIndex).ToHashSet();
+            var createdDecorationIds = _createdDecorations.Select(decoration => decoration.SourceIndex).ToHashSet();
+            session._actions.RemoveAll(action => createdActionIds.Contains(action.SourceIndex));
+            session._decorations.RemoveAll(decoration => createdDecorationIds.Contains(decoration.SourceIndex));
+            session._actions.AddRange(_removedActions);
+            foreach (LevelAction action in _createdActions)
+                session._newActionTemplates.Remove(action.SourceIndex);
+            session.RebuildDocument();
+        }
+    }
+
     private sealed class DeleteFloorRangeCommand(int firstFloor, int lastFloor) : IEditorCommand
     {
         private DeletedRange? _deleted;
@@ -1376,9 +1546,13 @@ internal sealed class EditorClipboardStore
 
 internal sealed record ClipboardAction(int RelativeFloor, LevelAction Action, JsonObject? Template);
 internal sealed record ClipboardDecoration(int RelativeFloor, string EventType, JsonObject Properties);
-internal readonly record struct EditorPasteResult(int FirstFloor, int Count)
+internal readonly record struct EditorPasteResult(
+    int FirstFloor,
+    int Count,
+    int PrimaryFloor,
+    int[] SelectedFloors)
 {
-    internal IEnumerable<int> Floors => Enumerable.Range(FirstFloor, Count);
+    internal IEnumerable<int> Floors => SelectedFloors;
 }
 internal sealed record DeletedDecoration(int Index, LevelDecoration Decoration);
 internal sealed record DeletedRange(

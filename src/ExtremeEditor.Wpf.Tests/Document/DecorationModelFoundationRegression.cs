@@ -286,9 +286,9 @@ internal static class DecorationModelFoundationRegression
         string path = WriteFixture(directory, "copy-paste.adofai");
         var session = new EditorSession(AdoFaiLoader.Load(path).Document);
         DecorationSnapshot[] original = Snapshot(contract, session.Document);
-        DecorationSnapshot copied = original.Single(item => item.Floor == 2);
+        DecorationSnapshot copied = original.Single(item => item.Floor == 1);
 
-        session.CopyFloors([2]);
+        session.CopyFloors([1]);
         session.PasteFloors(5);
         DecorationSnapshot[] pasted = Snapshot(contract, session.Document);
         if (pasted.Length != original.Length + 1)

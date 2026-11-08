@@ -370,9 +370,11 @@ public partial class MainWindow
         EditorSession? editor = EnsureEditorSession();
         if (editor is null || _selection.PrimaryFloor < 0)
             return;
-        EditorPasteResult? pasted = editor.PasteFloors(_selection.PrimaryFloor);
+        EditorPasteResult? pasted = editor.PasteFloors(
+            _selection.SelectedFloors,
+            _selection.PrimaryFloor);
         if (pasted is EditorPasteResult result)
-            RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
+            RefreshEditorAfterMutation(result.PrimaryFloor, result.Floors);
         e.Handled = true;
     }
 
@@ -383,7 +385,7 @@ public partial class MainWindow
             return;
         EditorPasteResult? pasted = editor.PasteFloors(editor.Document.FloorCount, allowEnd: true);
         if (pasted is EditorPasteResult result)
-            RefreshEditorAfterMutation(result.FirstFloor, result.Floors);
+            RefreshEditorAfterMutation(result.PrimaryFloor, result.Floors);
         e.Handled = true;
     }
 

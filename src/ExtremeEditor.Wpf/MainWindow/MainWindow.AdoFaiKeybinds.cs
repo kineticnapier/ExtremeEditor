@@ -255,9 +255,11 @@ public partial class MainWindow
                 case Key.V:
                     if (editor.HasClipboard)
                     {
-                        EditorPasteResult? pasted = editor.PasteFloors(primary);
+                        EditorPasteResult? pasted = editor.PasteFloors(
+                            _selection.SelectedFloors,
+                            primary);
                         if (pasted is EditorPasteResult result)
-                            RefreshAfterAdoFaiMutation(result.FirstFloor, result.Floors);
+                            RefreshAfterAdoFaiMutation(result.PrimaryFloor, result.Floors);
                     }
                     e.Handled = true;
                     return;

@@ -28,7 +28,7 @@ internal static class EditorClipboardSafetyRegression
         level.RebuildGeometry();
 
         var editor = new EditorSession(level);
-        editor.CopyFloors([4]); // First copied direction is 270 degrees.
+        editor.CopyFloors([4, 5]); // First copied direction is 270 degrees.
 
         int beforeFloorCount = level.FloorCount;
         double[] beforeAngles = level.Angles.ToArray();
