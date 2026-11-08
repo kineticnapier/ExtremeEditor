@@ -34,6 +34,7 @@ internal static class VideoExportRgb24BufferRegression
         VerifyNonFiniteVideoExportVolumeRejected();
         VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory();
         VerifyInvalidOutputPathRejectedBeforeNativePreparation();
+        VerifyDirectoryOutputPathRejectedBeforeNativePreparation();
         VerifyInvalidSongPathRejectedBeforeNativePreparation();
         VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
         VerifyCancellationFromNativeFactoryDoesNotStartExport();
@@ -190,6 +191,74 @@ internal static class VideoExportRgb24BufferRegression
         if (outputDirectoryCreated)
             throw new InvalidOperationException(
                 "Invalid output path created the video output directory.");
+    }
+
+    private static void VerifyDirectoryOutputPathRejectedBeforeNativePreparation()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorDirectoryOutputPreflight",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outputDirectory);
+
+        int nativeFactoryCalls = 0;
+        var service = new VideoExportService((_, _) =>
+        {
+            nativeFactoryCalls++;
+            throw new InvalidOperationException("Native renderer must not be initialized.");
+        });
+
+        try
+        {
+            // Existing directory and a not-yet-created directory-shaped path
+            // must both fail before any native work or output staging.
+            foreach (string invalidPath in new[]
+            {
+                outputDirectory,
+                Path.Combine(outputDirectory, "future") + Path.DirectorySeparatorChar
+            })
+            {
+                var request = new VideoExportRequest(
+                    new VideoExportSource(
+                        level,
+                        TimingMapBuilder.Build(level),
+                        HitSoundTimelineBuilder.Build(level),
+                        SongPath: null),
+                    OutputPath: invalidPath,
+                    FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+                    StartChartTimeSeconds: 0.0,
+                    EndChartTimeSeconds: 1.0,
+                    FramesPerSecond: 60,
+                    Width: 2,
+                    Height: 2,
+                    SongVolumePercent: 100.0,
+                    HitSoundsEnabled: false);
+
+                bool rejected = false;
+                try
+                {
+                    service.ExportAsync(
+                        request, new Progress<VideoExportProgress>(),
+                        CancellationToken.None).AsTask().GetAwaiter().GetResult();
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    rejected = true;
+                }
+
+                if (!rejected || nativeFactoryCalls != 0)
+                    throw new InvalidOperationException(
+                        "Directory-shaped video output path was not rejected before native preparation.");
+                if (Directory.EnumerateFileSystemEntries(outputDirectory).Any())
+                    throw new InvalidOperationException(
+                        "Invalid directory output path created export staging files.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(outputDirectory, recursive: true);
+        }
     }
 
     private static void VerifyInvalidSongPathRejectedBeforeNativePreparation()
