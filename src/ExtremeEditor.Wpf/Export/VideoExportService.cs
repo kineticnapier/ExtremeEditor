@@ -35,6 +35,10 @@ internal sealed record VideoExportRequest(
         ArgumentNullException.ThrowIfNull(Source);
         Source.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
+        // Reject malformed destinations before probing audio or loading native
+        // scenes. FfmpegVideoEncoder.BeginAsync also resolves this path, but
+        // doing so there is too late for an expensive export preflight.
+        _ = Path.GetFullPath(OutputPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
