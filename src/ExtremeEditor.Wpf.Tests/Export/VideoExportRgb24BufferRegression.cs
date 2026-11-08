@@ -34,6 +34,7 @@ internal static class VideoExportRgb24BufferRegression
         VerifyNonFiniteVideoExportVolumeRejected();
         VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory();
         VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
+        VerifyCancellationFromNativeFactoryDoesNotStartExport();
     }
 
     private static void VerifyNonFiniteVideoExportVolumeRejected()
@@ -189,6 +190,70 @@ internal static class VideoExportRgb24BufferRegression
         if (outputDirectoryCreated)
             throw new InvalidOperationException(
                 "Native preparation failure created an output directory before rejection.");
+    }
+
+    private static void VerifyCancellationFromNativeFactoryDoesNotStartExport()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        var source = new VideoExportSource(
+            level,
+            TimingMapBuilder.Build(level),
+            HitSoundTimelineBuilder.Build(level),
+            SongPath: null);
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorCanceledNativePreflight",
+            Guid.NewGuid().ToString("N"));
+        var request = new VideoExportRequest(
+            Source: source,
+            OutputPath: Path.Combine(outputDirectory, "export.mp4"),
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 2,
+            Height: 2,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+
+        using var cancellation = new CancellationTokenSource();
+        int factoryCalls = 0;
+        bool canceled = false;
+        bool outputDirectoryCreated = false;
+        var service = new VideoExportService((width, height) =>
+        {
+            factoryCalls++;
+            // Cancellation after the initial check must be observed before
+            // the returned renderer starts expensive native scene loading.
+            cancellation.Cancel();
+            return new NativeChartFrameRenderer(width, height);
+        });
+
+        try
+        {
+            try
+            {
+                service.ExportAsync(
+                    request, new Progress<VideoExportProgress>(),
+                    cancellation.Token).AsTask().GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                canceled = true;
+            }
+        }
+        finally
+        {
+            outputDirectoryCreated = Directory.Exists(outputDirectory);
+            if (outputDirectoryCreated)
+                Directory.Delete(outputDirectory, recursive: true);
+        }
+
+        if (!canceled || factoryCalls != 1)
+            throw new InvalidOperationException(
+                "Cancellation from the native renderer factory was not propagated.");
+        if (outputDirectoryCreated)
+            throw new InvalidOperationException(
+                "Canceled native preparation created an output directory.");
     }
 
     private static void RequireRendererRejected(int width, int height)
