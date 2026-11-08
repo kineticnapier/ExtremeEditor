@@ -32,6 +32,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyServiceSourceContract();
         VerifyCanceledSnapshotSkipsDisk();
         VerifyProgressLifecycle();
+        VerifySourceLineEndingNormalization();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
     }
@@ -142,6 +143,23 @@ internal static class VideoExportOrchestrationRegression
                 "Video export progress must not overwrite cancellation status.");
     }
 
+    // Source-contract checks must behave identically for LF and Windows CRLF
+    // checkouts. Do not compare raw platform-specific newline sequences.
+    private static string NormalizeSourceLineEndings(string source) =>
+        source.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    private static void VerifySourceLineEndingNormalization()
+    {
+        const string windowsSource = "finally\r\n        {\r\n            progressActive = false;";
+        const string expected = "finally\n        {\n            progressActive = false;";
+        if (!string.Equals(NormalizeSourceLineEndings(windowsSource), expected, StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSourceLineEndings(expected), expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Video export source contracts must be independent of checkout line endings.");
+        }
+    }
+
     private static void VerifyUiContract()
     {
         string root = FindRepoRoot();
@@ -182,7 +200,7 @@ internal static class VideoExportOrchestrationRegression
         string path = Path.Combine(
             FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow",
             "MainWindow.VideoExport.cs");
-        string source = File.ReadAllText(path);
+        string source = NormalizeSourceLineEndings(File.ReadAllText(path));
 
         int handlerStart = source.IndexOf("private async void ExportVideoClick(", StringComparison.Ordinal);
         int coreStart = source.IndexOf("private async Task ExportVideoCoreAsync(", StringComparison.Ordinal);
