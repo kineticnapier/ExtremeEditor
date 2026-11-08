@@ -36,6 +36,7 @@ internal static class VideoExportRgb24BufferRegression
         VerifyInvalidOutputPathRejectedBeforeNativePreparation();
         VerifyDirectoryOutputPathRejectedBeforeNativePreparation();
         VerifyInvalidSongPathRejectedBeforeNativePreparation();
+        VerifyDirectorySongPathRejectedBeforeNativePreparation();
         VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
         VerifyCancellationFromNativeFactoryDoesNotStartExport();
     }
@@ -317,6 +318,69 @@ internal static class VideoExportRgb24BufferRegression
         if (outputDirectoryCreated)
             throw new InvalidOperationException(
                 "Invalid song path created the video output directory.");
+    }
+
+    private static void VerifyDirectorySongPathRejectedBeforeNativePreparation()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        string songDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorDirectorySongPreflight",
+            Guid.NewGuid().ToString("N"));
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorDirectorySongOutput",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(songDirectory);
+
+        int nativeFactoryCalls = 0;
+        var service = new VideoExportService((_, _) =>
+        {
+            nativeFactoryCalls++;
+            throw new InvalidOperationException("Native renderer must not be initialized.");
+        });
+        var request = new VideoExportRequest(
+            new VideoExportSource(
+                level,
+                TimingMapBuilder.Build(level),
+                HitSoundTimelineBuilder.Build(level),
+                SongPath: songDirectory),
+            OutputPath: Path.Combine(outputDirectory, "export.mp4"),
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 2,
+            Height: 2,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+
+        bool rejected = false;
+        try
+        {
+            try
+            {
+                service.ExportAsync(
+                    request, new Progress<VideoExportProgress>(),
+                    CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            }
+            catch (ArgumentException ex)
+                when (ex.ParamName == nameof(VideoExportSource.SongPath))
+            {
+                rejected = true;
+            }
+
+            if (!rejected || nativeFactoryCalls != 0)
+                throw new InvalidOperationException(
+                    "A directory song path must be rejected before native preparation.");
+            if (Directory.Exists(outputDirectory))
+                throw new InvalidOperationException(
+                    "A directory song path created the video output directory.");
+        }
+        finally
+        {
+            Directory.Delete(songDirectory, recursive: true);
+            if (Directory.Exists(outputDirectory))
+                Directory.Delete(outputDirectory, recursive: true);
+        }
     }
 
     private static void VerifyNativePreflightFailureDoesNotCreateOutputDirectory()
