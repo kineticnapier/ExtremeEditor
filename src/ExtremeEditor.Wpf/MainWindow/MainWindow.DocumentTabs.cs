@@ -170,6 +170,18 @@ public partial class MainWindow
             targetHitSoundTimeline = tab.HitSoundTimeline ??
                 builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
 
+            // Managed timing-map construction can yield to another tab request.
+            // Do not start expensive native preparation for a superseded or
+            // removed tab. Only clear the pending target for this generation.
+            if (activationGeneration != _tabActivationGeneration || _isClosed ||
+                !_documentTabs.Tabs.Contains(tab))
+            {
+                if (activationGeneration == _tabActivationGeneration)
+                    _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                        _pendingTabNavigationTarget, tab);
+                return false;
+            }
+
             levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
                 ? Task.FromResult(readyLevel)
                 : NativeLoadPreparationCache.StartLevel(tab.Document);
