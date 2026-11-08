@@ -37,6 +37,7 @@ internal static class VideoExportRgb24BufferRegression
         VerifyDirectoryOutputPathRejectedBeforeNativePreparation();
         VerifyInvalidSongPathRejectedBeforeNativePreparation();
         VerifyDirectorySongPathRejectedBeforeNativePreparation();
+        VerifyOutputPathCannotReplaceExportInputs();
         VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
         VerifyCancellationFromNativeFactoryDoesNotStartExport();
     }
@@ -380,6 +381,84 @@ internal static class VideoExportRgb24BufferRegression
             Directory.Delete(songDirectory, recursive: true);
             if (Directory.Exists(outputDirectory))
                 Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    private static void VerifyOutputPathCannotReplaceExportInputs()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        string directory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorVideoInputCollision",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string songPath = Path.Combine(directory, "song.wav");
+        string ffmpegPath = Path.Combine(directory, "ffmpeg.exe");
+        byte[] originalSong = [1, 2, 3, 4];
+        byte[] originalFfmpeg = [5, 6, 7, 8];
+        File.WriteAllBytes(songPath, originalSong);
+        File.WriteAllBytes(ffmpegPath, originalFfmpeg);
+
+        int nativeFactoryCalls = 0;
+        var service = new VideoExportService((_, _) =>
+        {
+            nativeFactoryCalls++;
+            throw new InvalidOperationException("Native renderer must not be initialized.");
+        });
+        try
+        {
+            // Use alternate spellings to verify full-path and Windows
+            // case-insensitive comparison, not only identical input strings.
+            foreach (string outputPath in new[]
+            {
+                Path.Combine(directory, ".", "SONG.WAV"),
+                Path.Combine(directory, ".", "FFMPEG.EXE")
+            })
+            {
+                var request = new VideoExportRequest(
+                    new VideoExportSource(
+                        level,
+                        TimingMapBuilder.Build(level),
+                        HitSoundTimelineBuilder.Build(level),
+                        SongPath: songPath),
+                    OutputPath: outputPath,
+                    FfmpegPath: ffmpegPath,
+                    StartChartTimeSeconds: 0.0,
+                    EndChartTimeSeconds: 1.0,
+                    FramesPerSecond: 60,
+                    Width: 2,
+                    Height: 2,
+                    SongVolumePercent: 100.0,
+                    HitSoundsEnabled: false);
+
+                bool rejected = false;
+                try
+                {
+                    service.ExportAsync(
+                        request, new Progress<VideoExportProgress>(),
+                        CancellationToken.None).AsTask().GetAwaiter().GetResult();
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    rejected = true;
+                }
+
+                if (!rejected || nativeFactoryCalls != 0)
+                    throw new InvalidOperationException(
+                        "Video export input/output path collision was not rejected before native preparation.");
+            }
+
+            if (!File.ReadAllBytes(songPath).SequenceEqual(originalSong) ||
+                !File.ReadAllBytes(ffmpegPath).SequenceEqual(originalFfmpeg))
+                throw new InvalidOperationException(
+                    "Rejected video export modified an input file.");
+            if (Directory.GetFiles(directory).Length != 2)
+                throw new InvalidOperationException(
+                    "Rejected video export created staging files beside the inputs.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
