@@ -68,8 +68,9 @@ internal static class WindowCloseUnsavedTabsRegression
             StringComparison.Ordinal);
         int approval = closing.IndexOf("if (_windowCloseApproved ||", StringComparison.Ordinal);
         if (pendingGuard < 0 || approval <= pendingGuard ||
-            !closing.Contains("_windowCloseConfirmationPending, _videoExportInProgress))",
+            !closing.Contains("hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending,",
                 StringComparison.Ordinal) ||
+            !closing.Contains("_videoExportInProgress))", StringComparison.Ordinal) ||
             !closing.Contains("Cancel the video export and wait for it to stop",
                 StringComparison.Ordinal))
         {

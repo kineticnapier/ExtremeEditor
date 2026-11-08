@@ -57,8 +57,8 @@ public partial class MainWindow
             // suspend across awaits. Do not shut down their editor/native state.
             bool hasPendingSaves = _documentTabs.HasPendingSaves;
             if (ShouldBlockWindowCloseForPendingWork(
-                    hasPendingSaves, _tabCloseOperationPending,
-                    _windowCloseConfirmationPending, _videoExportInProgress))
+                    hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending,
+                    _videoExportInProgress))
             {
                 // A previously approved close must not bypass confirmation
                 // after an intervening operation has prevented shutdown.
