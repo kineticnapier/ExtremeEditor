@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Tests;
 
