@@ -32,6 +32,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyServiceSourceContract();
         VerifyCanceledSnapshotSkipsDisk();
         VerifyProgressLifecycle();
+        VerifyDisposedCancellationSource();
         VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
@@ -142,6 +143,29 @@ internal static class VideoExportOrchestrationRegression
         if (ShouldReport(true))
             throw new InvalidOperationException(
                 "Video export progress must not overwrite cancellation status.");
+    }
+
+    private static void VerifyDisposedCancellationSource()
+    {
+        MethodInfo cancel = typeof(MainWindow).GetMethod(
+                "TryCancelVideoExport", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export cancellation helper is missing.");
+
+        bool TryCancel(CancellationTokenSource? source) =>
+            (bool)(cancel.Invoke(null, [source])
+                ?? throw new InvalidOperationException("Cancellation helper returned null."));
+
+        if (TryCancel(null))
+            throw new InvalidOperationException("A missing cancellation source must be ignored.");
+
+        using var source = new CancellationTokenSource();
+        if (!TryCancel(source) || !source.IsCancellationRequested)
+            throw new InvalidOperationException("An active export must accept cancellation.");
+
+        source.Dispose();
+        if (TryCancel(source))
+            throw new InvalidOperationException(
+                "A disposed cancellation source must be ignored without throwing.");
     }
 
     private static void VerifyQuotedFfmpegPathEntries()
@@ -307,7 +331,7 @@ internal static class VideoExportOrchestrationRegression
         }
 
         if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||
-            !source.Contains("_videoExportCancellation?.Cancel();", StringComparison.Ordinal) ||
+            !source.Contains("TryCancelVideoExport(cancellation)", StringComparison.Ordinal) ||
             !source.Contains("CancelVideoExportMenuItem.IsEnabled = false;", StringComparison.Ordinal) ||
             !core.Contains("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal))
         {

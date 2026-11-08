@@ -58,12 +58,31 @@ public partial class MainWindow
 
     private void CancelVideoExportClick(object sender, RoutedEventArgs e)
     {
-        if (_videoExportCancellation is null)
+        CancellationTokenSource? cancellation = _videoExportCancellation;
+        if (cancellation is null)
             return;
 
         CancelVideoExportMenuItem.IsEnabled = false;
-        StatusText.Text = "Video export — cancelling…";
-        _videoExportCancellation?.Cancel();
+        if (TryCancelVideoExport(cancellation))
+            StatusText.Text = "Video export — cancelling…";
+    }
+
+    // The async export can dispose its source before the UI continuation
+    // clears the field. A queued Cancel command must not throw on that source.
+    internal static bool TryCancelVideoExport(CancellationTokenSource? cancellation)
+    {
+        if (cancellation is null)
+            return false;
+
+        try
+        {
+            cancellation.Cancel();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
     }
 
     private async Task ExportVideoCoreAsync()
