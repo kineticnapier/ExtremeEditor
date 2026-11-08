@@ -220,13 +220,23 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(path))
             return null;
 
+        return FindFfmpegInPathEntries(path);
+    }
+
+    // Windows PATH entries are sometimes enclosed in quotes. Path.Combine
+    // treats those quotes as literal characters and misses an existing ffmpeg.
+    internal static string? FindFfmpegInPathEntries(string path)
+    {
         foreach (string entry in path.Split(
                      Path.PathSeparator,
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             try
             {
-                string candidate = Path.Combine(entry, "ffmpeg.exe");
+                string directory = entry.Length >= 2 && entry[0] == '"' && entry[^1] == '"'
+                    ? entry[1..^1]
+                    : entry;
+                string candidate = Path.Combine(directory, "ffmpeg.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
             }
