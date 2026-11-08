@@ -33,6 +33,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyCanceledSnapshotSkipsDisk();
         VerifyProgressLifecycle();
         VerifyDisposedCancellationSource();
+        VerifyChartOutputPathGuard();
         VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
@@ -166,6 +167,41 @@ internal static class VideoExportOrchestrationRegression
         if (TryCancel(source))
             throw new InvalidOperationException(
                 "A disposed cancellation source must be ignored without throwing.");
+    }
+
+    private static void VerifyChartOutputPathGuard()
+    {
+        MethodInfo guard = typeof(MainWindow).GetMethod(
+                "IsVideoExportOutputSameAsChart", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export chart overwrite guard is missing.");
+
+        bool Collides(string output, string chart) =>
+            (bool)(guard.Invoke(null, [output, chart])
+                ?? throw new InvalidOperationException("Chart overwrite guard returned null."));
+
+        string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor-VideoPathGuard");
+        string chart = Path.Combine(directory, "chart.adofai");
+        string normalizedAlias = Path.Combine(directory, "sub", "..", "chart.adofai");
+        string video = Path.Combine(directory, "chart.mp4");
+        if (!Collides(chart, chart) ||
+            !Collides(normalizedAlias, chart) ||
+            !Collides(chart.ToUpperInvariant(), chart) ||
+            Collides(video, chart))
+        {
+            throw new InvalidOperationException(
+                "Video export must reject chart path aliases without rejecting a distinct MP4.");
+        }
+
+        string uiSource = File.ReadAllText(Path.Combine(
+            FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.VideoExport.cs"));
+        int accepted = uiSource.IndexOf("if (saveDialog.ShowDialog(this) != true)", StringComparison.Ordinal);
+        int checkedPath = uiSource.IndexOf(
+            "if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))", StringComparison.Ordinal);
+        int snapshot = uiSource.IndexOf(
+            "VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
+        if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
+            throw new InvalidOperationException(
+                "Video export must reject source-chart output paths before snapshot preparation.");
     }
 
     private static void VerifyQuotedFfmpegPathEntries()

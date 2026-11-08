@@ -143,6 +143,19 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        // Do not let a video export replace the chart being exported.
+        // The file dialog's MP4 filter is not a path safety guarantee.
+        if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))
+        {
+            MessageBox.Show(
+                this,
+                "Video output cannot overwrite the source chart.",
+                "Export Video",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
         // Cancellation is available while the chart snapshot is being built,
         // not only after encoding begins. The individual builders are synchronous,
         // so cancellation is observed between stages rather than mid-stage.
@@ -210,6 +223,16 @@ public partial class MainWindow
     internal static bool ShouldReportVideoExportProgress(
         bool progressActive, CancellationToken cancellationToken) =>
         progressActive && !cancellationToken.IsCancellationRequested;
+
+    internal static bool IsVideoExportOutputSameAsChart(string outputPath, string chartPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chartPath);
+        return string.Equals(
+            Path.GetFullPath(outputPath),
+            Path.GetFullPath(chartPath),
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
         tab.IsDirty ||
