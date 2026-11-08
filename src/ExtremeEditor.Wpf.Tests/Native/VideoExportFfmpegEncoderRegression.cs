@@ -31,6 +31,7 @@ internal static class VideoExportFfmpegEncoderRegression
         }
 
         VerifyYuv420pDimensionValidation(ffmpegType);
+        VerifyOutputDirectoryValidation(ffmpegType);
         VerifyAudioChunkFrameAlignment(ffmpegType, constructor);
         VerifyAtomicCommit(ffmpegType, constructor);
         VerifyAudioFlushFailureDisposesStream(ffmpegType, constructor, throwOnDispose: false);
@@ -41,6 +42,56 @@ internal static class VideoExportFfmpegEncoderRegression
         VerifyFailedVideoCompletionTerminatesProcess(ffmpegType, constructor);
         VerifyDisposeWaitsForChildExitAndCleansStaging(ffmpegType, constructor);
         VerifySourceContract();
+    }
+
+    private static void VerifyOutputDirectoryValidation(Type encoderType)
+    {
+        Type startInfoType = encoderType.Assembly.GetType("ExtremeEditor.Wpf.Export.VideoEncoderStartInfo")
+            ?? throw new InvalidOperationException("VideoEncoderStartInfo is missing.");
+        ConstructorInfo constructor = startInfoType.GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Single(ctor => ctor.GetParameters().Length == 6);
+        MethodInfo validate = startInfoType.GetMethod(
+                "Validate", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("VideoEncoderStartInfo.Validate is missing.");
+
+        string root = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-VideoDirectory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string existingDirectory = Path.Combine(root, "existing");
+            Directory.CreateDirectory(existingDirectory);
+            string missingDirectory = Path.Combine(root, "missing") + Path.DirectorySeparatorChar;
+
+            foreach (string output in new[] { existingDirectory, missingDirectory })
+            {
+                object invalid = constructor.Invoke([output, 2, 2, 30, 44100, 2]);
+                try
+                {
+                    validate.Invoke(invalid, null);
+                }
+                catch (TargetInvocationException ex)
+                    when (ex.InnerException is ArgumentException { ParamName: "OutputPath" })
+                {
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    "VideoEncoderStartInfo accepted a directory as an output file.");
+            }
+
+            object valid = constructor.Invoke(
+                [Path.Combine(root, "result.mp4"), 2, 2, 30, 44100, 2]);
+            validate.Invoke(valid, null);
+            if (Directory.Exists(Path.Combine(root, "missing")))
+                throw new InvalidOperationException(
+                    "Video output validation created a directory before rejecting it.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static void VerifyYuv420pDimensionValidation(Type encoderType)
