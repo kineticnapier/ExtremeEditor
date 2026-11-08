@@ -28,6 +28,9 @@ internal sealed class VideoExportMuxPipeline
         cancellationToken.ThrowIfCancellationRequested();
 
         await _encoder.BeginAsync(startInfo, cancellationToken).ConfigureAwait(false);
+        // A custom encoder may finish BeginAsync despite cancellation. Do not
+        // publish a usable mux state after cancellation; the caller disposes it.
+        cancellationToken.ThrowIfCancellationRequested();
         _begun = true;
     }
 
@@ -64,6 +67,9 @@ internal sealed class VideoExportMuxPipeline
 
         cancellationToken.ThrowIfCancellationRequested();
         await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+        // If cancellation arrived while the encoder started its video phase,
+        // stop before exposing the mux as ready to accept frames.
+        cancellationToken.ThrowIfCancellationRequested();
         _videoBegun = true;
     }
 
