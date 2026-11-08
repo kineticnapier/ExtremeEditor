@@ -138,6 +138,15 @@ internal sealed class VideoExportService
             request.HitSoundsEnabled);
         audioPlan.Validate();
 
+        // Probe the source before expensive native initialization. A malformed
+        // audio file must not load the native scene or create output staging.
+        // Keep audio probing off the WPF UI thread as well.
+        var offlineAudio = new OfflineAudioRenderer();
+        OfflineAudioFormat audioFormat = await Task.Run(
+            () => offlineAudio.ProbeFormat(songPath),
+            cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Prepare the native scene before opening encoder staging files or
         // rendering audio. Keep expensive native loading off the WPF UI thread.
         // A failed load must dispose the partially initialized renderer.
@@ -165,9 +174,6 @@ internal sealed class VideoExportService
                 throw;
             }
         }, cancellationToken).ConfigureAwait(false);
-
-        var offlineAudio = new OfflineAudioRenderer();
-        OfflineAudioFormat audioFormat = offlineAudio.ProbeFormat(songPath);
 
         await using var encoder = new FfmpegVideoEncoder(request.FfmpegPath);
         var mux = new VideoExportMuxPipeline(encoder);
