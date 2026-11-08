@@ -32,6 +32,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyServiceSourceContract();
         VerifyCanceledSnapshotSkipsDisk();
         VerifyProgressLifecycle();
+        VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
@@ -141,6 +142,40 @@ internal static class VideoExportOrchestrationRegression
         if (ShouldReport(true))
             throw new InvalidOperationException(
                 "Video export progress must not overwrite cancellation status.");
+    }
+
+    private static void VerifyQuotedFfmpegPathEntries()
+    {
+        MethodInfo resolver = typeof(MainWindow).GetMethod(
+                "FindFfmpegInPathEntries", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ffmpeg PATH entry resolver is missing.");
+
+        string? Resolve(string entries) => resolver.Invoke(null, [entries]) as string;
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-QuotedFfmpeg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string executable = Path.Combine(directory, "ffmpeg.exe");
+            File.WriteAllText(executable, "test executable placeholder");
+            string quoted = "\"" + directory + "\"";
+            string missing = Path.Combine(directory, "not-a-directory");
+            string expected = Path.GetFullPath(executable);
+
+            if (!string.Equals(Resolve(quoted), expected, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Resolve(missing + Path.PathSeparator + quoted),
+                    expected, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Resolve(directory), expected, StringComparison.OrdinalIgnoreCase) ||
+                Resolve(missing) is not null)
+            {
+                throw new InvalidOperationException(
+                    "ffmpeg lookup must handle quoted/unquoted PATH entries and skip missing entries.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     // Source-contract checks must behave identically for LF and Windows CRLF
