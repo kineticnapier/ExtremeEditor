@@ -33,6 +33,7 @@ internal static class VideoExportRgb24BufferRegression
         // the encoder has already created its temporary output files.
         VerifyNonFiniteVideoExportVolumeRejected();
         VerifyInvalidAudioRangeRejectedBeforeCreatingOutputDirectory();
+        VerifyNativePreflightFailureDoesNotCreateOutputDirectory();
     }
 
     private static void VerifyNonFiniteVideoExportVolumeRejected()
@@ -128,6 +129,66 @@ internal static class VideoExportRgb24BufferRegression
         if (outputDirectoryCreated)
             throw new InvalidOperationException(
                 "Invalid audio timing created the output directory before rejection.");
+    }
+
+    private static void VerifyNativePreflightFailureDoesNotCreateOutputDirectory()
+    {
+        LevelDocument level = LevelDocument.CreateSynthetic(2);
+        var source = new VideoExportSource(
+            level,
+            TimingMapBuilder.Build(level),
+            HitSoundTimelineBuilder.Build(level),
+            SongPath: null);
+        string outputDirectory = Path.Combine(
+            Path.GetTempPath(), "ExtremeEditorNativeVideoPreflight",
+            Guid.NewGuid().ToString("N"));
+        var request = new VideoExportRequest(
+            Source: source,
+            OutputPath: Path.Combine(outputDirectory, "export.mp4"),
+            FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
+            StartChartTimeSeconds: 0.0,
+            EndChartTimeSeconds: 1.0,
+            FramesPerSecond: 60,
+            Width: 2,
+            Height: 2,
+            SongVolumePercent: 100.0,
+            HitSoundsEnabled: false);
+
+        int factoryCalls = 0;
+        bool rejected = false;
+        bool outputDirectoryCreated = false;
+        var service = new VideoExportService((_, _) =>
+        {
+            factoryCalls++;
+            throw new InvalidOperationException("Injected native preparation failure.");
+        });
+        try
+        {
+            try
+            {
+                service.ExportAsync(
+                    request, new Progress<VideoExportProgress>(),
+                    CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message == "Injected native preparation failure.")
+            {
+                rejected = true;
+            }
+        }
+        finally
+        {
+            outputDirectoryCreated = Directory.Exists(outputDirectory);
+            if (outputDirectoryCreated)
+                Directory.Delete(outputDirectory, recursive: true);
+        }
+
+        if (!rejected || factoryCalls != 1)
+            throw new InvalidOperationException(
+                "Native preparation failure was not propagated exactly once.");
+        if (outputDirectoryCreated)
+            throw new InvalidOperationException(
+                "Native preparation failure created an output directory before rejection.");
     }
 
     private static void RequireRendererRejected(int width, int height)
