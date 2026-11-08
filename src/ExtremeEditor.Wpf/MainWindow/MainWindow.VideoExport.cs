@@ -152,9 +152,13 @@ public partial class MainWindow
         // Progress<T> posts to the UI context. A queued callback may arrive
         // after ExportAsync has completed or cancellation has been requested.
         bool progressActive = true;
+        // Capture the token before disposal: CancellationTokenSource.Token
+        // throws after the source has been disposed, but queued progress can
+        // still run after the export has finished.
+        CancellationToken progressToken = cancellation.Token;
         var progress = new Progress<VideoExportProgress>(value =>
         {
-            if (!ShouldReportVideoExportProgress(progressActive, cancellation.Token))
+            if (!ShouldReportVideoExportProgress(progressActive, progressToken))
                 return;
 
             string suffix = value.Total > 0

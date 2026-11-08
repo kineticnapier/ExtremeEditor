@@ -236,7 +236,7 @@ internal static class VideoExportOrchestrationRegression
         }
 
         int progressGuard = core.IndexOf(
-            "if (!ShouldReportVideoExportProgress(progressActive, cancellation.Token))",
+            "if (!ShouldReportVideoExportProgress(progressActive, progressToken))",
             StringComparison.Ordinal);
         int progressStatus = core.IndexOf(
             "StatusText.Text = $" + "\"Export Video — {value.Stage}{suffix}\";",
@@ -244,6 +244,7 @@ internal static class VideoExportOrchestrationRegression
         int progressDisable = core.IndexOf("progressActive = false;", StringComparison.Ordinal);
         int exportAwait = core.IndexOf("await service.ExportAsync(", StringComparison.Ordinal);
         if (!core.Contains("bool progressActive = true;", StringComparison.Ordinal) ||
+            !core.Contains("CancellationToken progressToken = cancellation.Token;", StringComparison.Ordinal) ||
             progressGuard < 0 || progressStatus <= progressGuard ||
             progressDisable <= exportAwait ||
             !core.Contains("finally\n        {\n            progressActive = false;", StringComparison.Ordinal))
