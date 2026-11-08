@@ -33,8 +33,18 @@ internal static class RenderThreadShutdownDiagnosticsRegression
         Require(phases.Contains("RenderLoopCoUninitializeEntry", StringComparison.Ordinal) &&
                 phases.Contains("RenderLoopCoUninitializeExit", StringComparison.Ordinal) &&
                 phases.Contains("D2DBackendDestructorEntry", StringComparison.Ordinal) &&
-                phases.Contains("D2DBackendDestructorExit", StringComparison.Ordinal),
+                phases.Contains("D2DBackendDestructorExit", StringComparison.Ordinal) &&
+                phases.Contains("DecorationResourcesReleaseEntry", StringComparison.Ordinal) &&
+                phases.Contains("DecorationResourcesReleaseExit", StringComparison.Ordinal),
             "Each post-D2D shutdown phase must have its own one-shot diagnostic bit.");
+
+        int backendShutdown = backend.IndexOf("void D2DBackend::Shutdown()", StringComparison.Ordinal);
+        int decorationRelease = backend.IndexOf("ReleaseDecorationResources();", backendShutdown, StringComparison.Ordinal);
+        int targetRelease = backend.IndexOf("ReleaseTargetBitmap();", backendShutdown, StringComparison.Ordinal);
+        int contextRelease = backend.IndexOf("d2d_context_.Reset();", backendShutdown, StringComparison.Ordinal);
+        Require(backendShutdown >= 0 && decorationRelease > backendShutdown &&
+                targetRelease > decorationRelease && contextRelease > targetRelease,
+            "Decoration COM resources must be released before the D2D target and context.");
     }
 
     private static void Require(bool condition, string message)

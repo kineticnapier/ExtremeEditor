@@ -76,10 +76,9 @@ public sealed record DecorationState(
             if (properties is null)
                 continue;
 
+            // Every ease is evaluated (DotweenEaseEvaluator falls back to Linear
+            // for a name the game would not parse), so no event is dropped.
             double durationSeconds = occurrence.DurationSeconds ?? 0;
-            if (durationSeconds > 0 && !DotweenEaseEvaluator.IsSupported(occurrence.Ease))
-                continue;
-
             double startTime = occurrence.StartTime;
 
             if (TryReadComponents(properties["position"], out double? newPositionX, out double? newPositionY))
@@ -361,7 +360,7 @@ public sealed record DecorationState(
             {
                 // ffxMoveDecorationsPlus keeps one tween per property and
                 // replaces it with Kill(complete: true).
-                _value = _active.Target;
+                _value = CompletedValue(_active);
                 _active = null;
             }
 
@@ -378,6 +377,9 @@ public sealed record DecorationState(
         {
             if (_active is null)
                 return _value;
+
+            if (timeSeconds - _active.StartTime >= _active.DurationSeconds)
+                return CompletedValue(_active);
 
             if (!DotweenEaseEvaluator.TryEvaluate(
                     _active.Ease,
@@ -397,9 +399,26 @@ public sealed record DecorationState(
 
             if (timeSeconds >= _active.StartTime + _active.DurationSeconds)
             {
-                _value = _active.Target;
+                _value = CompletedValue(_active);
                 _active = null;
             }
+        }
+
+        // DOTween completes a tween at its eased end value. That is exactly the
+        // target for every ease except the Flash family, whose curve ends
+        // part-way through a flash.
+        private static double CompletedValue(ScalarTween tween)
+        {
+            if (!DotweenEaseEvaluator.TryEvaluate(
+                    tween.Ease,
+                    tween.DurationSeconds,
+                    tween.DurationSeconds,
+                    out float progress) ||
+                progress == 1f)
+            {
+                return tween.Target;
+            }
+            return Lerp(tween.Start, tween.Target, progress);
         }
     }
 

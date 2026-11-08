@@ -27,7 +27,9 @@ enum class ShutdownDiagnosticPhase : std::uint64_t
     RenderLoopCoUninitializeEntry = 1ull << 12,
     RenderLoopCoUninitializeExit = 1ull << 13,
     D2DBackendDestructorEntry = 1ull << 14,
-    D2DBackendDestructorExit = 1ull << 15
+    D2DBackendDestructorExit = 1ull << 15,
+    DecorationResourcesReleaseEntry = 1ull << 16,
+    DecorationResourcesReleaseExit = 1ull << 17
 };
 
 inline std::atomic_uint64_t& ShutdownDiagnosticPhases() noexcept

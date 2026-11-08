@@ -376,14 +376,14 @@ bool TrackTransformRuntime::EvaluateVisualForFloor(
 
     if (rotation_event != nullptr)
     {
-        const float rotation_offset = Evaluate(
+        const float rotation = Evaluate(
             rotation_event->start_rotation,
             rotation_event->target_rotation,
             *rotation_event,
             chart_time);
-        value.entry_angle = base.entry_angle + rotation_offset;
-        value.icon_angle = base.icon_angle + rotation_offset;
-        value.transform_rotation = base.transform_rotation + rotation_offset;
+        value.entry_angle = base.entry_angle - base.transform_rotation + rotation;
+        value.icon_angle = base.icon_angle - base.transform_rotation + rotation;
+        value.transform_rotation = rotation;
     }
     if (scale_x_event != nullptr)
         value.transform_scale_x = Evaluate(
@@ -490,14 +490,14 @@ void TrackTransformRuntime::ResolveTrackAtTime(
         resolved.y = Evaluate(y_event->start_y, y_event->target_y, *y_event, chart_time);
     if (rotation_event != nullptr)
     {
-        const float rotation_offset = Evaluate(
+        const float rotation = Evaluate(
             rotation_event->start_rotation,
             rotation_event->target_rotation,
             *rotation_event,
             chart_time);
-        resolved.entry_angle = base.entry_angle + rotation_offset;
-        resolved.icon_angle = base.icon_angle + rotation_offset;
-        resolved.transform_rotation = base.transform_rotation + rotation_offset;
+        resolved.entry_angle = base.entry_angle - base.transform_rotation + rotation;
+        resolved.icon_angle = base.icon_angle - base.transform_rotation + rotation;
+        resolved.transform_rotation = rotation;
     }
     if (scale_x_event != nullptr)
         resolved.transform_scale_x = Evaluate(

@@ -1,4 +1,5 @@
 #include "d2d_backend.h"
+#include "floor_transform.h"
 
 #include <algorithm>
 #include <chrono>
@@ -78,8 +79,6 @@ void D2DBackend::DrawSceneOverlaysCamera(
     const float range_world = 2.0f / zoom;
     const float primary_outer_world = 5.0f / zoom;
     const float primary_inner_world = 2.5f / zoom;
-    const float cc = std::cos(camera_rotation);
-    const float cs = std::sin(camera_rotation);
 
     for (const std::uint32_t candidate : visible_candidates_)
     {
@@ -94,16 +93,22 @@ void D2DBackend::DrawSceneOverlaysCamera(
 
         const D2D1_POINT_2F center = WorldToScreen(
             floor.x, floor.y, camera_x, camera_y, zoom, camera_rotation, width_, height_);
-        const float fc = std::cos(floor.entry_angle);
-        const float fs = std::sin(floor.entry_angle);
         const bool transformed = (floor.track_transform_flags & EE_TRACK_TRANSFORM_ENABLED) != 0u;
         const float sx = transformed ? floor.transform_scale_x : 1.0f;
         const float sy = transformed ? floor.transform_scale_y : 1.0f;
+        const FloorLocalTransform transform = ResolveFloorLocalTransform(
+            floor.entry_angle,
+            floor.transform_rotation,
+            sx,
+            sy,
+            transformed);
+        const FloorScreenTransform screen_transform = ResolveFloorScreenTransform(
+            transform, camera_rotation, zoom);
         d2d_context_->SetTransform(D2D1::Matrix3x2F(
-            zoom * sx * (cc * fc + cs * fs),
-            zoom * sx * (cs * fc - cc * fs),
-            zoom * sy * (-cc * fs + cs * fc),
-            zoom * sy * (-cs * fs - cc * fc),
+            screen_transform.m11,
+            screen_transform.m12,
+            screen_transform.m21,
+            screen_transform.m22,
             center.x,
             center.y));
 
