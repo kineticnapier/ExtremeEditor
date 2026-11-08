@@ -71,6 +71,12 @@ target_compile_definitions(native_renderer_tests PRIVATE UNICODE _UNICODE NOMINM
 target_include_directories(native_renderer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(native_renderer_tests PRIVATE ExtremeEditor.NativeRenderer)
 
+add_executable(decoration_shutdown_tests tests/decoration_shutdown_tests.cpp)
+target_compile_features(decoration_shutdown_tests PRIVATE cxx_std_20)
+target_compile_definitions(decoration_shutdown_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(decoration_shutdown_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(decoration_shutdown_tests PRIVATE ExtremeEditor.NativeRenderer user32)
+
 add_executable(camera_runtime_reference_tests tests/camera_runtime_reference_tests.cpp src/renderer_camera.cpp)
 target_compile_features(camera_runtime_reference_tests PRIVATE cxx_std_20)
 target_compile_definitions(camera_runtime_reference_tests PRIVATE UNICODE _UNICODE NOMINMAX)
@@ -200,7 +206,20 @@ add_executable(bloom_interpolation_tests tests/bloom_interpolation_tests.cpp)
 target_compile_features(bloom_interpolation_tests PRIVATE cxx_std_20)
 target_include_directories(bloom_interpolation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(floor_transform_order_tests tests/floor_transform_order_tests.cpp)
+target_compile_features(floor_transform_order_tests PRIVATE cxx_std_20)
+target_include_directories(floor_transform_order_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_executable(floor_transform_runtime_tests
+    tests/floor_transform_runtime_tests.cpp
+    src/track_transform_runtime.cpp
+)
+target_compile_features(floor_transform_runtime_tests PRIVATE cxx_std_20)
+target_compile_definitions(floor_transform_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+target_include_directories(floor_transform_runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_test(NAME native_renderer_tests COMMAND native_renderer_tests)
+add_test(NAME decoration_shutdown_tests COMMAND decoration_shutdown_tests)
 add_test(NAME camera_runtime_reference_tests COMMAND camera_runtime_reference_tests)
 add_test(NAME follow_camera_midspin_tests COMMAND follow_camera_midspin_tests)
 add_test(NAME camera_cull_transform_purity_tests COMMAND camera_cull_transform_purity_tests)
@@ -223,6 +242,8 @@ add_test(NAME background_layer_contract_tests COMMAND background_layer_contract_
 add_test(NAME camera_component_lookup_tests COMMAND camera_component_lookup_tests)
 add_test(NAME background_timeline_lookup_tests COMMAND background_timeline_lookup_tests)
 add_test(NAME bloom_interpolation_tests COMMAND bloom_interpolation_tests)
+add_test(NAME floor_transform_order_tests COMMAND floor_transform_order_tests)
+add_test(NAME floor_transform_runtime_tests COMMAND floor_transform_runtime_tests)
 add_test(NAME win32_window_extent_tests COMMAND win32_window_extent_tests)
 add_test(NAME editor_hud_zoom_tests COMMAND editor_hud_zoom_tests)
 add_test(NAME editor_floor_numbers_contract_tests COMMAND editor_floor_numbers_contract_tests)

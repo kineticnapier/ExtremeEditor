@@ -76,10 +76,14 @@ private:
         float height;
         float offset_x;
         float offset_y;
-        float cosine;
-        float sine;
+        float base_cosine;
+        float base_sine;
         float depth;
         float opacity;
+        float transform_cosine;
+        float transform_sine;
+        float scale_x;
+        float scale_y;
     };
 
     struct Batch

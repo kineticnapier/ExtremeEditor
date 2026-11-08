@@ -27,6 +27,8 @@ internal static class WindowCloseUnsavedTabsRegression
         VerifySaveFailureAndNewEditCancelClose();
         VerifySuccessfulSaveAndDiscardAllowClose();
         VerifyCloseRetryIsDeferred(window);
+        VerifyCloseGuardWhitespaceTolerance();
+        VerifyActiveVideoExportBlocksClose(editor);
     }
 
     private static void VerifyCloseRetryIsDeferred(string window)
@@ -40,6 +42,62 @@ internal static class WindowCloseUnsavedTabsRegression
             !method.Contains("Close();", StringComparison.Ordinal))
             throw new InvalidOperationException(
                 "RED: discard must defer the second Close until the first WPF OnClosing returns.");
+    }
+
+    // Source-level order checks must not depend on C# line wrapping.
+    internal static bool ContainsCloseGuardArguments(string source)
+    {
+        string compact = string.Concat(source.Where(static c => !char.IsWhiteSpace(c)));
+        return compact.Contains(
+            "hasPendingSaves,_tabCloseOperationPending,_windowCloseConfirmationPending,_videoExportInProgress",
+            StringComparison.Ordinal);
+    }
+
+    private static void VerifyCloseGuardWhitespaceTolerance()
+    {
+        const string wrapped = "hasPendingSaves,\r\n  _tabCloseOperationPending,\n" +
+            "\t_windowCloseConfirmationPending,\r\n _videoExportInProgress";
+        if (!ContainsCloseGuardArguments(wrapped) ||
+            ContainsCloseGuardArguments(wrapped.Replace(
+                "_videoExportInProgress", "false", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "Close guard source checks must tolerate whitespace but require all four arguments.");
+        }
+    }
+
+    private static void VerifyActiveVideoExportBlocksClose(string editor)
+    {
+        // Keep the existing three-argument close guard compatible with callers.
+        if (!MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, false, true) ||
+            MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(true, false, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(false, true, false, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(false, false, true, false) ||
+            !MainWindow.ShouldBlockWindowCloseForPendingWork(true, false, false))
+        {
+            throw new InvalidOperationException(
+                "An active video export or other pending work must block window shutdown.");
+        }
+
+        int closingStart = editor.IndexOf("protected override void OnClosing(", StringComparison.Ordinal);
+        int closingEnd = editor.IndexOf("private void InitializeEditorCommandBindings(",
+            closingStart, StringComparison.Ordinal);
+        if (closingStart < 0 || closingEnd <= closingStart)
+            throw new InvalidOperationException("Could not inspect the window closing handler.");
+
+        string closing = editor[closingStart..closingEnd];
+        int pendingGuard = closing.IndexOf("if (ShouldBlockWindowCloseForPendingWork(",
+            StringComparison.Ordinal);
+        int approval = closing.IndexOf("if (_windowCloseApproved ||", StringComparison.Ordinal);
+        if (pendingGuard < 0 || approval <= pendingGuard ||
+            !ContainsCloseGuardArguments(closing[pendingGuard..approval]) ||
+            !closing.Contains("Cancel the video export and wait for it to stop",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Window closing must reject active exports before the approved/clean-tab fast path.");
+        }
     }
 
     private static void VerifyCancelPreservesAllDirtyTabs()

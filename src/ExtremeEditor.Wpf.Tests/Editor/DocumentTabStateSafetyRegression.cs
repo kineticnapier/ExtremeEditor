@@ -53,10 +53,13 @@ internal static class DocumentTabStateSafetyRegression
         string source = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
         string activate = ExtractMethodBody(source, "private async Task<bool> ActivateDocumentTab(");
+        int begin = activate.IndexOf("int activationGeneration = BeginDocumentTabActivation(",
+            StringComparison.Ordinal);
         int commit = activate.IndexOf("TryCommitSettingsBeforeDocumentChange()", StringComparison.Ordinal);
-        int generation = activate.IndexOf("++_tabActivationGeneration", StringComparison.Ordinal);
-        Require(commit >= 0 && generation > commit,
-            "tab activation must commit or reject pending settings before asynchronous preparation");
+        int prepare = activate.IndexOf("WpfPlaybackSetup? builtPlayback = null;",
+            StringComparison.Ordinal);
+        Require(begin >= 0 && commit > begin && prepare > commit,
+            "tab activation must invalidate older requests, then commit or reject pending settings before asynchronous preparation");
 
         string close = ExtractMethodBody(source, "private async void CloseDocumentTab(");
         Require(close.IndexOf("TryCommitSettingsBeforeDocumentChange()", StringComparison.Ordinal) >= 0 &&

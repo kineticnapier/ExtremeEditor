@@ -37,6 +37,16 @@ public partial class MainWindow
         bool windowCloseConfirmationPending)
         => hasPendingSaves || tabCloseOperationPending || windowCloseConfirmationPending;
 
+    // An active video export owns a native renderer and an ffmpeg process.
+    // Keep the window alive until export completion or cancellation cleanup.
+    internal static bool ShouldBlockWindowCloseForPendingWork(
+        bool hasPendingSaves,
+        bool tabCloseOperationPending,
+        bool windowCloseConfirmationPending,
+        bool videoExportInProgress)
+        => videoExportInProgress || ShouldBlockWindowCloseForPendingWork(
+            hasPendingSaves, tabCloseOperationPending, windowCloseConfirmationPending);
+
     protected override void OnClosing(CancelEventArgs e)
     {
         ShutdownDiagnostics.Activate();
@@ -47,7 +57,8 @@ public partial class MainWindow
             // suspend across awaits. Do not shut down their editor/native state.
             bool hasPendingSaves = _documentTabs.HasPendingSaves;
             if (ShouldBlockWindowCloseForPendingWork(
-                    hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending))
+                    hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending,
+                    _videoExportInProgress))
             {
                 // A previously approved close must not bypass confirmation
                 // after an intervening operation has prevented shutdown.
@@ -58,7 +69,9 @@ public partial class MainWindow
                     ? "Wait for the current save to finish before closing ExtremeEditor."
                     : _tabCloseOperationPending
                         ? "Wait for the current tab close to finish before closing ExtremeEditor."
-                        : "Window close confirmation is already in progress.";
+                        : _videoExportInProgress
+                            ? "Cancel the video export and wait for it to stop before closing ExtremeEditor."
+                            : "Window close confirmation is already in progress.";
                 return;
             }
 

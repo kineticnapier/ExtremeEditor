@@ -73,6 +73,11 @@ public sealed partial class NativeLevelViewport : HwndHost
     private NativeRendererSession? _cameraUploadSession;
     private NativeCameraEvent[]? _cameraUploadedSource;
     private uint _cameraUploadedHeight;
+    // A DIP layout change need not change the physical child-window size.
+    // Avoid repeating native Resize for identical pixel dimensions.
+    private NativeRendererSession? _sizedSession;
+    private uint _sizedWidth;
+    private uint _sizedHeight;
     private NativeFlashEvent[] _flashTimeline = [];
     private NativeBloomEvent[] _bloomTimeline = [];
     private NativeScreenTileEvent[] _screenTileTimeline = [];
@@ -528,6 +533,9 @@ public sealed partial class NativeLevelViewport : HwndHost
                 uint width = ToPixelExtent(ActualWidth, dpi.DpiScaleX);
                 uint height = ToPixelExtent(ActualHeight, dpi.DpiScaleY);
                 _session = NativeRendererSession.Create(hwndParent.Handle, width, height);
+                _sizedSession = _session;
+                _sizedWidth = width;
+                _sizedHeight = height;
                 _playbackAnchorGate.Invalidate();
                 _session.SelectionChanged += NativeSelectionChanged;
                 _session.FollowPlayerChanged += NativeFollowPlayerChanged;
@@ -574,6 +582,9 @@ public sealed partial class NativeLevelViewport : HwndHost
         _cameraUploadSession = null;
         _cameraUploadedSource = null;
         _cameraUploadedHeight = 0;
+        _sizedSession = null;
+        _sizedWidth = 0;
+        _sizedHeight = 0;
 
         if (session is null)
             return;
@@ -767,12 +778,32 @@ public sealed partial class NativeLevelViewport : HwndHost
 
     private void ResizeNativeChild()
     {
+        NativeRendererSession? session = _session;
+        if (session is null)
+            return;
+
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        _session?.Resize(
-            ToPixelExtent(ActualWidth, dpi.DpiScaleX),
-            ToPixelExtent(ActualHeight, dpi.DpiScaleY));
+        uint width = ToPixelExtent(ActualWidth, dpi.DpiScaleX);
+        uint height = ToPixelExtent(ActualHeight, dpi.DpiScaleY);
+        if (ShouldResizeNativeChild(
+                ReferenceEquals(_sizedSession, session),
+                _sizedWidth, _sizedHeight, width, height))
+        {
+            session.Resize(width, height);
+            // Cache only after the native resize call has returned.
+            _sizedSession = session;
+            _sizedWidth = width;
+            _sizedHeight = height;
+        }
+
+        // The camera timeline has its own source/height cache.
         UploadPendingCameraTimeline();
     }
+
+    internal static bool ShouldResizeNativeChild(
+        bool sameSession, uint previousWidth, uint previousHeight,
+        uint width, uint height) =>
+        !sameSession || previousWidth != width || previousHeight != height;
 
     private static ModifierKeys ToModifierKeys(uint nativeModifiers)
     {

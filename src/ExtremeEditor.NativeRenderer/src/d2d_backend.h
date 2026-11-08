@@ -283,6 +283,8 @@ private:
     HRESULT ApplyBloom() noexcept;
     bool EnsureBloomResources() noexcept;
     bool EnsureScreenFilterResources() noexcept;
+    bool EnsureDecorationBlendBackground(ID2D1Bitmap1* target) noexcept;
+    void ReleaseDecorationResources() noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -320,6 +322,10 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Effect> bloom_composite_effect_;
     float bloom_table_threshold_ = -1.0f;
     Microsoft::WRL::ComPtr<ID2D1Effect> decoration_color_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> decoration_blend_background_;
+    ID2D1DeviceContext* decoration_cache_context_ = nullptr;
+    std::uint32_t decoration_blend_background_width_ = 0u;
+    std::uint32_t decoration_blend_background_height_ = 0u;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> hud_text_format_;

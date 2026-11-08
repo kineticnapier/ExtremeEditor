@@ -58,12 +58,31 @@ public partial class MainWindow
 
     private void CancelVideoExportClick(object sender, RoutedEventArgs e)
     {
-        if (_videoExportCancellation is null)
+        CancellationTokenSource? cancellation = _videoExportCancellation;
+        if (cancellation is null)
             return;
 
         CancelVideoExportMenuItem.IsEnabled = false;
-        StatusText.Text = "Video export — cancelling…";
-        _videoExportCancellation?.Cancel();
+        if (TryCancelVideoExport(cancellation))
+            StatusText.Text = "Video export — cancelling…";
+    }
+
+    // The async export can dispose its source before the UI continuation
+    // clears the field. A queued Cancel command must not throw on that source.
+    internal static bool TryCancelVideoExport(CancellationTokenSource? cancellation)
+    {
+        if (cancellation is null)
+            return false;
+
+        try
+        {
+            cancellation.Cancel();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
     }
 
     private async Task ExportVideoCoreAsync()
@@ -124,8 +143,31 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        // Do not let a video export replace the chart being exported.
+        // The file dialog's MP4 filter is not a path safety guarantee.
+        if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))
+        {
+            MessageBox.Show(
+                this,
+                "Video output cannot overwrite the source chart.",
+                "Export Video",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        // Cancellation is available while the chart snapshot is being built,
+        // not only after encoding begins. The individual builders are synchronous,
+        // so cancellation is observed between stages rather than mid-stage.
+        using var cancellation = new CancellationTokenSource();
+        _videoExportCancellation = cancellation;
+        CancelVideoExportMenuItem.IsEnabled = true;
         Mouse.OverrideCursor = Cursors.Wait;
-        VideoExportSource source = await Task.Run(() => CreateVideoExportSnapshot(chartPath));
+        StatusText.Text = "Export Video — preparing…";
+        bool hitSoundsEnabled = HitSoundsToggle.IsChecked == true;
+        VideoExportSource source = await Task.Run(
+            () => CreateVideoExportSnapshot(chartPath, cancellation.Token),
+            cancellation.Token);
 
         var request = new VideoExportRequest(
             source,
@@ -137,14 +179,20 @@ public partial class MainWindow
             Width: 1920,
             Height: 1080,
             SongVolumePercent: source.Level.SongVolumePercent,
-            HitSoundsEnabled: HitSoundsToggle.IsChecked == true);
+            HitSoundsEnabled: hitSoundsEnabled);
 
-        using var cancellation = new CancellationTokenSource();
-        _videoExportCancellation = cancellation;
-        CancelVideoExportMenuItem.IsEnabled = true;
-
+        // Progress<T> posts to the UI context. A queued callback may arrive
+        // after ExportAsync has completed or cancellation has been requested.
+        bool progressActive = true;
+        // Capture the token before disposal: CancellationTokenSource.Token
+        // throws after the source has been disposed, but queued progress can
+        // still run after the export has finished.
+        CancellationToken progressToken = cancellation.Token;
         var progress = new Progress<VideoExportProgress>(value =>
         {
+            if (!ShouldReportVideoExportProgress(progressActive, progressToken))
+                return;
+
             string suffix = value.Total > 0
                 ? $" {value.Completed:N0}/{value.Total:N0}"
                 : value.Completed > 0
@@ -153,9 +201,16 @@ public partial class MainWindow
             StatusText.Text = $"Export Video — {value.Stage}{suffix}";
         });
 
-        StatusText.Text = "Export Video — preparing…";
         var service = new VideoExportService();
-        await service.ExportAsync(request, progress, cancellation.Token);
+        try
+        {
+            await service.ExportAsync(request, progress, cancellation.Token);
+        }
+        finally
+        {
+            progressActive = false;
+        }
+
         StatusText.Text = $"Exported {Path.GetFileName(saveDialog.FileName)}";
         MessageBox.Show(
             this,
@@ -165,16 +220,35 @@ public partial class MainWindow
             MessageBoxImage.Information);
     }
 
+    internal static bool ShouldReportVideoExportProgress(
+        bool progressActive, CancellationToken cancellationToken) =>
+        progressActive && !cancellationToken.IsCancellationRequested;
+
+    internal static bool IsVideoExportOutputSameAsChart(string outputPath, string chartPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chartPath);
+        return string.Equals(
+            Path.GetFullPath(outputPath),
+            Path.GetFullPath(chartPath),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
         tab.IsDirty ||
         string.IsNullOrWhiteSpace(tab.Document.SourcePath) ||
         string.Equals(tab.Document.SourcePath, "<synthetic>", StringComparison.Ordinal);
 
-    private static VideoExportSource CreateVideoExportSnapshot(string chartPath)
+    private static VideoExportSource CreateVideoExportSnapshot(
+        string chartPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         LevelDocument level = WpfLevelLoader.Load(chartPath).Document;
+        cancellationToken.ThrowIfCancellationRequested();
         TimingMap timingMap = TimingMapBuilder.Build(level);
+        cancellationToken.ThrowIfCancellationRequested();
         HitSoundTimeline hitSoundTimeline = HitSoundTimelineBuilder.Build(level);
+        cancellationToken.ThrowIfCancellationRequested();
         return new VideoExportSource(level, timingMap, hitSoundTimeline, level.ResolveSongPath());
     }
 
@@ -188,13 +262,23 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(path))
             return null;
 
+        return FindFfmpegInPathEntries(path);
+    }
+
+    // Windows PATH entries are sometimes enclosed in quotes. Path.Combine
+    // treats those quotes as literal characters and misses an existing ffmpeg.
+    internal static string? FindFfmpegInPathEntries(string path)
+    {
         foreach (string entry in path.Split(
                      Path.PathSeparator,
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             try
             {
-                string candidate = Path.Combine(entry, "ffmpeg.exe");
+                string directory = entry.Length >= 2 && entry[0] == '"' && entry[^1] == '"'
+                    ? entry[1..^1]
+                    : entry;
+                string candidate = Path.Combine(directory, "ffmpeg.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
             }

@@ -3,6 +3,7 @@
 #include "decoration_mask_effects.h"
 #include "decoration_masking.h"
 #include "diagnostic_flags.h"
+#include "shutdown_diagnostics.h"
 #include "static_decoration_transform.h"
 
 #include <algorithm>
@@ -17,11 +18,6 @@ namespace ee
 {
 namespace
 {
-thread_local ID2D1DeviceContext* last_decoration_context = nullptr;
-thread_local Microsoft::WRL::ComPtr<ID2D1Bitmap1> decoration_blend_background;
-thread_local std::uint32_t decoration_blend_background_width = 0u;
-thread_local std::uint32_t decoration_blend_background_height = 0u;
-
 struct DecorationDrawRejections
 {
     std::size_t invalid_asset_id = 0u;
@@ -205,46 +201,6 @@ Microsoft::WRL::ComPtr<ID2D1Effect> BuildMaskUnion(
     return composite;
 }
 
-bool EnsureBlendBackground(
-    ID2D1DeviceContext* context,
-    ID2D1Bitmap1* target,
-    std::uint32_t width,
-    std::uint32_t height) noexcept
-{
-    if (!context || !target || width == 0u || height == 0u)
-        return false;
-
-    if (decoration_blend_background &&
-        decoration_blend_background_width == width &&
-        decoration_blend_background_height == height)
-    {
-        return true;
-    }
-
-    decoration_blend_background.Reset();
-    decoration_blend_background_width = 0u;
-    decoration_blend_background_height = 0u;
-
-    const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_NONE,
-        target->GetPixelFormat(),
-        96.0f,
-        96.0f);
-    if (FAILED(context->CreateBitmap(
-            D2D1::SizeU(width, height),
-            nullptr,
-            0u,
-            &properties,
-            decoration_blend_background.GetAddressOf())))
-    {
-        return false;
-    }
-
-    decoration_blend_background_width = width;
-    decoration_blend_background_height = height;
-    return true;
-}
-
 bool AppendDecorationLayer(
     ID2D1DeviceContext* context,
     const EeStaticDecoration& decoration,
@@ -287,6 +243,79 @@ bool AppendDecorationLayer(
 }
 }
 
+bool D2DBackend::EnsureDecorationBlendBackground(ID2D1Bitmap1* target) noexcept
+{
+    if (!d2d_context_ || !target || width_ == 0u || height_ == 0u)
+        return false;
+
+    if (decoration_blend_background_ &&
+        decoration_blend_background_width_ == width_ &&
+        decoration_blend_background_height_ == height_)
+    {
+        return true;
+    }
+
+    decoration_blend_background_.Reset();
+    decoration_blend_background_width_ = 0u;
+    decoration_blend_background_height_ = 0u;
+
+    const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        target->GetPixelFormat(),
+        96.0f,
+        96.0f);
+    if (FAILED(d2d_context_->CreateBitmap(
+            D2D1::SizeU(width_, height_),
+            nullptr,
+            0u,
+            &properties,
+            decoration_blend_background_.GetAddressOf())))
+    {
+        return false;
+    }
+
+    decoration_blend_background_width_ = width_;
+    decoration_blend_background_height_ = height_;
+    return true;
+}
+
+void D2DBackend::ReleaseDecorationResources() noexcept
+{
+    if (ShutdownD2DDiagnosticsActive)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::DecorationResourcesReleaseEntry,
+            "D2DBackend.decorationResources.release.begin");
+    }
+
+    decoration_blend_background_.Reset();
+    decoration_blend_background_width_ = 0u;
+    decoration_blend_background_height_ = 0u;
+    decoration_cache_context_ = nullptr;
+    decoration_color_effect_.Reset();
+    decoration_bitmaps_.clear();
+    decoration_asset_paths_.clear();
+    static_decorations_.clear();
+    logged_large_decorations_.clear();
+    cached_static_decorations_version_ = std::numeric_limits<std::uint64_t>::max();
+    cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
+    cached_static_decorations_scene_generation_ = std::numeric_limits<std::uint64_t>::max();
+    cached_decoration_assets_scene_generation_ = std::numeric_limits<std::uint64_t>::max();
+    logged_decoration_source_count_ = std::numeric_limits<std::size_t>::max();
+    logged_decoration_draw_count_ = std::numeric_limits<std::size_t>::max();
+    logged_decoration_bitmap_count_ = std::numeric_limits<std::size_t>::max();
+    logged_decoration_input_ = nullptr;
+    logged_decoration_input_count_ = std::numeric_limits<std::size_t>::max();
+    logged_decoration_input_version_ = std::numeric_limits<std::uint64_t>::max();
+
+    if (ShutdownD2DDiagnosticsActive)
+    {
+        ShutdownDiagnosticLogOnce(
+            ShutdownDiagnosticPhase::DecorationResourcesReleaseExit,
+            "D2DBackend.decorationResources.release.end");
+    }
+}
+
 bool D2DBackend::SyncStaticDecorations(
     const std::vector<EeStaticDecoration>* decorations,
     std::uint64_t decorations_version,
@@ -318,16 +347,16 @@ bool D2DBackend::SyncStaticDecorations(
             static_cast<unsigned long long>(cached_static_decorations_scene_generation_));
     }
 
-    const bool device_changed = last_decoration_context != d2d_context_.Get();
+    const bool device_changed = decoration_cache_context_ != d2d_context_.Get();
     if (device_changed)
     {
-        last_decoration_context = d2d_context_.Get();
+        decoration_cache_context_ = d2d_context_.Get();
         decoration_color_effect_.Reset();
         decoration_bitmaps_.clear();
         cached_decoration_assets_version_ = std::numeric_limits<std::uint64_t>::max();
-        decoration_blend_background.Reset();
-        decoration_blend_background_width = 0u;
-        decoration_blend_background_height = 0u;
+        decoration_blend_background_.Reset();
+        decoration_blend_background_width_ = 0u;
+        decoration_blend_background_height_ = 0u;
     }
 
     if (!decoration_color_effect_)
@@ -615,12 +644,12 @@ void D2DBackend::DrawStaticDecorationsCamera(
     if (use_blend_graph)
     {
         d2d_context_->SetTransform(D2D1::Matrix3x2F::Identity());
-        if (!EnsureBlendBackground(d2d_context_.Get(), target_bitmap_.Get(), width_, height_) ||
-            FAILED(decoration_blend_background->CopyFromRenderTarget(
+        if (!EnsureDecorationBlendBackground(target_bitmap_.Get()) ||
+            FAILED(decoration_blend_background_->CopyFromRenderTarget(
                 nullptr,
                 d2d_context_.Get(),
                 nullptr)) ||
-            FAILED(decoration_blend_background.As(&blend_composition)))
+            FAILED(decoration_blend_background_.As(&blend_composition)))
         {
             use_blend_graph = false;
             blend_composition.Reset();
