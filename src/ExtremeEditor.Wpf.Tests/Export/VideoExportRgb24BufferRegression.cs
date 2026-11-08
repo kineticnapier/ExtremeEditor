@@ -144,7 +144,7 @@ internal static class VideoExportRgb24BufferRegression
                 level,
                 TimingMapBuilder.Build(level),
                 HitSoundTimelineBuilder.Build(level),
-                SongPath: "invalid\\0song.wav"),
+                SongPath: "invalid\0song.wav"),
             OutputPath: Path.Combine(outputDirectory, "export.mp4"),
             FfmpegPath: typeof(VideoExportRgb24BufferRegression).Assembly.Location,
             StartChartTimeSeconds: 0.0,
