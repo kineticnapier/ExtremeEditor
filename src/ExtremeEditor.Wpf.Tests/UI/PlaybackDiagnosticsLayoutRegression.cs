@@ -98,11 +98,11 @@ internal static class PlaybackDiagnosticsLayoutRegression
             if (!IsDescendantOf(diagnosticsText, diagnosticsPanel))
                 throw new InvalidOperationException("PlaybackDiagnosticsText must be hosted by the optional diagnostics panel.");
 
-            if (window.FindName("PlaybackFpsText") is not TextBlock fpsText ||
-                !IsDescendantOf<StatusBar>(fpsText))
-            {
-                throw new InvalidOperationException("A concise FPS value must remain available in the status bar.");
-            }
+            if (window.FindName("PlaybackFpsText") is not null)
+                throw new InvalidOperationException("Playback UI FPS must not remain in the status bar.");
+            if (window.FindName("StatusText") is not TextBlock statusText ||
+                !IsDescendantOf<StatusBar>(statusText))
+                throw new InvalidOperationException("The standard status text must remain in the status bar.");
 
             if (!window.PlaybackDiagnosticsSnapshot.Contains("native=", StringComparison.Ordinal))
                 throw new InvalidOperationException("Playback diagnostics snapshot must include native renderer state.");

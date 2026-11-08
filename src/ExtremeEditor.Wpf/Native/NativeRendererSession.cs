@@ -23,6 +23,41 @@ internal readonly record struct NativeEditorActionRequest(
     double ValueY = 0,
     int LastFloor = -1);
 
+// Native keeps the current scene and one inactive scene. Retain a small,
+// bounded history of non-fatal decoration warnings so returning to a cached
+// tab reports that tab's warnings instead of clearing them.
+internal sealed class NativeSceneDecorationWarnings
+{
+    private const int MaxEntries = 8;
+    private readonly Dictionary<ulong, IReadOnlyList<string>> _byScene = new();
+    private readonly Queue<ulong> _insertionOrder = new();
+
+    internal IReadOnlyList<string> ForScene(ulong key) =>
+        key != 0u && _byScene.TryGetValue(key, out IReadOnlyList<string>? failures) ? failures : [];
+
+    internal void Remember(ulong key, IReadOnlyList<string> failures)
+    {
+        ArgumentNullException.ThrowIfNull(failures);
+        if (key == 0u)
+            return;
+
+        if (!_byScene.ContainsKey(key))
+        {
+            _insertionOrder.Enqueue(key);
+            if (_insertionOrder.Count > MaxEntries)
+                _byScene.Remove(_insertionOrder.Dequeue());
+        }
+
+        _byScene[key] = Array.AsReadOnly(failures.ToArray());
+    }
+
+    internal void Clear()
+    {
+        _byScene.Clear();
+        _insertionOrder.Clear();
+    }
+}
+
 internal sealed class NativeRendererSession : IDisposable
 {
     internal const uint ExpectedApiVersion = 25;
@@ -32,6 +67,7 @@ internal sealed class NativeRendererSession : IDisposable
     private readonly NativeRendererNative.EditorActionCallback _editorActionCallback;
     private readonly NativeRendererNative.PositionTrackDragCallback _positionTrackDragCallback;
     private nint _renderer;
+    private readonly NativeSceneDecorationWarnings _decorationWarnings = new();
 
     private NativeRendererSession(nint renderer, nint childHwnd)
     {
@@ -199,7 +235,10 @@ internal sealed class NativeRendererSession : IDisposable
         bool cacheHit = useCache &&
             NativeRendererNative.TryActivateCachedLevel(_renderer, snapshot.SceneCacheKey) != 0;
         if (!cacheHit && !useCache)
+        {
             NativeRendererNative.RememberCurrentLevel(_renderer, 0u);
+            _decorationWarnings.Clear();
+        }
 
         if (NativeUploadDiagnostics.Enabled)
             Console.WriteLine($"[native-upload] scene-cache {(cacheHit ? "hit" : "miss")} key={snapshot.SceneCacheKey}");
@@ -229,12 +268,23 @@ internal sealed class NativeRendererSession : IDisposable
             if (geometriesHandle.IsAllocated) geometriesHandle.Free();
             if (floorsHandle.IsAllocated) floorsHandle.Free();
         }
-        if (useCache)
-            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
         }
 
         phaseWatch.Stop();
         TimeSpan nativeLevelTime = phaseWatch.Elapsed;
+        if (cacheHit)
+        {
+            LastDecorationAssetFailures = _decorationWarnings.ForScene(snapshot.SceneCacheKey);
+            totalWatch.Stop();
+            if (NativeUploadDiagnostics.Enabled)
+            {
+                Console.WriteLine(
+                    $"[native-upload] level={nativeLevelTime.TotalMilliseconds:N1}ms " +
+                    "assets=reused total=" + totalWatch.Elapsed.TotalMilliseconds.ToString("N1") + "ms");
+            }
+            return;
+        }
+
         phaseWatch.Restart();
         SetStaticDecorations(snapshot.StaticDecorations, logUpload: true);
         phaseWatch.Stop();
@@ -249,11 +299,10 @@ internal sealed class NativeRendererSession : IDisposable
             if (result != 0)
                 decorationAssetFailures.Add(asset.ImagePath);
         }
-        LastDecorationAssetFailures = decorationAssetFailures;
         phaseWatch.Stop();
         TimeSpan decorationAssetTime = phaseWatch.Elapsed;
-        foreach (NativeBackgroundAsset asset in snapshot.BackgroundAssets)
-            SetBackgroundAsset(asset);
+        RequireBackgroundAssetReplacementSuccess(
+            NativeRendererNative.ReplaceBackgroundAssets(_renderer, snapshot.BackgroundAssets));
 
 
         phaseWatch.Restart();
@@ -271,6 +320,16 @@ internal sealed class NativeRendererSession : IDisposable
         }
         phaseWatch.Stop();
         TimeSpan iconAssetTime = phaseWatch.Elapsed;
+
+        // A partially uploaded scene must never become a cache hit on retry.
+        // Register its identity only after all required native asset uploads pass.
+        if (useCache)
+            NativeRendererNative.RememberCurrentLevel(_renderer, snapshot.SceneCacheKey);
+        // Publish warnings only for a fully accepted scene. A later required
+        // background/icon upload can fail before the caller restores its state.
+        LastDecorationAssetFailures = Array.AsReadOnly(decorationAssetFailures.ToArray());
+        if (useCache)
+            _decorationWarnings.Remember(snapshot.SceneCacheKey, decorationAssetFailures);
         totalWatch.Stop();
 
         if (NativeUploadDiagnostics.Enabled)
@@ -367,8 +426,18 @@ internal sealed class NativeRendererSession : IDisposable
 
     internal void ClearBackgroundAssets()
     {
-        // Native background asset lifetime is not wired yet.
-        // Do not call into an unimplemented native clear entry point.
+        if (_renderer != nint.Zero)
+            RequireBackgroundAssetReplacementSuccess(
+                NativeRendererNative.ReplaceBackgroundAssets(_renderer, []));
+    }
+
+    // A failed clear must be reported just like a failed scene upload.
+    // Otherwise the old background table can remain visible after a reset.
+    internal static void RequireBackgroundAssetReplacementSuccess(int result)
+    {
+        if (result != 0)
+            throw new InvalidOperationException(
+                $"Native background asset replacement failed with result {result}.");
     }
 
     internal void SetBackgroundTimeline(NativeBackgroundEvent[] events) =>

@@ -9,7 +9,11 @@ internal sealed record WpfLevelLoadResult(
     LevelDocument Document,
     SpatialGridIndex Index,
     LoadMetrics Metrics,
-    TimeSpan IndexTime);
+    TimeSpan IndexTime)
+{
+    // Missing commas the loader supplied, empty for a strictly valid chart.
+    internal IReadOnlyList<JsonRepair> JsonRepairs { get; init; } = [];
+}
 
 internal static class WpfLevelLoader
 {
@@ -30,11 +34,21 @@ internal static class WpfLevelLoader
         CameraSourceData cameraEvents;
         string loadPath = path;
         string? normalizedPath = null;
+        IReadOnlyList<JsonRepair> repairs = [];
         if (LooseAdoFaiJson.HasUtf16Bom(path))
         {
-            normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+            normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path, out repairs);
             loadPath = normalizedPath;
         }
+
+        // Native preparation reads the background settings right after load.
+        // Warm that cache alongside parsing; a failure here is reported by
+        // the later read that actually needs the value.
+        Task backgroundPreload = Task.Run(() =>
+        {
+            try { BackgroundSourceReader.ReadInitial(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException) { }
+        }, CancellationToken.None);
 
         try
         {
@@ -45,10 +59,11 @@ internal static class WpfLevelLoader
             }
             catch (JsonException) when (normalizedPath is null)
             {
-                // The game accepts literal control bytes inside strings. Normalize
-                // the exceptional file once so every dedicated reader sees the same
-                // UTF-8 representation as the core loader.
-                normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path);
+                // The game accepts literal control bytes inside strings and
+                // missing commas between values. Normalize the exceptional file
+                // once so every dedicated reader sees the same UTF-8 text as the
+                // core loader. The strictly valid path above stays untouched.
+                normalizedPath = LooseAdoFaiJson.CreateNormalizedTempCopy(path, out repairs);
                 loadPath = normalizedPath;
                 (loaded, trackVisuals, trackTransforms, scaleRadius, cameraSource) =
                     await LoadPassesAsync(loadPath, cancellationToken).ConfigureAwait(false);
@@ -66,6 +81,13 @@ internal static class WpfLevelLoader
         }
 
         loaded.Document.SourcePath = path;
+        if (repairs.Count > 0)
+        {
+            Console.WriteLine(
+                $"[load] json-repair inserted {repairs.Count} missing comma(s) after " +
+                string.Join(", ", repairs.Take(8).Select(static r => $"line {r.Line} col {r.Column}")) +
+                (repairs.Count > 8 ? ", ..." : string.Empty));
+        }
 
         loaded.Document.CameraSettings = new LevelCameraSettings(
             cameraSource.InitialRelativeTo,
@@ -92,12 +114,16 @@ internal static class WpfLevelLoader
         var indexWatch = Stopwatch.StartNew();
         var index = new SpatialGridIndex(loaded.Document.Positions);
         indexWatch.Stop();
+        await backgroundPreload.ConfigureAwait(false);
 
         return new WpfLevelLoadResult(
             loaded.Document,
             index,
             loaded.Metrics,
-            indexWatch.Elapsed);
+            indexWatch.Elapsed)
+        {
+            JsonRepairs = repairs
+        };
     }
 
     private static async Task<(LoadResult Loaded, TrackVisualSourceBundle Visuals,
@@ -106,13 +132,38 @@ internal static class WpfLevelLoader
         string path,
         CancellationToken cancellationToken)
     {
-        LoadResult loaded = await AdoFaiLoader.LoadFlatAsync(path, cancellationToken)
-            .ConfigureAwait(false);
-        return (
-            loaded,
-            TrackVisualSourceReader.Load(path, cancellationToken),
-            TrackTransformSourceReader.Load(path, cancellationToken),
-            ScaleRadiusSourceReader.Load(path, cancellationToken),
-            CameraSourceReader.Load(path, cancellationToken));
+        // The narrow renderer passes are independent, read-only streaming scans
+        // of the same file and touch no shared document state, so they run
+        // alongside the core loader instead of after it.
+        Task<TrackVisualSourceBundle> visuals = Task.Run(
+            () => TrackVisualSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<TrackTransformSourceData> transforms = Task.Run(
+            () => TrackTransformSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<ScaleRadiusSourceData> scaleRadius = Task.Run(
+            () => ScaleRadiusSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<CameraSourceData> camera = Task.Run(
+            () => CameraSourceReader.Load(path, cancellationToken), CancellationToken.None);
+        Task<LoadResult> core = AdoFaiLoader.LoadFlatAsync(path, cancellationToken);
+
+        // Wait for every pass before reporting, so no scan still holds the file
+        // when a caller retries with a normalized copy. Rethrow the first
+        // failure in the original sequential order.
+        Task[] passes = [core, visuals, transforms, scaleRadius, camera];
+        try
+        {
+            await Task.WhenAll(passes).ConfigureAwait(false);
+        }
+        catch
+        {
+            foreach (Task pass in passes)
+                _ = pass.Exception; // mark every failure observed
+            foreach (Task pass in passes)
+            {
+                if (pass.IsFaulted || pass.IsCanceled)
+                    await pass.ConfigureAwait(false);
+            }
+            throw;
+        }
+        return (core.Result, visuals.Result, transforms.Result, scaleRadius.Result, camera.Result);
     }
 }

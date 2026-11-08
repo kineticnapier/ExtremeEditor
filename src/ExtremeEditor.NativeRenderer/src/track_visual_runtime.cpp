@@ -13,8 +13,13 @@ constexpr double Pi = 3.14159265358979323846;
 
 void TrackVisualRuntime::ResetBase(const std::vector<EeFloor>& floors) noexcept
 {
+    ResetBase(std::make_shared<const std::vector<EeFloor>>(floors));
+}
+
+void TrackVisualRuntime::ResetBase(FloorBase base) noexcept
+{
     std::lock_guard lock(mutex_);
-    base_floors_ = floors;
+    base_ = std::move(base);
     tracks_.clear();
     runtime_states_.clear();
     schedule_.clear();
@@ -25,6 +30,18 @@ void TrackVisualRuntime::ResetBase(const std::vector<EeFloor>& floors) noexcept
     anchor_chart_time_ = 0.0;
     chart_rate_ = 1.0;
     anchor_steady_ = std::chrono::steady_clock::now();
+}
+
+const EeFloor* TrackVisualRuntime::BaseData() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return BaseFloors().data();
+}
+
+std::size_t TrackVisualRuntime::OwnedFloorBufferBytes() const noexcept
+{
+    // Runtime state is per track, not per floor; the base is shared.
+    return 0u;
 }
 
 bool TrackVisualRuntime::SetTimeline(
@@ -43,10 +60,10 @@ bool TrackVisualRuntime::SetTimeline(
             const EeTrackVisualEvent& item = events[i];
             const int start = std::max(0, std::min(item.start_floor, item.end_floor));
             const int end = std::min(
-                static_cast<int>(base_floors_.size()) - 1,
+                static_cast<int>(BaseFloors().size()) - 1,
                 std::max(item.start_floor, item.end_floor));
             const std::uint64_t step = static_cast<std::uint64_t>(item.gap_length) + 1u;
-            if (start > end || base_floors_.empty())
+            if (start > end || BaseFloors().empty())
                 continue;
             for (std::uint64_t floor = static_cast<std::uint64_t>(start);
                  floor <= static_cast<std::uint64_t>(end);
@@ -78,7 +95,7 @@ bool TrackVisualRuntime::SetTimeline(
         for (std::size_t track_index = 0; track_index < tracks.size(); ++track_index)
         {
             const FloorTrack& track = tracks[track_index];
-            states[track_index].value = base_floors_[static_cast<std::size_t>(track.floor)];
+            states[track_index].value = BaseFloors()[static_cast<std::size_t>(track.floor)];
             for (std::size_t event_index = 0; event_index < track.events.size(); ++event_index)
             {
                 const FloorEvent& item = track.events[event_index];
@@ -170,7 +187,7 @@ void TrackVisualRuntime::RebuildAt(double chart_time, std::vector<EeFloor>& floo
     {
         RuntimeState& state = runtime_states_[i];
         state = RuntimeState{};
-        state.value = base_floors_[static_cast<std::size_t>(tracks_[i].floor)];
+        state.value = BaseFloors()[static_cast<std::size_t>(tracks_[i].floor)];
         WriteState(i, chart_time, floors);
     }
     while (next_schedule_ < schedule_.size() && schedule_[next_schedule_].start_time <= chart_time)
@@ -270,7 +287,7 @@ double TrackVisualRuntime::CurrentChartTime() const noexcept
 
 void TrackVisualRuntime::EvaluateAtLocked(double chart_time, std::vector<EeFloor>& floors) const noexcept
 {
-    if (base_floors_.size() != floors.size())
+    if (BaseFloors().size() != floors.size())
         return;
 
     for (const FloorTrack& track : tracks_)
@@ -280,7 +297,7 @@ void TrackVisualRuntime::EvaluateAtLocked(double chart_time, std::vector<EeFloor
         const std::size_t floor = static_cast<std::size_t>(track.floor);
         const auto& events = track.events;
 
-        EeFloor state = base_floors_[floor];
+        EeFloor state = BaseFloors()[floor];
         std::uint32_t tween_start_primary = state.track_primary_color;
         std::uint32_t tween_start_secondary = state.track_secondary_color;
         std::uint32_t tween_target_primary = state.track_primary_color;

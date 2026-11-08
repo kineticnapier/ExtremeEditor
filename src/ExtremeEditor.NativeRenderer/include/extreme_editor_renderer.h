@@ -525,6 +525,11 @@ EE_RENDERER_API EeResult ee_renderer_set_screen_tile_timeline(EeRendererHandle r
 EE_RENDERER_API EeResult ee_renderer_set_filter_timeline(EeRendererHandle renderer, const EeFilterEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_background_timeline(EeRendererHandle renderer, const EeBackgroundEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_background_asset(EeRendererHandle renderer, uint32_t asset_id, const wchar_t* image_path);
+EE_RENDERER_API EeResult ee_renderer_replace_background_assets(
+    EeRendererHandle renderer,
+    const uint32_t* asset_ids,
+    const wchar_t* const* image_paths,
+    uint32_t asset_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_transform_timeline(EeRendererHandle renderer, const EeTrackTransformEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_visual_timeline(EeRendererHandle renderer, const EeTrackVisualEvent* events, uint32_t event_count);
 EE_RENDERER_API EeResult ee_renderer_set_track_animation_timeline(

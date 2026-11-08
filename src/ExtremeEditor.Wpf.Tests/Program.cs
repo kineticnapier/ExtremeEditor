@@ -94,8 +94,6 @@ internal static class Program
                 TabPlaybackPreferenceRegression.Run();
                 UiSafetyIssueRegression.Run();
                 NativeSettingsFocusRegression.Run();
-            NativeSystemMenuRegression.Run();
-            SetSpeedEditorConversionRegression.Run();
                 NativeSystemMenuRegression.Run();
                 SetSpeedEditorConversionRegression.Run();
                 ManagedGeometryEditRegression.Run();
@@ -486,6 +484,7 @@ internal static class Program
                 DocumentTabCloseRegression.Run();
                 DocumentTabSwitchCacheRegression.Run();
                 NativeSceneReuseRegression.Run();
+                CameraTimelineUploadRegression.Run();
                 Console.WriteLine("PASS: safe tab closing and cached managed/native scene switching.");
                 return 0;
             }
@@ -935,11 +934,77 @@ internal static class Program
                 return 0;
             }
 
+            if (Environment.GetEnvironmentVariable(LoadPathBenchmark.PathVariable) is { Length: > 0 } benchPath)
+            {
+                LoadPathBenchmark.Run(benchPath);
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_TRACK_VISUAL_PACKING_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                TrackVisualResolvePackingRegression.Run();
+                Console.WriteLine("PASS: track visual run packing regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_BACKGROUND_SOURCE_READ_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                BackgroundSourceReadRegression.Run();
+                Console.WriteLine("PASS: background settings read regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_MISSING_COMMA_LOAD_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                MissingCommaLoadRegression.Run();
+                Console.WriteLine("PASS: missing-comma load regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_VFX_SOURCE_PROPERTIES_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                VfxSourcePropertiesRegression.Run();
+                Console.WriteLine("PASS: loaded VFX source properties regression is valid.");
+                return 0;
+            }
+
+            if (string.Equals(
+                Environment.GetEnvironmentVariable("EXTREMEEDITOR_FLASH_INCREMENTAL_EDIT_ONLY"),
+                "1",
+                StringComparison.Ordinal))
+            {
+                FlashIncrementalEditRegression.Run();
+                Console.WriteLine("PASS: incremental Flash action-edit regression is valid.");
+                return 0;
+            }
+
+            FocusedTestDispatchRegression.Run();
+            SongSettingsAudioAsyncRegression.Run();
+            IncrementalActionPropertyEditRegression.Run();
+            LazyLevelMetadataRegression.Run();
+            ResponsiveEditorLayoutRegression.Run();
             WinFormsHostRemovalRegression.Run();
             TrackPositionEditorOnlyRegression.Run();
             EditorFloorClipboardRegression.Run();
             PositionTrackDragRegression.Run();
             TwirlToggleRegression.Run();
+            FlashIncrementalEditRegression.Run();
+            VfxSourcePropertiesRegression.Run();
+            MissingCommaLoadRegression.Run();
+            BackgroundSourceReadRegression.Run();
+            TrackVisualResolvePackingRegression.Run();
             EditorSelectionStateRegression.Run();
             GoToFloorRegression.Run();
             AdoFaiHistoryShortcutRegression.Run();
@@ -959,6 +1024,8 @@ internal static class Program
             SongSettingsSliceRegression.Run();
             SongAudioFallbackRegression.Run();
             UiSafetyIssueRegression.Run();
+            NativeSystemMenuRegression.Run();
+            SetSpeedEditorConversionRegression.Run();
             NumericInputSafetyRegression.Run();
             SavePathReservationRegression.Run();
             StructureReferenceGenerationRegression.Run();
@@ -977,6 +1044,7 @@ internal static class Program
             VerifyIconBitmapIsCachedAndFrozen();
             OpenLevelRegression.Run();
             OpenDirtyDocumentRegression.Run();
+            DocumentTabScaffoldRegression.Run();
             DocumentTabCloseRegression.Run();
             DocumentTabSwitchCacheRegression.Run();
             NativeSceneReuseRegression.Run();
@@ -1017,6 +1085,9 @@ internal static class Program
             AssetExtractorPackagingRegression.Run();
             // CI must exercise the focused video export and background suites too.
             VideoExportFoundationRegression.Run();
+            ChartFrameRendererRegression.Run();
+            Console.WriteLine("PASS: headless chart frame renderer regression suite.");
+            VideoExportRgb24BufferRegression.Run();
             VideoExportFramePipelineRegression.Run();
             VideoExportOfflineAudioRegression.Run();
             VideoExportEncoderRegression.Run();

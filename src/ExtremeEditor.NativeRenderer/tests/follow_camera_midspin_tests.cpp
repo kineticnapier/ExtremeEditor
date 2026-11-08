@@ -29,6 +29,46 @@ ee::PlaybackVisualState Playback(std::int32_t floor, float x)
     return result;
 }
 
+
+void VerifyHighBpmFrameSkipMatchesIncrementalFollow()
+{
+    constexpr int Count = 128;
+    constexpr double Interval = 0.01; // 100 floor transitions per second
+    ee::LevelScene scene;
+    scene.floors.resize(Count);
+    std::vector<EePlaybackTiming> timings(Count);
+    for (int i = 0; i < Count; ++i)
+    {
+        scene.floors[i].x = static_cast<float>(i) * 1.5f;
+        timings[i].entry_time = i * Interval;
+        timings[i].exit_time = (i + 1) * Interval;
+        timings[i].angle_moved = 3.1415927f;
+    }
+
+    ee::FollowCameraState stepped;
+    ee::FollowCameraState skipped;
+    constexpr std::uint64_t version = 1;
+    stepped.Update(&scene, &timings, Playback(0, 0.0f), 0.0, version);
+    skipped.Update(&scene, &timings, Playback(0, 0.0f), 0.0, version);
+    for (int frame = 1; frame <= 80; ++frame)
+    {
+        const double time = frame * Interval;
+        const int floor = frame;
+        stepped.Update(&scene, &timings,
+            Playback(floor, scene.floors[floor].x), time, version);
+    }
+    skipped.Update(&scene, &timings,
+        Playback(80, scene.floors[80].x), 0.8, version);
+    ExpectNear(skipped.x, stepped.x, 0.0001f, "high-bpm-frame-skip");
+    // Camera smoothing is allowed to lag the player but must stay finite.
+    if (!std::isfinite(skipped.x) ||
+        skipped.x > scene.floors[80].x + 0.001f)
+    {
+        std::cerr << "FAIL: follow camera overshot high-BPM planet position.\n";
+        std::exit(1);
+    }
+}
+
 void VerifyMidspinEqualTimeRunStartsOneFollowTransition()
 {
     ee::LevelScene scene;
@@ -76,6 +116,7 @@ void VerifyMidspinEqualTimeRunStartsOneFollowTransition()
 int main()
 {
     VerifyMidspinEqualTimeRunStartsOneFollowTransition();
+    VerifyHighBpmFrameSkipMatchesIncrementalFollow();
     std::cout << "PASS: native Midspin follow-camera regression is valid.\n";
     return 0;
 }

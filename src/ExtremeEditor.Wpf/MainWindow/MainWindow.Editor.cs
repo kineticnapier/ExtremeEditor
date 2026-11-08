@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -27,16 +28,59 @@ public partial class MainWindow
         RefreshInspector();
     }
 
+    // A pending tab close can await native preparation after its save has ended.
+    // Do not dispose the window while that operation or a close confirmation
+    // still owns live UI/editor state.
+    internal static bool ShouldBlockWindowCloseForPendingWork(
+        bool hasPendingSaves,
+        bool tabCloseOperationPending,
+        bool windowCloseConfirmationPending)
+        => hasPendingSaves || tabCloseOperationPending || windowCloseConfirmationPending;
+
+    // An active video export owns a native renderer and an ffmpeg process.
+    // Keep the window alive until export completion or cancellation cleanup.
+    internal static bool ShouldBlockWindowCloseForPendingWork(
+        bool hasPendingSaves,
+        bool tabCloseOperationPending,
+        bool windowCloseConfirmationPending,
+        bool videoExportInProgress)
+        => videoExportInProgress || ShouldBlockWindowCloseForPendingWork(
+            hasPendingSaves, tabCloseOperationPending, windowCloseConfirmationPending);
+
     protected override void OnClosing(CancelEventArgs e)
     {
         ShutdownDiagnostics.Activate();
         ShutdownDiagnostics.Begin("MainWindow.OnClosing");
         try
         {
+            // Saves, tab removal and an existing close confirmation can all
+            // suspend across awaits. Do not shut down their editor/native state.
+            bool hasPendingSaves = _documentTabs.HasPendingSaves;
+            if (ShouldBlockWindowCloseForPendingWork(
+                    hasPendingSaves, _tabCloseOperationPending, _windowCloseConfirmationPending,
+                    _videoExportInProgress))
+            {
+                // A previously approved close must not bypass confirmation
+                // after an intervening operation has prevented shutdown.
+                _windowCloseApproved = false;
+                e.Cancel = true;
+                base.OnClosing(e);
+                StatusText.Text = hasPendingSaves
+                    ? "Wait for the current save to finish before closing ExtremeEditor."
+                    : _tabCloseOperationPending
+                        ? "Wait for the current tab close to finish before closing ExtremeEditor."
+                        : _videoExportInProgress
+                            ? "Cancel the video export and wait for it to stop before closing ExtremeEditor."
+                            : "Window close confirmation is already in progress.";
+                return;
+            }
+
             if (_windowCloseApproved || !_documentTabs.Tabs.Any(static tab => tab.IsDirty))
             {
                 base.OnClosing(e);
-                if (!e.Cancel)
+                if (e.Cancel)
+                    _windowCloseApproved = false;
+                else
                     ShutdownDiagnostics.WriteOnce("MainWindow.OnClosing.accepted");
                 return;
             }
@@ -164,14 +208,35 @@ public partial class MainWindow
 
     private async void ExecuteSave(object sender, ExecutedRoutedEventArgs e)
     {
-        await SaveCurrentAsync(saveAs: false);
         e.Handled = true;
+        await ExecuteSaveCommandAsync(saveAs: false);
     }
 
     private async void ExecuteSaveAs(object sender, ExecutedRoutedEventArgs e)
     {
-        await SaveCurrentAsync(saveAs: true);
         e.Handled = true;
+        await ExecuteSaveCommandAsync(saveAs: true);
+    }
+
+    private async Task ExecuteSaveCommandAsync(bool saveAs)
+    {
+        try
+        {
+            await SaveCurrentAsync(saveAs);
+        }
+        catch (Exception ex)
+        {
+            // SaveCurrentAsync handles errors during the disk write, but
+            // path normalization, draft commit and reservation happen before
+            // its inner try/catch. Do not let those failures escape an
+            // async void WPF command handler.
+            if (!_isClosed)
+            {
+                StatusText.Text = $"Could not save: {ex.Message}";
+                MessageBox.Show(this, ex.ToString(), "Save failed",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 
     private async Task<bool> SaveCurrentAsync(bool saveAs)
@@ -255,14 +320,14 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
-            RefreshAfterSongSettingsChange(before, after);
+            _ = ObserveSongSettingsChangeAsync(before, after);
         else if (miscBefore != miscAfter)
         {
             RefreshMiscSettings();
             RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
         }
         else
-            RefreshEditorAfterMutation(primary);
+            RefreshEditorAfterMutation(primary, actionChange: editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -278,14 +343,14 @@ public partial class MainWindow
         LevelSettingsSnapshot after = editor.GetLevelSettings();
         MiscSettingsSnapshot miscAfter = editor.GetMiscSettings();
         if (before != after)
-            RefreshAfterSongSettingsChange(before, after);
+            _ = ObserveSongSettingsChangeAsync(before, after);
         else if (miscBefore != miscAfter)
         {
             RefreshMiscSettings();
             RefreshAfterMiscSettingsCommit(miscBefore, miscAfter);
         }
         else
-            RefreshEditorAfterMutation(primary);
+            RefreshEditorAfterMutation(primary, actionChange: editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -429,7 +494,7 @@ public partial class MainWindow
         int[] selection = _selection.SelectedFloors.ToArray();
         int primary = _selection.PrimaryFloor;
         editor.AddAction(primary, type);
-        RefreshEditorAfterMutation(primary, selection);
+        RefreshEditorAfterMutation(primary, selection, editor.TakeLastActionChange());
         e.Handled = true;
     }
 
@@ -444,7 +509,7 @@ public partial class MainWindow
         int[] selection = _selection.SelectedFloors.ToArray();
         int primary = _selection.PrimaryFloor;
         editor.DeleteAction(item.Action);
-        RefreshEditorAfterMutation(primary, selection);
+        RefreshEditorAfterMutation(primary, selection, editor.TakeLastActionChange());
         if (EventList.Items.Count > 0)
             EventList.SelectedIndex = Math.Clamp(selectedIndex, 0, EventList.Items.Count - 1);
         e.Handled = true;
@@ -469,7 +534,7 @@ public partial class MainWindow
             editor.ReplaceAction(item.Action, updated);
             if (_documentTabs.ActiveTab is EditorDocumentTab activeTab)
                 AcceptDisplayedRawEventDraft(activeTab, item.Action.SourceIndex);
-            RefreshEditorAfterMutation(updated.Floor, selection, item.Action, updated);
+            RefreshEditorAfterMutation(updated.Floor, selection, editor.TakeLastActionChange());
         }
         catch (Exception ex)
         {
@@ -507,8 +572,7 @@ public partial class MainWindow
     private void RefreshEditorAfterMutation(
         int preferredPrimary,
         IEnumerable<int>? preferredSelection = null,
-        LevelAction? actionBefore = null,
-        LevelAction? actionAfter = null)
+        EditorActionChange? actionChange = null)
     {
         if (_level is null)
             return;
@@ -519,18 +583,25 @@ public partial class MainWindow
         selection = selection.Select(floor => Math.Clamp(floor, 0, maxFloor)).Distinct().ToArray();
         int primary = Math.Clamp(preferredPrimary, 0, maxFloor);
 
-        if (actionBefore is not null && actionAfter is not null)
-            NativeActionEditUpdate.Apply(NativeViewport, _level, actionBefore, actionAfter);
+        NativeActionEditKind nativeEdit = NativeActionEditKind.FullLevel;
+        if (actionChange is EditorActionChange change)
+            nativeEdit = NativeActionEditUpdate.Apply(
+                NativeViewport, _level, change.Before, change.After, _timingMap);
         else
             NativeViewport.SetLevel(_level);
         _selection.SetFloorCount(_level.FloorCount);
         _selection.SetSelection(selection, primary);
 
-        WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
-        _timingMap = playback.TimingMap;
-        _hitSoundTimeline = playback.HitSoundTimeline;
-        _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
-        NativeViewport.SetPlaybackTimeline(_timingMap);
+        // A Flash edit keeps timing and hit sounds, and the viewport already
+        // refreshed its Flash timeline. Every other edit rebuilds playback.
+        if (nativeEdit != NativeActionEditKind.FlashTimeline)
+        {
+            WpfPlaybackSetup playback = WpfPlaybackSetupBuilder.Build(_level);
+            _timingMap = playback.TimingMap;
+            _hitSoundTimeline = playback.HitSoundTimeline;
+            _audio.ConfigureHitSounds(_level, _timingMap, _hitSoundTimeline);
+            NativeViewport.SetPlaybackTimeline(_timingMap);
+        }
 
         RefreshInspector();
         UpdateEditorStatus();
@@ -676,13 +747,21 @@ public partial class MainWindow
         return obj[name] is JsonValue value && value.TryGetValue(out string? result) ? result : null;
     }
 
-    private static double? GetDouble(JsonObject obj, string name)
+    private static double? GetDouble(JsonObject obj, string name) =>
+        ReadRawEventDouble(obj[name]);
+
+    // JSON numbers use a dot regardless of the Windows display culture.
+    // Do not let a locale-specific thousands separator change a string value.
+    internal static double? ReadRawEventDouble(JsonNode? node)
     {
-        if (obj[name] is not JsonValue value)
+        if (node is not JsonValue value)
             return null;
-        if (value.TryGetValue(out double result))
-            return result;
-        return value.TryGetValue(out string? text) && double.TryParse(text, out result) ? result : null;
+        if (value.TryGetValue(out double number))
+            return double.IsFinite(number) ? number : null;
+        return value.TryGetValue(out string? text) &&
+               double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number) &&
+               double.IsFinite(number)
+            ? number : null;
     }
 
     private static bool GetBool(JsonObject obj, string name, bool fallback)

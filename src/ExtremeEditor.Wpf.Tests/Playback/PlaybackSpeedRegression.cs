@@ -24,6 +24,7 @@ internal static class PlaybackSpeedRegression
         VerifyWheelStepSpecification();
 
         VerifyProductionPlaybackSpeedSurface();
+        VerifyProductionSongPitchSurface();
         VerifyProductionWheelIntegration();
     }
 
@@ -171,6 +172,27 @@ internal static class PlaybackSpeedRegression
             throw new InvalidOperationException(
                 "Playback speed transport is not available: AudioPlayer.PlaybackSpeed must expose the shared unified-graph rate.");
         }
+    }
+
+    private static void VerifyProductionSongPitchSurface()
+    {
+        PropertyInfo? property = typeof(AudioPlayer).GetProperty(
+            "SongPitch",
+            BindingFlags.Instance | BindingFlags.Public);
+        if (property is null || property.PropertyType != typeof(double) ||
+            !property.CanRead || !property.CanWrite)
+        {
+            throw new InvalidOperationException(
+                "song.pitch must be exposed separately from the user playback-speed clock.");
+        }
+
+        using var player = new AudioPlayer(loadHitSoundAssets: false);
+        player.PlaybackSpeed = 0.5;
+        property.SetValue(player, 1.5);
+        AssertNear(0.5, player.PlaybackSpeed,
+            "song.pitch must not alter the user playback-speed clock");
+        AssertNear(1.5, (double)property.GetValue(player)!,
+            "song.pitch transport setting");
     }
 
     private static void VerifyWheelStepSpecification()

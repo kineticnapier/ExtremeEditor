@@ -84,7 +84,33 @@ internal static class NativeOnlyViewportRegression
         RequireNativeMethod(nameof(NativeLevelViewport.FrameAll));
         RequireNativeMethod("ReloadAssets");
 
+        VerifyNativeResizeDeduplication();
         TerminalPortalRegression.Run();
+    }
+
+    private static void VerifyNativeResizeDeduplication()
+    {
+        uint width = NativeLevelViewport.ToPixelExtent(800.1, 1.25);
+        uint sameWidth = NativeLevelViewport.ToPixelExtent(800.2, 1.25);
+        if (width != sameWidth)
+            throw new InvalidOperationException("The DPI resize test requires equal physical widths.");
+
+        if (NativeLevelViewport.ShouldResizeNativeChild(
+                sameSession: true, width, 700, sameWidth, 700))
+            throw new InvalidOperationException(
+                "An unchanged physical viewport size must not trigger native Resize.");
+
+        if (!NativeLevelViewport.ShouldResizeNativeChild(
+                sameSession: true, width, 700, width + 1, 700) ||
+            !NativeLevelViewport.ShouldResizeNativeChild(
+                sameSession: true, width, 700, width, 701))
+            throw new InvalidOperationException(
+                "A changed physical viewport dimension must trigger native Resize.");
+
+        if (!NativeLevelViewport.ShouldResizeNativeChild(
+                sameSession: false, width, 700, width, 700))
+            throw new InvalidOperationException(
+                "A replacement native session must receive its own viewport size.");
     }
 
     private static void RequireNativeMethod(string name, params Type[] parameterTypes)

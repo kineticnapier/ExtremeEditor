@@ -314,7 +314,7 @@ public static class AdoFaiIconExtractor
         foreach (string enumName in enumNames)
         {
             string resourcePath = NormalizeResourcePath(resourcePrefix + enumName);
-            if (!TryFindResource(resourceMap, resourcePath, out ResourceAsset? spriteAsset))
+            if (!TryFindResource(resourceMap, resourcePath, out ResourceAsset? spriteAsset) || spriteAsset is null)
             {
                 Console.WriteLine($"[icons] {enumTypeName}.{enumName}: resource mapping missing ({resourcePath})");
                 continue;

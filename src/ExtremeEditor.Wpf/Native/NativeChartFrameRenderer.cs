@@ -1,8 +1,9 @@
 using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Native;
 
-public sealed class NativeChartFrameRenderer : IChartFrameRenderer
+public sealed class NativeChartFrameRenderer : IChartFrameRenderer, IBorrowedChartFrameRenderer
 {
     public const int DefaultWidth = 320;
     public const int DefaultHeight = 180;
@@ -12,6 +13,9 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
     private NativeHeadlessRendererSession? _session;
     private LevelDocument? _level;
     private TimingMap? _timingMap;
+    private byte[]? _reusableRgb;
+    // The view mode belongs to the facade, not a replaceable native session.
+    private bool _cleanView;
 
     public NativeChartFrameRenderer(int width = DefaultWidth, int height = DefaultHeight)
     {
@@ -19,6 +23,10 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
             throw new ArgumentOutOfRangeException(nameof(width));
         if (height <= 0)
             throw new ArgumentOutOfRangeException(nameof(height));
+
+        // Direct renderer callers must not create an impossible RGB24 frame.
+        // VideoExportRequest validates this too, but this public API is independent.
+        _ = VideoExportRgb24Buffer.GetRequiredByteCount(width, height);
 
         _width = width;
         _height = height;
@@ -51,6 +59,17 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
             _width,
             _height);
 
+        // A newly created native session must be released if applying the
+        // retained view mode fails before it can replace the active session.
+        try
+        {
+            next.SetCleanView(_cleanView);
+        }
+        catch
+        {
+            next.Dispose();
+            throw;
+        }
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         _level = level;
@@ -66,6 +85,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
         NativeHeadlessRendererSession session = _session
             ?? throw new InvalidOperationException("No chart is loaded.");
         session.SetCleanView(enabled);
+        _cleanView = enabled;
     }
 
     public RenderedFrame Render(double sceneTimeSeconds, double visualTimeSeconds)
@@ -75,6 +95,20 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
 
         NativeRgbFrame frame = session.Render(sceneTimeSeconds, visualTimeSeconds);
         return new RenderedFrame(frame.Width, frame.Height, frame.Rgb);
+    }
+
+    public RenderedFrame RenderBorrowed(double sceneTimeSeconds, double visualTimeSeconds)
+    {
+        NativeHeadlessRendererSession session = _session
+            ?? throw new InvalidOperationException("No chart is loaded.");
+
+        // Validate before renting the first large RGB frame. RenderInto also
+        // checks this, but would do so after the allocation otherwise.
+        session.ValidateRenderRequest(sceneTimeSeconds, visualTimeSeconds);
+        int requiredLength = checked(checked(_width * 3) * _height);
+        byte[] rgb = _reusableRgb ??= new byte[requiredLength];
+        session.RenderInto(sceneTimeSeconds, visualTimeSeconds, rgb);
+        return new RenderedFrame(_width, _height, rgb);
     }
 
     public void Reset()
@@ -87,6 +121,17 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
             _timingMap,
             _width,
             _height);
+        // A newly created native session must be released if applying the
+        // retained view mode fails before it can replace the active session.
+        try
+        {
+            next.SetCleanView(_cleanView);
+        }
+        catch
+        {
+            next.Dispose();
+            throw;
+        }
         NativeHeadlessRendererSession? previous = _session;
         _session = next;
         previous?.Dispose();
@@ -98,6 +143,7 @@ public sealed class NativeChartFrameRenderer : IChartFrameRenderer
         _session = null;
         _level = null;
         _timingMap = null;
+        _reusableRgb = null;
         session?.Dispose();
         GC.SuppressFinalize(this);
     }

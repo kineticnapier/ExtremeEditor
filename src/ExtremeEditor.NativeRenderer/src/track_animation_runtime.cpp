@@ -24,15 +24,15 @@ float UnitFromHash(std::uint32_t value) noexcept
 
 void TrackAnimationRuntime::ResetBase(const std::vector<EeFloor>& floors) noexcept
 {
+    ResetBase(std::make_shared<const std::vector<EeFloor>>(floors));
+}
+
+void TrackAnimationRuntime::ResetBase(FloorBase base) noexcept
+{
     std::lock_guard lock(mutex_);
-    base_floors_ = floors;
+    base_ = std::move(base);
     segments_.clear();
-    timings_.clear();
-    segment_by_floor_.assign(floors.size(), NoSegment);
-    floor_states_.assign(floors.size(), TrackAnimationFloorState{});
-    move_resolved_floors_ = floors;
-    last_outputs_ = floors;
-    has_last_output_.assign(floors.size(), false);
+    ReleaseFloorBuffers();
     competing_events_by_floor_.clear();
     active_ = false;
     cull_margin_ = 0.0f;
@@ -40,6 +40,37 @@ void TrackAnimationRuntime::ResetBase(const std::vector<EeFloor>& floors) noexce
     anchor_chart_time_ = 0.0;
     chart_rate_ = 1.0;
     anchor_steady_ = std::chrono::steady_clock::now();
+}
+
+const EeFloor* TrackAnimationRuntime::BaseData() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return BaseFloors().data();
+}
+
+// Every per-floor buffer is read only while active_. Without an active
+// timeline they stay empty: FloorState and CaptureMoveResolved already treat
+// an out-of-range floor exactly like a default entry.
+void TrackAnimationRuntime::ReleaseFloorBuffers() noexcept
+{
+    std::vector<EeTrackAnimationTiming>().swap(timings_);
+    std::vector<std::size_t>().swap(segment_by_floor_);
+    std::vector<TrackAnimationFloorState>().swap(floor_states_);
+    std::vector<EeFloor>().swap(move_resolved_floors_);
+    std::vector<TransformState>().swap(last_outputs_);
+    std::vector<bool>().swap(has_last_output_);
+    active_ = false;
+}
+
+std::size_t TrackAnimationRuntime::OwnedFloorBufferBytes() const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return timings_.capacity() * sizeof(EeTrackAnimationTiming) +
+           segment_by_floor_.capacity() * sizeof(std::size_t) +
+           floor_states_.capacity() * sizeof(TrackAnimationFloorState) +
+           move_resolved_floors_.capacity() * sizeof(EeFloor) +
+           last_outputs_.capacity() * sizeof(TransformState) +
+           has_last_output_.capacity() / 8u;
 }
 
 bool TrackAnimationRuntime::SetTimeline(
@@ -53,7 +84,7 @@ bool TrackAnimationRuntime::SetTimeline(
         return false;
 
     std::lock_guard lock(mutex_);
-    if (timing_count != base_floors_.size() && timing_count != 0u)
+    if (timing_count != BaseFloors().size() && timing_count != 0u)
         return false;
 
     try
@@ -62,16 +93,21 @@ bool TrackAnimationRuntime::SetTimeline(
             segments_.clear();
         else
             segments_.assign(segments, segments + segment_count);
-        if (timing_count == 0u)
-            timings_.clear();
-        else
-            timings_.assign(timings, timings + timing_count);
-        segment_by_floor_.assign(base_floors_.size(), NoSegment);
-        floor_states_.assign(base_floors_.size(), TrackAnimationFloorState{});
-        move_resolved_floors_ = base_floors_;
-        last_outputs_ = base_floors_;
-        has_last_output_.assign(base_floors_.size(), false);
+        ReleaseFloorBuffers();
         cull_margin_ = 0.0f;
+        // The timeline is used only when it has segments and timings for
+        // every floor; otherwise nothing reads the per-floor state.
+        if (segments_.empty() || timing_count != BaseFloors().size())
+            return true;
+
+        timings_.assign(timings, timings + timing_count);
+        segment_by_floor_.assign(BaseFloors().size(), NoSegment);
+        floor_states_.assign(BaseFloors().size(), TrackAnimationFloorState{});
+        move_resolved_floors_ = BaseFloors();
+        last_outputs_.resize(BaseFloors().size());
+        for (std::size_t i = 0; i < last_outputs_.size(); ++i)
+            last_outputs_[i] = TransformState::Of(BaseFloors()[i]);
+        has_last_output_.assign(BaseFloors().size(), false);
 
         std::stable_sort(
             segments_.begin(),
@@ -102,17 +138,17 @@ bool TrackAnimationRuntime::SetTimeline(
                     cull_margin_ = std::max(
                         cull_margin_,
                         std::hypot(
-                            base_floors_[floor].x - base_floors_[floor - 1u].x,
-                            base_floors_[floor].y - base_floors_[floor - 1u].y));
+                            BaseFloors()[floor].x - BaseFloors()[floor - 1u].x,
+                            BaseFloors()[floor].y - BaseFloors()[floor - 1u].y));
                 }
                 if (item.disappear_type == EE_TRACK_DISAPPEAR_RETRACT &&
-                    floor + 1u < base_floors_.size())
+                    floor + 1u < BaseFloors().size())
                 {
                     cull_margin_ = std::max(
                         cull_margin_,
                         std::hypot(
-                            base_floors_[floor + 1u].x - base_floors_[floor].x,
-                            base_floors_[floor + 1u].y - base_floors_[floor].y));
+                            BaseFloors()[floor + 1u].x - BaseFloors()[floor].x,
+                            BaseFloors()[floor + 1u].y - BaseFloors()[floor].y));
                 }
                 if (floor == std::numeric_limits<std::uint32_t>::max())
                     break;
@@ -128,19 +164,13 @@ bool TrackAnimationRuntime::SetTimeline(
                 cull_margin_ = std::max(cull_margin_, 8.0f);
             }
         }
-        active_ = !segments_.empty() && timings_.size() == base_floors_.size();
+        active_ = !segments_.empty() && timings_.size() == BaseFloors().size();
         return true;
     }
     catch (...)
     {
         segments_.clear();
-        timings_.clear();
-        segment_by_floor_.assign(base_floors_.size(), NoSegment);
-        floor_states_.assign(base_floors_.size(), TrackAnimationFloorState{});
-        move_resolved_floors_ = base_floors_;
-        last_outputs_ = base_floors_;
-        has_last_output_.assign(base_floors_.size(), false);
-        active_ = false;
+        ReleaseFloorBuffers();
         cull_margin_ = 0.0f;
         return false;
     }
@@ -272,7 +302,7 @@ void TrackAnimationRuntime::Reindex(
     cells[new_key].push_back(floor);
 }
 
-bool TrackAnimationRuntime::SameTransformState(const EeFloor& left, const EeFloor& right) noexcept
+bool TrackAnimationRuntime::SameTransformState(const EeFloor& left, const TransformState& right) noexcept
 {
     return left.x == right.x && left.y == right.y &&
            left.entry_angle == right.entry_angle && left.icon_angle == right.icon_angle &&
@@ -343,7 +373,7 @@ bool TrackAnimationRuntime::EvaluateForFloor(
     output.track_extend_anim = 1.0f;
     output.track_sorting_offset = 0;
     state = TrackAnimationFloorState{};
-    if (!active_ || floor >= base_floors_.size() || floor >= timings_.size() ||
+    if (!active_ || floor >= BaseFloors().size() || floor >= timings_.size() ||
         floor >= segment_by_floor_.size())
         return false;
 
@@ -353,7 +383,7 @@ bool TrackAnimationRuntime::EvaluateForFloor(
 
     const EeTrackAnimationSegment& segment = segments_[segment_index];
     const EeTrackAnimationTiming& timing = timings_[floor];
-    const EeFloor& base = base_floors_[floor];
+    const EeFloor& base = BaseFloors()[floor];
     const float speed = timing.speed > 0.000001f ? timing.speed : 1.0f;
     const float appear_ref = segment.appear_reference_speed > 0.000001f
         ? segment.appear_reference_speed : speed;
@@ -544,7 +574,7 @@ void TrackAnimationRuntime::Update(
         return;
 
     const double chart_time = CurrentChartTime();
-    const std::size_t count = std::min({floors.size(), base_floors_.size(), timings_.size()});
+    const std::size_t count = std::min({floors.size(), BaseFloors().size(), timings_.size()});
     for (std::size_t i = 0; i < count; ++i)
         CaptureMoveResolved(i, floors[i]);
 
@@ -558,7 +588,7 @@ void TrackAnimationRuntime::Update(
             floors[i].track_sorting_offset = 0;
             Reindex(static_cast<std::uint32_t>(i), old.x, old.y, floors[i].x, floors[i].y, cells);
             floor_states_[i] = TrackAnimationFloorState{};
-            last_outputs_[i] = floors[i];
+            last_outputs_[i] = TransformState::Of(floors[i]);
             has_last_output_[i] = true;
             continue;
         }
@@ -579,7 +609,7 @@ void TrackAnimationRuntime::Update(
         Reindex(static_cast<std::uint32_t>(i), old.x, old.y, resolved.x, resolved.y, cells);
         floors[i] = resolved;
         floor_states_[i] = state;
-        last_outputs_[i] = resolved;
+        last_outputs_[i] = TransformState::Of(resolved);
         has_last_output_[i] = true;
     }
 }
@@ -596,7 +626,7 @@ void TrackAnimationRuntime::UpdateVisible(
     const double chart_time = CurrentChartTime();
     for (const std::uint32_t floor : visible_floors)
     {
-        if (floor >= floors.size() || floor >= base_floors_.size() ||
+        if (floor >= floors.size() || floor >= BaseFloors().size() ||
             floor >= timings_.size() || floor >= segment_by_floor_.size() ||
             segment_by_floor_[floor] == NoSegment)
             continue;
@@ -665,7 +695,7 @@ void TrackAnimationRuntime::UpdateVisible(
         Reindex(floor, old.x, old.y, resolved.x, resolved.y, cells);
         floors[floor] = resolved;
         floor_states_[floor] = state;
-        last_outputs_[floor] = resolved;
+        last_outputs_[floor] = TransformState::Of(resolved);
         has_last_output_[floor] = true;
     }
 }

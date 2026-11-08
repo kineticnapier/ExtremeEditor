@@ -30,6 +30,8 @@ internal sealed class EditorDocumentTab
     internal AudioPlayer? Audio { get; set; }
     internal TimingMap? TimingMap { get; set; }
     internal HitSoundTimeline? HitSoundTimeline { get; set; }
+    internal int AudioPreparationGeneration { get; set; }
+    internal bool AudioPreparationPending { get; set; }
     internal int[] SelectedFloors { get; set; } = [0];
     internal int PrimaryFloor { get; set; } = 0;
     internal int? SelectedEventSourceIndex { get; set; }

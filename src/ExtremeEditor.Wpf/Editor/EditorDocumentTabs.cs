@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 
 namespace ExtremeEditor.Wpf;
@@ -21,6 +22,8 @@ internal sealed class EditorDocumentTabs
 
     internal IReadOnlyList<EditorDocumentTab> Tabs => _readOnlyTabs;
     internal EditorDocumentTab? ActiveTab { get; private set; }
+    // Keep the window alive while any tab still owns an in-flight save.
+    internal bool HasPendingSaves => _savePathReservations.Count != 0;
 
     internal bool Add(EditorDocumentTab tab, bool activate = true)
     {
@@ -29,7 +32,10 @@ internal sealed class EditorDocumentTabs
             return false;
 
         _tabs.Add(tab);
-        if (activate || ActiveTab is null)
+        // A staged tab must remain inactive until its native scene is ready.
+        // In particular, the first tab must not become active on Add(false):
+        // a failed initial upload needs to be removable as an uncommitted tab.
+        if (activate)
             ActiveTab = tab;
         return true;
     }
@@ -62,11 +68,19 @@ internal sealed class EditorDocumentTabs
         return _tabs[(currentIndex + offset + _tabs.Count) % _tabs.Count];
     }
 
+    internal bool HasPendingSave(EditorDocumentTab tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        return _savePathReservations.Values.Any(owner => ReferenceEquals(owner, tab));
+    }
+
     internal bool Remove(EditorDocumentTab tab)
     {
         ArgumentNullException.ThrowIfNull(tab);
         int index = _tabs.IndexOf(tab);
-        if (index < 0)
+        // Do not detach a tab while SaveAsync still owns its destination.
+        // Its document and editor must remain reachable until the lease ends.
+        if (index < 0 || HasPendingSave(tab))
             return false;
 
         bool wasActive = ReferenceEquals(tab, ActiveTab);
@@ -133,11 +147,14 @@ internal sealed class EditorDocumentTabs
 
     private bool HasSamePath(EditorDocumentTab tab) =>
         TryGetSourcePath(tab, out string? path) &&
-        _tabs.Any(existing =>
+        (_tabs.Any(existing =>
             TryGetSourcePath(existing, out string? other) &&
-            StringComparer.OrdinalIgnoreCase.Equals(path, other));
+            StringComparer.OrdinalIgnoreCase.Equals(path, other)) ||
+         // Save As may still be writing this destination for another tab.
+         // Do not admit a second tab with the reserved path mid-save.
+         _savePathReservations.ContainsKey(path));
 
-    private static bool TryGetSourcePath(EditorDocumentTab tab, out string? path)
+    private static bool TryGetSourcePath(EditorDocumentTab tab, [NotNullWhen(true)] out string? path)
     {
         path = tab.Document.SourcePath;
         if (string.IsNullOrWhiteSpace(path) || path == "<synthetic>")

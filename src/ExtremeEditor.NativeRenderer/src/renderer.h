@@ -82,6 +82,10 @@ public:
     bool SetFilterTimeline(const EeFilterEvent* events, std::uint32_t event_count) noexcept;
     bool SetBackgroundTimeline(const EeBackgroundEvent* events, std::uint32_t event_count) noexcept;
     bool SetBackgroundAsset(std::uint32_t asset_id, const wchar_t* image_path) noexcept;
+    bool ReplaceBackgroundAssets(
+        const std::uint32_t* asset_ids,
+        const wchar_t* const* image_paths,
+        std::uint32_t asset_count) noexcept;
     bool SetTrackTransformTimeline(const EeTrackTransformEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackVisualTimeline(const EeTrackVisualEvent* events, std::uint32_t event_count) noexcept;
     bool SetTrackAnimationTimeline(
@@ -101,6 +105,7 @@ public:
     LRESULT HandleWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 
 private:
+    void ApplyPendingFloorIconsLocked() noexcept;
     void RenderLoop() noexcept;
     void StopRenderThread(bool shutdown_diagnostic = false) noexcept;
     std::int32_t SelectFloorAt(int screen_x, int screen_y) noexcept;
@@ -134,6 +139,7 @@ private:
     std::uint64_t current_scene_cache_key_ = 0u;
     std::uint64_t cached_scene_key_ = 0u;
     std::shared_ptr<const IconAssetTable> icon_assets_ = std::make_shared<IconAssetTable>();
+    std::shared_ptr<const IconAssetTable> cached_icon_assets_;
     std::shared_ptr<const std::vector<EeStaticDecoration>> static_decorations_ =
         std::make_shared<std::vector<EeStaticDecoration>>();
     std::shared_ptr<const DecorationAssetTable> decoration_assets_ =
@@ -156,6 +162,7 @@ private:
         std::make_shared<std::vector<EeBackgroundEvent>>();
     std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> background_assets_ =
         std::make_shared<std::unordered_map<std::uint32_t, std::wstring>>();
+    std::shared_ptr<const std::unordered_map<std::uint32_t, std::wstring>> cached_background_assets_;
     std::uint64_t background_assets_version_ = 0;
     float camera_x_ = 0.0f;
     float camera_y_ = 0.0f;
@@ -173,8 +180,14 @@ private:
     std::uint64_t icon_assets_version_ = 0;
     std::uint64_t static_decorations_version_ = 0;
     std::uint64_t decoration_assets_version_ = 0;
-    std::uint32_t pending_icon_start_floor_ = 0;
-    std::vector<EeFloorIconState> pending_icon_states_;
+    struct PendingFloorIconBatch
+    {
+        std::uint32_t start_floor = 0;
+        std::vector<EeFloorIconState> states;
+    };
+    // Every batch submitted since the last frame, applied in order. A single
+    // slot would drop an earlier batch for different floors.
+    std::vector<PendingFloorIconBatch> pending_icon_batches_;
     EeSelectionChangedCallback selection_callback_ = nullptr;
     void* selection_user_data_ = nullptr;
     EeEditorActionCallback editor_action_callback_ = nullptr;

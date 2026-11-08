@@ -107,6 +107,16 @@ public sealed class LevelActionStore
         return true;
     }
 
+    internal bool TryReplaceAt(int index, LevelAction replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        if ((uint)index >= (uint)_actions.Length || _actions[index].Floor != replacement.Floor)
+            return false;
+
+        _actions[index] = replacement;
+        return true;
+    }
+
     private sealed class ActionDictionaryView : IReadOnlyDictionary<int, LevelAction[]>
     {
         private readonly LevelActionStore _store;

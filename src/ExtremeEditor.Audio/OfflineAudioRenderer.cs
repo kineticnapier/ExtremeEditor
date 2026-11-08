@@ -25,8 +25,15 @@ public sealed record OfflineAudioRenderPlan(
         if (!double.IsFinite(EndAudioTimeSeconds) ||
             EndAudioTimeSeconds <= StartAudioTimeSeconds)
             throw new ArgumentOutOfRangeException(nameof(EndAudioTimeSeconds));
-        if (ChunkFrames <= 0)
+        // Offline audio is stereo float PCM (8 bytes per frame). The
+        // ffmpeg encoder also copies each chunk to a byte[]; validating
+        // only the float[] length would permit a byte-count overflow.
+        // Reject oversized chunks before opening audio or loading assets.
+        if (ChunkFrames <= 0 || ChunkFrames > Array.MaxLength / (2 * sizeof(float)))
             throw new ArgumentOutOfRangeException(nameof(ChunkFrames));
+        // Non-finite volume would propagate NaN into the exported PCM samples.
+        if (!double.IsFinite(SongVolumePercent))
+            throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
 }
 
@@ -45,7 +52,8 @@ public readonly record struct OfflineAudioFormat(
 
 public sealed class OfflineAudioRenderer
 {
-    private readonly HitSoundLibrary _hitSoundLibrary = SharedHitSoundLibrary.Instance;
+    // A muted export must not even initialize the shared hit-sound asset cache.
+    private readonly Lazy<HitSoundLibrary> _hitSoundLibrary = new(() => SharedHitSoundLibrary.Instance);
 
     public OfflineAudioFormat ProbeFormat(string? songPath)
     {
@@ -60,12 +68,7 @@ public sealed class OfflineAudioRenderer
                 2);
         }
 
-        using WaveStream reader = string.Equals(
-            Path.GetExtension(resolved),
-            ".ogg",
-            StringComparison.OrdinalIgnoreCase)
-            ? new VorbisWaveReader(resolved)
-            : new AudioFileReader(resolved);
+        using WaveStream reader = SongReaderFactory.Open(resolved);
         ISampleProvider song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
         return new OfflineAudioFormat(
             song.WaveFormat.SampleRate,
@@ -94,12 +97,7 @@ public sealed class OfflineAudioRenderer
                 : Path.GetFullPath(plan.SongPath);
             if (songPath is not null && File.Exists(songPath))
             {
-                reader = string.Equals(
-                    Path.GetExtension(songPath),
-                    ".ogg",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? new VorbisWaveReader(songPath)
-                    : new AudioFileReader(songPath);
+                reader = SongReaderFactory.Open(songPath);
                 song = AudioGraphFactory.NormalizeSong(reader.ToSampleProvider());
             }
             else
@@ -112,14 +110,39 @@ public sealed class OfflineAudioRenderer
             }
 
             int sampleRate = song.WaveFormat.SampleRate;
-            IReadOnlyDictionary<string, RenderedHitSound>? clips =
-                AudioGraphFactory.RenderHitSoundAssets(
-                    _hitSoundLibrary,
+            // Two different audio times can round to the same output frame.
+            // Avoid initializing hit-sound assets or building an audio graph
+            // when this interval cannot produce even one PCM frame.
+            // Finite times can still overflow a 64-bit sample index after
+            // multiplication by the source rate. Reject them as invalid
+            // export ranges instead of leaking an OverflowException.
+            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                    plan.StartAudioTimeSeconds, sampleRate, out long requestedStartFrame))
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan.StartAudioTimeSeconds), plan.StartAudioTimeSeconds,
+                    "The export start time exceeds the representable sample range.");
+            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                    plan.EndAudioTimeSeconds, sampleRate, out long requestedEndFrame))
+                throw new ArgumentOutOfRangeException(
+                    nameof(plan.EndAudioTimeSeconds), plan.EndAudioTimeSeconds,
+                    "The export end time exceeds the representable sample range.");
+            if (requestedEndFrame <= requestedStartFrame)
+                return;
+
+            // Video exports have a fixed hit-sound setting for their entire
+            // lifetime. Unlike live playback, they do not need a dormant hit
+            // schedule or decoded assets when hitsounds are disabled.
+            IReadOnlyDictionary<string, RenderedHitSound>? clips = null;
+            if (plan.HitSoundsEnabled)
+            {
+                clips = AudioGraphFactory.RenderHitSoundAssets(
+                    _hitSoundLibrary.Value,
                     sampleRate,
                     plan.Level,
                     plan.TimingMap,
                     plan.HitSoundTimeline,
                     out _);
+            }
 
             long songFrames = reader is null
                 ? 0
@@ -129,29 +152,27 @@ public sealed class OfflineAudioRenderer
                 sampleRate,
                 plan.Level,
                 plan.TimingMap,
-                clips);
+                clips,
+                SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
 
             if (silentSong is not null)
                 silentSong.TotalFrames = totalFrames;
 
-            long requestedStartFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.StartAudioTimeSeconds,
-                    sampleRate);
-            long requestedEndFrame =
-                SampleAccurateHitSoundProvider.AudioTimeToSampleFrame(
-                    plan.EndAudioTimeSeconds,
-                    sampleRate);
-            if (requestedEndFrame <= requestedStartFrame)
-                return;
-
             long sourceStartFrame = Math.Clamp(requestedStartFrame, 0, totalFrames);
+            double fractionalSongFrame = 0.0;
             if (reader is not null)
             {
-                reader.CurrentTime = TimeSpan.FromSeconds(
-                    Math.Min(
-                        Math.Max(0.0, plan.StartAudioTimeSeconds),
-                        reader.TotalTime.TotalSeconds));
+                // A pitch-adjusted output frame can land between two source
+                // frames. Seek to the integral source frame and retain the
+                // fractional phase for the interpolation provider.
+                double songPitch = SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent);
+                int sourceBlockAlign = reader.WaveFormat.BlockAlign;
+                long sourceFrameCount = reader.Length / sourceBlockAlign;
+                double sourcePosition = Math.Min(
+                    (double)sourceStartFrame * songPitch, sourceFrameCount);
+                long integralSourceFrame = (long)Math.Floor(sourcePosition);
+                fractionalSongFrame = sourcePosition - integralSourceFrame;
+                reader.Position = checked(integralSourceFrame * sourceBlockAlign);
             }
             silentSong?.Seek(sourceStartFrame);
 
@@ -164,7 +185,11 @@ public sealed class OfflineAudioRenderer
                 totalFrames,
                 plan.SongVolumePercent,
                 playbackSpeed: 1.0,
-                plan.HitSoundsEnabled);
+                plan.HitSoundsEnabled,
+                songPitch: SongRatePolicy.FromPitchPercent(plan.Level.PitchPercent));
+
+            if (reader is not null)
+                graphBuild.SongRateProvider.SetInitialPhase(fractionalSongFrame);
 
             UnifiedAudioSampleProvider graph = graphBuild.Graph;
             graph.Seek(sourceStartFrame);
@@ -178,17 +203,22 @@ public sealed class OfflineAudioRenderer
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // The requested interval can span more than long.MaxValue
+                // frames even though both endpoints are representable.
+                ulong remainingFrames = unchecked(
+                    (ulong)requestedEndFrame - (ulong)currentFrame);
                 int framesRequested = checked((int)Math.Min(
-                    plan.ChunkFrames,
-                    requestedEndFrame - currentFrame));
+                    (ulong)plan.ChunkFrames, remainingFrames));
                 int samplesRequested = checked(framesRequested * channels);
                 int completeSamples;
 
                 if (currentFrame < 0)
                 {
-                    int silentFrames = checked((int)Math.Min(
-                        framesRequested,
-                        -currentFrame));
+                    // Negating long.MinValue overflows. Compare first,
+                    // then negate only when the result fits in an int.
+                    int silentFrames = currentFrame <= -(long)framesRequested
+                        ? framesRequested
+                        : checked((int)-currentFrame);
                     completeSamples = checked(silentFrames * channels);
                     Array.Clear(readBuffer, 0, completeSamples);
                 }

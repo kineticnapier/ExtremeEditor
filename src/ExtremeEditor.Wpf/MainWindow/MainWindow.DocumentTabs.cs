@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,6 +17,9 @@ public partial class MainWindow
     private readonly EditorDocumentTabs _documentTabs = new();
     private readonly Dictionary<EditorDocumentTab, DocumentTabVisual> _documentTabVisuals = [];
     private int _tabActivationGeneration;
+    // A failed native rollback can leave the active tab's renderer out of sync.
+    // Do not skip a same-tab activation until a full scene upload succeeds.
+    private bool _nativeSceneRecoveryFailed;
     private EditorDocumentTab? _pendingTabNavigationTarget;
     private EditorDocumentTab? _lastScrolledDocumentTab;
 
@@ -79,17 +83,25 @@ public partial class MainWindow
             return null;
         }
 
-        bool activated = await ActivateDocumentTab(tab);
-        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+        bool activated = false;
+        try
         {
-            // A failed or superseded activation must not leave an orphan tab.
-            if (_documentTabs.Remove(tab))
+            activated = await ActivateDocumentTab(tab);
+        }
+        finally
+        {
+            // An exception during activation must clean up the uncommitted tab
+            // just like an ordinary failed or superseded activation.
+            if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                _documentTabs.Remove(tab))
             {
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
-            return null;
         }
+
+        if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))
+            return null;
 
         return tab;
     }
@@ -120,22 +132,29 @@ public partial class MainWindow
         if (!CanSwitchDocumentTabs(allowDuringWindowClose) ||
             !_documentTabs.Tabs.Contains(tab))
             return false;
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
-            ReferenceEquals(_level, tab.Document))
+        if (CanSkipDocumentTabActivation(
+                _documentTabs.ActiveTab, tab, _level, _nativeSceneRecoveryFailed))
         {
+            // A previous activation may still be preparing another tab.
+            // Returning to the already-active tab is a newer navigation request:
+            // invalidate that older task before it can commit its native upload.
+            CancelPendingDocumentTabActivation(
+                ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
             HideWelcomePage();
             return true;
         }
 
-        _pendingTabNavigationTarget = tab;
+        // Even a rejected navigation supersedes an older asynchronous switch.
+        // Invalidate its generation before validating the current settings.
+        int activationGeneration = BeginDocumentTabActivation(
+            ref _tabActivationGeneration, ref _pendingTabNavigationTarget, tab);
         if (!TryCommitSettingsBeforeDocumentChange())
         {
-            if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
             return false;
         }
 
-        int activationGeneration = ++_tabActivationGeneration;
         TimingMap targetTimingMap;
         HitSoundTimeline targetHitSoundTimeline;
         Task<Native.PreparedNativeLevel> levelPreparation;
@@ -150,6 +169,18 @@ public partial class MainWindow
                 (builtPlayback = await Task.Run(() => WpfPlaybackSetupBuilder.Build(tab.Document))).TimingMap;
             targetHitSoundTimeline = tab.HitSoundTimeline ??
                 builtPlayback?.HitSoundTimeline ?? HitSoundTimelineBuilder.Build(tab.Document);
+
+            // Managed timing-map construction can yield to another tab request.
+            // Do not start expensive native preparation for a superseded or
+            // removed tab. Only clear the pending target for this generation.
+            if (activationGeneration != _tabActivationGeneration || _isClosed ||
+                !_documentTabs.Tabs.Contains(tab))
+            {
+                if (activationGeneration == _tabActivationGeneration)
+                    _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                        _pendingTabNavigationTarget, tab);
+                return false;
+            }
 
             levelPreparation = preparedLevel is Native.PreparedNativeLevel readyLevel
                 ? Task.FromResult(readyLevel)
@@ -167,8 +198,8 @@ public partial class MainWindow
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
-                if (ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             }
             return false;
         }
@@ -176,9 +207,9 @@ public partial class MainWindow
         if (activationGeneration != _tabActivationGeneration || _isClosed ||
             !_documentTabs.Tabs.Contains(tab))
         {
-            if (activationGeneration == _tabActivationGeneration &&
-                fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                _pendingTabNavigationTarget = null;
+            if (activationGeneration == _tabActivationGeneration)
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
             return false;
         }
 
@@ -222,7 +253,8 @@ public partial class MainWindow
             restorePrevious: () =>
             {
                 if (previous is null)
-                    return;
+                    throw new InvalidOperationException(
+                        "No previous native scene is available for recovery.");
 
                 // The target may have changed the renderer before throwing.
                 // Reapply the old level, timelines and selection, even when
@@ -231,8 +263,10 @@ public partial class MainWindow
                 if (_timingMap is TimingMap previousTiming)
                     NativeViewport.SetPlaybackTimelineProfiled(previousTiming);
                 NativeViewport.SetSelection(_selection.SelectedFloors, _selection.PrimaryFloor);
-                if (previousCamera is Native.NativeEditorCameraState camera)
-                    NativeViewport.RestoreEditorCamera(camera);
+                if (previousCamera is Native.NativeEditorCameraState camera &&
+                    !NativeViewport.RestoreEditorCamera(camera))
+                    throw new InvalidOperationException(
+                        "Could not restore the previous native editor camera.");
             },
             out Exception? uploadError,
             out Exception? restoreError,
@@ -242,24 +276,34 @@ public partial class MainWindow
                 // tab switch, while a failed upload can still restore the old scene.
                 NativeViewport.SetSelection(tab.SelectedFloors, tab.PrimaryFloor);
                 if (tab.EditorCamera is Native.NativeEditorCameraState editorCamera)
-                    NativeViewport.RestoreEditorCamera(editorCamera);
+                {
+                    if (!NativeViewport.RestoreEditorCamera(editorCamera))
+                        throw new InvalidOperationException(
+                            "Could not restore the target native editor camera.");
+                }
                 else
                     NativeViewport.CenterFloor(tab.PrimaryFloor);
                 StopPlayback();
             });
         if (!uploaded)
         {
+            // A failed rollback means the old tab is still active in WPF,
+            // but its native scene may be partially overwritten. Clicking
+            // that same tab must retry the full level/timeline transfer.
+            _nativeSceneRecoveryFailed = restoreError is not null;
             if (activationGeneration == _tabActivationGeneration && !_isClosed)
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 string recovery = restoreError is null
                     ? string.Empty
-                    : $" Renderer recovery also failed: {restoreError.Message}";
+                    : $" Renderer recovery also failed: {restoreError.Message}. Select the active tab again to retry.";
                 StatusText.Text = $"Could not activate {tab.DisplayName}: {uploadError!.Message}.{recovery}";
             }
             return false;
         }
+
+        _nativeSceneRecoveryFailed = false;
 
         // The old playback was stopped inside the guarded upload transaction.
         // Only now commit the new editor, document, audio and selection state.
@@ -326,10 +370,43 @@ public partial class MainWindow
         UpdatePlaybackDisplay();
         _discordPresence.SetEditing(tab.Document.FloorCount);
         CommandManager.InvalidateRequerySuggested();
-        if (activationGeneration == _tabActivationGeneration &&
-            ReferenceEquals(_pendingTabNavigationTarget, tab))
-            _pendingTabNavigationTarget = null;
+        if (activationGeneration == _tabActivationGeneration)
+            _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                _pendingTabNavigationTarget, tab);
         return true;
+    }
+
+    // A matching active tab is not sufficient to skip an upload after native
+    // rollback failed: managed state may still be old while the HWND is not.
+    internal static bool CanSkipDocumentTabActivation(
+        EditorDocumentTab? activeTab,
+        EditorDocumentTab targetTab,
+        LevelDocument? activeLevel,
+        bool nativeRecoveryFailed) =>
+        !nativeRecoveryFailed &&
+        ReferenceEquals(activeTab, targetTab) &&
+        ReferenceEquals(activeLevel, targetTab.Document);
+
+    // A same-tab navigation is still a request. Cancel any older asynchronous
+    // preparation and remove this request from the pending Ctrl+Tab origin.
+    internal static void CancelPendingDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab activeTab)
+    {
+        activationGeneration++;
+        pendingTarget = ClearFailedPendingTabTarget(pendingTarget, activeTab);
+    }
+
+    // A failed settings commit must not allow an earlier prepared tab to
+    // activate after the newer navigation was rejected.
+    internal static int BeginDocumentTabActivation(
+        ref int activationGeneration,
+        ref EditorDocumentTab? pendingTarget,
+        EditorDocumentTab targetTab)
+    {
+        pendingTarget = targetTab;
+        return ++activationGeneration;
     }
 
     // The upload may fail after changing only part of the shared native scene.
@@ -370,6 +447,12 @@ public partial class MainWindow
             return false;
         }
     }
+
+    // A failed direct click must not remain the origin for a later Ctrl+Tab.
+    // Preserve a newer pending request when an older activation finishes.
+    internal static EditorDocumentTab? ClearFailedPendingTabTarget(
+        EditorDocumentTab? pendingTarget, EditorDocumentTab failedTab)
+        => ReferenceEquals(pendingTarget, failedTab) ? null : pendingTarget;
 
     internal static EditorDocumentTab? SelectNextDocumentTab(
         EditorDocumentTabs tabs, EditorDocumentTab? pendingTarget, bool backwards)
@@ -412,8 +495,8 @@ public partial class MainWindow
             () => ActivateDocumentTab(tab, fromTabCycle: fromTabCycle),
             ex =>
             {
-                if (fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab))
-                    _pendingTabNavigationTarget = null;
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
                 if (!_isClosed)
                     StatusText.Text = $"Could not activate {tab.DisplayName}: {ex.Message}";
             });
@@ -495,13 +578,21 @@ public partial class MainWindow
             !CanSwitchDocumentTabs() || !_documentTabs.Tabs.Contains(tab))
             return;
 
-        if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
-            !TryCommitSettingsBeforeDocumentChange())
+        // A concurrent Save As may finish after a tab-switch. Do not close
+        // its owner (or activate a replacement) while the write is pending.
+        if (_documentTabs.HasPendingSave(tab))
+        {
+            StatusText.Text = $"Wait for {tab.DisplayName} to finish saving before closing the tab.";
             return;
+        }
 
         _tabCloseOperationPending = true;
         try
         {
+            if (ReferenceEquals(_documentTabs.ActiveTab, tab) &&
+                !TryCommitSettingsBeforeDocumentChange())
+                return;
+
             if (tab.IsDirty)
             {
                 MessageBoxResult answer = MessageBox.Show(
@@ -515,8 +606,10 @@ public partial class MainWindow
                     return;
                 if (answer == MessageBoxResult.Yes)
                 {
-                    _ = SaveAndCloseDocumentTabAsync(tab);
-                    return;
+                    // Keep the close-operation guard held through Save/Save As.
+                    // Only close the tab after a successful, clean save.
+                    if (!await SaveAndCloseDocumentTabAsync(tab))
+                        return;
                 }
             }
 
@@ -547,6 +640,13 @@ public partial class MainWindow
                 tab.Audio?.Dispose();
                 RefreshActiveDocumentTab();
             }
+        }
+        catch (Exception ex)
+        {
+            // async void callbacks must observe failures from Save, activation
+            // and native preparation instead of crashing the WPF dispatcher.
+            if (!_isClosed)
+                StatusText.Text = $"Could not close {tab.DisplayName}: {ex.Message}";
         }
         finally
         {
@@ -609,6 +709,10 @@ public partial class MainWindow
                 ? Color.FromRgb(70, 79, 93) : Color.FromRgb(62, 69, 79));
             visual.Chrome.BorderThickness = isActive ? new Thickness(1, 1, 1, 0) : new Thickness(1);
             visual.Header.Text = tab.Header;
+            // The visible close glyph is only ×; expose a meaningful name
+            // and refresh it when Save As changes the document filename.
+            AutomationProperties.SetName(visual.Activate, $"Switch to {tab.DisplayName}");
+            AutomationProperties.SetName(visual.Close, $"Close {tab.DisplayName}");
             visual.Activate.ToolTip = tab.Document.SourcePath is null or "<synthetic>"
                 ? null : tab.Document.SourcePath;
             visual.Activate.Foreground = isActive

@@ -297,7 +297,7 @@ HRESULT D2DBackend::RenderFrameOffscreen(
     if (FAILED(hr))
         return hr;
 
-    return S_OK;
+    return ApplyScreenFilter();
 }
 
 bool D2DBackend::ReadbackRgb(

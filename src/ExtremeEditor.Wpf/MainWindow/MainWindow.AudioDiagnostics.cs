@@ -40,9 +40,6 @@ public partial class MainWindow
 
     private void UpdateDiagnosticsDisplay(string transportSummary)
     {
-        PlaybackFpsText.Text = PlaybackUiFps > 0.0
-            ? $"{PlaybackUiFps:F1} FPS"
-            : "FPS --";
         PlaybackDiagnosticsText.Text = $"{transportSummary} | {PlaybackDiagnosticsSnapshot}";
     }
 

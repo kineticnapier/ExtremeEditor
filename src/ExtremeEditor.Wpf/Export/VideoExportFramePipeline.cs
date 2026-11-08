@@ -24,12 +24,18 @@ internal sealed class VideoExportFramePipeline
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            RenderedFrame rendered = _renderer.Render(
-                frame.ChartTimeSeconds,
-                frame.VisualTimeSeconds);
+            RenderedFrame rendered = _renderer is IBorrowedChartFrameRenderer borrowed
+                ? borrowed.RenderBorrowed(
+                    frame.ChartTimeSeconds,
+                    frame.VisualTimeSeconds)
+                : _renderer.Render(
+                    frame.ChartTimeSeconds,
+                    frame.VisualTimeSeconds);
 
             cancellationToken.ThrowIfCancellationRequested();
             await consumer(frame, rendered, cancellationToken).ConfigureAwait(false);
+            // Cancellation during the final consumer must not complete the pipeline successfully.
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 }

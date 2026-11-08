@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Nodes;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf;
@@ -9,6 +10,7 @@ internal static class SetSpeedEditorConversionRegression
     internal static void Run()
     {
         VerifyEnumDisplayDoesNotRewriteSource();
+        VerifyFirstEditUsesDisplayedDefaults();
         LevelDocument level = LevelDocument.CreateSynthetic(6);
         level.InitialBpm = 100.0;
 
@@ -116,6 +118,43 @@ internal static class SetSpeedEditorConversionRegression
         var exact = MainWindow.ResolveEnumSelection(options, "Bpm");
         if (exact.Unknown || exact.Selected != "Bpm")
             throw new InvalidOperationException("#101: canonical enum display changed.");
+    }
+
+    private static void VerifyFirstEditUsesDisplayedDefaults()
+    {
+        var level = LevelDocument.CreateSynthetic(4);
+        level.InitialBpm = 150.0;
+        var action = new LevelAction(1, "SetSpeed", true, "Bpm", null, null, null) { SourceIndex = 0 };
+        level.ReplaceActions([action]);
+        var displayed = new JsonObject {
+            ["floor"] = 1, ["eventType"] = "SetSpeed", ["active"] = true,
+            ["speedType"] = "Bpm", ["beatsPerMinute"] = 100.0, ["bpmMultiplier"] = 1.0
+        };
+        var bpmEdit = (JsonObject)displayed.DeepClone();
+        bpmEdit["beatsPerMinute"] = 300.0;
+        if (!SetSpeedEditorConversion.SynchronizeDraft(level, action, displayed, bpmEdit))
+            throw new InvalidOperationException("First BPM edit was not synchronized.");
+        AssertNear(2.0, ReadDouble(bpmEdit["bpmMultiplier"]), "first BPM edit");
+        var multiplierEdit = (JsonObject)displayed.DeepClone();
+        multiplierEdit["bpmMultiplier"] = 0.5;
+        if (!SetSpeedEditorConversion.SynchronizeDraft(level, action, displayed, multiplierEdit))
+            throw new InvalidOperationException("First multiplier edit was not synchronized.");
+        AssertNear(75.0, ReadDouble(multiplierEdit["beatsPerMinute"]), "first multiplier edit");
+        DirectoryInfo? dir = new(AppContext.BaseDirectory);
+        bool found = false;
+        while (dir is not null)
+        {
+            string path = Path.Combine(dir.FullName, "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.EventAutoApply.cs");
+            if (File.Exists(path))
+            {
+                found = true;
+                if (!File.ReadAllText(path).Contains("_eventPropertyDraftBaseline ?? current", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Auto-apply must use displayed defaults on first edit.");
+                break;
+            }
+            dir = dir.Parent;
+        }
+        if (!found) throw new InvalidOperationException("Auto-apply source missing.");
     }
 
     private static double ReadDouble(JsonNode? node)

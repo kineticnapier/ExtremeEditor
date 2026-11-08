@@ -1,6 +1,7 @@
 using System.Collections;
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -11,6 +12,7 @@ internal static class VideoExportFoundationRegression
         var failures = new List<string>();
         TryVerify("VE0 playback parity", VerifySharedPlaybackVisualContract, failures);
         TryVerify("VE1 export timeline", VerifyExportTimelineContract, failures);
+        TryVerify("VE1 frame-count boundaries", VerifyFrameCountBoundaries, failures);
 
         if (failures.Count != 0)
         {
@@ -53,11 +55,15 @@ internal static class VideoExportFoundationRegression
             string shared = File.ReadAllText(sharedPath);
             if (!shared.Contains("CalculatePlaybackVisual", StringComparison.Ordinal))
                 missing.Add("shared playback visual helper: CalculatePlaybackVisual is missing");
-            if (!shared.Contains("scene->floors[floor + 1", StringComparison.Ordinal) ||
-                !shared.Contains("hypot", StringComparison.Ordinal))
+            // ScaleRadius changes floor geometry, not the distance between
+            // the two orbiting planets. Both renderers share this calculation.
+            if (!shared.Contains("orbit_distance = DefaultPlanetDistance;", StringComparison.Ordinal) ||
+                !shared.Contains("* orbit_distance;", StringComparison.Ordinal) ||
+                shared.Contains("orbit_distance = resolved_distance;", StringComparison.Ordinal) ||
+                shared.Contains("std::hypot(dx, dy)", StringComparison.Ordinal))
             {
                 missing.Add(
-                    "ScaleRadius parity: shared playback visual must derive orbit radius from resolved current-to-next floor distance");
+                    "ScaleRadius parity: shared playback visual must use the fixed planet orbit radius");
             }
         }
 
@@ -71,7 +77,7 @@ internal static class VideoExportFoundationRegression
         if (headless.Contains("CalculateHeadlessPlaybackVisual", StringComparison.Ordinal))
             missing.Add("headless renderer still owns a divergent playback visual implementation");
         if (headless.Contains("* PlanetDistance", StringComparison.Ordinal))
-            missing.Add("headless renderer still uses fixed PlanetDistance and diverges on ScaleRadius charts");
+            missing.Add("headless renderer still calculates its own orbit instead of using the shared helper");
 
         if (missing.Count != 0)
         {
@@ -152,6 +158,59 @@ internal static class VideoExportFoundationRegression
             throw new InvalidOperationException(
                 "Video export end time must be exclusive so the final frame never advances into the next range boundary.");
         }
+    }
+
+    private static void VerifyFrameCountBoundaries()
+    {
+        var shortPlan = new VideoExportPlan(0.0, 1e-14, 60, 1, 1);
+        if (VideoExportTimeline.CountFrames(shortPlan) != 1 ||
+            VideoExportTimeline.Enumerate(shortPlan).Count() != 1)
+        {
+            throw new InvalidOperationException(
+                "A positive sub-frame export range must still produce one frame.");
+        }
+
+        // The end boundary is exclusive, but a range just longer than one
+        // frame must include the second frame. The former 1e-12 epsilon
+        // incorrectly rounded this case down to one frame.
+        var exactBoundary = new VideoExportPlan(0.0, 1.0 / 60.0, 60, 1, 1);
+        if (VideoExportTimeline.CountFrames(exactBoundary) != 1 ||
+            VideoExportTimeline.Enumerate(exactBoundary).Count() != 1)
+        {
+            throw new InvalidOperationException(
+                "An exact one-frame interval must not include its end boundary.");
+        }
+
+        var justPastBoundary = new VideoExportPlan(0.0, 1.0 / 60.0 + 1e-14, 60, 1, 1);
+        VideoExportFrame[] frames = VideoExportTimeline.Enumerate(justPastBoundary).ToArray();
+        if (VideoExportTimeline.CountFrames(justPastBoundary) != 2 ||
+            frames.Length != 2 ||
+            !(frames[1].ChartTimeSeconds < justPastBoundary.EndChartTimeSeconds))
+        {
+            throw new InvalidOperationException(
+                "A frame strictly before the exclusive end boundary must not be discarded.");
+        }
+
+        ExpectFrameCountRejected(new VideoExportPlan(0.0, 1_000_000_000.0, 60, 1, 1));
+        ExpectFrameCountRejected(new VideoExportPlan(0.0, 1.0, 60, 1, 1)
+        {
+            ChartRate = double.Epsilon
+        });
+    }
+
+    private static void ExpectFrameCountRejected(VideoExportPlan plan)
+    {
+        try
+        {
+            _ = VideoExportTimeline.CountFrames(plan);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "An unrepresentable video frame count must be rejected explicitly.");
     }
 
     private static void VerifyFrame(

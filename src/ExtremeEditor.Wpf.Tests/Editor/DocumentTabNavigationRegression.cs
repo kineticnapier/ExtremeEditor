@@ -49,6 +49,58 @@ internal static class DocumentTabNavigationRegression
                     StringComparison.Ordinal) &&
                 palette.Contains("AdoFaiPreviewKeyDown(sender, e)", StringComparison.Ordinal),
             "Child HWND key events must reach the shared Ctrl+Tab shortcut.");
+
+        // These checks previously existed but were never invoked by Run(),
+        // so the standard WPF suite silently skipped native failure recovery.
+        VerifyStopPlaybackNativeFailureOrdering();
+        VerifyPreparedLevelStateIsAtomic();
+        VerifyPendingFrameAllFailureKeepsPreparedLevelUncommitted();
+        VerifyDirectLevelStateIsAtomic();
+        VerifyAssetReloadStateIsAtomic();
+        VerifyNativeSelectionStateIsAtomic();
+        VerifyDirectPlaybackRefreshIsAtomic();
+        VerifyPreparedPlaybackStateIsAtomic();
+        VerifyNativeUploadRollback();
+        VerifyNativeRecoveryRetryGate();
+        VerifyActivationFailureObservation();
+        VerifyNativeHostInitializationCleanup();
+        VerifyNativeSessionConstructionCleanup();
+        VerifyNativeSessionDisposalCleanup();
+        VerifyRapidNavigation();
+        VerifySameTabNavigationCancelsPendingActivation();
+        VerifyRejectedNavigationCancelsOlderPreparation();
+        VerifySupersededActivationSkipsNativePreparation();
+        VerifyFailedPendingTargetCleanup();
+        VerifyFailedNewTabCleanup();
+        VerifyFailedChartOpenCleanup();
+        VerifyPreparedAudioFailureCleanup();
+    }
+
+    private static void VerifySupersededActivationSkipsNativePreparation()
+    {
+        // Building a timing map can yield to a newer tab-selection request.
+        // The superseded request must not launch expensive native preparations
+        // after its asynchronous managed setup has finished.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source, "private async Task<bool> ActivateDocumentTab(");
+        int timingReady = activate.IndexOf(
+            "targetHitSoundTimeline = tab.HitSoundTimeline", StringComparison.Ordinal);
+        int staleCheck = activate.IndexOf(
+            "if (activationGeneration != _tabActivationGeneration || _isClosed ||",
+            timingReady, StringComparison.Ordinal);
+        int levelStart = activate.IndexOf(
+            "NativeLoadPreparationCache.StartLevel(tab.Document)", StringComparison.Ordinal);
+        int playbackStart = activate.IndexOf(
+            "NativeLoadPreparationCache.StartPlayback(tab.Document, targetTimingMap)",
+            StringComparison.Ordinal);
+        int clearPending = activate.IndexOf(
+            "ClearFailedPendingTabTarget(", staleCheck, StringComparison.Ordinal);
+
+        Require(timingReady >= 0 && staleCheck > timingReady &&
+                levelStart > staleCheck && playbackStart > staleCheck &&
+                clearPending > staleCheck && clearPending < levelStart,
+            "Superseded tab preparation must stop and clear its pending target before launching native work.");
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
@@ -101,6 +153,258 @@ internal static class DocumentTabNavigationRegression
         viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
         Require(ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot),
             "A later successful retry must commit the replacement snapshot.");
+    }
+
+    private static void VerifyPendingFrameAllFailureKeepsPreparedLevelUncommitted()
+    {
+        // A pending welcome-screen FrameAll is the final fallible native
+        // operation of prepared-level activation. Failure must not publish
+        // the new managed document or snapshot before tab rollback runs.
+        LevelDocument original = LevelDocument.CreateSynthetic(2);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(3);
+        PreparedNativeLevel originalPrepared = NativeLevelViewport.PrepareLevel(original);
+        PreparedNativeLevel replacementPrepared = NativeLevelViewport.PrepareLevel(replacement);
+        var viewport = new NativeLevelViewport();
+        viewport.SetPreparedLevelCore(original, originalPrepared, (_, _, _) => { });
+        viewport.FrameAll(); // No HWND: leaves the request pending.
+
+        FieldInfo? levelField = typeof(NativeLevelViewport).GetField(
+            "_level", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? pendingField = typeof(NativeLevelViewport).GetField(
+            "_frameAllPending", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(levelField is not null && pendingField is not null,
+            "Prepared-level rollback fields must be available.");
+
+        NativeLevelSnapshot? previousSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics previousMetrics = viewport.LastLevelUploadMetrics;
+        var failure = new InvalidOperationException("injected pending FrameAll failure");
+        Exception? caught = null;
+        bool sawStagedLevel = false;
+        try
+        {
+            viewport.SetPreparedLevelCore(replacement, replacementPrepared,
+                (_, _, _) => { },
+                applyPendingFrameAll: () =>
+                {
+                    sawStagedLevel = ReferenceEquals(levelField!.GetValue(viewport), replacement);
+                    throw failure;
+                });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(sawStagedLevel && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, previousSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(previousMetrics) &&
+                (bool)pendingField!.GetValue(viewport)!,
+            "Failed pending FrameAll must preserve the previous prepared scene and retry request.");
+
+        viewport.SetPreparedLevelCore(replacement, replacementPrepared, (_, _, _) => { });
+        Require(ReferenceEquals(levelField!.GetValue(viewport), replacement) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, replacementPrepared.Snapshot) &&
+                (bool)pendingField!.GetValue(viewport)!,
+            "A successful retry must commit the new scene and keep FrameAll pending without an HWND.");
+    }
+
+    private static void VerifyDirectLevelStateIsAtomic()
+    {
+        // The non-prepared SetLevel path must not publish the target document,
+        // clear the old selection or lose its timelines when native upload fails.
+        // Inject the failure without constructing a native HWND.
+        LevelDocument original = LevelDocument.CreateSynthetic(3);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(4);
+        var viewport = new NativeLevelViewport();
+        PreparedNativeLevel originalPrepared = NativeLevelViewport.PrepareLevel(original);
+        viewport.SetPreparedLevelCore(original, originalPrepared, (_, _, _) => { });
+        viewport.SetSelectionCore([1], 1, (_, _) => { });
+
+        FieldInfo? levelField = typeof(NativeLevelViewport).GetField(
+            "_level", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? floorsField = typeof(NativeLevelViewport).GetField(
+            "_selectedFloors", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? primaryField = typeof(NativeLevelViewport).GetField(
+            "_primarySelection", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? cameraField = typeof(NativeLevelViewport).GetField(
+            "_cameraTimeline", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? backgroundField = typeof(NativeLevelViewport).GetField(
+            "_backgroundTimeline", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(levelField is not null && floorsField is not null &&
+                primaryField is not null && cameraField is not null &&
+                backgroundField is not null,
+            "Direct level rollback fields must be available for regression checks.");
+
+        var camera = new NativeCameraEvent[1];
+        var background = new NativeBackgroundEvent[1];
+        cameraField!.SetValue(viewport, camera);
+        backgroundField!.SetValue(viewport, background);
+        NativeLevelSnapshot? originalSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics originalMetrics = viewport.LastLevelUploadMetrics;
+        PropertyInfo? metricsProperty = typeof(NativeLevelViewport).GetProperty(
+            "LastLevelUploadMetrics", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(metricsProperty is not null,
+            "Direct level upload metrics must be available for regression checks.");
+        int[] selected = (int[])floorsField!.GetValue(viewport)!;
+        int primary = (int)primaryField!.GetValue(viewport)!;
+
+        var failure = new InvalidOperationException("injected direct level upload failure");
+        Exception? caught = null;
+        bool targetWasStaged = false;
+        try
+        {
+            viewport.SetLevelCore(replacement, () =>
+            {
+                targetWasStaged = ReferenceEquals(levelField!.GetValue(viewport), replacement);
+                // Simulate a successful upload followed by a failing FrameAll.
+                metricsProperty!.SetValue(viewport, new NativeLevelUploadMetrics(
+                    TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero,
+                    TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0));
+                throw failure;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(targetWasStaged && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(originalMetrics) &&
+                ReferenceEquals(floorsField.GetValue(viewport), selected) &&
+                (int)primaryField.GetValue(viewport)! == primary &&
+                ReferenceEquals(cameraField.GetValue(viewport), camera) &&
+                ReferenceEquals(backgroundField.GetValue(viewport), background),
+            "A failed direct level replacement must restore the previous managed scene.");
+
+        caught = null;
+        try
+        {
+            viewport.SetLevelCore(original, () => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+        Require(ReferenceEquals(caught, failure) &&
+                ReferenceEquals(levelField!.GetValue(viewport), original) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, originalSnapshot) &&
+                ReferenceEquals(floorsField.GetValue(viewport), selected),
+            "A failed same-document reload must preserve its existing snapshot and selection.");
+    }
+
+    private static void VerifyAssetReloadStateIsAtomic()
+    {
+        // No native HWND: inject a failure after the new asset upload starts,
+        // then verify that the old managed snapshot and metrics survive.
+        LevelDocument level = LevelDocument.CreateSynthetic(3);
+        PreparedNativeLevel prepared = NativeLevelViewport.PrepareLevel(level);
+        var viewport = new NativeLevelViewport();
+        viewport.SetPreparedLevelCore(level, prepared, (_, _, _) => { });
+
+        NativeLevelSnapshot? previousSnapshot = viewport.SnapshotForDiagnostics;
+        NativeLevelUploadMetrics previousMetrics = viewport.LastLevelUploadMetrics;
+        PropertyInfo? metricsProperty = typeof(NativeLevelViewport).GetProperty(
+            "LastLevelUploadMetrics", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? snapshotField = typeof(NativeLevelViewport).GetField(
+            "_snapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(metricsProperty is not null && snapshotField is not null &&
+                previousSnapshot is not null,
+            "Asset reload rollback fields must be available.");
+
+        var failure = new InvalidOperationException("injected asset reload failure");
+        Exception? caught = null;
+        bool clearedBeforeUpload = false;
+        try
+        {
+            viewport.ReloadAssetsCore(() =>
+            {
+                clearedBeforeUpload = viewport.SnapshotForDiagnostics is null;
+                metricsProperty!.SetValue(viewport, new NativeLevelUploadMetrics(
+                    TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero,
+                    TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0));
+                throw failure;
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            caught = ex;
+        }
+
+        Require(clearedBeforeUpload && ReferenceEquals(caught, failure) &&
+                ReferenceEquals(viewport.SnapshotForDiagnostics, previousSnapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(previousMetrics),
+            "Failed asset reload must restore the previous snapshot and metrics.");
+
+        PreparedNativeLevel refreshed = NativeLevelViewport.PrepareLevel(level);
+        var refreshedMetrics = new NativeLevelUploadMetrics(
+            TimeSpan.FromMilliseconds(2), TimeSpan.Zero, TimeSpan.Zero,
+            TimeSpan.Zero, TimeSpan.Zero, 0, 0, 0);
+        viewport.ReloadAssetsCore(() =>
+        {
+            Require(viewport.SnapshotForDiagnostics is null,
+                "Retry must discard the old snapshot before rebuilding assets.");
+            snapshotField!.SetValue(viewport, refreshed.Snapshot);
+            return refreshedMetrics;
+        });
+        Require(ReferenceEquals(viewport.SnapshotForDiagnostics, refreshed.Snapshot) &&
+                viewport.LastLevelUploadMetrics.Equals(refreshedMetrics),
+            "Successful asset reload retry must publish the new snapshot and metrics.");
+    }
+
+    private static void VerifyNativeSelectionStateIsAtomic()
+    {
+        // A failed native selection upload must not publish a selection that
+        // the renderer did not accept. No native window is required here.
+        var viewport = new NativeLevelViewport();
+        viewport.SetLevel(LevelDocument.CreateSynthetic(4));
+        viewport.SetSelectionCore([0, 2], 2, (_, _) => { });
+
+        FieldInfo? floorsField = typeof(NativeLevelViewport).GetField(
+            "_selectedFloors", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo? primaryField = typeof(NativeLevelViewport).GetField(
+            "_primarySelection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(floorsField is not null && primaryField is not null,
+            "Viewport selection state must be available for regression checks.");
+
+        int[] originalFloors = (int[])floorsField!.GetValue(viewport)!;
+        int originalPrimary = (int)primaryField!.GetValue(viewport)!;
+        var failure = new InvalidOperationException("injected native selection upload failure");
+        Exception? observed = null;
+        try
+        {
+            viewport.SetSelectionCore([1, 3], 3, (_, _) => throw failure);
+        }
+        catch (InvalidOperationException ex)
+        {
+            observed = ex;
+        }
+
+        Require(ReferenceEquals(observed, failure) &&
+                ReferenceEquals(floorsField.GetValue(viewport), originalFloors) &&
+                (int)primaryField.GetValue(viewport)! == originalPrimary,
+            "Failed native selection upload must preserve the previous managed selection.");
+
+        int[]? uploadedFloors = null;
+        int uploadedPrimary = -1;
+        viewport.SetSelectionCore([2, 2, 1, -1, 999], 999, (floors, primary) =>
+        {
+            uploadedFloors = floors;
+            uploadedPrimary = primary;
+        });
+        Require(uploadedFloors is not null &&
+                uploadedFloors.SequenceEqual(new[] { 1, 2 }) &&
+                uploadedPrimary == 2 &&
+                ReferenceEquals(floorsField.GetValue(viewport), uploadedFloors) &&
+                (int)primaryField.GetValue(viewport)! == uploadedPrimary,
+            "Successful selection upload must normalize and commit exactly the accepted floors.");
+
+        var emptyViewport = new NativeLevelViewport();
+        emptyViewport.SetSelectionCore([0], 0, (floors, primary) =>
+            Require(floors.Length == 0 && primary == -1,
+                "An unloaded viewport must upload an empty selection."));
     }
 
     private static void VerifyDirectPlaybackRefreshIsAtomic()
@@ -199,6 +503,38 @@ internal static class DocumentTabNavigationRegression
             new NativeTrackAnimationTiming[count],
             buildTime);
 
+    private static void VerifyNativeRecoveryRetryGate()
+    {
+        // The first native transfer can fail and rollback can fail too.
+        // WPF still considers the previous tab active; clicking it again
+        // must not be treated as an already-completed activation.
+        LevelDocument original = LevelDocument.CreateSynthetic(2);
+        LevelDocument replacement = LevelDocument.CreateSynthetic(3);
+        var tab = new EditorDocumentTab(original, new EditorSession(original));
+        var other = new EditorDocumentTab(replacement, new EditorSession(replacement));
+
+        Require(MainWindow.CanSkipDocumentTabActivation(tab, tab, original, false),
+            "A healthy already-active tab should not upload its scene again.");
+        Require(!MainWindow.CanSkipDocumentTabActivation(tab, tab, original, true),
+            "Failed native rollback must force a same-tab upload retry.");
+        Require(!MainWindow.CanSkipDocumentTabActivation(tab, other, original, false) &&
+                !MainWindow.CanSkipDocumentTabActivation(tab, tab, replacement, false),
+            "Changing the tab or document must still require a native upload.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int failure = activate.IndexOf("_nativeSceneRecoveryFailed = restoreError is not null;",
+            StringComparison.Ordinal);
+        int success = activate.IndexOf("_nativeSceneRecoveryFailed = false;",
+            StringComparison.Ordinal);
+        Require(activate.Contains("CanSkipDocumentTabActivation(", StringComparison.Ordinal) &&
+                failure >= 0 && success > failure &&
+                activate.Contains("Select the active tab again to retry.", StringComparison.Ordinal),
+            "Activation must mark failed recovery, allow retry, and clear the flag only after upload.");
+    }
+
     private static void VerifyNativeUploadRollback()
     {
         var steps = new List<string>();
@@ -263,6 +599,41 @@ internal static class DocumentTabNavigationRegression
                 steps.SequenceEqual(new[] { "level", "playback", "selection", "rollback" }),
             "A native selection upload failure must roll back before the managed tab commits.");
 
+        // Restoring the target tab's saved camera is part of the native
+        // transaction. A false result must roll back, just like a thrown error.
+        string targetCameraSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string targetActivation = ExtractMethodBody(targetCameraSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(targetActivation.Contains(
+                    "if (!NativeViewport.RestoreEditorCamera(editorCamera))",
+                    StringComparison.Ordinal) &&
+                targetActivation.Contains(
+                    "Could not restore the target native editor camera.",
+                    StringComparison.Ordinal),
+            "Rejected target camera upload must abort the native tab transaction.");
+
+        steps.Clear();
+        var targetCameraFailure = new InvalidOperationException(
+            "injected target camera rejection");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => steps.Add("level"),
+            () => steps.Add("playback"),
+            () => steps.Add("rollback"),
+            out uploadError, out restoreError,
+            beforeCommit: () =>
+            {
+                steps.Add("target-camera");
+                bool cameraAccepted = false;
+                if (!cameraAccepted)
+                    throw targetCameraFailure;
+                steps.Add("stop");
+            });
+        Require(!ok && ReferenceEquals(uploadError, targetCameraFailure) &&
+                restoreError is null &&
+                steps.SequenceEqual(new[] { "level", "playback", "target-camera", "rollback" }),
+            "Rejected target camera must roll back without stopping old playback.");
+
         steps.Clear();
         var recoveryFailure = new InvalidOperationException("injected recovery failure");
         ok = MainWindow.TryUploadDocumentTabScene(
@@ -273,6 +644,61 @@ internal static class DocumentTabNavigationRegression
         Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
                 ReferenceEquals(restoreError, recoveryFailure),
             "A failed rollback must preserve both the original and recovery errors.");
+
+        // The first tab has no previous native scene. A partial upload failure
+        // must not be reported as successfully restored in that case.
+        string firstTabSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string firstTabActivation = ExtractMethodBody(firstTabSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(firstTabActivation.Contains("if (previous is null)", StringComparison.Ordinal) &&
+                firstTabActivation.Contains(
+                    "No previous native scene is available for recovery.",
+                    StringComparison.Ordinal),
+            "A first-tab upload failure must explicitly report that native recovery is unavailable.");
+
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => throw playbackFailure,
+            null,
+            () =>
+            {
+                EditorDocumentTab? previousTab = null;
+                if (previousTab is null)
+                    throw new InvalidOperationException(
+                        "No previous native scene is available for recovery.");
+            },
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                restoreError is InvalidOperationException &&
+                restoreError.Message.Contains("No previous native scene", StringComparison.Ordinal),
+            "A failed first-tab upload must preserve the upload error and report failed recovery.");
+
+        // A native camera restore can report failure with a false return
+        // instead of throwing. The tab switch must treat this as failed recovery.
+        string tabSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(tabSource,
+            "private async Task<bool> ActivateDocumentTab(");
+        Require(activation.Contains("!NativeViewport.RestoreEditorCamera(camera)",
+                    StringComparison.Ordinal) &&
+                activation.Contains("Could not restore the previous native editor camera.",
+                    StringComparison.Ordinal),
+            "Rejected native camera restoration must not be reported as successful rollback.");
+
+        Func<bool> rejectedCameraRestore = () => false;
+        var cameraFailure = new InvalidOperationException("injected camera restore rejection");
+        ok = MainWindow.TryUploadDocumentTabScene(
+            () => throw playbackFailure,
+            null,
+            () =>
+            {
+                if (!rejectedCameraRestore())
+                    throw cameraFailure;
+            },
+            out uploadError, out restoreError);
+        Require(!ok && ReferenceEquals(uploadError, playbackFailure) &&
+                ReferenceEquals(restoreError, cameraFailure),
+            "A rejected camera restore must preserve the original and recovery errors.");
 
         steps.Clear();
         ok = MainWindow.TryUploadDocumentTabScene(
@@ -313,13 +739,20 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(observed, syncFailure) && notifications == 2,
             "A synchronous activation failure must also be observed exactly once.");
 
+        string openSource = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string openHandler = ExtractMethodBody(openSource, "private async void ExecuteOpen(");
+        Require(openHandler.Contains("RequestDocumentTabActivation(existing)", StringComparison.Ordinal) &&
+                !openHandler.Contains("_ = ActivateDocumentTab(existing)", StringComparison.Ordinal),
+            "Reopening an already-open chart must observe native activation failures.");
+
         string source = File.ReadAllText(FindSourceFile(
             "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
         string observer = ExtractMethodBody(source,
             "private async void RequestDocumentTabActivation(");
         Require(observer.Contains("await ObserveDocumentTabActivationAsync(", StringComparison.Ordinal) &&
                 observer.Contains("Could not activate", StringComparison.Ordinal) &&
-                observer.Contains("_pendingTabNavigationTarget = null", StringComparison.Ordinal),
+                observer.Contains("_pendingTabNavigationTarget = ClearFailedPendingTabTarget(", StringComparison.Ordinal),
             "WPF tab activation must display failures and clear stale Ctrl+Tab targets.");
     }
 
@@ -555,6 +988,249 @@ internal static class DocumentTabNavigationRegression
         Require(ReferenceEquals(
                 MainWindow.SelectNextDocumentTab(tabs, c, backwards: true), a),
             "Two-tab reverse cycling must return to the active tab.");
+    }
+
+    private static void VerifySameTabNavigationCancelsPendingActivation()
+    {
+        // A -> B begins preparing, then Ctrl+Tab returns to the still-active A.
+        // B must not commit after A's newer request has already completed.
+        LevelDocument first = LevelDocument.CreateSynthetic(2);
+        LevelDocument second = LevelDocument.CreateSynthetic(3);
+        var a = new EditorDocumentTab(first, new EditorSession(first));
+        var b = new EditorDocumentTab(second, new EditorSession(second));
+        int generation = 0;
+        EditorDocumentTab? pending = b;
+        int pendingBGeneration = ++generation;
+        pending = a;
+
+        Require(MainWindow.CanSkipDocumentTabActivation(a, a, first, false),
+            "Returning to A while B prepares should take the already-active path.");
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(generation != pendingBGeneration && pending is null,
+            "Returning to A must invalidate B's older preparation and clear the pending cycle origin.");
+
+        // Clicking the active tab directly also needs to invalidate a prior
+        // in-flight request, even though direct clicks clear pending first.
+        pending = null;
+        pendingBGeneration = ++generation;
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(generation != pendingBGeneration && pending is null,
+            "Direct re-selection of A must invalidate the older activation.");
+
+        // An older cleanup must never erase a newer, unrelated pending target.
+        pending = b;
+        MainWindow.CancelPendingDocumentTabActivation(ref generation, ref pending, a);
+        Require(ReferenceEquals(pending, b),
+            "Same-tab completion must preserve a newer unrelated navigation target.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int skip = activation.IndexOf("if (CanSkipDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int cancel = activation.IndexOf("CancelPendingDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int startPreparation = activation.IndexOf("int activationGeneration = BeginDocumentTabActivation(",
+            StringComparison.Ordinal);
+        Require(skip >= 0 && cancel > skip && cancel < startPreparation,
+            "The already-active early return must cancel older activation before preparing another tab.");
+    }
+
+    private static void VerifyRejectedNavigationCancelsOlderPreparation()
+    {
+        // A -> B starts preparing. A later click on C is rejected because
+        // settings cannot be committed. B must not activate after that click.
+        var tabs = new EditorDocumentTabs();
+        EditorDocumentTab NewTab()
+        {
+            LevelDocument document = LevelDocument.CreateSynthetic(2);
+            return new EditorDocumentTab(document, new EditorSession(document));
+        }
+
+        EditorDocumentTab a = NewTab();
+        EditorDocumentTab b = NewTab();
+        EditorDocumentTab c = NewTab();
+        Require(tabs.Add(a) && tabs.Add(b, activate: false) &&
+                tabs.Add(c, activate: false), "Three tabs must start with A active.");
+
+        int generation = 0;
+        EditorDocumentTab? pending = null;
+        int preparingB = MainWindow.BeginDocumentTabActivation(
+            ref generation, ref pending, b);
+        Require(ReferenceEquals(pending, b),
+            "Starting B preparation must record its pending destination.");
+
+        int rejectedC = MainWindow.BeginDocumentTabActivation(
+            ref generation, ref pending, c);
+        pending = MainWindow.ClearFailedPendingTabTarget(pending, c);
+        Require(rejectedC > preparingB && generation != preparingB &&
+                pending is null && ReferenceEquals(tabs.ActiveTab, a),
+            "Rejecting C must invalidate the older B preparation, clear C's pending " +
+            "destination, and leave A active.");
+
+        // Check the real WPF path: the generation must change before settings
+        // validation can return false, not only when native preparation begins.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        int begin = activation.IndexOf("int activationGeneration = BeginDocumentTabActivation(",
+            StringComparison.Ordinal);
+        int validate = activation.IndexOf("if (!TryCommitSettingsBeforeDocumentChange())",
+            StringComparison.Ordinal);
+        int prepare = activation.IndexOf("WpfPlaybackSetup? builtPlayback = null;",
+            StringComparison.Ordinal);
+        Require(begin >= 0 && validate > begin && prepare > validate,
+            "A new tab request must invalidate older preparations before settings " +
+            "validation can reject the new navigation.");
+    }
+
+    private static void VerifyFailedPendingTargetCleanup()
+    {
+        var tabs = new EditorDocumentTabs();
+        EditorDocumentTab NewTab()
+        {
+            LevelDocument document = LevelDocument.CreateSynthetic(2);
+            return new EditorDocumentTab(document, new EditorSession(document));
+        }
+
+        EditorDocumentTab a = NewTab();
+        EditorDocumentTab b = NewTab();
+        EditorDocumentTab c = NewTab();
+        Require(tabs.Add(a) && tabs.Add(b, activate: false) &&
+                tabs.Add(c, activate: false), "Three tabs must be registered.");
+
+        // A failed direct click on B must not make Ctrl+Tab skip B.
+        EditorDocumentTab? pending = MainWindow.ClearFailedPendingTabTarget(b, b);
+        Require(pending is null &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), b),
+            "Failed direct activation must cycle from the still-active tab.");
+
+        // A late failure from B must not erase a newer pending request for C.
+        pending = MainWindow.ClearFailedPendingTabTarget(c, b);
+        Require(ReferenceEquals(pending, c) &&
+                ReferenceEquals(MainWindow.SelectNextDocumentTab(
+                    tabs, pending, backwards: false), a),
+            "Failure cleanup must preserve a newer pending destination.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activation = ExtractMethodBody(source,
+            "private async Task<bool> ActivateDocumentTab(");
+        string observer = ExtractMethodBody(source,
+            "private async void RequestDocumentTabActivation(");
+        int cleanupCalls = activation.Split(
+            "ClearFailedPendingTabTarget(", StringSplitOptions.None).Length - 1;
+        Require(cleanupCalls >= 5 &&
+                observer.Contains("ClearFailedPendingTabTarget(", StringComparison.Ordinal) &&
+                !activation.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal) &&
+                !observer.Contains(
+                    "fromTabCycle && ReferenceEquals(_pendingTabNavigationTarget, tab)",
+                    StringComparison.Ordinal),
+            "All failed direct and cyclic activations must clear only their own pending target.");
+    }
+
+    private static void VerifyFailedNewTabCleanup()
+    {
+        // Activation can throw after a new tab is added but before it becomes
+        // active. The asynchronous command handler catches the exception, but
+        // the newly allocated tab and audio must be removed by the callee.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string create = ExtractMethodBody(source,
+            "private async Task<EditorDocumentTab?> CreateNewDocumentTabAsync()");
+        int activation = create.IndexOf(
+            "activated = await ActivateDocumentTab(tab);", StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            create.IndexOf("finally", activation, StringComparison.Ordinal);
+        int inactiveGuard = create.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = create.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = create.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int after = create.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        Require(activation >= 0 && cleanupFinally > activation &&
+                inactiveGuard > cleanupFinally && remove > inactiveGuard &&
+                dispose > remove && after > dispose,
+            "Faulted new-tab activation must clean up its uncommitted tab and audio.");
+    }
+
+    private static void VerifyFailedChartOpenCleanup()
+    {
+        // A chart that cannot become active must not remain as an orphan,
+        // appear in recent files, or begin audio preparation.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int activation = load.IndexOf("activated = await ActivateDocumentTab(",
+            StringComparison.Ordinal);
+        int cleanup = load.IndexOf(
+            "if (!ReferenceEquals(_documentTabs.ActiveTab, tab) &&",
+            StringComparison.Ordinal);
+        int remove = load.IndexOf("_documentTabs.Remove(tab)", StringComparison.Ordinal);
+        int dispose = load.IndexOf("tab.Audio?.Dispose();", StringComparison.Ordinal);
+        int guard = load.IndexOf(
+            "if (!activated || !ReferenceEquals(_documentTabs.ActiveTab, tab))",
+            StringComparison.Ordinal);
+        int recent = load.IndexOf("RememberRecentFile(path);", StringComparison.Ordinal);
+        int playback = load.IndexOf(
+            "NativeLoadPreparationCache.StartPlayback(loaded.Document",
+            StringComparison.Ordinal);
+        int cleanupFinally = activation < 0 ? -1 :
+            load.IndexOf("finally", activation, StringComparison.Ordinal);
+        Require(activation >= 0 && cleanup > activation &&
+                remove > cleanup && dispose > remove &&
+                guard > dispose && recent > guard && playback > recent &&
+                cleanupFinally > activation && cleanupFinally < guard,
+            "Failed or faulted chart activation must clean up before recent-file and audio work.");
+
+        var tabs = new EditorDocumentTabs();
+        LevelDocument first = LevelDocument.CreateSynthetic(2);
+        LevelDocument second = LevelDocument.CreateSynthetic(3);
+        var original = new EditorDocumentTab(first, new EditorSession(first));
+        var rejected = new EditorDocumentTab(second, new EditorSession(second));
+        Require(tabs.Add(original) && tabs.Add(rejected, activate: false) &&
+                tabs.Remove(rejected) && tabs.Tabs.Count == 1 &&
+                ReferenceEquals(tabs.ActiveTab, original),
+            "Removing an uncommitted chart must preserve the previously active tab.");
+    }
+
+    private static void VerifyPreparedAudioFailureCleanup()
+    {
+        // Native playback upload can fail after the audio player was prepared.
+        // The player must be disposed before the method transfers ownership
+        // to the active tab; the old player must remain untouched on failure.
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow.xaml.cs"));
+        string load = ExtractMethodBody(source, "private async Task LoadLevelAsync(");
+        int setupStart = load.IndexOf(
+            "NativePlaybackLoadMetrics nativePlaybackMetrics;", StringComparison.Ordinal);
+        int transfer = load.IndexOf("AudioPlayer previousAudio = _audio;",
+            StringComparison.Ordinal);
+        Require(setupStart >= 0 && transfer > setupStart,
+            "Playback setup must precede the active audio ownership transfer.");
+
+        string setup = load.Substring(setupStart, transfer - setupStart);
+        int upload = setup.IndexOf(
+            "NativeViewport.SetPreparedPlaybackTimelineProfiled(preparedNativePlayback)",
+            StringComparison.Ordinal);
+        int preferences = setup.IndexOf(
+            "ApplySharedPlaybackPreferences(preparedAudio.Player)",
+            StringComparison.Ordinal);
+        int cleanupCatch = setup.IndexOf("catch", StringComparison.Ordinal);
+        int dispose = setup.IndexOf("preparedAudio.Dispose();", StringComparison.Ordinal);
+        int rethrow = setup.IndexOf("throw;", StringComparison.Ordinal);
+        Require(setup.Contains("try", StringComparison.Ordinal) &&
+                upload >= 0 && preferences > upload &&
+                cleanupCatch > preferences && dispose > cleanupCatch &&
+                rethrow > dispose,
+            "Failed native playback setup must dispose the uncommitted audio player and rethrow.");
     }
 
     private static void Require(bool value, string message)

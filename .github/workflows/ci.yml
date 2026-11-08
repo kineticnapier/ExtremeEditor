@@ -20,6 +20,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed lines for whitespace errors
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          } elseif ('${{ github.event_name }}' -eq 'push') {
+            # A push can contain multiple commits. HEAD^ only checks the last one.
+            $before = '${{ github.event.before }}'
+            if ($before -match '^0{40}$') {
+              # A new branch has no previous ref; compare its changes to main.
+              git diff --check "origin/${{ github.event.repository.default_branch }}...HEAD"
+            } else {
+              git diff --check $before HEAD
+            }
+          } else {
+            # Manual dispatch has no push event's before SHA.
+            git diff --check HEAD^ HEAD
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "git diff --check found whitespace errors."
+          }
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4

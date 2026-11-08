@@ -22,24 +22,10 @@ internal static class NativeScaleRadiusPlaybackRegression
         }
 
         string body = source[start..];
-        if (body.Contains("* PlanetDistance", StringComparison.Ordinal) ||
-            body.Contains("* DefaultPlanetDistance", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Native playback still uses a fixed planet distance for the orbit. ScaleRadius playback must derive orbit radius from the resolved current-to-next floor distance.");
-        }
-
-        if (!body.Contains("scene->floors[floor + 1", StringComparison.Ordinal) &&
-            !body.Contains("scene->floors[next_floor", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Native playback must read the resolved next floor position when calculating the orbit radius.");
-        }
-
-        if (!body.Contains("hypot", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Native playback must derive the orbit radius from the resolved floor-to-floor distance.");
-        }
+        if (!body.Contains("orbit_distance = DefaultPlanetDistance;", StringComparison.Ordinal))
+            throw new InvalidOperationException("Native playback must use constant planet orbit radius.");
+        if (body.Contains("orbit_distance = resolved_distance;", StringComparison.Ordinal) ||
+            body.Contains("std::hypot(dx, dy)", StringComparison.Ordinal))
+            throw new InvalidOperationException("Native playback must ignore displaced floor geometry for planet orbit radius.");
     }
 }

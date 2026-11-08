@@ -7,6 +7,8 @@
 #include "level_scene.h"
 #include "position_track_drag.h"
 #include "scene_local_cache.h"
+#include "screen_bloom.h"
+#include "screen_filter.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
@@ -61,18 +63,6 @@ struct ScreenTileVisualState
     bool enabled = false;
     float tile_x = 1.0f;
     float tile_y = 1.0f;
-};
-
-struct FilterVisualEntry
-{
-    bool enabled = false;
-    float intensity = 0.0f;
-    float applied_value = 0.0f;
-};
-
-struct FilterVisualState
-{
-    FilterVisualEntry entries[41]{};
 };
 
 struct RenderFrameStats
@@ -289,6 +279,10 @@ private:
         float zoom,
         float camera_rotation) noexcept;
     HRESULT EndD2DDraw() noexcept;
+    HRESULT ApplyScreenFilter() noexcept;
+    HRESULT ApplyBloom() noexcept;
+    bool EnsureBloomResources() noexcept;
+    bool EnsureScreenFilterResources() noexcept;
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
@@ -314,6 +308,17 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2d_context_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> target_bitmap_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> screen_filter_source_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> screen_filter_effect_;
+    // Bloom graph: frame * step(luma) (only when threshold > 0) -> blur ->
+    // tint -> blend with the frame. Created once and reused.
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_luma_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_threshold_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_mask_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_blur_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_tint_effect_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> bloom_composite_effect_;
+    float bloom_table_threshold_ = -1.0f;
     Microsoft::WRL::ComPtr<ID2D1Effect> decoration_color_effect_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;

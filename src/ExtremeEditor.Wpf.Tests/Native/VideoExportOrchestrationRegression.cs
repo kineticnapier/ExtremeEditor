@@ -30,6 +30,12 @@ internal static class VideoExportOrchestrationRegression
 
         VerifyServiceApi(serviceType!, requestType!, progressType!);
         VerifyServiceSourceContract();
+        VerifyCanceledSnapshotSkipsDisk();
+        VerifyProgressLifecycle();
+        VerifyDisposedCancellationSource();
+        VerifyChartOutputPathGuard();
+        VerifyQuotedFfmpegPathEntries();
+        VerifySourceLineEndingNormalization();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
     }
@@ -81,11 +87,171 @@ internal static class VideoExportOrchestrationRegression
         if (!source.Contains("ThrowIfCancellationRequested", StringComparison.Ordinal))
             failures.Add("service must observe cancellation");
 
+        int planIndex = source.IndexOf("var videoPlan = new VideoExportPlan(", StringComparison.Ordinal);
+        int countIndex = source.IndexOf(
+            "int totalVideoFrames = VideoExportTimeline.CountFrames(videoPlan);",
+            StringComparison.Ordinal);
+        int encoderIndex = source.IndexOf(
+            "await using var encoder = new FfmpegVideoEncoder(", StringComparison.Ordinal);
+        if (planIndex < 0 || countIndex <= planIndex || encoderIndex <= countIndex)
+            failures.Add("service must validate the frame count before starting ffmpeg");
+
         if (failures.Count != 0)
         {
             throw new InvalidOperationException(
                 "VE5 orchestration source contract failed:\n- " +
                 string.Join("\n- ", failures));
+        }
+    }
+
+    private static void VerifyCanceledSnapshotSkipsDisk()
+    {
+        MethodInfo snapshot = typeof(MainWindow).GetMethod(
+                "CreateVideoExportSnapshot", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export snapshot helper is missing.");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        string nonexistent = Path.Combine(Path.GetTempPath(),
+            $"ExtremeEditor-CancelledSnapshot-{Guid.NewGuid():N}.adofai");
+        try
+        {
+            snapshot.Invoke(null, [nonexistent, cancellation.Token]);
+            throw new InvalidOperationException("A cancelled snapshot unexpectedly loaded a chart.");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is OperationCanceledException)
+        {
+            // Cancellation must win before the first disk read.
+        }
+    }
+
+    private static void VerifyProgressLifecycle()
+    {
+        MethodInfo gate = typeof(MainWindow).GetMethod(
+                "ShouldReportVideoExportProgress",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export progress guard is missing.");
+
+        using var cancellation = new CancellationTokenSource();
+        bool ShouldReport(bool active) =>
+            (bool)(gate.Invoke(null, [active, cancellation.Token])
+                ?? throw new InvalidOperationException("Progress guard returned null."));
+
+        if (!ShouldReport(true) || ShouldReport(false))
+            throw new InvalidOperationException(
+                "Video export progress must be reported only while the export is active.");
+
+        cancellation.Cancel();
+        if (ShouldReport(true))
+            throw new InvalidOperationException(
+                "Video export progress must not overwrite cancellation status.");
+    }
+
+    private static void VerifyDisposedCancellationSource()
+    {
+        MethodInfo cancel = typeof(MainWindow).GetMethod(
+                "TryCancelVideoExport", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export cancellation helper is missing.");
+
+        bool TryCancel(CancellationTokenSource? source) =>
+            (bool)(cancel.Invoke(null, [source])
+                ?? throw new InvalidOperationException("Cancellation helper returned null."));
+
+        if (TryCancel(null))
+            throw new InvalidOperationException("A missing cancellation source must be ignored.");
+
+        using var source = new CancellationTokenSource();
+        if (!TryCancel(source) || !source.IsCancellationRequested)
+            throw new InvalidOperationException("An active export must accept cancellation.");
+
+        source.Dispose();
+        if (TryCancel(source))
+            throw new InvalidOperationException(
+                "A disposed cancellation source must be ignored without throwing.");
+    }
+
+    private static void VerifyChartOutputPathGuard()
+    {
+        MethodInfo guard = typeof(MainWindow).GetMethod(
+                "IsVideoExportOutputSameAsChart", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export chart overwrite guard is missing.");
+
+        bool Collides(string output, string chart) =>
+            (bool)(guard.Invoke(null, [output, chart])
+                ?? throw new InvalidOperationException("Chart overwrite guard returned null."));
+
+        string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor-VideoPathGuard");
+        string chart = Path.Combine(directory, "chart.adofai");
+        string normalizedAlias = Path.Combine(directory, "sub", "..", "chart.adofai");
+        string video = Path.Combine(directory, "chart.mp4");
+        if (!Collides(chart, chart) ||
+            !Collides(normalizedAlias, chart) ||
+            !Collides(chart.ToUpperInvariant(), chart) ||
+            Collides(video, chart))
+        {
+            throw new InvalidOperationException(
+                "Video export must reject chart path aliases without rejecting a distinct MP4.");
+        }
+
+        string uiSource = File.ReadAllText(Path.Combine(
+            FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.VideoExport.cs"));
+        int accepted = uiSource.IndexOf("if (saveDialog.ShowDialog(this) != true)", StringComparison.Ordinal);
+        int checkedPath = uiSource.IndexOf(
+            "if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))", StringComparison.Ordinal);
+        int snapshot = uiSource.IndexOf(
+            "VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
+        if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
+            throw new InvalidOperationException(
+                "Video export must reject source-chart output paths before snapshot preparation.");
+    }
+
+    private static void VerifyQuotedFfmpegPathEntries()
+    {
+        MethodInfo resolver = typeof(MainWindow).GetMethod(
+                "FindFfmpegInPathEntries", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ffmpeg PATH entry resolver is missing.");
+
+        string? Resolve(string entries) => resolver.Invoke(null, [entries]) as string;
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-QuotedFfmpeg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string executable = Path.Combine(directory, "ffmpeg.exe");
+            File.WriteAllText(executable, "test executable placeholder");
+            string quoted = "\"" + directory + "\"";
+            string missing = Path.Combine(directory, "not-a-directory");
+            string expected = Path.GetFullPath(executable);
+
+            if (!string.Equals(Resolve(quoted), expected, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Resolve(missing + Path.PathSeparator + quoted),
+                    expected, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Resolve(directory), expected, StringComparison.OrdinalIgnoreCase) ||
+                Resolve(missing) is not null)
+            {
+                throw new InvalidOperationException(
+                    "ffmpeg lookup must handle quoted/unquoted PATH entries and skip missing entries.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    // Source-contract checks must behave identically for LF and Windows CRLF
+    // checkouts. Do not compare raw platform-specific newline sequences.
+    private static string NormalizeSourceLineEndings(string source) =>
+        source.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    private static void VerifySourceLineEndingNormalization()
+    {
+        const string windowsSource = "finally\r\n        {\r\n            progressActive = false;";
+        const string expected = "finally\n        {\n            progressActive = false;";
+        if (!string.Equals(NormalizeSourceLineEndings(windowsSource), expected, StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSourceLineEndings(expected), expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Video export source contracts must be independent of checkout line endings.");
         }
     }
 
@@ -129,7 +295,7 @@ internal static class VideoExportOrchestrationRegression
         string path = Path.Combine(
             FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow",
             "MainWindow.VideoExport.cs");
-        string source = File.ReadAllText(path);
+        string source = NormalizeSourceLineEndings(File.ReadAllText(path));
 
         int handlerStart = source.IndexOf("private async void ExportVideoClick(", StringComparison.Ordinal);
         int coreStart = source.IndexOf("private async Task ExportVideoCoreAsync(", StringComparison.Ordinal);
@@ -158,7 +324,7 @@ internal static class VideoExportOrchestrationRegression
         }
 
         if (!core.Contains("await SaveCurrentAsync(", StringComparison.Ordinal) ||
-            !core.Contains("await Task.Run(() => CreateVideoExportSnapshot(chartPath))", StringComparison.Ordinal) ||
+            !core.Contains("CreateVideoExportSnapshot(chartPath, cancellation.Token)", StringComparison.Ordinal) ||
             !core.Contains("await service.ExportAsync(", StringComparison.Ordinal) ||
             core.Contains("_videoExportInProgress = true;", StringComparison.Ordinal))
         {
@@ -166,8 +332,42 @@ internal static class VideoExportOrchestrationRegression
                 "Save, snapshot preparation, and encoding must all execute inside the guarded core.");
         }
 
+        int cancelSetup = core.IndexOf("using var cancellation = new CancellationTokenSource();", StringComparison.Ordinal);
+        int enableCancel = core.IndexOf("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal);
+        int snapshotStart = core.IndexOf("VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
+        int snapshotToken = core.IndexOf("CreateVideoExportSnapshot(chartPath, cancellation.Token)", StringComparison.Ordinal);
+        int taskToken = core.IndexOf("            cancellation.Token);", StringComparison.Ordinal);
+        int capturedHitSounds = core.IndexOf("bool hitSoundsEnabled = HitSoundsToggle.IsChecked == true;", StringComparison.Ordinal);
+        if (cancelSetup < 0 || enableCancel <= cancelSetup ||
+            snapshotStart <= enableCancel || snapshotToken <= snapshotStart ||
+            taskToken <= snapshotToken || capturedHitSounds <= enableCancel ||
+            capturedHitSounds >= snapshotStart ||
+            !core.Contains("HitSoundsEnabled: hitSoundsEnabled", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Cancellation and export options must be available before asynchronous snapshot preparation.");
+        }
+
+        int progressGuard = core.IndexOf(
+            "if (!ShouldReportVideoExportProgress(progressActive, progressToken))",
+            StringComparison.Ordinal);
+        int progressStatus = core.IndexOf(
+            "StatusText.Text = $" + "\"Export Video — {value.Stage}{suffix}\";",
+            StringComparison.Ordinal);
+        int progressDisable = core.IndexOf("progressActive = false;", StringComparison.Ordinal);
+        int exportAwait = core.IndexOf("await service.ExportAsync(", StringComparison.Ordinal);
+        if (!core.Contains("bool progressActive = true;", StringComparison.Ordinal) ||
+            !core.Contains("CancellationToken progressToken = cancellation.Token;", StringComparison.Ordinal) ||
+            progressGuard < 0 || progressStatus <= progressGuard ||
+            progressDisable <= exportAwait ||
+            !core.Contains("finally\n        {\n            progressActive = false;", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Late video export progress must be ignored after completion or cancellation.");
+        }
+
         if (!source.Contains("private void CancelVideoExportClick(", StringComparison.Ordinal) ||
-            !source.Contains("_videoExportCancellation?.Cancel();", StringComparison.Ordinal) ||
+            !source.Contains("TryCancelVideoExport(cancellation)", StringComparison.Ordinal) ||
             !source.Contains("CancelVideoExportMenuItem.IsEnabled = false;", StringComparison.Ordinal) ||
             !core.Contains("CancelVideoExportMenuItem.IsEnabled = true;", StringComparison.Ordinal))
         {
