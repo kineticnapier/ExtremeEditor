@@ -228,7 +228,11 @@ int ChildMain(const std::string& scenario)
     const int repetitions = scenario == "repeat" ? 4 : 1;
     bool ok = true;
     for (int i = 0; i < repetitions && ok; ++i)
+    {
         ok = RunSession(scenario == "repeat" ? "blend" : scenario, bitmap);
+        if (ok)
+            std::cerr << "[shutdown-test] session.complete index=" << i + 1 << '\n';
+    }
 
     std::error_code error;
     std::filesystem::remove(bitmap, error);
@@ -374,11 +378,34 @@ bool RunChild(const wchar_t* executable, const char* scenario)
         offset = end + end_marker.size();
         ++verified_sessions;
     }
+    // Production diagnostics intentionally log each phase only once per process.
+    // Verify the first shutdown in detail, and use test-owned completion markers
+    // to confirm that every subsequent session also completed successfully.
     const int expected_sessions = std::string_view(scenario) == "repeat" ? 4 : 1;
-    if (verified_sessions != expected_sessions)
+    constexpr std::string_view completed_marker = "[shutdown-test] session.complete index=";
+    std::size_t marker_offset = 0;
+    int completed_sessions = 0;
+    while (true)
     {
-        std::cerr << "Shutdown diagnostics missing sessions for " << scenario
-                  << ": expected " << expected_sessions << ", got " << verified_sessions
+        const auto at = phases.find(completed_marker, marker_offset);
+        if (at == std::string_view::npos)
+            break;
+        ++completed_sessions;
+        const std::string expected_index = std::to_string(completed_sessions) + "\n";
+        if (phases.substr(at + completed_marker.size(), expected_index.size()) != expected_index)
+        {
+            std::cerr << "Shutdown completion markers out of order for " << scenario
+                      << "\n" << diagnostic;
+            return false;
+        }
+        marker_offset = at + completed_marker.size() + expected_index.size();
+    }
+    if (verified_sessions != 1 || completed_sessions != expected_sessions)
+    {
+        std::cerr << "Shutdown session count mismatch for " << scenario
+                  << ": diagnostic sessions=" << verified_sessions
+                  << ", completed sessions=" << completed_sessions
+                  << ", expected completions=" << expected_sessions
                   << "\n" << diagnostic;
         return false;
     }
