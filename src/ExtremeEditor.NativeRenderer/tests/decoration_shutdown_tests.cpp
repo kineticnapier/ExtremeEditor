@@ -19,6 +19,7 @@
 namespace
 {
 constexpr std::uint32_t AssetId = 0xdec0u;
+constexpr std::size_t PipeStressBytes = 128u * 1024u;
 
 std::filesystem::path WriteTestBitmap()
 {
@@ -220,6 +221,14 @@ bool VerifyHeadlessPixels()
 
 int ChildMain(const std::string& scenario)
 {
+    // Exercise the parent pipe reader with output larger than a Windows pipe
+    // buffer. Waiting for process exit before draining the pipe deadlocks.
+    if (scenario == "pipe-stress")
+    {
+        std::cerr << std::string(PipeStressBytes, 'x') << '\n';
+        return 0;
+    }
+
     _putenv_s("EXTREMEEDITOR_SHUTDOWN_DIAGNOSTICS", "1");
     const std::filesystem::path bitmap = WriteTestBitmap();
     if (bitmap.empty())
@@ -322,30 +331,35 @@ bool RunChild(const wchar_t* executable, const char* scenario)
     }
     CloseHandle(output_write);
 
-    const DWORD wait = WaitForSingleObject(process.hProcess, 5000u);
-    if (wait == WAIT_TIMEOUT)
+    // Drain stderr/stdout concurrently with process execution. A child that
+    // writes more than the anonymous pipe's capacity blocks in WriteFile;
+    // waiting for its exit before reading would then always time out.
+    std::string diagnostic;
+    std::thread output_reader([&]
     {
-        TerminateProcess(process.hProcess, 124u);
-        WaitForSingleObject(process.hProcess, 2000u);
-        std::string diagnostic;
         std::array<char, 1024> chunk{};
         DWORD bytes = 0u;
         while (ReadFile(output_read, chunk.data(), static_cast<DWORD>(chunk.size()), &bytes, nullptr) && bytes > 0u)
             diagnostic.append(chunk.data(), bytes);
+    });
+
+    const DWORD wait = WaitForSingleObject(process.hProcess, 5000u);
+    if (wait != WAIT_OBJECT_0)
+    {
+        TerminateProcess(process.hProcess, 124u);
+        WaitForSingleObject(process.hProcess, 2000u);
+    }
+    output_reader.join();
+    CloseHandle(output_read);
+
+    if (wait == WAIT_TIMEOUT)
+    {
         std::cerr << "RED: decoration shutdown child timed out for " << scenario
                   << " (render-thread join did not finish)\n" << diagnostic;
-        CloseHandle(output_read);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
         return false;
     }
-
-    std::string diagnostic;
-    std::array<char, 1024> chunk{};
-    DWORD bytes = 0u;
-    while (ReadFile(output_read, chunk.data(), static_cast<DWORD>(chunk.size()), &bytes, nullptr) && bytes > 0u)
-        diagnostic.append(chunk.data(), bytes);
-    CloseHandle(output_read);
 
     DWORD exit_code = 0u;
     GetExitCodeProcess(process.hProcess, &exit_code);
@@ -356,6 +370,16 @@ bool RunChild(const wchar_t* executable, const char* scenario)
         std::cerr << "Decoration shutdown child failed for " << scenario
                   << " with exit " << exit_code << "\n" << diagnostic;
         return false;
+    }
+    if (std::string_view(scenario) == "pipe-stress")
+    {
+        if (diagnostic.size() < PipeStressBytes ||
+            diagnostic.substr(0, PipeStressBytes) != std::string(PipeStressBytes, 'x'))
+        {
+            std::cerr << "Shutdown child pipe output was truncated\n";
+            return false;
+        }
+        return true;
     }
     constexpr std::string_view begin_marker = "phase=ee_renderer_destroy.begin";
     constexpr std::string_view end_marker = "phase=ee_renderer_destroy.end";
@@ -433,6 +457,9 @@ int wmain(int argc, wchar_t** argv)
         return 2;
 
     if (!VerifyShutdownPhaseOrderContract() || !VerifyHeadlessPixels())
+        return 1;
+
+    if (!RunChild(executable, "pipe-stress"))
         return 1;
 
     for (const char* scenario : {"none", "blend", "stop", "resize", "repeat", "switch", "many"})
