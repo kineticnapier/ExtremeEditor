@@ -39,6 +39,7 @@ internal static class VideoExportEncoderRegression
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
         VerifyCompletionRejectsReentrantWrites();
+        VerifyConcurrentCompletionRejectsOverlap();
         VerifyCancellationDuringChunkWrites();
         VerifyEncoderExceptionsAreTerminal();
         VerifyPreCanceledOperationsAreRetryable();
@@ -761,6 +762,60 @@ internal static class VideoExportEncoderRegression
             throw new InvalidOperationException(
                 "Mux allowed a frame or a second completion while completing.");
         }
+    }
+
+    private static void VerifyConcurrentCompletionRejectsOverlap()
+    {
+        // Completion may be suspended on a worker thread while the caller
+        // continues to process UI events. Reject a second completion and any
+        // late frame until the original encoder completion has finished.
+        var startInfo = new VideoEncoderStartInfo(
+            "concurrent-completion-check.mp4", 2, 2, 30, 44100, 2);
+        using var completionEntered = new ManualResetEventSlim();
+        using var releaseCompletion = new ManualResetEventSlim();
+        var encoder = new RecordingVideoEncoder
+        {
+            OnComplete = () =>
+            {
+                completionEntered.Set();
+                if (!releaseCompletion.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("Concurrent completion test did not release the encoder.");
+            }
+        };
+        var mux = new VideoExportMuxPipeline(encoder);
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        Task completion = Task.Run(async () =>
+            await mux.CompleteAsync(CancellationToken.None));
+        try
+        {
+            if (!completionEntered.Wait(TimeSpan.FromSeconds(15)))
+                throw new TimeoutException("Concurrent completion never entered the encoder.");
+
+            AssertConcurrentCallsRejected(
+                () => mux.CompleteAsync(CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "second completion while the encoder is completing");
+            AssertConcurrentCallsRejected(
+                () => mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "video frame while the encoder is completing");
+            if (encoder.CompleteCalls != 1 || encoder.VideoFrameCalls != 0)
+                throw new InvalidOperationException(
+                    "Concurrent operations overtook the pending encoder completion.");
+        }
+        finally
+        {
+            releaseCompletion.Set();
+            completion.GetAwaiter().GetResult();
+        }
+
+        // Completed mux operations remain idempotent, without restarting ffmpeg.
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (encoder.CompleteCalls != 1 || encoder.VideoFrameCalls != 0)
+            throw new InvalidOperationException(
+                "Mux completion was not idempotent after concurrent calls were rejected.");
     }
 
     private static void VerifyCancellationDuringChunkWrites()
