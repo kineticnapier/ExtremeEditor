@@ -391,14 +391,19 @@ bool RunChild(const wchar_t* executable, const char* scenario)
         if (at == std::string_view::npos)
             break;
         ++completed_sessions;
-        const std::string expected_index = std::to_string(completed_sessions) + "\n";
-        if (phases.substr(at + completed_marker.size(), expected_index.size()) != expected_index)
+        const std::string expected_index = std::to_string(completed_sessions);
+        const auto index_start = at + completed_marker.size();
+        const auto index_end = index_start + expected_index.size();
+        // Windows text-mode stderr may translate LF into CRLF.
+        if (phases.substr(index_start, expected_index.size()) != expected_index ||
+            index_end >= phases.size() ||
+            (phases[index_end] != '\r' && phases[index_end] != '\n'))
         {
             std::cerr << "Shutdown completion markers out of order for " << scenario
                       << "\n" << diagnostic;
             return false;
         }
-        marker_offset = at + completed_marker.size() + expected_index.size();
+        marker_offset = index_end + 1;
     }
     if (verified_sessions != 1 || completed_sessions != expected_sessions)
     {
