@@ -39,6 +39,8 @@ internal static class VideoExportEncoderRegression
         VerifyCancellationDuringCompletion();
         VerifyCompletionRejectsReentrantWrites();
         VerifyCancellationDuringChunkWrites();
+        VerifyEncoderExceptionsAreTerminal();
+        VerifyPreCanceledOperationsAreRetryable();
         VerifySourceContract();
     }
 
@@ -416,7 +418,8 @@ internal static class VideoExportEncoderRegression
         {
             call();
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("cannot be reused", StringComparison.Ordinal))
         {
             return;
         }
@@ -719,6 +722,150 @@ internal static class VideoExportEncoderRegression
             "video write");
         if (videoEncoder.CompleteCalls != 0)
             throw new InvalidOperationException("Canceled video write completed the encoder.");
+    }
+
+
+    private static void VerifyEncoderExceptionsAreTerminal()
+    {
+        // A lower encoder may throw after partially writing data. Every mux
+        // operation must then reject reuse without reaching that encoder again.
+        var startInfo = new VideoEncoderStartInfo(
+            "encoder-fault-check.mp4", 2, 2, 30, 44100, 2);
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        const string failure = "injected encoder failure";
+
+        foreach (string phase in new[] { "begin", "audio", "video-start", "video-frame", "complete" })
+        {
+            var encoder = new RecordingVideoEncoder
+            {
+                OnBegin = phase == "begin" ? () => throw new IOException(failure) : null,
+                OnWriteAudio = phase == "audio" ? () => throw new IOException(failure) : null,
+                OnBeginVideo = phase == "video-start" ? () => throw new IOException(failure) : null,
+                OnWriteVideo = phase == "video-frame" ? () => throw new IOException(failure) : null,
+                OnComplete = phase == "complete" ? () => throw new IOException(failure) : null
+            };
+            var mux = new VideoExportMuxPipeline(encoder);
+            bool observed = false;
+            try
+            {
+                mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+                if (phase == "audio")
+                {
+                    mux.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                else if (phase != "begin")
+                {
+                    mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    if (phase == "video-frame")
+                        mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                            .GetAwaiter().GetResult();
+                    else if (phase == "complete")
+                        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+                }
+            }
+            catch (IOException ex) when (ex.Message == failure)
+            {
+                observed = true;
+            }
+
+            if (!observed)
+                throw new InvalidOperationException("Encoder fault was not propagated: " + phase);
+
+            int[] counts =
+            [
+                encoder.BeginCalls, encoder.AudioChunkCalls, encoder.BeginVideoCalls,
+                encoder.VideoFrameCalls, encoder.CompleteCalls
+            ];
+            AssertMuxTerminal(
+                () => mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult(),
+                phase);
+            AssertMuxTerminal(
+                () => mux.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                    .GetAwaiter().GetResult(), phase);
+            AssertMuxTerminal(
+                () => mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult(),
+                phase);
+            AssertMuxTerminal(
+                () => mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                    .GetAwaiter().GetResult(), phase);
+            AssertMuxTerminal(
+                () => mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult(),
+                phase);
+            int[] after =
+            [
+                encoder.BeginCalls, encoder.AudioChunkCalls, encoder.BeginVideoCalls,
+                encoder.VideoFrameCalls, encoder.CompleteCalls
+            ];
+            if (!counts.SequenceEqual(after))
+                throw new InvalidOperationException("Failed mux reached encoder again: " + phase);
+        }
+    }
+
+    private static void VerifyPreCanceledOperationsAreRetryable()
+    {
+        // Cancellation before calling the lower encoder must not poison the mux.
+        var startInfo = new VideoEncoderStartInfo(
+            "pre-canceled-check.mp4", 2, 2, 30, 44100, 2);
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        CancellationToken canceled = cancellation.Token;
+        var encoder = new RecordingVideoEncoder();
+        var mux = new VideoExportMuxPipeline(encoder);
+
+        static void RequireCancellation(Action operation, string phase)
+        {
+            try
+            {
+                operation();
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            throw new InvalidOperationException("Pre-canceled mux operation succeeded: " + phase);
+        }
+
+        RequireCancellation(
+            () => mux.BeginAsync(startInfo, canceled).GetAwaiter().GetResult(), "begin");
+        if (encoder.BeginCalls != 0)
+            throw new InvalidOperationException("Pre-canceled begin reached encoder.");
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+
+        RequireCancellation(
+            () => mux.WriteAudioChunkAsync(chunk, canceled).GetAwaiter().GetResult(), "audio");
+        if (encoder.AudioChunkCalls != 0)
+            throw new InvalidOperationException("Pre-canceled audio reached encoder.");
+        mux.WriteAudioChunkAsync(chunk, CancellationToken.None).GetAwaiter().GetResult();
+
+        RequireCancellation(
+            () => mux.BeginVideoAsync(canceled).GetAwaiter().GetResult(), "video start");
+        if (encoder.BeginVideoCalls != 0)
+            throw new InvalidOperationException("Pre-canceled video start reached encoder.");
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        RequireCancellation(
+            () => mux.WriteVideoFrameAsync(new byte[12], canceled).GetAwaiter().GetResult(),
+            "video frame");
+        if (encoder.VideoFrameCalls != 0)
+            throw new InvalidOperationException("Pre-canceled frame reached encoder.");
+        mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None).GetAwaiter().GetResult();
+
+        RequireCancellation(
+            () => mux.CompleteAsync(canceled).GetAwaiter().GetResult(), "completion");
+        if (encoder.CompleteCalls != 0)
+            throw new InvalidOperationException("Pre-canceled completion reached encoder.");
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        if (encoder.BeginCalls != 1 || encoder.AudioChunkCalls != 1 ||
+            encoder.BeginVideoCalls != 1 || encoder.VideoFrameCalls != 1 ||
+            encoder.CompleteCalls != 1)
+        {
+            throw new InvalidOperationException("Pre-canceled operations disrupted normal export.");
+        }
     }
 
     private sealed class RecordingVideoEncoder : IVideoEncoder
