@@ -9,6 +9,8 @@ internal sealed class VideoExportMuxPipeline
     private bool _beginning;
     private bool _videoBegun;
     private bool _videoBeginning;
+    private bool _audioWriting;
+    private bool _videoWriting;
     private bool _completed;
     private bool _completing;
 
@@ -53,10 +55,18 @@ internal sealed class VideoExportMuxPipeline
         ArgumentNullException.ThrowIfNull(rgb);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
-        // An encoder may finish a write despite cancellation. Do not report
-        // that the canceled frame was accepted successfully.
-        cancellationToken.ThrowIfCancellationRequested();
+        _videoWriting = true;
+        try
+        {
+            await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
+            // An encoder may finish a write despite cancellation. Do not report
+            // that the canceled frame was accepted successfully.
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            _videoWriting = false;
+        }
     }
 
     internal async ValueTask WriteAudioChunkAsync(
@@ -67,9 +77,17 @@ internal sealed class VideoExportMuxPipeline
         ArgumentNullException.ThrowIfNull(chunk);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
-        // Observe cancellation raised during a non-cooperative audio write.
-        cancellationToken.ThrowIfCancellationRequested();
+        _audioWriting = true;
+        try
+        {
+            await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
+            // Observe cancellation raised during a non-cooperative audio write.
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            _audioWriting = false;
+        }
     }
 
     internal async ValueTask BeginVideoAsync(CancellationToken cancellationToken)
@@ -78,6 +96,8 @@ internal sealed class VideoExportMuxPipeline
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (_videoBegun || _videoBeginning)
             throw new InvalidOperationException("Video export video phase has already begun or is starting.");
+        if (_audioWriting)
+            throw new InvalidOperationException("Video export cannot begin its video phase while audio is being written.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
 
@@ -109,6 +129,8 @@ internal sealed class VideoExportMuxPipeline
         // Keep this contract independent of the concrete ffmpeg implementation.
         if (!_videoBegun)
             throw new InvalidOperationException("Video export video phase has not begun.");
+        if (_videoWriting)
+            throw new InvalidOperationException("Video export cannot complete while a video frame is being written.");
 
         cancellationToken.ThrowIfCancellationRequested();
         _completing = true;
@@ -132,6 +154,8 @@ internal sealed class VideoExportMuxPipeline
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (_videoBegun || _videoBeginning)
             throw new InvalidOperationException("Video export audio phase has already ended or is ending.");
+        if (_audioWriting)
+            throw new InvalidOperationException("Video export audio write is already in progress.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
     }
@@ -146,5 +170,7 @@ internal sealed class VideoExportMuxPipeline
             throw new InvalidOperationException("Video export encoder has already completed.");
         if (_completing)
             throw new InvalidOperationException("Video export completion is in progress.");
+        if (_videoWriting)
+            throw new InvalidOperationException("Video export video write is already in progress.");
     }
 }
