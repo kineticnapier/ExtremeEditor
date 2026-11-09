@@ -33,6 +33,7 @@ internal static class VideoExportEncoderRegression
         VerifyMuxPipelineContract(muxPipelineType!, encoderType!);
         VerifyCompletionRequiresVideoPhase();
         VerifyCancellationDuringPhaseTransitions();
+        VerifyCancellationDuringCompletion();
         VerifySourceContract();
     }
 
@@ -250,12 +251,42 @@ internal static class VideoExportEncoderRegression
                 "Canceled video-phase start allowed premature completion.");
     }
 
+    private static void VerifyCancellationDuringCompletion()
+    {
+        // The lower encoder can ignore cancellation and return successfully.
+        // The mux must not claim success if cancellation arrived during completion.
+        using var cancellation = new CancellationTokenSource();
+        var encoder = new RecordingVideoEncoder
+        {
+            OnComplete = () => cancellation.Cancel()
+        };
+        var mux = new VideoExportMuxPipeline(encoder);
+        var startInfo = new VideoEncoderStartInfo(
+            "completion-cancellation-check.mp4", 2, 2, 30, 44100, 2);
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        bool canceled = false;
+        try
+        {
+            mux.CompleteAsync(cancellation.Token).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex) when (ex.CancellationToken == cancellation.Token)
+        {
+            canceled = true;
+        }
+        if (!canceled || encoder.CompleteCalls != 1)
+            throw new InvalidOperationException(
+                "Mux ignored cancellation raised while the encoder completed.");
+    }
+
     private sealed class RecordingVideoEncoder : IVideoEncoder
     {
         internal int CompleteCalls { get; private set; }
         internal int VideoFrameCalls { get; private set; }
         internal Action? OnBegin { get; init; }
         internal Action? OnBeginVideo { get; init; }
+        internal Action? OnComplete { get; init; }
 
         public ValueTask BeginAsync(
             VideoEncoderStartInfo startInfo, CancellationToken cancellationToken)
@@ -284,6 +315,7 @@ internal static class VideoExportEncoderRegression
         public ValueTask CompleteAsync(CancellationToken cancellationToken)
         {
             CompleteCalls++;
+            OnComplete?.Invoke();
             return ValueTask.CompletedTask;
         }
 
