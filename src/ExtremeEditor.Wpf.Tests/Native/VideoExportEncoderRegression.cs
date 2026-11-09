@@ -410,6 +410,20 @@ internal static class VideoExportEncoderRegression
             throw new TimeoutException("Concurrent mux test timed out: " + operation);
     }
 
+    private static void AssertMuxTerminal(Action call, string operation)
+    {
+        try
+        {
+            call();
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+        throw new InvalidOperationException(
+            "Mux reused an encoder after failed or canceled " + operation + ".");
+    }
+
     private static void VerifyCompletionRequiresVideoPhase()
     {
         // The mux must reject premature completion itself, even if the
@@ -486,6 +500,11 @@ internal static class VideoExportEncoderRegression
         if (!remainedUnbegun)
             throw new InvalidOperationException(
                 "Canceled mux BeginAsync incorrectly published a begun state.");
+        AssertMuxTerminal(
+            () => beginMux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult(),
+            "encoder start");
+        if (beginEncoder.BeginCalls != 1)
+            throw new InvalidOperationException("Canceled mux started the encoder twice.");
 
         // Cancellation after the encoder starts its video phase must not
         // allow a subsequent frame write or successful completion.
@@ -540,6 +559,16 @@ internal static class VideoExportEncoderRegression
         if (!completionRejected || videoEncoder.CompleteCalls != 0)
             throw new InvalidOperationException(
                 "Canceled video-phase start allowed premature completion.");
+        var audioChunk = new ExtremeEditor.Audio.OfflineAudioChunk(0, 44100, 2, new float[2]);
+        AssertMuxTerminal(
+            () => videoMux.WriteAudioChunkAsync(audioChunk, CancellationToken.None)
+                .GetAwaiter().GetResult(),
+            "video-phase start");
+        AssertMuxTerminal(
+            () => videoMux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult(),
+            "video-phase start retry");
+        if (videoEncoder.AudioChunkCalls != 0 || videoEncoder.BeginVideoCalls != 1)
+            throw new InvalidOperationException("Canceled video-phase start reused the encoder.");
     }
 
     private static void VerifyCancellationDuringCompletion()
@@ -569,6 +598,15 @@ internal static class VideoExportEncoderRegression
         if (!canceled || encoder.CompleteCalls != 1)
             throw new InvalidOperationException(
                 "Mux ignored cancellation raised while the encoder completed.");
+        AssertMuxTerminal(
+            () => mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                .GetAwaiter().GetResult(),
+            "completion");
+        AssertMuxTerminal(
+            () => mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult(),
+            "completion retry");
+        if (encoder.VideoFrameCalls != 0 || encoder.CompleteCalls != 1)
+            throw new InvalidOperationException("Canceled completion reused the encoder.");
     }
 
     private static void VerifyCompletionRejectsReentrantWrites()
@@ -648,6 +686,11 @@ internal static class VideoExportEncoderRegression
         if (!audioCanceled || audioEncoder.AudioChunkCalls != 1)
             throw new InvalidOperationException(
                 "Mux did not surface cancellation raised during an audio write.");
+        AssertMuxTerminal(
+            () => audioMux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult(),
+            "audio write");
+        if (audioEncoder.BeginVideoCalls != 0)
+            throw new InvalidOperationException("Canceled audio write advanced the encoder.");
 
         using var videoCancellation = new CancellationTokenSource();
         var videoEncoder = new RecordingVideoEncoder
@@ -671,6 +714,11 @@ internal static class VideoExportEncoderRegression
         if (!videoCanceled || videoEncoder.VideoFrameCalls != 1)
             throw new InvalidOperationException(
                 "Mux did not surface cancellation raised during a video write.");
+        AssertMuxTerminal(
+            () => videoMux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult(),
+            "video write");
+        if (videoEncoder.CompleteCalls != 0)
+            throw new InvalidOperationException("Canceled video write completed the encoder.");
     }
 
     private sealed class RecordingVideoEncoder : IVideoEncoder
