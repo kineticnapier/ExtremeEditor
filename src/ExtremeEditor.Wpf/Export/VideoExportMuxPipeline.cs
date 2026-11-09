@@ -86,6 +86,9 @@ internal sealed class VideoExportMuxPipeline
 
         cancellationToken.ThrowIfCancellationRequested();
         await _encoder.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        // A custom encoder may finish completion even after cancellation.
+        // Do not report the mux as successfully completed in that case.
+        cancellationToken.ThrowIfCancellationRequested();
         _completed = true;
     }
 
