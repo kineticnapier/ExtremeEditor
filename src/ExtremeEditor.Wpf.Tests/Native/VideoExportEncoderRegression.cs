@@ -33,6 +33,7 @@ internal static class VideoExportEncoderRegression
         VerifyMuxPipelineContract(muxPipelineType!, encoderType!);
         VerifyCompletionRequiresVideoPhase();
         VerifyPhaseStartsRejectReentrancy();
+        VerifyWritesRejectReentrantOperations();
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
         VerifyCompletionRejectsReentrantWrites();
@@ -197,6 +198,100 @@ internal static class VideoExportEncoderRegression
         if (encoder.VideoFrameCalls != 1 || encoder.CompleteCalls != 1)
             throw new InvalidOperationException(
                 "Mux was not usable after rejecting reentrant phase starts.");
+    }
+
+    private static void VerifyWritesRejectReentrantOperations()
+    {
+        // A custom encoder can invoke the mux again before returning from a
+        // write. Neither nested writes nor phase transitions may overtake it.
+        var startInfo = new VideoEncoderStartInfo(
+            "reentrant-write-check.mp4", 2, 2, 30, 44100, 2);
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        VideoExportMuxPipeline? mux = null;
+        bool nestedAudioRejected = false;
+        bool earlyVideoPhaseRejected = false;
+        bool nestedVideoRejected = false;
+        bool earlyCompletionRejected = false;
+        int audioCallbacks = 0;
+        int videoCallbacks = 0;
+        var encoder = new RecordingVideoEncoder
+        {
+            OnWriteAudio = () =>
+            {
+                if (++audioCallbacks != 1)
+                    return;
+                try
+                {
+                    mux!.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    nestedAudioRejected = true;
+                }
+
+                try
+                {
+                    mux!.BeginVideoAsync(CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    earlyVideoPhaseRejected = true;
+                }
+            },
+            OnWriteVideo = () =>
+            {
+                if (++videoCallbacks != 1)
+                    return;
+                try
+                {
+                    mux!.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    nestedVideoRejected = true;
+                }
+
+                try
+                {
+                    mux!.CompleteAsync(CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    earlyCompletionRejected = true;
+                }
+            }
+        };
+
+        mux = new VideoExportMuxPipeline(encoder);
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        mux.WriteAudioChunkAsync(chunk, CancellationToken.None).GetAwaiter().GetResult();
+        if (!nestedAudioRejected || !earlyVideoPhaseRejected ||
+            encoder.AudioChunkCalls != 1 || encoder.BeginVideoCalls != 0)
+        {
+            throw new InvalidOperationException(
+                "Mux allowed a nested audio write or video-phase start during an audio write.");
+        }
+
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+        mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+            .GetAwaiter().GetResult();
+        if (!nestedVideoRejected || !earlyCompletionRejected ||
+            encoder.VideoFrameCalls != 1 || encoder.CompleteCalls != 0)
+        {
+            throw new InvalidOperationException(
+                "Mux allowed a nested video write or completion during a frame write.");
+        }
+
+        // Rejected callbacks must not prevent subsequent normal completion.
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (encoder.BeginVideoCalls != 1 || encoder.CompleteCalls != 1)
+            throw new InvalidOperationException(
+                "Mux did not recover after rejecting reentrant writes.");
     }
 
     private static void VerifyCompletionRequiresVideoPhase()
