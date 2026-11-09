@@ -34,6 +34,7 @@ internal static class VideoExportEncoderRegression
         VerifyCompletionRequiresVideoPhase();
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
+        VerifyCancellationDuringChunkWrites();
         VerifySourceContract();
     }
 
@@ -280,10 +281,67 @@ internal static class VideoExportEncoderRegression
                 "Mux ignored cancellation raised while the encoder completed.");
     }
 
+    private static void VerifyCancellationDuringChunkWrites()
+    {
+        // Some encoder implementations complete a write despite cancellation.
+        // The mux must surface cancellation before the caller reports progress.
+        var startInfo = new VideoEncoderStartInfo(
+            "write-cancellation-check.mp4", 2, 2, 30, 44100, 2);
+        using var audioCancellation = new CancellationTokenSource();
+        var audioEncoder = new RecordingVideoEncoder
+        {
+            OnWriteAudio = () => audioCancellation.Cancel()
+        };
+        var audioMux = new VideoExportMuxPipeline(audioEncoder);
+        audioMux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        bool audioCanceled = false;
+        try
+        {
+            audioMux.WriteAudioChunkAsync(chunk, audioCancellation.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex)
+            when (ex.CancellationToken == audioCancellation.Token)
+        {
+            audioCanceled = true;
+        }
+        if (!audioCanceled || audioEncoder.AudioChunkCalls != 1)
+            throw new InvalidOperationException(
+                "Mux did not surface cancellation raised during an audio write.");
+
+        using var videoCancellation = new CancellationTokenSource();
+        var videoEncoder = new RecordingVideoEncoder
+        {
+            OnWriteVideo = () => videoCancellation.Cancel()
+        };
+        var videoMux = new VideoExportMuxPipeline(videoEncoder);
+        videoMux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        videoMux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+        bool videoCanceled = false;
+        try
+        {
+            videoMux.WriteVideoFrameAsync(new byte[12], videoCancellation.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex)
+            when (ex.CancellationToken == videoCancellation.Token)
+        {
+            videoCanceled = true;
+        }
+        if (!videoCanceled || videoEncoder.VideoFrameCalls != 1)
+            throw new InvalidOperationException(
+                "Mux did not surface cancellation raised during a video write.");
+    }
+
     private sealed class RecordingVideoEncoder : IVideoEncoder
     {
         internal int CompleteCalls { get; private set; }
         internal int VideoFrameCalls { get; private set; }
+        internal int AudioChunkCalls { get; private set; }
+        internal Action? OnWriteVideo { get; init; }
+        internal Action? OnWriteAudio { get; init; }
         internal Action? OnBegin { get; init; }
         internal Action? OnBeginVideo { get; init; }
         internal Action? OnComplete { get; init; }
@@ -299,12 +357,17 @@ internal static class VideoExportEncoderRegression
             byte[] rgb, CancellationToken cancellationToken)
         {
             VideoFrameCalls++;
+            OnWriteVideo?.Invoke();
             return ValueTask.CompletedTask;
         }
 
         public ValueTask WriteAudioChunkAsync(
-            ExtremeEditor.Audio.OfflineAudioChunk chunk, CancellationToken cancellationToken) =>
-            ValueTask.CompletedTask;
+            ExtremeEditor.Audio.OfflineAudioChunk chunk, CancellationToken cancellationToken)
+        {
+            AudioChunkCalls++;
+            OnWriteAudio?.Invoke();
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask BeginVideoAsync(CancellationToken cancellationToken)
         {
