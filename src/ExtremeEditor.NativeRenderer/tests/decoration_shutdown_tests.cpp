@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -234,6 +235,54 @@ int ChildMain(const std::string& scenario)
     return ok ? 0 : 4;
 }
 
+bool HasValidShutdownPhaseOrder(std::string_view session)
+{
+    const auto phase = [&](std::string_view name) { return session.find(name); };
+    const auto release_begin = phase("phase=D2DBackend.decorationResources.release.begin");
+    const auto release_end = phase("phase=D2DBackend.decorationResources.release.end");
+    const auto com_end = phase("phase=RenderLoop.coUninitialize.end");
+    const auto join_begin = phase("phase=StopRenderThread.join.begin");
+    const auto join_end = phase("phase=StopRenderThread.join.end");
+    if (release_begin == std::string_view::npos ||
+        release_end == std::string_view::npos ||
+        com_end == std::string_view::npos ||
+        join_begin == std::string_view::npos ||
+        join_end == std::string_view::npos)
+        return false;
+
+    // The render thread may begin resource cleanup before the caller logs
+    // join.begin. Only ordering within each thread and join completion is fixed.
+    return release_begin < release_end &&
+           release_end < com_end &&
+           com_end < join_end &&
+           join_begin < join_end;
+}
+
+bool VerifyShutdownPhaseOrderContract()
+{
+    constexpr std::string_view join_first =
+        "phase=StopRenderThread.join.begin\n"
+        "phase=D2DBackend.decorationResources.release.begin\n"
+        "phase=D2DBackend.decorationResources.release.end\n"
+        "phase=RenderLoop.coUninitialize.end\n"
+        "phase=StopRenderThread.join.end\n";
+    constexpr std::string_view release_first =
+        "phase=D2DBackend.decorationResources.release.begin\n"
+        "phase=D2DBackend.decorationResources.release.end\n"
+        "phase=StopRenderThread.join.begin\n"
+        "phase=RenderLoop.coUninitialize.end\n"
+        "phase=StopRenderThread.join.end\n";
+    constexpr std::string_view invalid =
+        "phase=StopRenderThread.join.begin\n"
+        "phase=D2DBackend.decorationResources.release.begin\n"
+        "phase=StopRenderThread.join.end\n"
+        "phase=D2DBackend.decorationResources.release.end\n"
+        "phase=RenderLoop.coUninitialize.end\n";
+    return HasValidShutdownPhaseOrder(join_first) &&
+           HasValidShutdownPhaseOrder(release_first) &&
+           !HasValidShutdownPhaseOrder(invalid);
+}
+
 bool RunChild(const wchar_t* executable, const char* scenario)
 {
     std::wstring command = L"\"";
@@ -304,32 +353,32 @@ bool RunChild(const wchar_t* executable, const char* scenario)
                   << " with exit " << exit_code << "\n" << diagnostic;
         return false;
     }
-    const char* required[] =
+    constexpr std::string_view begin_marker = "phase=ee_renderer_destroy.begin";
+    constexpr std::string_view end_marker = "phase=ee_renderer_destroy.end";
+    const std::string_view phases(diagnostic);
+    std::size_t offset = 0;
+    int verified_sessions = 0;
+    while (true)
     {
-        "D2DBackend.decorationResources.release.begin",
-        "D2DBackend.decorationResources.release.end",
-        "RenderLoop.coUninitialize.end",
-        "StopRenderThread.join.begin",
-        "StopRenderThread.join.end"
-    };
-    for (const char* phase : required)
-    {
-        if (diagnostic.find(phase) == std::string::npos)
+        const auto begin = phases.find(begin_marker, offset);
+        if (begin == std::string_view::npos)
+            break;
+        const auto end = phases.find(end_marker, begin + begin_marker.size());
+        if (end == std::string_view::npos ||
+            !HasValidShutdownPhaseOrder(phases.substr(begin, end - begin)))
         {
-            std::cerr << "Shutdown diagnostic phase missing for " << scenario
-                      << ": " << phase << "\n" << diagnostic;
+            std::cerr << "Shutdown diagnostic phase order regressed for " << scenario
+                      << " (session " << verified_sessions + 1 << ")\n" << diagnostic;
             return false;
         }
+        offset = end + end_marker.size();
+        ++verified_sessions;
     }
-    const std::size_t join_begin = diagnostic.find("StopRenderThread.join.begin");
-    const std::size_t release_begin = diagnostic.find("D2DBackend.decorationResources.release.begin");
-    const std::size_t release_end = diagnostic.find("D2DBackend.decorationResources.release.end");
-    const std::size_t com_end = diagnostic.find("RenderLoop.coUninitialize.end");
-    const std::size_t join_end = diagnostic.find("StopRenderThread.join.end");
-    if (!(join_begin < release_begin && release_begin < release_end &&
-          release_end < com_end && com_end < join_end))
+    const int expected_sessions = std::string_view(scenario) == "repeat" ? 4 : 1;
+    if (verified_sessions != expected_sessions)
     {
-        std::cerr << "Shutdown diagnostic phase order regressed for " << scenario
+        std::cerr << "Shutdown diagnostics missing sessions for " << scenario
+                  << ": expected " << expected_sessions << ", got " << verified_sessions
                   << "\n" << diagnostic;
         return false;
     }
@@ -351,7 +400,7 @@ int wmain(int argc, wchar_t** argv)
     if (GetModuleFileNameW(nullptr, executable, MAX_PATH) == 0u)
         return 2;
 
-    if (!VerifyHeadlessPixels())
+    if (!VerifyShutdownPhaseOrderContract() || !VerifyHeadlessPixels())
         return 1;
 
     for (const char* scenario : {"none", "blend", "stop", "resize", "repeat", "switch", "many"})
