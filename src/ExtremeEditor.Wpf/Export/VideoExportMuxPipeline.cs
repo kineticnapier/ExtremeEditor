@@ -6,7 +6,9 @@ internal sealed class VideoExportMuxPipeline
 {
     private readonly IVideoEncoder _encoder;
     private bool _begun;
+    private bool _beginning;
     private bool _videoBegun;
+    private bool _videoBeginning;
     private bool _completed;
     private bool _completing;
 
@@ -19,8 +21,8 @@ internal sealed class VideoExportMuxPipeline
         VideoEncoderStartInfo startInfo,
         CancellationToken cancellationToken)
     {
-        if (_begun)
-            throw new InvalidOperationException("Video export encoder has already begun.");
+        if (_begun || _beginning)
+            throw new InvalidOperationException("Video export encoder has already begun or is starting.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
 
@@ -28,11 +30,19 @@ internal sealed class VideoExportMuxPipeline
         startInfo.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _encoder.BeginAsync(startInfo, cancellationToken).ConfigureAwait(false);
-        // A custom encoder may finish BeginAsync despite cancellation. Do not
-        // publish a usable mux state after cancellation; the caller disposes it.
-        cancellationToken.ThrowIfCancellationRequested();
-        _begun = true;
+        _beginning = true;
+        try
+        {
+            await _encoder.BeginAsync(startInfo, cancellationToken).ConfigureAwait(false);
+            // A custom encoder may finish BeginAsync despite cancellation. Do not
+            // publish a usable mux state after cancellation; the caller disposes it.
+            cancellationToken.ThrowIfCancellationRequested();
+            _begun = true;
+        }
+        finally
+        {
+            _beginning = false;
+        }
     }
 
     internal async ValueTask WriteVideoFrameAsync(
@@ -66,17 +76,25 @@ internal sealed class VideoExportMuxPipeline
     {
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
-        if (_videoBegun)
-            throw new InvalidOperationException("Video export video phase has already begun.");
+        if (_videoBegun || _videoBeginning)
+            throw new InvalidOperationException("Video export video phase has already begun or is starting.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
 
         cancellationToken.ThrowIfCancellationRequested();
-        await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
-        // If cancellation arrived while the encoder started its video phase,
-        // stop before exposing the mux as ready to accept frames.
-        cancellationToken.ThrowIfCancellationRequested();
-        _videoBegun = true;
+        _videoBeginning = true;
+        try
+        {
+            await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+            // If cancellation arrived while the encoder started its video phase,
+            // stop before exposing the mux as ready to accept frames.
+            cancellationToken.ThrowIfCancellationRequested();
+            _videoBegun = true;
+        }
+        finally
+        {
+            _videoBeginning = false;
+        }
     }
 
     internal async ValueTask CompleteAsync(CancellationToken cancellationToken)
@@ -112,8 +130,8 @@ internal sealed class VideoExportMuxPipeline
     {
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
-        if (_videoBegun)
-            throw new InvalidOperationException("Video export audio phase has already ended.");
+        if (_videoBegun || _videoBeginning)
+            throw new InvalidOperationException("Video export audio phase has already ended or is ending.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
     }
