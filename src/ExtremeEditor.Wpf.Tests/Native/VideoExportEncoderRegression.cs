@@ -34,6 +34,7 @@ internal static class VideoExportEncoderRegression
         VerifyCompletionRequiresVideoPhase();
         VerifyPhaseStartsRejectReentrancy();
         VerifyWritesRejectReentrantOperations();
+        VerifyConcurrentPhaseStartsRejectOverlap();
         VerifyConcurrentWritesRejectOverlap();
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
@@ -295,6 +296,108 @@ internal static class VideoExportEncoderRegression
         if (encoder.BeginVideoCalls != 1 || encoder.CompleteCalls != 1)
             throw new InvalidOperationException(
                 "Mux did not recover after rejecting reentrant writes.");
+    }
+
+    private static void VerifyConcurrentPhaseStartsRejectOverlap()
+    {
+        // The initial encoder calls may be suspended on a different thread.
+        // Other callers must not enter the same phase or advance past it.
+        var startInfo = new VideoEncoderStartInfo(
+            "concurrent-phase-check.mp4", 2, 2, 30, 44100, 2);
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        using var beginEntered = new ManualResetEventSlim();
+        using var releaseBegin = new ManualResetEventSlim();
+        using var videoEntered = new ManualResetEventSlim();
+        using var releaseVideo = new ManualResetEventSlim();
+        var encoder = new RecordingVideoEncoder
+        {
+            OnBegin = () =>
+            {
+                beginEntered.Set();
+                if (!releaseBegin.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("Concurrent begin test did not release the encoder.");
+            },
+            OnBeginVideo = () =>
+            {
+                videoEntered.Set();
+                if (!releaseVideo.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("Concurrent video start test did not release the encoder.");
+            }
+        };
+        var mux = new VideoExportMuxPipeline(encoder);
+
+        Task begin = Task.Run(async () =>
+            await mux.BeginAsync(startInfo, CancellationToken.None));
+        try
+        {
+            if (!beginEntered.Wait(TimeSpan.FromSeconds(15)))
+                throw new TimeoutException("Concurrent begin never entered the encoder.");
+
+            AssertConcurrentCallsRejected(
+                () => mux.BeginAsync(startInfo, CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "second encoder begin");
+            AssertConcurrentCallsRejected(
+                () => mux.BeginVideoAsync(CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "video phase before encoder begin completes");
+            AssertConcurrentCallsRejected(
+                () => mux.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "audio before encoder begin completes");
+            if (encoder.BeginCalls != 1 || encoder.BeginVideoCalls != 0 ||
+                encoder.AudioChunkCalls != 0)
+                throw new InvalidOperationException(
+                    "Concurrent calls overtook the pending encoder begin.");
+        }
+        finally
+        {
+            releaseBegin.Set();
+            begin.GetAwaiter().GetResult();
+        }
+
+        Task videoBegin = Task.Run(async () =>
+            await mux.BeginVideoAsync(CancellationToken.None));
+        try
+        {
+            if (!videoEntered.Wait(TimeSpan.FromSeconds(15)))
+                throw new TimeoutException("Concurrent video begin never entered the encoder.");
+
+            AssertConcurrentCallsRejected(
+                () => mux.BeginVideoAsync(CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "second video phase begin");
+            AssertConcurrentCallsRejected(
+                () => mux.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "audio while video phase begins");
+            AssertConcurrentCallsRejected(
+                () => mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "frame before video phase begins");
+            AssertConcurrentCallsRejected(
+                () => mux.CompleteAsync(CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "completion before video phase begins");
+            if (encoder.BeginVideoCalls != 1 || encoder.AudioChunkCalls != 0 ||
+                encoder.VideoFrameCalls != 0 || encoder.CompleteCalls != 0)
+                throw new InvalidOperationException(
+                    "Concurrent calls overtook the pending video phase begin.");
+        }
+        finally
+        {
+            releaseVideo.Set();
+            videoBegin.GetAwaiter().GetResult();
+        }
+
+        mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+            .GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (encoder.BeginCalls != 1 || encoder.BeginVideoCalls != 1 ||
+            encoder.VideoFrameCalls != 1 || encoder.CompleteCalls != 1)
+            throw new InvalidOperationException(
+                "Mux did not recover after rejecting concurrent phase starts.");
     }
 
     private static void VerifyConcurrentWritesRejectOverlap()
