@@ -17,6 +17,9 @@ internal sealed class VideoExportMuxPipeline
     private bool _videoWriting;
     private bool _completed;
     private bool _completing;
+    // An encoder may have partially committed a write or phase transition
+    // before throwing or observing cancellation. Never reuse that encoder.
+    private bool _failed;
 
     internal VideoExportMuxPipeline(IVideoEncoder encoder)
     {
@@ -29,6 +32,7 @@ internal sealed class VideoExportMuxPipeline
     {
         lock (_stateGate)
         {
+            EnsureNotFailed();
             if (_begun || _beginning)
                 throw new InvalidOperationException("Video export encoder has already begun or is starting.");
             if (_completed)
@@ -55,6 +59,8 @@ internal sealed class VideoExportMuxPipeline
             {
                 if (succeeded)
                     _begun = true;
+                else
+                    _failed = true;
                 _beginning = false;
             }
         }
@@ -72,17 +78,23 @@ internal sealed class VideoExportMuxPipeline
             _videoWriting = true;
         }
 
+        bool succeeded = false;
         try
         {
             await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
             // An encoder may finish a write despite cancellation. Do not report
             // that the canceled frame was accepted successfully.
             cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
         }
         finally
         {
             lock (_stateGate)
+            {
                 _videoWriting = false;
+                if (!succeeded)
+                    _failed = true;
+            }
         }
     }
 
@@ -98,16 +110,22 @@ internal sealed class VideoExportMuxPipeline
             _audioWriting = true;
         }
 
+        bool succeeded = false;
         try
         {
             await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
             // Observe cancellation raised during a non-cooperative audio write.
             cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
         }
         finally
         {
             lock (_stateGate)
+            {
                 _audioWriting = false;
+                if (!succeeded)
+                    _failed = true;
+            }
         }
     }
 
@@ -115,6 +133,7 @@ internal sealed class VideoExportMuxPipeline
     {
         lock (_stateGate)
         {
+            EnsureNotFailed();
             if (!_begun)
                 throw new InvalidOperationException("Video export encoder has not begun.");
             if (_videoBegun || _videoBeginning)
@@ -143,6 +162,8 @@ internal sealed class VideoExportMuxPipeline
             {
                 if (succeeded)
                     _videoBegun = true;
+                else
+                    _failed = true;
                 _videoBeginning = false;
             }
         }
@@ -152,6 +173,7 @@ internal sealed class VideoExportMuxPipeline
     {
         lock (_stateGate)
         {
+            EnsureNotFailed();
             if (!_begun)
                 throw new InvalidOperationException("Video export encoder has not begun.");
             if (_completed)
@@ -184,14 +206,24 @@ internal sealed class VideoExportMuxPipeline
             {
                 if (succeeded)
                     _completed = true;
+                else
+                    _failed = true;
                 _completing = false;
             }
         }
     }
 
     // Call only while holding _stateGate.
+    private void EnsureNotFailed()
+    {
+        if (_failed)
+            throw new InvalidOperationException("Video export encoder cannot be reused after failure or cancellation.");
+    }
+
+    // Call only while holding _stateGate.
     private void EnsureAudioWritable()
     {
+        EnsureNotFailed();
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (_videoBegun || _videoBeginning)
@@ -205,6 +237,7 @@ internal sealed class VideoExportMuxPipeline
     // Call only while holding _stateGate.
     private void EnsureVideoWritable()
     {
+        EnsureNotFailed();
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (!_videoBegun)
