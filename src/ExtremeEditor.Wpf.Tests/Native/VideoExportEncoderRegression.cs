@@ -34,6 +34,7 @@ internal static class VideoExportEncoderRegression
         VerifyCompletionRequiresVideoPhase();
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
+        VerifyCompletionRejectsReentrantWrites();
         VerifyCancellationDuringChunkWrites();
         VerifySourceContract();
     }
@@ -279,6 +280,54 @@ internal static class VideoExportEncoderRegression
         if (!canceled || encoder.CompleteCalls != 1)
             throw new InvalidOperationException(
                 "Mux ignored cancellation raised while the encoder completed.");
+    }
+
+    private static void VerifyCompletionRejectsReentrantWrites()
+    {
+        // The encoder can invoke callbacks while its completion is pending.
+        // Neither a second completion nor a late frame may reach it.
+        VideoExportMuxPipeline? mux = null;
+        bool writeRejected = false;
+        bool completionRejected = false;
+        var encoder = new RecordingVideoEncoder
+        {
+            OnComplete = () =>
+            {
+                try
+                {
+                    mux!.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    writeRejected = true;
+                }
+
+                try
+                {
+                    mux!.CompleteAsync(CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    completionRejected = true;
+                }
+            }
+        };
+        mux = new VideoExportMuxPipeline(encoder);
+        var startInfo = new VideoEncoderStartInfo(
+            "reentrant-completion-check.mp4", 2, 2, 30, 44100, 2);
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        if (!writeRejected || !completionRejected ||
+            encoder.VideoFrameCalls != 0 || encoder.CompleteCalls != 1)
+        {
+            throw new InvalidOperationException(
+                "Mux allowed a frame or a second completion while completing.");
+        }
     }
 
     private static void VerifyCancellationDuringChunkWrites()
