@@ -32,6 +32,7 @@ internal static class VideoExportEncoderRegression
         VerifyEncoderContract(encoderType!, startInfoType!);
         VerifyMuxPipelineContract(muxPipelineType!, encoderType!);
         VerifyCompletionRequiresVideoPhase();
+        VerifyPhaseStartsRejectReentrancy();
         VerifyCancellationDuringPhaseTransitions();
         VerifyCancellationDuringCompletion();
         VerifyCompletionRejectsReentrantWrites();
@@ -119,6 +120,83 @@ internal static class VideoExportEncoderRegression
             throw new InvalidOperationException(
                 $"{type.Name}.{name} has the wrong streaming contract.");
         }
+    }
+
+    private static void VerifyPhaseStartsRejectReentrancy()
+    {
+        // An encoder can call back into the mux before its BeginAsync or
+        // BeginVideoAsync returns. A second start must not reach the encoder.
+        var startInfo = new VideoEncoderStartInfo(
+            "reentrant-start-check.mp4", 2, 2, 30, 44100, 2);
+        var chunk = new ExtremeEditor.Audio.OfflineAudioChunk(
+            0, 44100, 2, new float[2]);
+        VideoExportMuxPipeline? mux = null;
+        bool beginRejected = false;
+        bool videoBeginRejected = false;
+        bool audioRejected = false;
+        int beginCallbacks = 0;
+        int videoBeginCallbacks = 0;
+        var encoder = new RecordingVideoEncoder
+        {
+            OnBegin = () =>
+            {
+                if (++beginCallbacks != 1)
+                    return;
+                try
+                {
+                    mux!.BeginAsync(startInfo, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    beginRejected = true;
+                }
+            },
+            OnBeginVideo = () =>
+            {
+                if (++videoBeginCallbacks != 1)
+                    return;
+                try
+                {
+                    mux!.BeginVideoAsync(CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    videoBeginRejected = true;
+                }
+
+                // The audio phase is ending while BeginVideoAsync is pending.
+                try
+                {
+                    mux!.WriteAudioChunkAsync(chunk, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                catch (InvalidOperationException)
+                {
+                    audioRejected = true;
+                }
+            }
+        };
+        mux = new VideoExportMuxPipeline(encoder);
+        mux.BeginAsync(startInfo, CancellationToken.None).GetAwaiter().GetResult();
+        if (!beginRejected || encoder.BeginCalls != 1)
+            throw new InvalidOperationException(
+                "Mux allowed reentrant BeginAsync to start the encoder twice.");
+
+        mux.BeginVideoAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (!videoBeginRejected || !audioRejected ||
+            encoder.BeginVideoCalls != 1 || encoder.AudioChunkCalls != 0)
+            throw new InvalidOperationException(
+                "Mux allowed reentrant video start or audio writes during phase transition.");
+
+        // A rejected reentrant operation must not break normal video export.
+        mux.WriteVideoFrameAsync(new byte[12], CancellationToken.None)
+            .GetAwaiter().GetResult();
+        mux.CompleteAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (encoder.VideoFrameCalls != 1 || encoder.CompleteCalls != 1)
+            throw new InvalidOperationException(
+                "Mux was not usable after rejecting reentrant phase starts.");
     }
 
     private static void VerifyCompletionRequiresVideoPhase()
@@ -386,6 +464,8 @@ internal static class VideoExportEncoderRegression
 
     private sealed class RecordingVideoEncoder : IVideoEncoder
     {
+        internal int BeginCalls { get; private set; }
+        internal int BeginVideoCalls { get; private set; }
         internal int CompleteCalls { get; private set; }
         internal int VideoFrameCalls { get; private set; }
         internal int AudioChunkCalls { get; private set; }
@@ -398,6 +478,7 @@ internal static class VideoExportEncoderRegression
         public ValueTask BeginAsync(
             VideoEncoderStartInfo startInfo, CancellationToken cancellationToken)
         {
+            BeginCalls++;
             OnBegin?.Invoke();
             return ValueTask.CompletedTask;
         }
@@ -420,6 +501,7 @@ internal static class VideoExportEncoderRegression
 
         public ValueTask BeginVideoAsync(CancellationToken cancellationToken)
         {
+            BeginVideoCalls++;
             OnBeginVideo?.Invoke();
             return ValueTask.CompletedTask;
         }
