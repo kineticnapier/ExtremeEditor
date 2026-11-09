@@ -43,6 +43,9 @@ internal sealed class VideoExportMuxPipeline
         cancellationToken.ThrowIfCancellationRequested();
 
         await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
+        // An encoder may finish a write despite cancellation. Do not report
+        // that the canceled frame was accepted successfully.
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     internal async ValueTask WriteAudioChunkAsync(
@@ -54,6 +57,8 @@ internal sealed class VideoExportMuxPipeline
         cancellationToken.ThrowIfCancellationRequested();
 
         await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
+        // Observe cancellation raised during a non-cooperative audio write.
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     internal async ValueTask BeginVideoAsync(CancellationToken cancellationToken)
