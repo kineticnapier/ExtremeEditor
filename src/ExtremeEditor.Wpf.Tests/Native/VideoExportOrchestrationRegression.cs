@@ -40,6 +40,7 @@ internal static class VideoExportOrchestrationRegression
         VerifySubSampleRangeSkipsNativePreparation();
         VerifyOneSampleRangeReachesNativePreparation();
         VerifyQuotedFfmpegPathEntries();
+        VerifyExpandedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
@@ -398,6 +399,41 @@ internal static class VideoExportOrchestrationRegression
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyExpandedFfmpegPathEntries()
+    {
+        // Windows PATH can contain unexpanded %VARIABLE% references. The
+        // lookup must resolve them whether or not the entry is quoted.
+        MethodInfo resolver = typeof(MainWindow).GetMethod(
+                "FindFfmpegInPathEntries", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ffmpeg PATH entry resolver is missing.");
+
+        string root = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-FfmpegEnv-{Guid.NewGuid():N}");
+        string directory = Path.Combine(root, "path with spaces");
+        string variable = $"EXTREMEEDITOR_FFMPEG_PATH_{Guid.NewGuid():N}";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string expected = Path.GetFullPath(Path.Combine(directory, "ffmpeg.exe"));
+            File.WriteAllText(expected, "test executable placeholder");
+            Environment.SetEnvironmentVariable(variable, directory);
+            string reference = $"%{variable}%";
+            foreach (string entry in new[] { reference, $"\\"{reference}\\"" })
+            {
+                string? actual = resolver.Invoke(null, [entry]) as string;
+                if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "ffmpeg lookup must expand environment variables in quoted and unquoted PATH entries.");
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+            Directory.Delete(root, recursive: true);
         }
     }
 
