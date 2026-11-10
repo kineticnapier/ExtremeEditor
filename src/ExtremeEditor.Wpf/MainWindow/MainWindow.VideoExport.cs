@@ -278,6 +278,11 @@ public partial class MainWindow
                 string directory = entry.Length >= 2 && entry[0] == '"' && entry[^1] == '"'
                     ? entry[1..^1]
                     : entry;
+                // PATH can contain %LOCALAPPDATA% and other environment variables.
+                // Expand them before probing the actual directory.
+                directory = Environment.ExpandEnvironmentVariables(directory);
+                if (string.IsNullOrWhiteSpace(directory))
+                    continue;
                 string candidate = Path.Combine(directory, "ffmpeg.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
