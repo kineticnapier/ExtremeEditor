@@ -178,6 +178,15 @@ internal sealed class VideoExportService
             cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // The audio renderer returns no chunks when both boundaries round to
+        // the same PCM frame. Reject that range before native scene loading,
+        // ffmpeg staging, and an eventual empty-audio MP4 attempt.
+        var (startSampleFrame, endSampleFrame) =
+            audioPlan.GetSampleRange(audioFormat.SampleRate);
+        if (endSampleFrame <= startSampleFrame)
+            throw new InvalidOperationException(
+                "Video export audio range is shorter than one PCM sample.");
+
         // Prepare the native scene before opening encoder staging files or
         // rendering audio. Keep expensive native loading off the WPF UI thread.
         // A failed load must dispose the partially initialized renderer.
