@@ -37,7 +37,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyDisposedCancellationSource();
         VerifyChartOutputPathGuard();
         VerifyProtectedVideoOutputPaths();
-        VerifyServiceChartOutputPathGuard();
+        VerifyServiceProtectedOutputPathGuard();
         VerifySubSampleRangeSkipsNativePreparation();
         VerifyOneSampleRangeReachesNativePreparation();
         VerifyQuotedFfmpegPathEntries();
@@ -264,24 +264,26 @@ internal static class VideoExportOrchestrationRegression
                 "The protected-path UI check must run before snapshot preparation.");
     }
 
-    private static void VerifyServiceChartOutputPathGuard()
+    private static void VerifyServiceProtectedOutputPathGuard()
     {
         // The service is callable without MainWindow's save-dialog check.
-        // Its preflight must not let an MP4 replace the loaded .adofai.
+        // Its preflight must protect the chart, song, and ffmpeg executable.
         string directory = Path.Combine(
             Path.GetTempPath(), $"ExtremeEditor-ServiceVideoGuard-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
             string chart = Path.Combine(directory, "chart.adofai");
+            string song = Path.Combine(directory, "song.ogg");
             string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
             File.WriteAllText(chart, "source chart sentinel");
+            File.WriteAllText(song, "source song sentinel");
             File.WriteAllText(ffmpeg, "ffmpeg placeholder");
 
             LevelDocument level = LevelDocument.CreateSynthetic(2);
             level.SourcePath = chart;
             var source = new VideoExportSource(
-                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), song);
 
             VideoExportRequest Request(string output) => new(
                 source, output, ffmpeg, 0.0, 1.0, 30, 2, 2, 100.0, false);
@@ -290,7 +292,13 @@ internal static class VideoExportOrchestrationRegression
             {
                 chart,
                 Path.Combine(directory, "sub", "..", "chart.adofai"),
-                chart.ToUpperInvariant()
+                chart.ToUpperInvariant(),
+                song,
+                Path.Combine(directory, "sub", "..", "song.ogg"),
+                song.ToUpperInvariant(),
+                ffmpeg,
+                Path.Combine(directory, "sub", "..", "ffmpeg.exe"),
+                ffmpeg.ToUpperInvariant()
             })
             {
                 bool rejected = false;
@@ -306,17 +314,34 @@ internal static class VideoExportOrchestrationRegression
 
                 if (!rejected)
                     throw new InvalidOperationException(
-                        "Service preflight must reject a source-chart output path alias.");
+                        "Service preflight must reject chart, song, and ffmpeg output path aliases.");
             }
 
-            if (File.ReadAllText(chart) != "source chart sentinel")
-                throw new InvalidOperationException("Rejected export modified the source chart.");
+            if (File.ReadAllText(chart) != "source chart sentinel" ||
+                File.ReadAllText(song) != "source song sentinel" ||
+                File.ReadAllText(ffmpeg) != "ffmpeg placeholder")
+                throw new InvalidOperationException("Rejected export modified a protected input file.");
 
             Request(Path.Combine(directory, "chart.mp4")).Validate();
 
-            // Synthetic documents have no on-disk chart to protect.
+            // Synthetic documents have no on-disk chart to protect, but the
+            // song and encoder executable must remain protected.
             level.SourcePath = "<synthetic>";
             Request(chart).Validate();
+            foreach (string protectedOutput in new[] { song, ffmpeg })
+            {
+                try
+                {
+                    Request(protectedOutput).Validate();
+                    throw new InvalidOperationException(
+                        "Synthetic charts must still protect their song and ffmpeg.");
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    // Expected: only the chart exemption changes.
+                }
+            }
         }
         finally
         {
