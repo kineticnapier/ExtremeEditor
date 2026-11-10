@@ -39,6 +39,14 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         cancellationToken.ThrowIfCancellationRequested();
 
         string outputPath = Path.GetFullPath(startInfo.OutputPath);
+        // Direct encoder callers can bypass VideoExportRequest.Validate.
+        // Reject directory destinations before creating audio/video staging
+        // files or starting ffmpeg, rather than failing during final commit.
+        if (Path.EndsInDirectorySeparator(startInfo.OutputPath) ||
+            Directory.Exists(outputPath))
+            throw new ArgumentException(
+                "Video output path must name a file, not a directory.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         // Direct encoder callers must not replace the executable used to encode.
         // VideoExportRequest already rejects this, but it can be bypassed.
         if (string.Equals(outputPath, _ffmpegPath, StringComparison.OrdinalIgnoreCase))
