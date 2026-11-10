@@ -269,6 +269,9 @@ public sealed class OfflineAudioRenderer
 
                 cancellationToken.ThrowIfCancellationRequested();
                 await consumer(chunk, cancellationToken).ConfigureAwait(false);
+                // A consumer can cancel while accepting the final chunk.
+                // Observe that cancellation even when the loop would end now.
+                cancellationToken.ThrowIfCancellationRequested();
                 currentFrame += chunk.FrameCount;
             }
         }
