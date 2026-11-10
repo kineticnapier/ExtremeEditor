@@ -43,7 +43,61 @@ internal static class VideoExportEncoderRegression
         VerifyCancellationDuringChunkWrites();
         VerifyEncoderExceptionsAreTerminal();
         VerifyPreCanceledOperationsAreRetryable();
+        VerifyDirectoryOutputRejectedBeforeEncoderStart();
         VerifySourceContract();
+    }
+
+    private static void VerifyDirectoryOutputRejectedBeforeEncoderStart()
+    {
+        // The direct encoder API must enforce the same destination rule as
+        // VideoExportRequest, before creating any staging files.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-EncoderDirectory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string[] invalidOutputs =
+            [
+                directory,
+                Path.Combine(directory, "not-created") + Path.DirectorySeparatorChar
+            ];
+            foreach (string output in invalidOutputs)
+            {
+                var encoder = new FfmpegVideoEncoder(
+                    Path.Combine(directory, "unused-ffmpeg.exe"));
+                try
+                {
+                    bool rejected = false;
+                    try
+                    {
+                        encoder.BeginAsync(
+                            new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                            CancellationToken.None).GetAwaiter().GetResult();
+                    }
+                    catch (ArgumentException ex) when (
+                        ex.ParamName == nameof(VideoEncoderStartInfo.OutputPath))
+                    {
+                        rejected = true;
+                    }
+
+                    if (!rejected)
+                        throw new InvalidOperationException(
+                            "Direct ffmpeg encoder accepted a directory output path.");
+                }
+                finally
+                {
+                    encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }
+
+            if (Directory.EnumerateFileSystemEntries(directory).Any())
+                throw new InvalidOperationException(
+                    "Rejected directory output created staging files or folders.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static void VerifyEncoderContract(Type encoderType, Type startInfoType)
