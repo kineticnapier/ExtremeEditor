@@ -38,6 +38,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyChartOutputPathGuard();
         VerifyServiceChartOutputPathGuard();
         VerifySubSampleRangeSkipsNativePreparation();
+        VerifyOneSampleRangeReachesNativePreparation();
         VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
@@ -310,6 +311,55 @@ internal static class VideoExportOrchestrationRegression
             if (!rejected || nativeFactoryCalls != 0 || File.Exists(output))
                 throw new InvalidOperationException(
                     "Sub-sample video export must fail before native or output initialization.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyOneSampleRangeReachesNativePreparation()
+    {
+        // The zero-sample guard must not reject a valid one-sample interval.
+        // Stop at the native factory so no real renderer or ffmpeg is needed.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-OneSampleVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            string output = Path.Combine(directory, "one-sample.mp4");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+            var request = new VideoExportRequest(
+                source, output, ffmpeg, 0.0, 1.0 / 44100.0, 60, 2, 2, 100.0, false);
+            int nativeFactoryCalls = 0;
+            var service = new VideoExportService((_, _) =>
+            {
+                nativeFactoryCalls++;
+                throw new InvalidOperationException("One-sample native factory sentinel.");
+            });
+
+            bool reachedNative = false;
+            try
+            {
+                service.ExportAsync(
+                    request,
+                    new Progress<VideoExportProgress>(_ => { }),
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message == "One-sample native factory sentinel.")
+            {
+                reachedNative = true;
+            }
+
+            if (!reachedNative || nativeFactoryCalls != 1 || File.Exists(output))
+                throw new InvalidOperationException(
+                    "A one-sample video export must pass audio preflight and reach native preparation.");
         }
         finally
         {
