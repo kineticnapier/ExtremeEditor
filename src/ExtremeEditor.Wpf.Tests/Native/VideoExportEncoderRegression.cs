@@ -45,6 +45,7 @@ internal static class VideoExportEncoderRegression
         VerifyPreCanceledOperationsAreRetryable();
         VerifyMissingFfmpegRejectedBeforeEncoderStart();
         VerifyDirectoryOutputRejectedBeforeEncoderStart();
+        VerifyDirectEncoderProtectsFfmpegExecutable();
         VerifySourceContract();
     }
 
@@ -93,6 +94,66 @@ internal static class VideoExportEncoderRegression
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void VerifyDirectEncoderProtectsFfmpegExecutable()
+    {
+        // Service callers already reject this output path. A direct encoder
+        // caller must also refuse to replace the executable before staging.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-EncoderFfmpegGuard-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            const string sentinel = "original ffmpeg executable";
+            File.WriteAllText(ffmpeg, sentinel);
+
+            string[] protectedOutputs =
+            [
+                ffmpeg,
+                Path.Combine(directory, "unused", "..", "ffmpeg.exe"),
+                ffmpeg.ToUpperInvariant()
+            ];
+            foreach (string output in protectedOutputs)
+            {
+                var encoder = new FfmpegVideoEncoder(ffmpeg);
+                try
+                {
+                    bool rejected = false;
+                    try
+                    {
+                        encoder.BeginAsync(
+                            new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                            CancellationToken.None).GetAwaiter().GetResult();
+                    }
+                    catch (ArgumentException ex) when (
+                        ex.ParamName == nameof(VideoEncoderStartInfo.OutputPath))
+                    {
+                        rejected = true;
+                    }
+
+                    if (!rejected)
+                        throw new InvalidOperationException(
+                            "Direct ffmpeg encoder accepted its executable as the video destination.");
+                }
+                finally
+                {
+                    encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }
+
+            if (File.ReadAllText(ffmpeg) != sentinel ||
+                Directory.EnumerateFileSystemEntries(directory).Count() != 1)
+            {
+                throw new InvalidOperationException(
+                    "Rejected ffmpeg executable output modified the executable or created staging files.");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
