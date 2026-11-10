@@ -36,6 +36,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyProgressLifecycle();
         VerifyDisposedCancellationSource();
         VerifyChartOutputPathGuard();
+        VerifyProtectedVideoOutputPaths();
         VerifyServiceChartOutputPathGuard();
         VerifySubSampleRangeSkipsNativePreparation();
         VerifyOneSampleRangeReachesNativePreparation();
@@ -208,6 +209,59 @@ internal static class VideoExportOrchestrationRegression
         if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
             throw new InvalidOperationException(
                 "Video export must reject source-chart output paths before snapshot preparation.");
+    }
+
+    private static void VerifyProtectedVideoOutputPaths()
+    {
+        // The UI must reject protected inputs before the expensive snapshot.
+        // The service guard remains necessary for callers without a dialog.
+        MethodInfo guard = typeof(MainWindow).GetMethod(
+                "IsVideoExportOutputProtectedPath",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export input-path guard is missing.");
+
+        bool Collides(string output, string chart, string? song, string ffmpeg) =>
+            (bool)(guard.Invoke(null, [output, chart, song, ffmpeg])
+                ?? throw new InvalidOperationException("Video export path guard returned null."));
+
+        string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor-ProtectedVideoPaths");
+        string chart = Path.Combine(directory, "chart.adofai");
+        string song = Path.Combine(directory, "audio.ogg");
+        string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+        string video = Path.Combine(directory, "video.mp4");
+
+        foreach (string protectedOutput in new[]
+        {
+            chart,
+            Path.Combine(directory, "nested", "..", "chart.adofai"),
+            song,
+            Path.Combine(directory, "nested", "..", "audio.ogg"),
+            ffmpeg,
+            ffmpeg.ToUpperInvariant()
+        })
+        {
+            if (!Collides(protectedOutput, chart, song, ffmpeg))
+                throw new InvalidOperationException(
+                    "The UI must reject chart, song, and ffmpeg output path aliases.");
+        }
+
+        if (Collides(video, chart, song, ffmpeg) ||
+            Collides(video, chart, null, ffmpeg))
+        {
+            throw new InvalidOperationException(
+                "The UI must accept a distinct MP4 path with or without source audio.");
+        }
+
+        string uiSource = File.ReadAllText(Path.Combine(
+            FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow",
+            "MainWindow.VideoExport.cs"));
+        int preflight = uiSource.IndexOf(
+            "if (IsVideoExportOutputProtectedPath(", StringComparison.Ordinal);
+        int snapshot = uiSource.IndexOf(
+            "using var cancellation = new CancellationTokenSource();", StringComparison.Ordinal);
+        if (preflight < 0 || snapshot <= preflight)
+            throw new InvalidOperationException(
+                "The protected-path UI check must run before snapshot preparation.");
     }
 
     private static void VerifyServiceChartOutputPathGuard()
