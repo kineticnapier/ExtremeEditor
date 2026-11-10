@@ -203,12 +203,12 @@ internal static class VideoExportOrchestrationRegression
             FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.VideoExport.cs"));
         int accepted = uiSource.IndexOf("if (saveDialog.ShowDialog(this) != true)", StringComparison.Ordinal);
         int checkedPath = uiSource.IndexOf(
-            "if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))", StringComparison.Ordinal);
+            "if (IsVideoExportOutputProtectedPath(", StringComparison.Ordinal);
         int snapshot = uiSource.IndexOf(
             "VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
         if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
             throw new InvalidOperationException(
-                "Video export must reject source-chart output paths before snapshot preparation.");
+                "Video export must reject source-chart output paths through the protected-path guard before snapshot preparation.");
     }
 
     private static void VerifyProtectedVideoOutputPaths()
