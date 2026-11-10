@@ -54,15 +54,20 @@ internal sealed record VideoExportRequest(
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
-        // Finalization replaces an existing destination. Never allow an export
-        // to overwrite the source audio or the ffmpeg executable itself.
-        if (string.Equals(resolvedOutputPath, Path.GetFullPath(FfmpegPath),
+        // The UI checks the source chart, but direct service callers can bypass
+        // the save dialog. Never replace the chart, source audio or ffmpeg itself.
+        string? chartPath = Source.Level.SourcePath;
+        if ((!string.IsNullOrWhiteSpace(chartPath) &&
+             !string.Equals(chartPath, "<synthetic>", StringComparison.Ordinal) &&
+             string.Equals(resolvedOutputPath, Path.GetFullPath(chartPath),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            string.Equals(resolvedOutputPath, Path.GetFullPath(FfmpegPath),
                 StringComparison.OrdinalIgnoreCase) ||
             (!string.IsNullOrWhiteSpace(Source.SongPath) &&
              string.Equals(resolvedOutputPath, Path.GetFullPath(Source.SongPath),
                  StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException(
-                "Video output path must differ from the song and ffmpeg executable paths.",
+                "Video output path must differ from the source chart, song, and ffmpeg executable paths.",
                 nameof(OutputPath));
         if (!double.IsFinite(StartChartTimeSeconds) || StartChartTimeSeconds < 0.0)
             throw new ArgumentOutOfRangeException(nameof(StartChartTimeSeconds));
