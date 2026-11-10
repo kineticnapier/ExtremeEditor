@@ -43,8 +43,57 @@ internal static class VideoExportEncoderRegression
         VerifyCancellationDuringChunkWrites();
         VerifyEncoderExceptionsAreTerminal();
         VerifyPreCanceledOperationsAreRetryable();
+        VerifyMissingFfmpegRejectedBeforeEncoderStart();
         VerifyDirectoryOutputRejectedBeforeEncoderStart();
         VerifySourceContract();
+    }
+
+    private static void VerifyMissingFfmpegRejectedBeforeEncoderStart()
+    {
+        // Direct encoder callers must fail before staging audio or creating
+        // the destination directory if ffmpeg is absent.
+        string root = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-MissingFfmpeg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string ffmpeg = Path.Combine(root, "missing-ffmpeg.exe");
+            string outputDirectory = Path.Combine(root, "not-created");
+            string output = Path.Combine(outputDirectory, "video.mp4");
+            var encoder = new FfmpegVideoEncoder(ffmpeg);
+            try
+            {
+                bool rejected = false;
+                try
+                {
+                    encoder.BeginAsync(
+                        new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                        CancellationToken.None).GetAwaiter().GetResult();
+                }
+                catch (FileNotFoundException ex) when (
+                    string.Equals(ex.FileName, Path.GetFullPath(ffmpeg),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    rejected = true;
+                }
+
+                if (!rejected)
+                    throw new InvalidOperationException(
+                        "Direct ffmpeg encoder accepted a missing executable.");
+                if (Directory.Exists(outputDirectory) ||
+                    Directory.EnumerateFileSystemEntries(root).Any())
+                    throw new InvalidOperationException(
+                        "Missing ffmpeg created an output directory or staging files.");
+            }
+            finally
+            {
+                encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static void VerifyDirectoryOutputRejectedBeforeEncoderStart()
