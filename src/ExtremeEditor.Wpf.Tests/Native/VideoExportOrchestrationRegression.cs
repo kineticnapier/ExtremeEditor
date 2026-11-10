@@ -1,5 +1,7 @@
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -34,6 +36,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyProgressLifecycle();
         VerifyDisposedCancellationSource();
         VerifyChartOutputPathGuard();
+        VerifyServiceChartOutputPathGuard();
         VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
@@ -202,6 +205,66 @@ internal static class VideoExportOrchestrationRegression
         if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
             throw new InvalidOperationException(
                 "Video export must reject source-chart output paths before snapshot preparation.");
+    }
+
+    private static void VerifyServiceChartOutputPathGuard()
+    {
+        // The service is callable without MainWindow's save-dialog check.
+        // Its preflight must not let an MP4 replace the loaded .adofai.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-ServiceVideoGuard-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string chart = Path.Combine(directory, "chart.adofai");
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            File.WriteAllText(chart, "source chart sentinel");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            level.SourcePath = chart;
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+
+            VideoExportRequest Request(string output) => new(
+                source, output, ffmpeg, 0.0, 1.0, 30, 2, 2, 100.0, false);
+
+            foreach (string output in new[]
+            {
+                chart,
+                Path.Combine(directory, "sub", "..", "chart.adofai"),
+                chart.ToUpperInvariant()
+            })
+            {
+                bool rejected = false;
+                try
+                {
+                    Request(output).Validate();
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    rejected = true;
+                }
+
+                if (!rejected)
+                    throw new InvalidOperationException(
+                        "Service preflight must reject a source-chart output path alias.");
+            }
+
+            if (File.ReadAllText(chart) != "source chart sentinel")
+                throw new InvalidOperationException("Rejected export modified the source chart.");
+
+            Request(Path.Combine(directory, "chart.mp4")).Validate();
+
+            // Synthetic documents have no on-disk chart to protect.
+            level.SourcePath = "<synthetic>";
+            Request(chart).Validate();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static void VerifyQuotedFfmpegPathEntries()
