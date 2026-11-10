@@ -422,7 +422,7 @@ internal static class VideoExportOrchestrationRegression
             File.WriteAllText(expected, "test executable placeholder");
             Environment.SetEnvironmentVariable(variable, directory);
             string reference = $"%{variable}%";
-            foreach (string entry in new[] { reference, $"\\"{reference}\\"" })
+            foreach (string entry in new[] { reference, $"\"{reference}\"" })
             {
                 string? actual = resolver.Invoke(null, [entry]) as string;
                 if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
