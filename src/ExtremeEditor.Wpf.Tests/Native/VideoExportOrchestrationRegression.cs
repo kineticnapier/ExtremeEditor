@@ -37,6 +37,7 @@ internal static class VideoExportOrchestrationRegression
         VerifyDisposedCancellationSource();
         VerifyChartOutputPathGuard();
         VerifyServiceChartOutputPathGuard();
+        VerifySubSampleRangeSkipsNativePreparation();
         VerifyQuotedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
@@ -260,6 +261,55 @@ internal static class VideoExportOrchestrationRegression
             // Synthetic documents have no on-disk chart to protect.
             level.SourcePath = "<synthetic>";
             Request(chart).Validate();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifySubSampleRangeSkipsNativePreparation()
+    {
+        // A valid positive chart interval can round to zero PCM frames.
+        // It must fail before loading native assets or opening ffmpeg staging.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-SubSampleVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            string output = Path.Combine(directory, "subsample.mp4");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+            var request = new VideoExportRequest(
+                source, output, ffmpeg, 0.0, 0.000001, 60, 2, 2, 100.0, false);
+            int nativeFactoryCalls = 0;
+            var service = new VideoExportService((_, _) =>
+            {
+                nativeFactoryCalls++;
+                throw new InvalidOperationException("Native renderer must not be initialized.");
+            });
+
+            bool rejected = false;
+            try
+            {
+                service.ExportAsync(
+                    request,
+                    new Progress<VideoExportProgress>(_ => { }),
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message.Contains("shorter than one PCM sample", StringComparison.Ordinal))
+            {
+                rejected = true;
+            }
+
+            if (!rejected || nativeFactoryCalls != 0 || File.Exists(output))
+                throw new InvalidOperationException(
+                    "Sub-sample video export must fail before native or output initialization.");
         }
         finally
         {
