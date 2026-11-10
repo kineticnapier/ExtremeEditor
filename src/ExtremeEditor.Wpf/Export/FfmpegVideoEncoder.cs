@@ -53,6 +53,11 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             throw new ArgumentException(
                 "Video output path must differ from the ffmpeg executable path.",
                 nameof(VideoEncoderStartInfo.OutputPath));
+        // The service checks this during request validation, but direct
+        // encoder callers can bypass it. Fail before creating output folders
+        // or temporary PCM files when ffmpeg is missing or was removed.
+        if (!File.Exists(_ffmpegPath))
+            throw new FileNotFoundException("ffmpeg executable was not found.", _ffmpegPath);
         string? outputDirectory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(outputDirectory))
             Directory.CreateDirectory(outputDirectory);
