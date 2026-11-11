@@ -47,6 +47,7 @@ internal static class VideoExportEncoderRegression
         VerifyPreCanceledOperationsAreRetryable();
         VerifyMissingFfmpegRejectedBeforeEncoderStart();
         VerifyDirectoryOutputRejectedBeforeEncoderStart();
+        VerifyLongOutputFilenameUsesShortStagingName();
         VerifyReadOnlyOutputRejectedBeforeEncoderStart();
         VerifyDirectEncoderProtectsFfmpegExecutable();
         VerifySourceContract();
@@ -206,6 +207,56 @@ internal static class VideoExportEncoderRegression
             if (Directory.EnumerateFileSystemEntries(directory).Any())
                 throw new InvalidOperationException(
                     "Rejected directory output created staging files or folders.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyLongOutputFilenameUsesShortStagingName()
+    {
+        // NTFS accepts an output basename close to 255 characters, but
+        // prepending that basename to a GUID staging filename would exceed
+        // the per-component limit before ffmpeg can create the MP4.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-LongVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            File.WriteAllText(ffmpeg, "test executable");
+            string output = Path.Combine(directory, new string('v', 220) + ".mp4");
+            var encoder = new FfmpegVideoEncoder(ffmpeg);
+            try
+            {
+                encoder.BeginAsync(
+                    new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                    CancellationToken.None).GetAwaiter().GetResult();
+
+                FieldInfo field = typeof(FfmpegVideoEncoder).GetField(
+                    "_videoTempPath", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("Video staging path field is missing.");
+                string staging = field.GetValue(encoder) as string
+                    ?? throw new InvalidOperationException("Video staging path was not prepared.");
+                string stagingName = Path.GetFileName(staging);
+                if (!string.Equals(Path.GetDirectoryName(staging), directory,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    stagingName.Length > 100 ||
+                    !stagingName.EndsWith(".tmp.mp4", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "Video staging must remain in the destination directory with a bounded filename.");
+                }
+
+                if (File.Exists(output))
+                    throw new InvalidOperationException(
+                        "Beginning a video export unexpectedly created the final output.");
+            }
+            finally
+            {
+                encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
         }
         finally
         {
