@@ -193,6 +193,7 @@ internal static class VideoExportOrchestrationRegression
         if (!Collides(chart, chart) ||
             !Collides(normalizedAlias, chart) ||
             !Collides(chart.ToUpperInvariant(), chart) ||
+            !Collides(@"\\?\" + chart, chart) ||
             Collides(video, chart))
         {
             throw new InvalidOperationException(
@@ -237,7 +238,10 @@ internal static class VideoExportOrchestrationRegression
             song,
             Path.Combine(directory, "nested", "..", "audio.ogg"),
             ffmpeg,
-            ffmpeg.ToUpperInvariant()
+            ffmpeg.ToUpperInvariant(),
+            @"\\?\" + chart,
+            @"\\?\" + song,
+            @"\\?\" + ffmpeg
         })
         {
             if (!Collides(protectedOutput, chart, song, ffmpeg))
@@ -298,7 +302,10 @@ internal static class VideoExportOrchestrationRegression
                 song.ToUpperInvariant(),
                 ffmpeg,
                 Path.Combine(directory, "sub", "..", "ffmpeg.exe"),
-                ffmpeg.ToUpperInvariant()
+                ffmpeg.ToUpperInvariant(),
+                @"\\?\" + chart,
+                @"\\?\" + song,
+                @"\\?\" + ffmpeg
             })
             {
                 bool rejected = false;

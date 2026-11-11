@@ -66,7 +66,7 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
                 nameof(VideoEncoderStartInfo.OutputPath));
         // Direct encoder callers must not replace the executable used to encode.
         // VideoExportRequest already rejects this, but it can be bypassed.
-        if (string.Equals(outputPath, _ffmpegPath, StringComparison.OrdinalIgnoreCase))
+        if (VideoExportOutputPathGuard.RefersToSameWindowsFile(outputPath, _ffmpegPath))
             throw new ArgumentException(
                 "Video output path must differ from the ffmpeg executable path.",
                 nameof(VideoEncoderStartInfo.OutputPath));

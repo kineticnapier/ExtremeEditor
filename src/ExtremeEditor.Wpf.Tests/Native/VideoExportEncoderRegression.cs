@@ -120,7 +120,8 @@ internal static class VideoExportEncoderRegression
             [
                 ffmpeg,
                 Path.Combine(directory, "unused", "..", "ffmpeg.exe"),
-                ffmpeg.ToUpperInvariant()
+                ffmpeg.ToUpperInvariant(),
+                @"\\?\" + ffmpeg
             ];
             foreach (string output in protectedOutputs)
             {

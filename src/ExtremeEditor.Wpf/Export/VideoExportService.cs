@@ -72,6 +72,28 @@ internal static class VideoExportOutputPathGuard
         return false;
     }
 
+    // Path.GetFullPath retains the \\?\ prefix. Compare ordinary and
+    // extended-length spellings before replacing protected input files.
+    internal static bool RefersToSameWindowsFile(string first, string second)
+    {
+        static string ComparisonPath(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (fullPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                return @"\\" + fullPath[8..];
+            if (fullPath.StartsWith(@"\\?\", StringComparison.Ordinal) &&
+                fullPath.Length >= 7 &&
+                char.IsAsciiLetter(fullPath[4]) && fullPath[5] == ':' &&
+                fullPath[6] == '\\')
+                return fullPath[4..];
+            return fullPath;
+        }
+
+        return string.Equals(
+            ComparisonPath(first), ComparisonPath(second),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     // A destination like existing-file/nested/video.mp4 cannot be created.
     // Detect it before audio probing and native renderer initialization.
     internal static bool HasFileAsAncestor(string fullPath)
@@ -178,13 +200,10 @@ internal sealed record VideoExportRequest(
         string? chartPath = Source.Level.SourcePath;
         if ((!string.IsNullOrWhiteSpace(chartPath) &&
              !string.Equals(chartPath, "<synthetic>", StringComparison.Ordinal) &&
-             string.Equals(resolvedOutputPath, Path.GetFullPath(chartPath),
-                 StringComparison.OrdinalIgnoreCase)) ||
-            string.Equals(resolvedOutputPath, Path.GetFullPath(FfmpegPath),
-                StringComparison.OrdinalIgnoreCase) ||
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, chartPath)) ||
+            VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, FfmpegPath) ||
             (!string.IsNullOrWhiteSpace(Source.SongPath) &&
-             string.Equals(resolvedOutputPath, Path.GetFullPath(Source.SongPath),
-                 StringComparison.OrdinalIgnoreCase)))
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, Source.SongPath)))
             throw new ArgumentException(
                 "Video output path must differ from the source chart, song, and ffmpeg executable paths.",
                 nameof(OutputPath));

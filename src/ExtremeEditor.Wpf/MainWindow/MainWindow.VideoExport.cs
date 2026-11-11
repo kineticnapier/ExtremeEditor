@@ -243,10 +243,7 @@ public partial class MainWindow
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(chartPath);
-        return string.Equals(
-            Path.GetFullPath(outputPath),
-            Path.GetFullPath(chartPath),
-            StringComparison.OrdinalIgnoreCase);
+        return VideoExportOutputPathGuard.RefersToSameWindowsFile(outputPath, chartPath);
     }
 
     internal static bool IsVideoExportOutputProtectedPath(
@@ -255,11 +252,9 @@ public partial class MainWindow
         ArgumentException.ThrowIfNullOrWhiteSpace(ffmpegPath);
         string output = Path.GetFullPath(outputPath);
         return IsVideoExportOutputSameAsChart(output, chartPath) ||
-            string.Equals(output, Path.GetFullPath(ffmpegPath),
-                StringComparison.OrdinalIgnoreCase) ||
+            VideoExportOutputPathGuard.RefersToSameWindowsFile(output, ffmpegPath) ||
             (!string.IsNullOrWhiteSpace(songPath) &&
-             string.Equals(output, Path.GetFullPath(songPath),
-                 StringComparison.OrdinalIgnoreCase));
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(output, songPath));
     }
 
     internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
