@@ -18,6 +18,20 @@ internal static class VideoExportOutputPathGuard
             string component = components[index];
             if (component is "." or "..")
                 continue;
+            // Win32 rejects these characters in ordinary path components.
+            // The question mark in the extended path prefix \\?\\ is syntax,
+            // not part of a filename; preserve that prefix.
+            bool extendedPrefixMarker = index == 0 && component == "?" &&
+                path.StartsWith(@"\\?\", StringComparison.Ordinal);
+            if (!extendedPrefixMarker)
+            {
+                foreach (char character in component)
+                {
+                    if (character < ' ' ||
+                        character is '<' or '>' or '"' or '|' or '?' or '*')
+                        return true;
+                }
+            }
             // A colon outside a drive designator denotes an NTFS alternate
             // data stream (or an invalid Win32 path). Never export into one.
             // Preserve C:\\ and C:relative.mp4 drive syntax, including the
