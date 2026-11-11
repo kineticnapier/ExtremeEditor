@@ -72,6 +72,23 @@ internal static class VideoExportOutputPathGuard
         return false;
     }
 
+    // A destination like existing-file/nested/video.mp4 cannot be created.
+    // Detect it before audio probing and native renderer initialization.
+    internal static bool HasFileAsAncestor(string fullPath)
+    {
+        string? directory = Path.GetDirectoryName(fullPath);
+        while (!string.IsNullOrEmpty(directory))
+        {
+            if (File.Exists(directory))
+                return true;
+            string? parent = Path.GetDirectoryName(directory);
+            if (string.Equals(parent, directory, StringComparison.Ordinal))
+                break;
+            directory = parent;
+        }
+        return false;
+    }
+
     private static bool IsReservedWindowsDeviceComponent(string component)
     {
         // Win32 device names remain reserved when followed by an extension.
@@ -142,6 +159,10 @@ internal sealed record VideoExportRequest(
         // before audio probing and expensive native scene preparation.
         if (Path.EndsInDirectorySeparator(OutputPath) || Directory.Exists(resolvedOutputPath))
             throw new ArgumentException("Video output path must name a file, not a directory.", nameof(OutputPath));
+        if (VideoExportOutputPathGuard.HasFileAsAncestor(resolvedOutputPath))
+            throw new ArgumentException(
+                "Video output path has a file in its parent directory chain.",
+                nameof(OutputPath));
         // An existing read-only destination cannot be safely replaced at the
         // end of an otherwise expensive export. Reject it before probing audio
         // or initializing the native renderer.

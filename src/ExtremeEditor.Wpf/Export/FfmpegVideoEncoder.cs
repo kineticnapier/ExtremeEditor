@@ -53,6 +53,10 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             throw new ArgumentException(
                 "Video output path must name a file, not a directory.",
                 nameof(VideoEncoderStartInfo.OutputPath));
+        if (VideoExportOutputPathGuard.HasFileAsAncestor(outputPath))
+            throw new ArgumentException(
+                "Video output path has a file in its parent directory chain.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         // Direct encoder callers bypass the request preflight. Do not create
         // staging files for a destination that cannot be replaced.
         if (File.Exists(outputPath) &&

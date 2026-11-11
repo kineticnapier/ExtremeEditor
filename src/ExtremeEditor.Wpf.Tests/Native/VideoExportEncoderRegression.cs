@@ -47,6 +47,7 @@ internal static class VideoExportEncoderRegression
         VerifyPreCanceledOperationsAreRetryable();
         VerifyMissingFfmpegRejectedBeforeEncoderStart();
         VerifyDirectoryOutputRejectedBeforeEncoderStart();
+        VerifyFileAncestorOutputRejectedBeforeEncoderStart();
         VerifyAmbiguousOutputPathsRejectedBeforeEncoderStart();
         VerifyLongOutputFilenameUsesShortStagingName();
         VerifyReadOnlyOutputRejectedBeforeEncoderStart();
@@ -351,6 +352,91 @@ internal static class VideoExportEncoderRegression
                 Directory.EnumerateFileSystemEntries(directory).Count() != 1)
                 throw new InvalidOperationException(
                     "Rejected output names modified the executable or created staging files.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyFileAncestorOutputRejectedBeforeEncoderStart()
+    {
+        // A file used as an ancestor is not a directory, even if one or more
+        // nonexistent directory components appear between it and the output.
+        // Both service preflight and direct encoder must reject without writes.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-FileAncestor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            string blocker = Path.Combine(directory, "not-a-directory");
+            const string sentinel = "original ancestor file";
+            File.WriteAllText(ffmpeg, "placeholder executable");
+            File.WriteAllText(blocker, sentinel);
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level,
+                TimingMapBuilder.Build(level),
+                HitSoundTimelineBuilder.Build(level),
+                null);
+
+            foreach (string output in new[]
+                     {
+                         Path.Combine(blocker, "video.mp4"),
+                         Path.Combine(blocker, "nested", "video.mp4")
+                     })
+            {
+                var request = new VideoExportRequest(
+                    source, output, ffmpeg, 0.0, 1.0, 30, 2, 2, 100.0, true);
+                bool requestRejected = false;
+                try
+                {
+                    request.Validate();
+                }
+                catch (ArgumentException ex) when (
+                    ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    requestRejected = true;
+                }
+                if (!requestRejected)
+                    throw new InvalidOperationException(
+                        "Video export request accepted a file ancestor: " + output);
+
+                var encoder = new FfmpegVideoEncoder(ffmpeg);
+                try
+                {
+                    bool encoderRejected = false;
+                    try
+                    {
+                        encoder.BeginAsync(
+                            new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                            CancellationToken.None).GetAwaiter().GetResult();
+                    }
+                    catch (ArgumentException ex) when (
+                        ex.ParamName == nameof(VideoEncoderStartInfo.OutputPath))
+                    {
+                        encoderRejected = true;
+                    }
+                    if (!encoderRejected)
+                        throw new InvalidOperationException(
+                            "Direct ffmpeg encoder accepted a file ancestor: " + output);
+                }
+                finally
+                {
+                    encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }
+
+            if (VideoExportOutputPathGuard.HasFileAsAncestor(
+                    Path.Combine(directory, "new", "nested", "video.mp4")))
+                throw new InvalidOperationException(
+                    "Video output path guard rejected a nonexistent directory chain.");
+            if (File.ReadAllText(blocker) != sentinel ||
+                Directory.EnumerateFileSystemEntries(directory).Count() != 2)
+                throw new InvalidOperationException(
+                    "Rejected file-ancestor output modified files or created staging.");
         }
         finally
         {
