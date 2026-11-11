@@ -11,6 +11,12 @@ internal static class VideoExportOutputPathGuard
 {
     internal static bool HasAmbiguousWindowsComponent(string path)
     {
+        // The Win32 device namespace (\\\\.\\) and GLOBALROOT bypass
+        // ordinary file-path resolution. Neither names an MP4 destination.
+        if (path.StartsWith(@"\\\\.\\", StringComparison.Ordinal) ||
+            path.StartsWith(@"\\\\?\\GLOBALROOT\\", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         string[] components = path.Split(
             ['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
         for (int index = 0; index < components.Length; index++)
