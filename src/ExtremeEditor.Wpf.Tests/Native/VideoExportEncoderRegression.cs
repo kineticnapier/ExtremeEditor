@@ -265,6 +265,11 @@ internal static class VideoExportEncoderRegression
                 directory + Path.DirectorySeparatorChar + "video\u001F.mp4",
                 directory + Path.DirectorySeparatorChar + "folder?" +
                     Path.DirectorySeparatorChar + "video.mp4",
+                // \\?\ paths do not support the ordinary . / .. segments.
+                // Reject before any native or ffmpeg output preparation.
+                @"\\?\C:\exports\.\video.mp4",
+                @"\\?\C:\exports\..\video.mp4",
+                @"\\?\UNC\server\share\..\video.mp4",
                 // C:CON.mp4 is drive-relative, but still resolves to CON.mp4.
                 @"C:CON.mp4",
                 @"C:NUL.mp4",
