@@ -143,6 +143,19 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
+        // Reject Win32 path aliases before preparing a potentially expensive
+        // export snapshot. The service repeats this check for non-UI callers.
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(saveDialog.FileName))
+        {
+            MessageBox.Show(
+                this,
+                "Video output path components must not end with a dot or space.",
+                "Export Video",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
         // Reject protected input paths before building the export snapshot.
         // The service also validates these paths for non-UI callers.
         if (IsVideoExportOutputProtectedPath(
