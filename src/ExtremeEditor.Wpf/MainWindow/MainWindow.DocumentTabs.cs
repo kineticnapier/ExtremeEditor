@@ -106,6 +106,31 @@ public partial class MainWindow
         return tab;
     }
 
+    // A native refresh or camera query can fail before TryUploadDocumentTabScene
+    // takes ownership of the rollback. Keep this pre-upload boundary observable.
+    internal static bool TryPrepareDocumentTabNativeSwitch(
+        Action flushPendingRefresh,
+        Func<Native.NativeEditorCameraState?> captureCamera,
+        out Native.NativeEditorCameraState? previousCamera,
+        out Exception? error)
+    {
+        ArgumentNullException.ThrowIfNull(flushPendingRefresh);
+        ArgumentNullException.ThrowIfNull(captureCamera);
+        previousCamera = null;
+        error = null;
+        try
+        {
+            flushPendingRefresh();
+            previousCamera = captureCamera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex;
+            return false;
+        }
+    }
+
     private bool CanSwitchDocumentTabs(bool allowDuringWindowClose = false)
     {
         if (_isClosed || _isLoading || _playbackPreparationPending ||
@@ -216,11 +241,27 @@ public partial class MainWindow
         tab.TimingMap = targetTimingMap;
         tab.HitSoundTimeline = targetHitSoundTimeline;
 
-        // Finish any pending edits while the old tab is still active. The
-        // native upload must succeed before committing the managed tab switch.
-        FlushEditorPlaybackRefresh();
+        // Finish pending edits and capture the old native camera before the
+        // upload. Both operations can fail before the guarded upload begins.
+        // Keep the old managed tab active and require a full native refresh on
+        // retry if the pre-upload native state is uncertain.
+        if (!TryPrepareDocumentTabNativeSwitch(
+                FlushEditorPlaybackRefresh,
+                NativeViewport.TryGetEditorCamera,
+                out Native.NativeEditorCameraState? previousCamera,
+                out Exception? preUploadError))
+        {
+            _nativeSceneRecoveryFailed = true;
+            if (activationGeneration == _tabActivationGeneration && !_isClosed)
+            {
+                _pendingTabNavigationTarget = ClearFailedPendingTabTarget(
+                    _pendingTabNavigationTarget, tab);
+                StatusText.Text = $"Could not activate {tab.DisplayName}: {preUploadError!.Message}";
+            }
+            return false;
+        }
+
         EditorDocumentTab? previous = _documentTabs.ActiveTab;
-        Native.NativeEditorCameraState? previousCamera = NativeViewport.TryGetEditorCamera();
         Native.PreparedNativeLevel nativeLevel = await levelPreparation;
         Native.PreparedNativePlayback? nativePlayback = deferPlaybackTimeline
             ? null : await playbackPreparation!;
