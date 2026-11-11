@@ -271,9 +271,9 @@ internal static class VideoExportEncoderRegression
                 @"\\?\C:\exports\..\video.mp4",
                 @"\\?\UNC\server\share\..\video.mp4",
                 // Device namespace paths must not be treated as ordinary files.
-                @"\\\\.\\C:\\exports\\video.mp4",
-                @"\\\\.\\pipe\\video.mp4",
-                @"\\\\?\\GLOBALROOT\\Device\\example\\video.mp4",
+                @"\\.\C:\exports\video.mp4",
+                @"\\.\pipe\video.mp4",
+                @"\\?\GLOBALROOT\Device\example\video.mp4",
                 // C:CON.mp4 is drive-relative, but still resolves to CON.mp4.
                 @"C:CON.mp4",
                 @"C:NUL.mp4",
