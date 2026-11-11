@@ -263,7 +263,7 @@ internal static class VideoExportEncoderRegression
                          Path.Combine(directory, "company.mp4"),
                          Path.Combine(directory, "COM0.mp4"),
                          Path.Combine(directory, "LPT10.mp4"),
-                         @"C:\\video.mp4",
+                         @"C:\video.mp4",
                          @"C:relative.mp4"
                      })
             {
