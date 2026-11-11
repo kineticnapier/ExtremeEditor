@@ -4,9 +4,9 @@ using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Export;
 
-// Windows normally aliases path components ending in dots or spaces to
-// names without those suffixes. Reject ambiguous output names before
-// comparing protected source paths or creating encoder staging files.
+// Win32 aliases trailing dots/spaces and reserves device names such as
+// CON.mp4 and LPT1.txt even with an extension. Reject these destinations
+// before comparing protected paths or creating encoder staging files.
 internal static class VideoExportOutputPathGuard
 {
     internal static bool HasAmbiguousWindowsComponent(string path)
@@ -15,11 +15,30 @@ internal static class VideoExportOutputPathGuard
         {
             if (component is "." or "..")
                 continue;
-            if (component.EndsWith('.') || component.EndsWith(' '))
+            if (component.EndsWith('.') || component.EndsWith(' ') ||
+                IsReservedWindowsDeviceComponent(component))
                 return true;
         }
 
         return false;
+    }
+
+    private static bool IsReservedWindowsDeviceComponent(string component)
+    {
+        // Win32 device names remain reserved when followed by an extension.
+        // The superscript digits are also recognized by Windows for COM/LPT.
+        int dot = component.IndexOf('.');
+        string stem = (dot >= 0 ? component[..dot] : component)
+            .TrimEnd(' ')
+            .ToUpperInvariant();
+        if (stem is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$")
+            return true;
+        if (stem.Length != 4 ||
+            (!stem.StartsWith("COM", StringComparison.Ordinal) &&
+             !stem.StartsWith("LPT", StringComparison.Ordinal)))
+            return false;
+        char port = stem[3];
+        return (port >= '1' && port <= '9') || port is '¹' or '²' or '³';
     }
 }
 
@@ -64,7 +83,7 @@ internal sealed record VideoExportRequest(
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
         if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(OutputPath))
             throw new ArgumentException(
-                "Video output path components must not end with a dot or space.",
+                "Video output path contains an ambiguous or reserved Windows name.",
                 nameof(OutputPath));
         // Reject malformed destinations before probing audio or loading native
         // scenes. FfmpegVideoEncoder.BeginAsync also resolves this path, but
