@@ -47,6 +47,7 @@ internal static class VideoExportEncoderRegression
         VerifyPreCanceledOperationsAreRetryable();
         VerifyMissingFfmpegRejectedBeforeEncoderStart();
         VerifyDirectoryOutputRejectedBeforeEncoderStart();
+        VerifyAmbiguousOutputPathsRejectedBeforeEncoderStart();
         VerifyLongOutputFilenameUsesShortStagingName();
         VerifyReadOnlyOutputRejectedBeforeEncoderStart();
         VerifyDirectEncoderProtectsFfmpegExecutable();
@@ -207,6 +208,89 @@ internal static class VideoExportEncoderRegression
             if (Directory.EnumerateFileSystemEntries(directory).Any())
                 throw new InvalidOperationException(
                     "Rejected directory output created staging files or folders.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyAmbiguousOutputPathsRejectedBeforeEncoderStart()
+    {
+        // Win32 aliases trailing-dot/space path components. Such an alias
+        // must not bypass the protected-file comparison or create staging.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-AmbiguousVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            const string sentinel = "original executable";
+            File.WriteAllText(ffmpeg, sentinel);
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level,
+                TimingMapBuilder.Build(level),
+                HitSoundTimelineBuilder.Build(level),
+                null);
+            string[] invalidOutputs =
+            [
+                Path.Combine(directory, "video.mp4."),
+                Path.Combine(directory, "video.mp4 "),
+                Path.Combine(directory, "alias.", "video.mp4"),
+                Path.Combine(directory, "alias ", "video.mp4"),
+                ffmpeg + ".",
+                ffmpeg + " "
+            ];
+
+            foreach (string output in invalidOutputs)
+            {
+                var request = new VideoExportRequest(
+                    source, output, ffmpeg, 0.0, 1.0, 30, 2, 2, 100.0, true);
+                bool requestRejected = false;
+                try
+                {
+                    request.Validate();
+                }
+                catch (ArgumentException ex) when (
+                    ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    requestRejected = true;
+                }
+                if (!requestRejected)
+                    throw new InvalidOperationException(
+                        $"Video export request accepted an ambiguous path: {output}");
+
+                var encoder = new FfmpegVideoEncoder(ffmpeg);
+                try
+                {
+                    bool encoderRejected = false;
+                    try
+                    {
+                        encoder.BeginAsync(
+                            new VideoEncoderStartInfo(output, 2, 2, 30, 48000, 2),
+                            CancellationToken.None).GetAwaiter().GetResult();
+                    }
+                    catch (ArgumentException ex) when (
+                        ex.ParamName == nameof(VideoEncoderStartInfo.OutputPath))
+                    {
+                        encoderRejected = true;
+                    }
+                    if (!encoderRejected)
+                        throw new InvalidOperationException(
+                            $"Direct ffmpeg encoder accepted an ambiguous path: {output}");
+                }
+                finally
+                {
+                    encoder.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }
+
+            if (File.ReadAllText(ffmpeg) != sentinel ||
+                Directory.EnumerateFileSystemEntries(directory).Count() != 1)
+                throw new InvalidOperationException(
+                    "Rejected output aliases modified the executable or created staging files.");
         }
         finally
         {
