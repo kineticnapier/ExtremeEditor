@@ -78,9 +78,13 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         string id = Guid.NewGuid().ToString("N");
         _audioTempPath = Path.Combine(tempDirectory, id + ".f32le");
         _finalOutputPath = outputPath;
+        // Keep the staging file on the destination volume for atomic commit,
+        // but do not copy the destination basename: a valid long MP4 filename
+        // could otherwise make the staging filename exceed the filesystem's
+        // per-component length limit before ffmpeg can write it.
         _videoTempPath = Path.Combine(
             outputDirectory ?? Environment.CurrentDirectory,
-            $".{Path.GetFileName(outputPath)}.{id}.extremeeditor.tmp.mp4");
+            $".extremeeditor.{id}.tmp.mp4");
 
         try
         {
