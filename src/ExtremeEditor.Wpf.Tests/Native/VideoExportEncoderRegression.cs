@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Audio;
 using ExtremeEditor.Core;
 using ExtremeEditor.Wpf.Export;
 
