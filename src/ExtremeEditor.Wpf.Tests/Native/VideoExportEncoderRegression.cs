@@ -217,8 +217,8 @@ internal static class VideoExportEncoderRegression
 
     private static void VerifyAmbiguousOutputPathsRejectedBeforeEncoderStart()
     {
-        // Win32 aliases trailing-dot/space path components. Such an alias
-        // must not bypass the protected-file comparison or create staging.
+        // Win32 aliases trailing dots/spaces and reserves device names even
+        // with extensions. Neither case may create export staging files.
         string directory = Path.Combine(
             Path.GetTempPath(), $"ExtremeEditor-AmbiguousVideo-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -241,8 +241,30 @@ internal static class VideoExportEncoderRegression
                 Path.Combine(directory, "alias.", "video.mp4"),
                 Path.Combine(directory, "alias ", "video.mp4"),
                 ffmpeg + ".",
-                ffmpeg + " "
+                ffmpeg + " ",
+                Path.Combine(directory, "CON.mp4"),
+                Path.Combine(directory, "NUL.mp4"),
+                Path.Combine(directory, "PRN", "video.mp4"),
+                Path.Combine(directory, "AUX.txt"),
+                Path.Combine(directory, "COM1.mp4"),
+                Path.Combine(directory, "LPT9", "video.mp4"),
+                Path.Combine(directory, "COM².mp4"),
+                Path.Combine(directory, "CONOUT$.mp4")
             ];
+
+            // Do not reject ordinary names merely because they begin with a
+            // device-name prefix or contain a non-reserved port number.
+            foreach (string safe in new[]
+                     {
+                         Path.Combine(directory, "company.mp4"),
+                         Path.Combine(directory, "COM0.mp4"),
+                         Path.Combine(directory, "LPT10.mp4")
+                     })
+            {
+                if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(safe))
+                    throw new InvalidOperationException(
+                        $"Video export path guard rejected a normal name: {safe}");
+            }
 
             foreach (string output in invalidOutputs)
             {
@@ -290,7 +312,7 @@ internal static class VideoExportEncoderRegression
             if (File.ReadAllText(ffmpeg) != sentinel ||
                 Directory.EnumerateFileSystemEntries(directory).Count() != 1)
                 throw new InvalidOperationException(
-                    "Rejected output aliases modified the executable or created staging files.");
+                    "Rejected output names modified the executable or created staging files.");
         }
         finally
         {
