@@ -4,6 +4,132 @@ using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Export;
 
+// Win32 aliases trailing dots/spaces and reserves device names such as
+// CON.mp4 and LPT1.txt even with an extension. Reject these destinations
+// before comparing protected paths or creating encoder staging files.
+internal static class VideoExportOutputPathGuard
+{
+    internal static bool HasAmbiguousWindowsComponent(string path)
+    {
+        // The Win32 device namespace (\\.\) and GLOBALROOT bypass
+        // ordinary file-path resolution. Neither names an MP4 destination.
+        if (path.StartsWith(@"\\.\", StringComparison.Ordinal) ||
+            path.StartsWith(@"\\?\GLOBALROOT\", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        string[] components = path.Split(
+            ['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        for (int index = 0; index < components.Length; index++)
+        {
+            string component = components[index];
+            if (component is "." or "..")
+            {
+                // Extended-length Win32 paths bypass ordinary dot-segment
+                // normalization. Unlike regular paths, \\?\ paths must not
+                // contain . or .. components; reject them before preflight.
+                if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+                    return true;
+                continue;
+            }
+            // Win32 rejects these characters in ordinary path components.
+            // The question mark in the extended path prefix \\?\\ is syntax,
+            // not part of a filename; preserve that prefix.
+            bool extendedPrefixMarker = index == 0 && component == "?" &&
+                path.StartsWith(@"\\?\", StringComparison.Ordinal);
+            if (!extendedPrefixMarker)
+            {
+                foreach (char character in component)
+                {
+                    if (character < ' ' ||
+                        character is '<' or '>' or '"' or '|' or '?' or '*')
+                        return true;
+                }
+            }
+            // A colon outside a drive designator denotes an NTFS alternate
+            // data stream (or an invalid Win32 path). Never export into one.
+            // Preserve C:\\ and C:relative.mp4 drive syntax, including the
+            // drive component following an extended Win32 path prefix.
+            int colon = component.IndexOf(':');
+            bool isDrivePosition = index == 0 ||
+                (index == 1 &&
+                 (path.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+                  path.StartsWith(@"\\.\", StringComparison.Ordinal)));
+            bool driveDesignator = isDrivePosition && colon == 1 &&
+                char.IsAsciiLetter(component[0]) &&
+                component.IndexOf(':', 2) < 0;
+            // Drive-relative paths such as C:CON.mp4 have a reserved
+            // filename after the drive prefix, even though C: itself is valid.
+            bool reservedDeviceName =
+                IsReservedWindowsDeviceComponent(component) ||
+                (driveDesignator && component.Length > 2 &&
+                 IsReservedWindowsDeviceComponent(component[2..]));
+            if ((colon >= 0 && !driveDesignator) ||
+                component.EndsWith('.') || component.EndsWith(' ') ||
+                reservedDeviceName)
+                return true;
+        }
+
+        return false;
+    }
+
+    // Path.GetFullPath retains the \\?\ prefix. Compare ordinary and
+    // extended-length spellings before replacing protected input files.
+    internal static bool RefersToSameWindowsFile(string first, string second)
+    {
+        static string ComparisonPath(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (fullPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                return @"\\" + fullPath[8..];
+            if (fullPath.StartsWith(@"\\?\", StringComparison.Ordinal) &&
+                fullPath.Length >= 7 &&
+                char.IsAsciiLetter(fullPath[4]) && fullPath[5] == ':' &&
+                fullPath[6] == '\\')
+                return fullPath[4..];
+            return fullPath;
+        }
+
+        return string.Equals(
+            ComparisonPath(first), ComparisonPath(second),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    // A destination like existing-file/nested/video.mp4 cannot be created.
+    // Detect it before audio probing and native renderer initialization.
+    internal static bool HasFileAsAncestor(string fullPath)
+    {
+        string? directory = Path.GetDirectoryName(fullPath);
+        while (!string.IsNullOrEmpty(directory))
+        {
+            if (File.Exists(directory))
+                return true;
+            string? parent = Path.GetDirectoryName(directory);
+            if (string.Equals(parent, directory, StringComparison.Ordinal))
+                break;
+            directory = parent;
+        }
+        return false;
+    }
+
+    private static bool IsReservedWindowsDeviceComponent(string component)
+    {
+        // Win32 device names remain reserved when followed by an extension.
+        // The superscript digits are also recognized by Windows for COM/LPT.
+        int dot = component.IndexOf('.');
+        string stem = (dot >= 0 ? component[..dot] : component)
+            .TrimEnd(' ')
+            .ToUpperInvariant();
+        if (stem is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$")
+            return true;
+        if (stem.Length != 4 ||
+            (!stem.StartsWith("COM", StringComparison.Ordinal) &&
+             !stem.StartsWith("LPT", StringComparison.Ordinal)))
+            return false;
+        char port = stem[3];
+        return (port >= '1' && port <= '9') || port is '¹' or '²' or '³';
+    }
+}
+
 internal sealed record VideoExportSource(
     LevelDocument Level,
     TimingMap TimingMap,
@@ -43,6 +169,10 @@ internal sealed record VideoExportRequest(
         ArgumentNullException.ThrowIfNull(Source);
         Source.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(OutputPath))
+            throw new ArgumentException(
+                "Video output path contains an ambiguous or reserved Windows name.",
+                nameof(OutputPath));
         // Reject malformed destinations before probing audio or loading native
         // scenes. FfmpegVideoEncoder.BeginAsync also resolves this path, but
         // doing so there is too late for an expensive export preflight.
@@ -51,18 +181,31 @@ internal sealed record VideoExportRequest(
         // before audio probing and expensive native scene preparation.
         if (Path.EndsInDirectorySeparator(OutputPath) || Directory.Exists(resolvedOutputPath))
             throw new ArgumentException("Video output path must name a file, not a directory.", nameof(OutputPath));
+        if (VideoExportOutputPathGuard.HasFileAsAncestor(resolvedOutputPath))
+            throw new ArgumentException(
+                "Video output path has a file in its parent directory chain.",
+                nameof(OutputPath));
+        // An existing read-only destination cannot be safely replaced at the
+        // end of an otherwise expensive export. Reject it before probing audio
+        // or initializing the native renderer.
+        if (File.Exists(resolvedOutputPath) &&
+            (File.GetAttributes(resolvedOutputPath) & FileAttributes.ReadOnly) != 0)
+            throw new ArgumentException(
+                "Video output file is read-only.", nameof(OutputPath));
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
-        // Finalization replaces an existing destination. Never allow an export
-        // to overwrite the source audio or the ffmpeg executable itself.
-        if (string.Equals(resolvedOutputPath, Path.GetFullPath(FfmpegPath),
-                StringComparison.OrdinalIgnoreCase) ||
+        // The UI checks the source chart, but direct service callers can bypass
+        // the save dialog. Never replace the chart, source audio or ffmpeg itself.
+        string? chartPath = Source.Level.SourcePath;
+        if ((!string.IsNullOrWhiteSpace(chartPath) &&
+             !string.Equals(chartPath, "<synthetic>", StringComparison.Ordinal) &&
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, chartPath)) ||
+            VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, FfmpegPath) ||
             (!string.IsNullOrWhiteSpace(Source.SongPath) &&
-             string.Equals(resolvedOutputPath, Path.GetFullPath(Source.SongPath),
-                 StringComparison.OrdinalIgnoreCase)))
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(resolvedOutputPath, Source.SongPath)))
             throw new ArgumentException(
-                "Video output path must differ from the song and ffmpeg executable paths.",
+                "Video output path must differ from the source chart, song, and ffmpeg executable paths.",
                 nameof(OutputPath));
         if (!double.IsFinite(StartChartTimeSeconds) || StartChartTimeSeconds < 0.0)
             throw new ArgumentOutOfRangeException(nameof(StartChartTimeSeconds));
@@ -172,6 +315,15 @@ internal sealed class VideoExportService
             () => offlineAudio.ProbeFormat(songPath),
             cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
+
+        // The audio renderer returns no chunks when both boundaries round to
+        // the same PCM frame. Reject that range before native scene loading,
+        // ffmpeg staging, and an eventual empty-audio MP4 attempt.
+        var (startSampleFrame, endSampleFrame) =
+            audioPlan.GetSampleRange(audioFormat.SampleRate);
+        if (endSampleFrame <= startSampleFrame)
+            throw new InvalidOperationException(
+                "Video export audio range is shorter than one PCM sample.");
 
         // Prepare the native scene before opening encoder staging files or
         // rendering audio. Keep expensive native loading off the WPF UI thread.

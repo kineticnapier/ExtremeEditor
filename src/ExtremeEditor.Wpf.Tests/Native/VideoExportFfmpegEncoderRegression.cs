@@ -258,7 +258,11 @@ internal static class VideoExportFfmpegEncoderRegression
         string directory = Path.Combine(
             Path.GetTempPath(), $"ExtremeEditor-AudioFrames-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        object encoder = constructor.Invoke(["unused-ffmpeg.exe"]);
+        // BeginAsync now validates the executable path before staging PCM.
+        // This test only writes audio; the placeholder is never launched.
+        string ffmpeg = Path.Combine(directory, "unused-ffmpeg.exe");
+        File.WriteAllText(ffmpeg, "placeholder; never executed");
+        object encoder = constructor.Invoke([ffmpeg]);
         try
         {
             Type startInfoType = encoderType.Assembly.GetType(

@@ -143,13 +143,28 @@ public partial class MainWindow
         if (saveDialog.ShowDialog(this) != true)
             return;
 
-        // Do not let a video export replace the chart being exported.
-        // The file dialog's MP4 filter is not a path safety guarantee.
-        if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))
+        // Reject Win32 path aliases and reserved device names before preparing
+        // an expensive snapshot. The service checks non-UI callers too.
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(saveDialog.FileName))
         {
             MessageBox.Show(
                 this,
-                "Video output cannot overwrite the source chart.",
+                "Video output path contains an ambiguous or reserved Windows name.",
+                "Export Video",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        // Reject protected input paths before building the export snapshot.
+        // The service also validates these paths for non-UI callers.
+        if (IsVideoExportOutputProtectedPath(
+                saveDialog.FileName, chartPath,
+                exportTab.Document.ResolveSongPath(), ffmpegPath))
+        {
+            MessageBox.Show(
+                this,
+                "Video output cannot overwrite the source chart, song, or ffmpeg executable.",
                 "Export Video",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -228,10 +243,18 @@ public partial class MainWindow
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(chartPath);
-        return string.Equals(
-            Path.GetFullPath(outputPath),
-            Path.GetFullPath(chartPath),
-            StringComparison.OrdinalIgnoreCase);
+        return VideoExportOutputPathGuard.RefersToSameWindowsFile(outputPath, chartPath);
+    }
+
+    internal static bool IsVideoExportOutputProtectedPath(
+        string outputPath, string chartPath, string? songPath, string ffmpegPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ffmpegPath);
+        string output = Path.GetFullPath(outputPath);
+        return IsVideoExportOutputSameAsChart(output, chartPath) ||
+            VideoExportOutputPathGuard.RefersToSameWindowsFile(output, ffmpegPath) ||
+            (!string.IsNullOrWhiteSpace(songPath) &&
+             VideoExportOutputPathGuard.RefersToSameWindowsFile(output, songPath));
     }
 
     internal static bool RequiresSaveBeforeVideoExport(EditorDocumentTab tab) =>
@@ -278,6 +301,11 @@ public partial class MainWindow
                 string directory = entry.Length >= 2 && entry[0] == '"' && entry[^1] == '"'
                     ? entry[1..^1]
                     : entry;
+                // PATH can contain %LOCALAPPDATA% and other environment variables.
+                // Expand them before probing the actual directory.
+                directory = Environment.ExpandEnvironmentVariables(directory);
+                if (string.IsNullOrWhiteSpace(directory))
+                    continue;
                 string candidate = Path.Combine(directory, "ffmpeg.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
