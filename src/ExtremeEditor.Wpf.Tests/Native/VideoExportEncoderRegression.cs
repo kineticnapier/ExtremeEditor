@@ -254,6 +254,16 @@ internal static class VideoExportEncoderRegression
                 Path.Combine(directory, "video.mp4:notes"),
                 Path.Combine(directory, "video.mp4::$DATA"),
                 Path.Combine(directory, "folder:notes", "video.mp4"),
+                // Win32-invalid filename characters must fail before audio,
+                // native preparation, or encoder staging begins.
+                Path.Combine(directory, "video?.mp4"),
+                Path.Combine(directory, "video*.mp4"),
+                Path.Combine(directory, "video<.mp4"),
+                Path.Combine(directory, "video>.mp4"),
+                Path.Combine(directory, "video|.mp4"),
+                Path.Combine(directory, "video\".mp4"),
+                Path.Combine(directory, "video\u001F.mp4"),
+                Path.Combine(directory, "folder?", "video.mp4"),
                 // C:CON.mp4 is drive-relative, but still resolves to CON.mp4.
                 @"C:CON.mp4",
                 @"C:NUL.mp4",
@@ -270,7 +280,10 @@ internal static class VideoExportEncoderRegression
                          @"C:\video.mp4",
                          @"C:relative.mp4",
                          @"C:company.mp4",
-                         @"C:COM0.mp4"
+                         @"C:COM0.mp4",
+                         // The question mark here is an extended-path prefix,
+                         // not an invalid filename character.
+                         @"\\?\C:\video.mp4"
                      })
             {
                 if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(safe))
