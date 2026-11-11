@@ -253,7 +253,11 @@ internal static class VideoExportEncoderRegression
                 // NTFS alternate data streams must never be export targets.
                 Path.Combine(directory, "video.mp4:notes"),
                 Path.Combine(directory, "video.mp4::$DATA"),
-                Path.Combine(directory, "folder:notes", "video.mp4")
+                Path.Combine(directory, "folder:notes", "video.mp4"),
+                // C:CON.mp4 is drive-relative, but still resolves to CON.mp4.
+                @"C:CON.mp4",
+                @"C:NUL.mp4",
+                @"C:COM1.mp4"
             ];
 
             // Do not reject ordinary names merely because they begin with a
@@ -264,7 +268,9 @@ internal static class VideoExportEncoderRegression
                          Path.Combine(directory, "COM0.mp4"),
                          Path.Combine(directory, "LPT10.mp4"),
                          @"C:\video.mp4",
-                         @"C:relative.mp4"
+                         @"C:relative.mp4",
+                         @"C:company.mp4",
+                         @"C:COM0.mp4"
                      })
             {
                 if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(safe))
