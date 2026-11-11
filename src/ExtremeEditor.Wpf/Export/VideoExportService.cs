@@ -4,6 +4,25 @@ using ExtremeEditor.Wpf.Native;
 
 namespace ExtremeEditor.Wpf.Export;
 
+// Windows normally aliases path components ending in dots or spaces to
+// names without those suffixes. Reject ambiguous output names before
+// comparing protected source paths or creating encoder staging files.
+internal static class VideoExportOutputPathGuard
+{
+    internal static bool HasAmbiguousWindowsComponent(string path)
+    {
+        foreach (string component in path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (component is "." or "..")
+                continue;
+            if (component.EndsWith('.') || component.EndsWith(' '))
+                return true;
+        }
+
+        return false;
+    }
+}
+
 internal sealed record VideoExportSource(
     LevelDocument Level,
     TimingMap TimingMap,
@@ -43,6 +62,10 @@ internal sealed record VideoExportRequest(
         ArgumentNullException.ThrowIfNull(Source);
         Source.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(OutputPath);
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(OutputPath))
+            throw new ArgumentException(
+                "Video output path components must not end with a dot or space.",
+                nameof(OutputPath));
         // Reject malformed destinations before probing audio or loading native
         // scenes. FfmpegVideoEncoder.BeginAsync also resolves this path, but
         // doing so there is too late for an expensive export preflight.
