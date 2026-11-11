@@ -30,9 +30,15 @@ internal static class VideoExportOutputPathGuard
             bool driveDesignator = isDrivePosition && colon == 1 &&
                 char.IsAsciiLetter(component[0]) &&
                 component.IndexOf(':', 2) < 0;
+            // Drive-relative paths such as C:CON.mp4 have a reserved
+            // filename after the drive prefix, even though C: itself is valid.
+            bool reservedDeviceName =
+                IsReservedWindowsDeviceComponent(component) ||
+                (driveDesignator && component.Length > 2 &&
+                 IsReservedWindowsDeviceComponent(component[2..]));
             if ((colon >= 0 && !driveDesignator) ||
                 component.EndsWith('.') || component.EndsWith(' ') ||
-                IsReservedWindowsDeviceComponent(component))
+                reservedDeviceName)
                 return true;
         }
 
