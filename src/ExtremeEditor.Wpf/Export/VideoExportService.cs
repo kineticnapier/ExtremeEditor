@@ -11,15 +11,23 @@ internal static class VideoExportOutputPathGuard
 {
     internal static bool HasAmbiguousWindowsComponent(string path)
     {
-        foreach (string component in path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        string[] components = path.Split(
+            ['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        for (int index = 0; index < components.Length; index++)
         {
+            string component = components[index];
             if (component is "." or "..")
                 continue;
             // A colon outside a drive designator denotes an NTFS alternate
             // data stream (or an invalid Win32 path). Never export into one.
-            // Preserve C:\\ and C:relative.mp4 drive syntax.
+            // Preserve C:\\ and C:relative.mp4 drive syntax, including the
+            // drive component following an extended Win32 path prefix.
             int colon = component.IndexOf(':');
-            bool driveDesignator = colon == 1 &&
+            bool isDrivePosition = index == 0 ||
+                (index == 1 &&
+                 (path.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+                  path.StartsWith(@"\\.\", StringComparison.Ordinal)));
+            bool driveDesignator = isDrivePosition && colon == 1 &&
                 char.IsAsciiLetter(component[0]) &&
                 component.IndexOf(':', 2) < 0;
             if ((colon >= 0 && !driveDesignator) ||
