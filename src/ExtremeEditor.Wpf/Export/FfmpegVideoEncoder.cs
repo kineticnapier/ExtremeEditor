@@ -38,6 +38,12 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         startInfo.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Win32 may resolve a trailing-dot/space alias to a protected file
+        // even when the normalized strings do not compare equal.
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(startInfo.OutputPath))
+            throw new ArgumentException(
+                "Video output path components must not end with a dot or space.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         string outputPath = Path.GetFullPath(startInfo.OutputPath);
         // Direct encoder callers can bypass VideoExportRequest.Validate.
         // Reject directory destinations before creating audio/video staging
