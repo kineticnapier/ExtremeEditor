@@ -53,6 +53,7 @@ internal static class DocumentTabNavigationRegression
         // These checks previously existed but were never invoked by Run(),
         // so the standard WPF suite silently skipped native failure recovery.
         VerifyStopPlaybackNativeFailureOrdering();
+        VerifyNativeTabSwitchPreUploadFailure();
         VerifyPreparedLevelStateIsAtomic();
         VerifyPendingFrameAllFailureKeepsPreparedLevelUncommitted();
         VerifyDirectLevelStateIsAtomic();
@@ -101,6 +102,61 @@ internal static class DocumentTabNavigationRegression
                 levelStart > staleCheck && playbackStart > staleCheck &&
                 clearPending > staleCheck && clearPending < levelStart,
             "Superseded tab preparation must stop and clear its pending target before launching native work.");
+    }
+
+    private static void VerifyNativeTabSwitchPreUploadFailure()
+    {
+        // Native refresh and camera capture run before the rollback transaction.
+        // Neither failure may escape the tab navigation task or commit a tab.
+        int flushCalls = 0;
+        int cameraCalls = 0;
+        bool succeeded = MainWindow.TryPrepareDocumentTabNativeSwitch(
+            () => flushCalls++,
+            () => { cameraCalls++; return null; },
+            out var camera,
+            out var error);
+        Require(succeeded && camera is null && error is null &&
+                flushCalls == 1 && cameraCalls == 1,
+            "A successful pre-upload check must flush once and capture the camera.");
+
+        var flushFailure = new InvalidOperationException("injected native refresh failure");
+        flushCalls = 0;
+        cameraCalls = 0;
+        succeeded = MainWindow.TryPrepareDocumentTabNativeSwitch(
+            () => { flushCalls++; throw flushFailure; },
+            () => { cameraCalls++; return null; },
+            out camera,
+            out error);
+        Require(!succeeded && ReferenceEquals(error, flushFailure) &&
+                camera is null && flushCalls == 1 && cameraCalls == 0,
+            "A failed native refresh must be observed before querying the camera.");
+
+        var cameraFailure = new InvalidOperationException("injected camera capture failure");
+        flushCalls = 0;
+        cameraCalls = 0;
+        succeeded = MainWindow.TryPrepareDocumentTabNativeSwitch(
+            () => flushCalls++,
+            () => { cameraCalls++; throw cameraFailure; },
+            out camera,
+            out error);
+        Require(!succeeded && ReferenceEquals(error, cameraFailure) &&
+                camera is null && flushCalls == 1 && cameraCalls == 1,
+            "A failed camera capture must be observed without publishing a camera.");
+
+        string source = File.ReadAllText(FindSourceFile(
+            "src/ExtremeEditor.Wpf/MainWindow/MainWindow.DocumentTabs.cs"));
+        string activate = ExtractMethodBody(source, "private async Task<bool> ActivateDocumentTab(");
+        int guard = activate.IndexOf("if (!TryPrepareDocumentTabNativeSwitch(",
+            StringComparison.Ordinal);
+        int recovery = activate.IndexOf("_nativeSceneRecoveryFailed = true;",
+            guard, StringComparison.Ordinal);
+        int upload = activate.IndexOf("bool uploaded = TryUploadDocumentTabScene(",
+            StringComparison.Ordinal);
+        int commit = activate.IndexOf("_documentTabs.Activate(tab);",
+            StringComparison.Ordinal);
+        Require(guard >= 0 && recovery > guard && recovery < upload &&
+                upload > guard && commit > upload,
+            "Native pre-upload failures must be caught and marked for recovery before any tab commit.");
     }
 
     private static void VerifyStopPlaybackNativeFailureOrdering()
