@@ -47,6 +47,13 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
             throw new ArgumentException(
                 "Video output path must name a file, not a directory.",
                 nameof(VideoEncoderStartInfo.OutputPath));
+        // Direct encoder callers bypass the request preflight. Do not create
+        // staging files for a destination that cannot be replaced.
+        if (File.Exists(outputPath) &&
+            (File.GetAttributes(outputPath) & FileAttributes.ReadOnly) != 0)
+            throw new ArgumentException(
+                "Video output file is read-only.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         // Direct encoder callers must not replace the executable used to encode.
         // VideoExportRequest already rejects this, but it can be bypassed.
         if (string.Equals(outputPath, _ffmpegPath, StringComparison.OrdinalIgnoreCase))

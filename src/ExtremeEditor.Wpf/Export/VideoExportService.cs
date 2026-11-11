@@ -51,6 +51,13 @@ internal sealed record VideoExportRequest(
         // before audio probing and expensive native scene preparation.
         if (Path.EndsInDirectorySeparator(OutputPath) || Directory.Exists(resolvedOutputPath))
             throw new ArgumentException("Video output path must name a file, not a directory.", nameof(OutputPath));
+        // An existing read-only destination cannot be safely replaced at the
+        // end of an otherwise expensive export. Reject it before probing audio
+        // or initializing the native renderer.
+        if (File.Exists(resolvedOutputPath) &&
+            (File.GetAttributes(resolvedOutputPath) & FileAttributes.ReadOnly) != 0)
+            throw new ArgumentException(
+                "Video output file is read-only.", nameof(OutputPath));
         ArgumentException.ThrowIfNullOrWhiteSpace(FfmpegPath);
         if (!File.Exists(FfmpegPath))
             throw new FileNotFoundException("ffmpeg executable was not found.", FfmpegPath);
