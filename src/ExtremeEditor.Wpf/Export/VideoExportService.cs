@@ -17,7 +17,14 @@ internal static class VideoExportOutputPathGuard
         {
             string component = components[index];
             if (component is "." or "..")
+            {
+                // Extended-length Win32 paths bypass ordinary dot-segment
+                // normalization. Unlike regular paths, \\?\ paths must not
+                // contain . or .. components; reject them before preflight.
+                if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+                    return true;
                 continue;
+            }
             // Win32 rejects these characters in ordinary path components.
             // The question mark in the extended path prefix \\?\\ is syntax,
             // not part of a filename; preserve that prefix.
