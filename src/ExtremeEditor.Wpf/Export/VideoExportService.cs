@@ -15,7 +15,15 @@ internal static class VideoExportOutputPathGuard
         {
             if (component is "." or "..")
                 continue;
-            if (component.EndsWith('.') || component.EndsWith(' ') ||
+            // A colon outside a drive designator denotes an NTFS alternate
+            // data stream (or an invalid Win32 path). Never export into one.
+            // Preserve C:\\ and C:relative.mp4 drive syntax.
+            int colon = component.IndexOf(':');
+            bool driveDesignator = colon == 1 &&
+                char.IsAsciiLetter(component[0]) &&
+                component.IndexOf(':', 2) < 0;
+            if ((colon >= 0 && !driveDesignator) ||
+                component.EndsWith('.') || component.EndsWith(' ') ||
                 IsReservedWindowsDeviceComponent(component))
                 return true;
         }
