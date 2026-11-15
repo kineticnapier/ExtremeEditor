@@ -307,7 +307,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken))
                         return;
                 }
 
@@ -548,10 +548,12 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         return rendered;
     }
 
-    private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes)
+    private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_cacheLock)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_renderedChunks.ContainsKey(chunkIndex))
             {
                 TouchCacheEntry(chunkIndex);
@@ -568,6 +570,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex);
+        cancellationToken.ThrowIfCancellationRequested();
         // A silent chunk has no PCM bytes, but a cached sentinel still costs
         // dictionary/LRU entries. Do not retain speculative silence across
         // long sparse charts; foreground reads can cache it when needed.
@@ -578,6 +581,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         lock (_cacheLock)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // A foreground request may have populated this chunk while background
             // rendering was in progress. Reuse that copy rather than inserting a
             // duplicate or charging the budget twice.
