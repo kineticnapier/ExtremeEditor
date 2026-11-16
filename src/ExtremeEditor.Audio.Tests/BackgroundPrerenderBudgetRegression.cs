@@ -99,6 +99,47 @@ internal static class BackgroundPrerenderBudgetRegression
             throw new InvalidOperationException(
                 "RED: background prerender must populate at least one future chunk that was never requested by Read().");
         }
+
+        VerifyCancelledCachedChunkDoesNotTouchLru(provider, providerType, renderedChunks);
+    }
+
+    private static void VerifyCancelledCachedChunkDoesNotTouchLru(
+        SampleAccurateHitSoundProvider provider, Type providerType, IDictionary renderedChunks)
+    {
+        // The cached-chunk fast path must observe cancellation before touching LRU.
+        // This is deterministic; cancellation DURING mixing needs a separate test.
+        FieldInfo lruField = providerType.GetField(
+            "_cacheLru", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PCM cache LRU field is unavailable.");
+        if (lruField.GetValue(provider) is not LinkedList<long> lru || lru.Count == 0)
+            throw new InvalidOperationException("Expected a populated PCM cache LRU.");
+        long[] before = lru.ToArray();
+        long cachedChunk = before[0];
+        int countBefore = renderedChunks.Count;
+        long bytesBefore = provider.CachedPcmBytes;
+        MethodInfo ensureMethod = providerType.GetMethod(
+            "TryEnsureChunkWithinBudget", BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(long), typeof(long), typeof(CancellationToken)],
+            modifiers: null)
+            ?? throw new InvalidOperationException("Background cache insertion method is unavailable.");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        try
+        {
+            _ = ensureMethod.Invoke(provider, [cachedChunk, long.MaxValue, cancellation.Token]);
+            throw new InvalidOperationException("Cancelled cached-chunk lookup unexpectedly succeeded.");
+        }
+        catch (TargetInvocationException exception)
+            when (exception.InnerException is OperationCanceledException)
+        {
+            // Expected: no cache hit is allowed to update LRU after cancellation.
+        }
+        if (!before.SequenceEqual(lru) ||
+            countBefore != renderedChunks.Count ||
+            bytesBefore != provider.CachedPcmBytes)
+            throw new InvalidOperationException(
+                "Cancelled background cache lookup modified the cache or LRU.");
     }
 
     private static FloorTiming Floor(int floor, double entry) =>
