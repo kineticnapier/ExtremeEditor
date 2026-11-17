@@ -101,6 +101,7 @@ internal static class BackgroundPrerenderBudgetRegression
         }
 
         VerifyCancelledCachedChunkDoesNotTouchLru(provider, providerType, renderedChunks);
+        VerifyCancelledMixDoesNotWriteAndNormalMixIsUnchanged(providerType);
     }
 
     private static void VerifyCancelledCachedChunkDoesNotTouchLru(
@@ -140,6 +141,48 @@ internal static class BackgroundPrerenderBudgetRegression
             bytesBefore != provider.CachedPcmBytes)
             throw new InvalidOperationException(
                 "Cancelled background cache lookup modified the cache or LRU.");
+    }
+
+    private static void VerifyCancelledMixDoesNotWriteAndNormalMixIsUnchanged(Type providerType)
+    {
+        // Exercise the exact mixing routine reached by background prerendering.
+        // This checks the cancellation boundary and unchanged arithmetic; it does
+        // not claim to reproduce cancellation while a vector loop is running.
+        MethodInfo addScaled = providerType.GetMethod(
+            "AddScaled", BindingFlags.Static | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(float[]), typeof(int), typeof(float[]), typeof(int),
+                    typeof(int), typeof(float), typeof(CancellationToken)],
+            modifiers: null)
+            ?? throw new InvalidOperationException("PCM mixer cancellation overload is missing.");
+
+        const int samples = 8192;
+        float[] source = Enumerable.Range(0, samples)
+            .Select(i => (float)((i % 17) - 8) / 32f).ToArray();
+        float[] destination = Enumerable.Repeat(0.125f, samples).ToArray();
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try
+        {
+            addScaled.Invoke(null, [destination, 0, source, 0, samples, 0.5f, cancelled.Token]);
+            throw new InvalidOperationException("Cancelled PCM mix unexpectedly completed.");
+        }
+        catch (TargetInvocationException exception)
+            when (exception.InnerException is OperationCanceledException)
+        {
+            // Cancellation must occur before any destination sample is modified.
+        }
+        if (destination.Any(value => value != 0.125f))
+            throw new InvalidOperationException("Cancelled PCM mix modified its destination.");
+
+        addScaled.Invoke(null, [destination, 0, source, 0, samples, 0.5f, CancellationToken.None]);
+        for (int i = 0; i < samples; i++)
+        {
+            float expected = 0.125f + source[i] * 0.5f;
+            if (destination[i] != expected)
+                throw new InvalidOperationException(
+                    $"PCM mix differs at sample {i}: expected={expected}, actual={destination[i]}.");
+        }
     }
 
     private static FloorTiming Floor(int floor, double entry) =>
