@@ -1,5 +1,7 @@
 #include "track_transform_runtime.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -56,15 +58,36 @@ int main()
     // Warm up code/data paths before measuring the scaling ratio.
     (void)Measure(1000u);
 
-    const double small_ms = Measure(SmallFloorCount);
-    const double large_ms = Measure(LargeFloorCount);
+    // A single sub-millisecond measurement is sensitive to runner scheduling.
+    // Alternate the measurement order to reduce systematic warm-cache bias,
+    // then compare medians without relaxing the existing scaling threshold.
+    constexpr std::size_t Samples = 7;
+    std::array<double, Samples> small_samples{};
+    std::array<double, Samples> large_samples{};
+    for (std::size_t i = 0; i < Samples; ++i)
+    {
+        if (i % 2 == 0)
+        {
+            small_samples[i] = Measure(SmallFloorCount);
+            large_samples[i] = Measure(LargeFloorCount);
+        }
+        else
+        {
+            large_samples[i] = Measure(LargeFloorCount);
+            small_samples[i] = Measure(SmallFloorCount);
+        }
+    }
+    std::sort(small_samples.begin(), small_samples.end());
+    std::sort(large_samples.begin(), large_samples.end());
+    const double small_ms = small_samples[Samples / 2];
+    const double large_ms = large_samples[Samples / 2];
     const double ratio = large_ms / std::max(0.001, small_ms);
 
     std::cout << "track-transform SetTimeline " << SmallFloorCount
-              << " floors: " << small_ms << " ms\n";
+              << " floors median (" << Samples << " samples): " << small_ms << " ms\\n";
     std::cout << "track-transform SetTimeline " << LargeFloorCount
-              << " floors: " << large_ms << " ms\n";
-    std::cout << "scale ratio for 4x input: " << ratio << "x\n";
+              << " floors median (" << Samples << " samples): " << large_ms << " ms\\n";
+    std::cout << "scale ratio for 4x input: " << ratio << "x\\n";
 
     if (ratio > MaxScaleRatio)
     {
