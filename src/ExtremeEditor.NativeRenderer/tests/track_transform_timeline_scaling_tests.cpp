@@ -84,10 +84,10 @@ int main()
     const double ratio = large_ms / std::max(0.001, small_ms);
 
     std::cout << "track-transform SetTimeline " << SmallFloorCount
-              << " floors median (" << Samples << " samples): " << small_ms << " ms\\n";
+              << " floors median (" << Samples << " samples): " << small_ms << " ms\n";
     std::cout << "track-transform SetTimeline " << LargeFloorCount
-              << " floors median (" << Samples << " samples): " << large_ms << " ms\\n";
-    std::cout << "scale ratio for 4x input: " << ratio << "x\\n";
+              << " floors median (" << Samples << " samples): " << large_ms << " ms\n";
+    std::cout << "scale ratio for 4x input: " << ratio << "x\n";
 
     if (ratio > MaxScaleRatio)
     {
