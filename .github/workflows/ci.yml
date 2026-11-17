@@ -68,6 +68,10 @@ jobs:
       - name: Native renderer tests
         run: ctest --test-dir artifacts/native-ci -C Release --output-on-failure
 
+      # Keep the normal suite concise while retaining successful performance measurements.
+      - name: Native track-transform scaling measurements
+        run: ctest --test-dir artifacts/native-ci -C Release -V -R "^track_transform_timeline_scaling_tests$"
+
       - name: Build WPF app
         run: dotnet build src/ExtremeEditor.Wpf/ExtremeEditor.Wpf.csproj -c Release --nologo
 
