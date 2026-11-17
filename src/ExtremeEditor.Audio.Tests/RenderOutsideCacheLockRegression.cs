@@ -114,6 +114,7 @@ internal static class RenderOutsideCacheLockRegression
         OperandType.InlineSig => 4,
         OperandType.InlineString => 4,
         OperandType.InlineTok => 4,
+        OperandType.InlineType => 4,
         OperandType.ShortInlineR => 4,
         OperandType.InlineI8 => 8,
         OperandType.InlineR => 8,
