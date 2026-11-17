@@ -569,7 +569,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 return false;
         }
 
-        float[] rendered = RenderChunkMeasured(chunkIndex);
+        float[] rendered = RenderChunkMeasured(chunkIndex, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         // A silent chunk has no PCM bytes, but a cached sentinel still costs
         // dictionary/LRU entries. Do not retain speculative silence across
@@ -633,14 +633,19 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
     }
 
-    private float[] RenderChunkMeasured(long chunkIndex)
+    private float[] RenderChunkMeasured(long chunkIndex, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _renderChunkAttempts);
         var watch = Stopwatch.StartNew();
-        float[] rendered = RenderChunk(chunkIndex);
-        watch.Stop();
-        Interlocked.Add(ref _renderChunksElapsedTicks, watch.Elapsed.Ticks);
-        return rendered;
+        try
+        {
+            return RenderChunk(chunkIndex, cancellationToken);
+        }
+        finally
+        {
+            watch.Stop();
+            Interlocked.Add(ref _renderChunksElapsedTicks, watch.Elapsed.Ticks);
+        }
     }
 
     private static long GetPcmBytes(float[] chunk) => checked(chunk.LongLength * sizeof(float));
@@ -652,8 +657,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             ? long.MaxValue
             : hit.StartFrame + hit.Clip.FrameCount;
 
-    private float[] RenderChunk(long chunkIndex)
+    private float[] RenderChunk(long chunkIndex, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_scheduledHits.Count == 0 || _totalFrames <= 0 || chunkIndex < 0)
             return [];
 
@@ -667,6 +673,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         for (; hitIndex < _scheduledHits.Count; hitIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ScheduledHit hit = _scheduledHits[hitIndex];
             if (hit.StartFrame >= chunkEnd)
                 break;
@@ -687,7 +694,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 hit.Clip.Samples,
                 checked((int)sourceFrame) * 2,
                 framesToMix * 2,
-                hit.Volume);
+                hit.Volume,
+                cancellationToken);
         }
 
         // An empty result is silence; callers do not retain zero-byte entries.
@@ -734,8 +742,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         float[] source,
         int sourceOffset,
         int count,
-        float volume)
+        float volume,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int i = 0;
         int vectorWidth = Vector<float>.Count;
         var scale = new Vector<float>(volume);
@@ -743,13 +753,19 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         for (; i < vectorEnd; i += vectorWidth)
         {
+            if ((i & 255) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             var destinationVector = new Vector<float>(destination, destinationOffset + i);
             var sourceVector = new Vector<float>(source, sourceOffset + i);
             (destinationVector + sourceVector * scale).CopyTo(destination, destinationOffset + i);
         }
 
         for (; i < count; i++)
+        {
+            if ((i & 255) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             destination[destinationOffset + i] += source[sourceOffset + i] * volume;
+        }
     }
 
     private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)
