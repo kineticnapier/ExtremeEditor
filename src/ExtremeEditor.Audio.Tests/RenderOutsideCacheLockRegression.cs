@@ -11,13 +11,13 @@ internal static class RenderOutsideCacheLockRegression
     public static void Run()
     {
         Type providerType = typeof(SampleAccurateHitSoundProvider);
-        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "EnsureChunk");
-        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "TryEnsureChunkWithinBudget");
+        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "EnsureChunk", [typeof(long)]);
+        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "TryEnsureChunkWithinBudget", [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action)]);
     }
 
-    private static void AssertRenderCallOutsideMonitorProtectedRegion(Type providerType, string methodName)
+    private static void AssertRenderCallOutsideMonitorProtectedRegion(Type providerType, string methodName, Type[] parameterTypes)
     {
-        MethodInfo method = providerType.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+        MethodInfo method = providerType.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic, binder: null, types: parameterTypes, modifiers: null)
             ?? throw new InvalidOperationException($"{methodName} is unavailable.");
         MethodBody body = method.GetMethodBody()
             ?? throw new InvalidOperationException($"{methodName} has no method body.");
