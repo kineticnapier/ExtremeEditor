@@ -109,6 +109,67 @@ internal static class BackgroundPrerenderBudgetRegression
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
             level, timingMap, timeline, clips, totalFrames);
         VerifyCancellationAfterRenderDoesNotPublishChunk(uncachedProvider, providerType);
+        VerifyAsyncPrerenderCancellationBeforeCache(
+            level, timingMap, timeline, clips, totalFrames, providerType, sampleRate, cacheBudgetBytes);
+    }
+
+    private static void VerifyAsyncPrerenderCancellationBeforeCache(
+        LevelDocument level, TimingMap timingMap, HitSoundTimeline timeline,
+        Dictionary<string, RenderedHitSound> clips, long totalFrames,
+        Type providerType, int sampleRate, long cacheBudgetBytes)
+    {
+        var provider = new SampleAccurateHitSoundProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+            level, timingMap, timeline, clips, totalFrames);
+        MethodInfo method = providerType.GetMethod(
+            "PrerenderAheadAsync", BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action)],
+            modifiers: null)
+            ?? throw new InvalidOperationException("Async prerender cancellation hook is missing.");
+        FieldInfo cacheField = providerType.GetField(
+            "_renderedChunks", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PCM cache field is missing.");
+        FieldInfo lruField = providerType.GetField(
+            "_cacheLru", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PCM LRU field is missing.");
+        using var cancellation = new CancellationTokenSource();
+        int checkpoints = 0;
+        int callerThread = Environment.CurrentManagedThreadId;
+        int workerThread = 0;
+        Action cancelAfterRender = () =>
+        {
+            workerThread = Environment.CurrentManagedThreadId;
+            Interlocked.Increment(ref checkpoints);
+            cancellation.Cancel();
+        };
+        // Start at the first audible hit (frame 5000), not at a silent chunk.
+        if (method.Invoke(provider, [5000L, cacheBudgetBytes, cancellation.Token, cancelAfterRender]) is not Task task)
+            throw new InvalidOperationException("Async prerender did not return a Task.");
+        try
+        {
+            if (!task.Wait(TimeSpan.FromSeconds(5)))
+                throw new InvalidOperationException("Async prerender cancellation timed out.");
+            throw new InvalidOperationException("Cancelled async prerender unexpectedly succeeded.");
+        }
+        catch (AggregateException exception)
+            when (exception.InnerExceptions.Count == 1 &&
+                  exception.InnerException is OperationCanceledException)
+        {
+            // Expected: the actual Task.Run path propagates cancellation.
+        }
+        if (checkpoints != 1 || workerThread == 0 || workerThread == callerThread ||
+            provider.RenderChunkAttempts != 1 ||
+            provider.CachedPcmBytes != 0 || provider.Metrics.RenderedChunkCount != 0 ||
+            cacheField.GetValue(provider) is not IDictionary chunks || chunks.Count != 0 ||
+            lruField.GetValue(provider) is not LinkedList<long> lru || lru.Count != 0)
+            throw new InvalidOperationException("Async cancellation published PCM or did not reach worker checkpoint.");
+
+        // The same provider must still render and cache normally afterwards.
+        provider.PrerenderAheadAsync(5000L, cacheBudgetBytes, CancellationToken.None)
+            .GetAwaiter().GetResult();
+        if (chunks.Count == 0 || lru.Count == 0 || provider.CachedPcmBytes == 0)
+            throw new InvalidOperationException("Async prerender did not recover after cancellation.");
     }
 
     private static void VerifyCancellationAfterRenderDoesNotPublishChunk(
