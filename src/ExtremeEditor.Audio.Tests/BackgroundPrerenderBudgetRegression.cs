@@ -102,6 +102,66 @@ internal static class BackgroundPrerenderBudgetRegression
 
         VerifyCancelledCachedChunkDoesNotTouchLru(provider, providerType, renderedChunks);
         VerifyCancelledMixDoesNotWriteAndNormalMixIsUnchanged(providerType);
+
+        // Use a fresh provider so the target chunk must actually render before
+        // the cancellation checkpoint, rather than taking the cached fast path.
+        var uncachedProvider = new SampleAccurateHitSoundProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+            level, timingMap, timeline, clips, totalFrames);
+        VerifyCancellationAfterRenderDoesNotPublishChunk(uncachedProvider, providerType);
+    }
+
+    private static void VerifyCancellationAfterRenderDoesNotPublishChunk(
+        SampleAccurateHitSoundProvider provider, Type providerType)
+    {
+        MethodInfo ensureWithCheckpoint = providerType.GetMethod(
+            "TryEnsureChunkWithinBudget", BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action)],
+            modifiers: null)
+            ?? throw new InvalidOperationException("PCM pre-cache cancellation checkpoint is missing.");
+        FieldInfo cacheField = providerType.GetField(
+            "_renderedChunks", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PCM chunk cache field is missing.");
+        FieldInfo lruField = providerType.GetField(
+            "_cacheLru", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PCM LRU field is missing.");
+        if (cacheField.GetValue(provider) is not IDictionary chunks ||
+            lruField.GetValue(provider) is not LinkedList<long> lru)
+            throw new InvalidOperationException("PCM cache inspection failed.");
+
+        // Floor 1 is at 5000 frames, inside chunk 1 (4096..8191).
+        const long audibleChunk = 1;
+        const long budget = 2L * 4096 * 2 * sizeof(float);
+        using var cancellation = new CancellationTokenSource();
+        int checkpoints = 0;
+        Action cancelBeforeCache = () =>
+        {
+            checkpoints++;
+            cancellation.Cancel();
+        };
+        try
+        {
+            ensureWithCheckpoint.Invoke(provider,
+                [audibleChunk, budget, cancellation.Token, cancelBeforeCache]);
+            throw new InvalidOperationException("Cancelled rendered PCM chunk was accepted.");
+        }
+        catch (TargetInvocationException exception)
+            when (exception.InnerException is OperationCanceledException)
+        {
+            // Cancellation after rendering must prevent publication to cache.
+        }
+        if (checkpoints != 1 || chunks.Count != 0 || lru.Count != 0 ||
+            provider.CachedPcmBytes != 0 || provider.Metrics.RenderedChunkCount != 0 ||
+            provider.RenderChunkAttempts != 1)
+            throw new InvalidOperationException("Cancelled rendered PCM changed cache or missed checkpoint.");
+
+        // Cancellation must not poison later normal rendering of that chunk.
+        object? result = ensureWithCheckpoint.Invoke(provider,
+            [audibleChunk, budget, CancellationToken.None, null]);
+        if (result is not true || !chunks.Contains(audibleChunk) ||
+            lru.Count != 1 || provider.CachedPcmBytes != 4096L * 2 * sizeof(float))
+            throw new InvalidOperationException("Normal prerender failed after cancellation.");
     }
 
     private static void VerifyCancelledCachedChunkDoesNotTouchLru(
