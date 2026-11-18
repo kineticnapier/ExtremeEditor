@@ -272,6 +272,17 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken)
     {
+        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken, null);
+    }
+
+    // Test-only hook runs on the actual background worker after PCM rendering,
+    // before cache publication. Normal callers use the three-argument overload.
+    private Task PrerenderAheadAsync(
+        long startFrame,
+        long cacheBudgetBytes,
+        CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache)
+    {
         if (_totalFrames <= 0 || cacheBudgetBytes <= 0 || _scheduledHits.Count == 0)
             return Task.CompletedTask;
 
@@ -307,7 +318,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken))
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, afterRenderBeforeCache))
                         return;
                 }
 
