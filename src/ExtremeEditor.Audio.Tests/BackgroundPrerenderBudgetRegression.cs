@@ -175,6 +175,46 @@ internal static class BackgroundPrerenderBudgetRegression
         if (destination.Any(value => value != 0.125f))
             throw new InvalidOperationException("Cancelled PCM mix modified its destination.");
 
+        // Cancel at the second 256-sample checkpoint, after actual writes.
+        // The callback runs synchronously on the mixer thread, not a race-prone worker.
+        MethodInfo probedMix = providerType.GetMethod(
+            "AddScaled", BindingFlags.Static | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(float[]), typeof(int), typeof(float[]), typeof(int),
+                    typeof(int), typeof(float), typeof(CancellationToken), typeof(Action<int>)],
+            modifiers: null)
+            ?? throw new InvalidOperationException("PCM mixer checkpoint test overload is missing.");
+        float[] interrupted = Enumerable.Repeat(0.125f, samples).ToArray();
+        using var midMixCancellation = new CancellationTokenSource();
+        int checkpoint = -1;
+        Action<int> cancelAtSecondCheckpoint = index =>
+        {
+            if (index == 256)
+            {
+                checkpoint = index;
+                midMixCancellation.Cancel();
+            }
+        };
+        try
+        {
+            probedMix.Invoke(null, [interrupted, 0, source, 0, samples, 0.5f,
+                midMixCancellation.Token, cancelAtSecondCheckpoint]);
+            throw new InvalidOperationException("Mid-mix cancellation unexpectedly completed.");
+        }
+        catch (TargetInvocationException exception)
+            when (exception.InnerException is OperationCanceledException)
+        {
+            // The second checkpoint must abort before writing sample 256.
+        }
+        if (checkpoint != 256)
+            throw new InvalidOperationException($"Mid-mix cancellation occurred at unexpected checkpoint {checkpoint}.");
+        for (int i = 0; i < samples; i++)
+        {
+            float expected = i < 256 ? 0.125f + source[i] * 0.5f : 0.125f;
+            if (interrupted[i] != expected)
+                throw new InvalidOperationException($"Mid-mix cancellation wrote an unexpected sample at {i}.");
+        }
+
         addScaled.Invoke(null, [destination, 0, source, 0, samples, 0.5f, CancellationToken.None]);
         for (int i = 0; i < samples; i++)
         {
