@@ -745,6 +745,21 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         float volume,
         CancellationToken cancellationToken)
     {
+        AddScaled(destination, destinationOffset, source, sourceOffset, count, volume, cancellationToken, null);
+    }
+
+    // An explicit per-checkpoint callback makes mid-mix cancellation deterministic
+    // in regression tests without shared mutable state or timing-dependent threads.
+    private static void AddScaled(
+        float[] destination,
+        int destinationOffset,
+        float[] source,
+        int sourceOffset,
+        int count,
+        float volume,
+        CancellationToken cancellationToken,
+        Action<int>? beforeCancellationCheck)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         int i = 0;
         int vectorWidth = Vector<float>.Count;
@@ -754,7 +769,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         for (; i < vectorEnd; i += vectorWidth)
         {
             if ((i & 255) == 0)
+            {
+                beforeCancellationCheck?.Invoke(i);
                 cancellationToken.ThrowIfCancellationRequested();
+            }
             var destinationVector = new Vector<float>(destination, destinationOffset + i);
             var sourceVector = new Vector<float>(source, sourceOffset + i);
             (destinationVector + sourceVector * scale).CopyTo(destination, destinationOffset + i);
@@ -763,7 +781,10 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         for (; i < count; i++)
         {
             if ((i & 255) == 0)
+            {
+                beforeCancellationCheck?.Invoke(i);
                 cancellationToken.ThrowIfCancellationRequested();
+            }
             destination[destinationOffset + i] += source[sourceOffset + i] * volume;
         }
     }
