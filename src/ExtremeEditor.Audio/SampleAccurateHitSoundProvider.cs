@@ -550,6 +550,15 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken)
     {
+        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, null);
+    }
+
+    // Test-only checkpoint after a complete render, before publishing it to the
+    // cache. The normal prerender path passes null and performs no callback.
+    private bool TryEnsureChunkWithinBudget(
+        long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_cacheLock)
         {
@@ -570,6 +579,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
 
         float[] rendered = RenderChunkMeasured(chunkIndex, cancellationToken);
+        afterRenderBeforeCache?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         // A silent chunk has no PCM bytes, but a cached sentinel still costs
         // dictionary/LRU entries. Do not retain speculative silence across
