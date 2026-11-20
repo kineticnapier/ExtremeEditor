@@ -258,9 +258,8 @@ internal static class BackgroundPrerenderBudgetRegression
     }
 
 
-    // Hold the cache lock across the publication boundary, cancel from the
-    // caller thread, then release it. This covers the contended-lock path
-    // without relying on Thread.Sleep or thread scheduling for correctness.
+    // Verify cancellation after the post-render check, while another thread
+    // owns the cache lock. The checkpoint does not prove Monitor contention.
     private static void VerifyExternalCancellationWithCacheLockContended(
         LevelDocument level, TimingMap timingMap, HitSoundTimeline timeline,
         Dictionary<string, RenderedHitSound> clips, long totalFrames,
@@ -272,46 +271,49 @@ internal static class BackgroundPrerenderBudgetRegression
         MethodInfo method = providerType.GetMethod(
             "PrerenderAheadAsync", BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
-            types: [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action)],
+            types: [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action), typeof(Action)],
             modifiers: null)
-            ?? throw new InvalidOperationException("Async prerender checkpoint is missing.");
-        FieldInfo lockField = providerType.GetField(
-            "_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("PCM cache lock is missing.");
-        FieldInfo cacheField = providerType.GetField(
-            "_renderedChunks", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Pre-lock prerender checkpoint is missing.");
+        object cacheLock = providerType.GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(provider) ?? throw new InvalidOperationException("PCM cache lock is missing.");
+        var chunks = providerType.GetField("_renderedChunks", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(provider) as IDictionary
             ?? throw new InvalidOperationException("PCM cache is missing.");
-        FieldInfo lruField = providerType.GetField(
-            "_cacheLru", BindingFlags.Instance | BindingFlags.NonPublic)
+        var lru = providerType.GetField("_cacheLru", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(provider) as LinkedList<long>
             ?? throw new InvalidOperationException("PCM LRU is missing.");
-        object cacheLock = lockField.GetValue(provider)
-            ?? throw new InvalidOperationException("PCM cache lock is null.");
 
         using var cancellation = new CancellationTokenSource();
-        using var rendered = new ManualResetEventSlim(false);
-        using var resume = new ManualResetEventSlim(false);
-        Action checkpoint = () =>
+        using var reached = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        int checkpoints = 0;
+        int callerThread = Environment.CurrentManagedThreadId;
+        int workerThread = 0;
+        Action beforeLock = () =>
         {
-            rendered.Set();
-            if (!resume.Wait(TimeSpan.FromSeconds(5)))
-                throw new TimeoutException("Contended cache checkpoint timed out.");
+            workerThread = Environment.CurrentManagedThreadId;
+            Interlocked.Increment(ref checkpoints);
+            reached.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Pre-lock checkpoint was not released.");
         };
+
         Task? task = null;
         try
         {
             task = method.Invoke(provider,
-                [5000L, cacheBudgetBytes, cancellation.Token, checkpoint]) as Task
+                [5000L, cacheBudgetBytes, cancellation.Token, null, beforeLock]) as Task
                 ?? throw new InvalidOperationException("Async prerender did not return a Task.");
-            if (!rendered.Wait(TimeSpan.FromSeconds(5)))
-                throw new TimeoutException("PCM render did not reach cache checkpoint.");
+            if (!reached.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("PCM render did not reach the pre-lock checkpoint.");
 
-            // Acquire on the caller thread before allowing the worker to
-            // proceed. Cancellation must not publish PCM even if the worker
-            // reaches the second lock while it is held.
+            // The worker has passed the post-render cancellation check.
+            // Hold the lock until cancellation is requested and the worker
+            // is released, then verify the post-acquisition check rejects it.
             Monitor.Enter(cacheLock);
             try
             {
-                resume.Set();
+                release.Set();
                 cancellation.Cancel();
             }
             finally
@@ -320,32 +322,30 @@ internal static class BackgroundPrerenderBudgetRegression
             }
             try
             {
-                if (!task.Wait(TimeSpan.FromSeconds(5)))
-                    throw new TimeoutException("Contended cancellation did not complete.");
+                task.GetAwaiter().GetResult();
                 throw new InvalidOperationException("Cancelled prerender unexpectedly succeeded.");
             }
-            catch (AggregateException exception)
-                when (exception.InnerExceptions.Count == 1 &&
-                      exception.InnerException is OperationCanceledException)
+            catch (OperationCanceledException)
             {
-                // Expected cancellation.
+                // Expected.
             }
         }
         finally
         {
-            resume.Set();
+            release.Set();
         }
 
-        if (task is null || !task.IsCanceled || provider.RenderChunkAttempts != 1 ||
+        if (task is null || !task.IsCanceled || checkpoints != 1 ||
+            workerThread == 0 || workerThread == callerThread ||
+            provider.RenderChunkAttempts != 1 ||
             provider.CachedPcmBytes != 0 || provider.Metrics.RenderedChunkCount != 0 ||
-            cacheField.GetValue(provider) is not IDictionary chunks || chunks.Count != 0 ||
-            lruField.GetValue(provider) is not LinkedList<long> lru || lru.Count != 0)
-            throw new InvalidOperationException("Contended cancellation modified the PCM cache.");
+            chunks.Count != 0 || lru.Count != 0)
+            throw new InvalidOperationException("Pre-lock cancellation modified the PCM cache.");
 
         provider.PrerenderAheadAsync(5000L, cacheBudgetBytes, CancellationToken.None)
             .GetAwaiter().GetResult();
         if (chunks.Count == 0 || lru.Count == 0 || provider.CachedPcmBytes == 0)
-            throw new InvalidOperationException("PCM cache did not recover after contended cancellation.");
+            throw new InvalidOperationException("PCM cache did not recover after pre-lock cancellation.");
     }
 
     private static void VerifyCancellationAfterRenderDoesNotPublishChunk(
