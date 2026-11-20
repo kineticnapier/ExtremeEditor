@@ -12,7 +12,7 @@ internal static class RenderOutsideCacheLockRegression
     {
         Type providerType = typeof(SampleAccurateHitSoundProvider);
         AssertRenderCallOutsideMonitorProtectedRegion(providerType, "EnsureChunk", [typeof(long), typeof(bool)]);
-        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "TryEnsureChunkWithinBudget", [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action)]);
+        AssertRenderCallOutsideMonitorProtectedRegion(providerType, "TryEnsureChunkWithinBudget", [typeof(long), typeof(long), typeof(CancellationToken), typeof(Action), typeof(Action)]);
     }
 
     private static void AssertRenderCallOutsideMonitorProtectedRegion(Type providerType, string methodName, Type[] parameterTypes)
