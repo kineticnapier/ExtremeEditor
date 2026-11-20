@@ -272,7 +272,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken)
     {
-        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken, null);
+        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken, null, null);
     }
 
     // Test-only hook runs on the actual background worker after PCM rendering,
@@ -282,6 +282,19 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken,
         Action? afterRenderBeforeCache)
+    {
+        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken,
+            afterRenderBeforeCache, null);
+    }
+
+    // Test-only callback after the post-render cancellation check, immediately
+    // before the second cache lock. Never invoke this callback under the lock.
+    private Task PrerenderAheadAsync(
+        long startFrame,
+        long cacheBudgetBytes,
+        CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache,
+        Action? beforeSecondCacheLock)
     {
         if (_totalFrames <= 0 || cacheBudgetBytes <= 0 || _scheduledHits.Count == 0)
             return Task.CompletedTask;
@@ -318,7 +331,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, afterRenderBeforeCache))
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, afterRenderBeforeCache, beforeSecondCacheLock))
                         return;
                 }
 
@@ -561,7 +574,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
     private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken)
     {
-        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, null);
+        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, null, null);
     }
 
     // Test-only checkpoint after a complete render, before publishing it to the
@@ -569,6 +582,14 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
     private bool TryEnsureChunkWithinBudget(
         long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken,
         Action? afterRenderBeforeCache)
+    {
+        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken,
+            afterRenderBeforeCache, null);
+    }
+
+    private bool TryEnsureChunkWithinBudget(
+        long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache, Action? beforeSecondCacheLock)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_cacheLock)
@@ -599,6 +620,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             return true;
 
         long renderedBytes = GetPcmBytes(rendered);
+        beforeSecondCacheLock?.Invoke();
 
         lock (_cacheLock)
         {
