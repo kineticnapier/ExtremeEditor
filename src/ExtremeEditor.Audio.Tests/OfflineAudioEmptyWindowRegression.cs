@@ -45,5 +45,53 @@ internal static class OfflineAudioEmptyWindowRegression
                 throw new InvalidOperationException(
                     "An empty offline audio interval unnecessarily loaded hit-sound assets.");
         }
+
+        VerifyFinalChunkCancellation(level, timing, hits);
+    }
+
+    private static void VerifyFinalChunkCancellation(
+        LevelDocument level, TimingMap timing, HitSoundTimeline hits)
+    {
+        // Exactly one 48-frame chunk at the silent fallback's 48 kHz rate.
+        // Cancellation from that consumer must not be lost when the loop ends.
+        var plan = new OfflineAudioRenderPlan(
+            level, timing, hits, SongPath: null,
+            StartAudioTimeSeconds: 0.0,
+            EndAudioTimeSeconds: 0.001,
+            HitSoundsEnabled: false,
+            ChunkFrames: 48);
+        var renderer = new OfflineAudioRenderer();
+
+        int normalChunks = 0;
+        renderer.RenderAsync(plan, (chunk, _) =>
+        {
+            if (chunk.FrameCount != 48)
+                throw new InvalidOperationException("One-chunk audio range changed its frame count.");
+            normalChunks++;
+            return ValueTask.CompletedTask;
+        }, CancellationToken.None).GetAwaiter().GetResult();
+        if (normalChunks != 1)
+            throw new InvalidOperationException("The normal one-chunk export did not complete.");
+
+        using var cancellation = new CancellationTokenSource();
+        int canceledChunks = 0;
+        bool observedCancellation = false;
+        try
+        {
+            renderer.RenderAsync(plan, (chunk, _) =>
+            {
+                canceledChunks++;
+                cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            }, cancellation.Token).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            observedCancellation = true;
+        }
+
+        if (!observedCancellation || canceledChunks != 1)
+            throw new InvalidOperationException(
+                "Cancellation during the final offline audio chunk was not observed.");
     }
 }

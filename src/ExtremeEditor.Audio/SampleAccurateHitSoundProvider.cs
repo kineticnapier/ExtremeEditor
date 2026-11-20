@@ -272,6 +272,30 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         long cacheBudgetBytes,
         CancellationToken cancellationToken)
     {
+        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken, null, null);
+    }
+
+    // Test-only hook runs on the actual background worker after PCM rendering,
+    // before cache publication. Normal callers use the three-argument overload.
+    private Task PrerenderAheadAsync(
+        long startFrame,
+        long cacheBudgetBytes,
+        CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache)
+    {
+        return PrerenderAheadAsync(startFrame, cacheBudgetBytes, cancellationToken,
+            afterRenderBeforeCache, null);
+    }
+
+    // Test-only callback after the post-render cancellation check, immediately
+    // before the second cache lock. Never invoke this callback under the lock.
+    private Task PrerenderAheadAsync(
+        long startFrame,
+        long cacheBudgetBytes,
+        CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache,
+        Action? beforeSecondCacheLock)
+    {
         if (_totalFrames <= 0 || cacheBudgetBytes <= 0 || _scheduledHits.Count == 0)
             return Task.CompletedTask;
 
@@ -307,7 +331,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 for (long chunkIndex = hitFirstChunk; chunkIndex <= hitLastChunk; chunkIndex++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes))
+                    if (!TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, afterRenderBeforeCache, beforeSecondCacheLock))
                         return;
                 }
 
@@ -548,10 +572,29 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         return rendered;
     }
 
-    private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes)
+    private bool TryEnsureChunkWithinBudget(long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken)
     {
+        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken, null, null);
+    }
+
+    // Test-only checkpoint after a complete render, before publishing it to the
+    // cache. The normal prerender path passes null and performs no callback.
+    private bool TryEnsureChunkWithinBudget(
+        long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache)
+    {
+        return TryEnsureChunkWithinBudget(chunkIndex, cacheBudgetBytes, cancellationToken,
+            afterRenderBeforeCache, null);
+    }
+
+    private bool TryEnsureChunkWithinBudget(
+        long chunkIndex, long cacheBudgetBytes, CancellationToken cancellationToken,
+        Action? afterRenderBeforeCache, Action? beforeSecondCacheLock)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_cacheLock)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_renderedChunks.ContainsKey(chunkIndex))
             {
                 TouchCacheEntry(chunkIndex);
@@ -567,7 +610,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 return false;
         }
 
-        float[] rendered = RenderChunkMeasured(chunkIndex);
+        float[] rendered = RenderChunkMeasured(chunkIndex, cancellationToken);
+        afterRenderBeforeCache?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
         // A silent chunk has no PCM bytes, but a cached sentinel still costs
         // dictionary/LRU entries. Do not retain speculative silence across
         // long sparse charts; foreground reads can cache it when needed.
@@ -575,9 +620,11 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             return true;
 
         long renderedBytes = GetPcmBytes(rendered);
+        beforeSecondCacheLock?.Invoke();
 
         lock (_cacheLock)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // A foreground request may have populated this chunk while background
             // rendering was in progress. Reuse that copy rather than inserting a
             // duplicate or charging the budget twice.
@@ -629,14 +676,19 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         }
     }
 
-    private float[] RenderChunkMeasured(long chunkIndex)
+    private float[] RenderChunkMeasured(long chunkIndex, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _renderChunkAttempts);
         var watch = Stopwatch.StartNew();
-        float[] rendered = RenderChunk(chunkIndex);
-        watch.Stop();
-        Interlocked.Add(ref _renderChunksElapsedTicks, watch.Elapsed.Ticks);
-        return rendered;
+        try
+        {
+            return RenderChunk(chunkIndex, cancellationToken);
+        }
+        finally
+        {
+            watch.Stop();
+            Interlocked.Add(ref _renderChunksElapsedTicks, watch.Elapsed.Ticks);
+        }
     }
 
     private static long GetPcmBytes(float[] chunk) => checked(chunk.LongLength * sizeof(float));
@@ -648,8 +700,9 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
             ? long.MaxValue
             : hit.StartFrame + hit.Clip.FrameCount;
 
-    private float[] RenderChunk(long chunkIndex)
+    private float[] RenderChunk(long chunkIndex, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_scheduledHits.Count == 0 || _totalFrames <= 0 || chunkIndex < 0)
             return [];
 
@@ -663,6 +716,7 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         for (; hitIndex < _scheduledHits.Count; hitIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ScheduledHit hit = _scheduledHits[hitIndex];
             if (hit.StartFrame >= chunkEnd)
                 break;
@@ -683,7 +737,8 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
                 hit.Clip.Samples,
                 checked((int)sourceFrame) * 2,
                 framesToMix * 2,
-                hit.Volume);
+                hit.Volume,
+                cancellationToken);
         }
 
         // An empty result is silence; callers do not retain zero-byte entries.
@@ -730,8 +785,25 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
         float[] source,
         int sourceOffset,
         int count,
-        float volume)
+        float volume,
+        CancellationToken cancellationToken)
     {
+        AddScaled(destination, destinationOffset, source, sourceOffset, count, volume, cancellationToken, null);
+    }
+
+    // An explicit per-checkpoint callback makes mid-mix cancellation deterministic
+    // in regression tests without shared mutable state or timing-dependent threads.
+    private static void AddScaled(
+        float[] destination,
+        int destinationOffset,
+        float[] source,
+        int sourceOffset,
+        int count,
+        float volume,
+        CancellationToken cancellationToken,
+        Action<int>? beforeCancellationCheck)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         int i = 0;
         int vectorWidth = Vector<float>.Count;
         var scale = new Vector<float>(volume);
@@ -739,13 +811,25 @@ internal sealed class SampleAccurateHitSoundProvider : ISampleProvider
 
         for (; i < vectorEnd; i += vectorWidth)
         {
+            if ((i & 255) == 0)
+            {
+                beforeCancellationCheck?.Invoke(i);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             var destinationVector = new Vector<float>(destination, destinationOffset + i);
             var sourceVector = new Vector<float>(source, sourceOffset + i);
             (destinationVector + sourceVector * scale).CopyTo(destination, destinationOffset + i);
         }
 
         for (; i < count; i++)
+        {
+            if ((i & 255) == 0)
+            {
+                beforeCancellationCheck?.Invoke(i);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             destination[destinationOffset + i] += source[sourceOffset + i] * volume;
+        }
     }
 
     private void CopyRenderedPcm(float[] buffer, int offset, long startFrame, int frameCount)

@@ -35,6 +35,25 @@ public sealed record OfflineAudioRenderPlan(
         if (!double.IsFinite(SongVolumePercent))
             throw new ArgumentOutOfRangeException(nameof(SongVolumePercent));
     }
+
+    // Share the exact sample rounding and overflow rules with export preflight.
+    // A positive time interval can round to zero PCM frames.
+    public (long StartFrame, long EndFrame) GetSampleRange(int sampleRate)
+    {
+        if (sampleRate <= 0)
+            throw new ArgumentOutOfRangeException(nameof(sampleRate));
+        if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                StartAudioTimeSeconds, sampleRate, out long startFrame))
+            throw new ArgumentOutOfRangeException(
+                nameof(StartAudioTimeSeconds), StartAudioTimeSeconds,
+                "The export start time exceeds the representable sample range.");
+        if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
+                EndAudioTimeSeconds, sampleRate, out long endFrame))
+            throw new ArgumentOutOfRangeException(
+                nameof(EndAudioTimeSeconds), EndAudioTimeSeconds,
+                "The export end time exceeds the representable sample range.");
+        return (startFrame, endFrame);
+    }
 }
 
 public sealed record OfflineAudioChunk(
@@ -116,16 +135,8 @@ public sealed class OfflineAudioRenderer
             // Finite times can still overflow a 64-bit sample index after
             // multiplication by the source rate. Reject them as invalid
             // export ranges instead of leaking an OverflowException.
-            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
-                    plan.StartAudioTimeSeconds, sampleRate, out long requestedStartFrame))
-                throw new ArgumentOutOfRangeException(
-                    nameof(plan.StartAudioTimeSeconds), plan.StartAudioTimeSeconds,
-                    "The export start time exceeds the representable sample range.");
-            if (!SampleAccurateHitSoundProvider.TryAudioTimeToSampleFrame(
-                    plan.EndAudioTimeSeconds, sampleRate, out long requestedEndFrame))
-                throw new ArgumentOutOfRangeException(
-                    nameof(plan.EndAudioTimeSeconds), plan.EndAudioTimeSeconds,
-                    "The export end time exceeds the representable sample range.");
+            var (requestedStartFrame, requestedEndFrame) =
+                plan.GetSampleRange(sampleRate);
             if (requestedEndFrame <= requestedStartFrame)
                 return;
 
@@ -258,6 +269,9 @@ public sealed class OfflineAudioRenderer
 
                 cancellationToken.ThrowIfCancellationRequested();
                 await consumer(chunk, cancellationToken).ConfigureAwait(false);
+                // A consumer can cancel while accepting the final chunk.
+                // Observe that cancellation even when the loop would end now.
+                cancellationToken.ThrowIfCancellationRequested();
                 currentFrame += chunk.FrameCount;
             }
         }

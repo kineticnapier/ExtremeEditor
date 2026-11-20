@@ -1,5 +1,7 @@
 using System.IO;
 using System.Reflection;
+using ExtremeEditor.Core;
+using ExtremeEditor.Wpf.Export;
 
 namespace ExtremeEditor.Wpf.Tests;
 
@@ -34,7 +36,12 @@ internal static class VideoExportOrchestrationRegression
         VerifyProgressLifecycle();
         VerifyDisposedCancellationSource();
         VerifyChartOutputPathGuard();
+        VerifyProtectedVideoOutputPaths();
+        VerifyServiceProtectedOutputPathGuard();
+        VerifySubSampleRangeSkipsNativePreparation();
+        VerifyOneSampleRangeReachesNativePreparation();
         VerifyQuotedFfmpegPathEntries();
+        VerifyExpandedFfmpegPathEntries();
         VerifySourceLineEndingNormalization();
         VerifyUiContract();
         VerifyExclusiveUiSourceContract();
@@ -186,6 +193,7 @@ internal static class VideoExportOrchestrationRegression
         if (!Collides(chart, chart) ||
             !Collides(normalizedAlias, chart) ||
             !Collides(chart.ToUpperInvariant(), chart) ||
+            !Collides(@"\\?\" + chart, chart) ||
             Collides(video, chart))
         {
             throw new InvalidOperationException(
@@ -196,12 +204,254 @@ internal static class VideoExportOrchestrationRegression
             FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow", "MainWindow.VideoExport.cs"));
         int accepted = uiSource.IndexOf("if (saveDialog.ShowDialog(this) != true)", StringComparison.Ordinal);
         int checkedPath = uiSource.IndexOf(
-            "if (IsVideoExportOutputSameAsChart(saveDialog.FileName, chartPath))", StringComparison.Ordinal);
+            "if (IsVideoExportOutputProtectedPath(", StringComparison.Ordinal);
         int snapshot = uiSource.IndexOf(
             "VideoExportSource source = await Task.Run(", StringComparison.Ordinal);
         if (accepted < 0 || checkedPath <= accepted || snapshot <= checkedPath)
             throw new InvalidOperationException(
-                "Video export must reject source-chart output paths before snapshot preparation.");
+                "Video export must reject source-chart output paths through the protected-path guard before snapshot preparation.");
+    }
+
+    private static void VerifyProtectedVideoOutputPaths()
+    {
+        // The UI must reject protected inputs before the expensive snapshot.
+        // The service guard remains necessary for callers without a dialog.
+        MethodInfo guard = typeof(MainWindow).GetMethod(
+                "IsVideoExportOutputProtectedPath",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Video export input-path guard is missing.");
+
+        bool Collides(string output, string chart, string? song, string ffmpeg) =>
+            (bool)(guard.Invoke(null, [output, chart, song, ffmpeg])
+                ?? throw new InvalidOperationException("Video export path guard returned null."));
+
+        string directory = Path.Combine(Path.GetTempPath(), "ExtremeEditor-ProtectedVideoPaths");
+        string chart = Path.Combine(directory, "chart.adofai");
+        string song = Path.Combine(directory, "audio.ogg");
+        string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+        string video = Path.Combine(directory, "video.mp4");
+
+        foreach (string protectedOutput in new[]
+        {
+            chart,
+            Path.Combine(directory, "nested", "..", "chart.adofai"),
+            song,
+            Path.Combine(directory, "nested", "..", "audio.ogg"),
+            ffmpeg,
+            ffmpeg.ToUpperInvariant(),
+            @"\\?\" + chart,
+            @"\\?\" + song,
+            @"\\?\" + ffmpeg
+        })
+        {
+            if (!Collides(protectedOutput, chart, song, ffmpeg))
+                throw new InvalidOperationException(
+                    "The UI must reject chart, song, and ffmpeg output path aliases.");
+        }
+
+        if (Collides(video, chart, song, ffmpeg) ||
+            Collides(video, chart, null, ffmpeg))
+        {
+            throw new InvalidOperationException(
+                "The UI must accept a distinct MP4 path with or without source audio.");
+        }
+
+        string uiSource = File.ReadAllText(Path.Combine(
+            FindRepoRoot(), "src", "ExtremeEditor.Wpf", "MainWindow",
+            "MainWindow.VideoExport.cs"));
+        int preflight = uiSource.IndexOf(
+            "if (IsVideoExportOutputProtectedPath(", StringComparison.Ordinal);
+        int snapshot = uiSource.IndexOf(
+            "using var cancellation = new CancellationTokenSource();", StringComparison.Ordinal);
+        if (preflight < 0 || snapshot <= preflight)
+            throw new InvalidOperationException(
+                "The protected-path UI check must run before snapshot preparation.");
+    }
+
+    private static void VerifyServiceProtectedOutputPathGuard()
+    {
+        // The service is callable without MainWindow's save-dialog check.
+        // Its preflight must protect the chart, song, and ffmpeg executable.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-ServiceVideoGuard-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string chart = Path.Combine(directory, "chart.adofai");
+            string song = Path.Combine(directory, "song.ogg");
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            File.WriteAllText(chart, "source chart sentinel");
+            File.WriteAllText(song, "source song sentinel");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            level.SourcePath = chart;
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), song);
+
+            VideoExportRequest Request(string output) => new(
+                source, output, ffmpeg, 0.0, 1.0, 30, 2, 2, 100.0, false);
+
+            foreach (string output in new[]
+            {
+                chart,
+                Path.Combine(directory, "sub", "..", "chart.adofai"),
+                chart.ToUpperInvariant(),
+                song,
+                Path.Combine(directory, "sub", "..", "song.ogg"),
+                song.ToUpperInvariant(),
+                ffmpeg,
+                Path.Combine(directory, "sub", "..", "ffmpeg.exe"),
+                ffmpeg.ToUpperInvariant(),
+                @"\\?\" + chart,
+                @"\\?\" + song,
+                @"\\?\" + ffmpeg
+            })
+            {
+                bool rejected = false;
+                try
+                {
+                    Request(output).Validate();
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    rejected = true;
+                }
+
+                if (!rejected)
+                    throw new InvalidOperationException(
+                        "Service preflight must reject chart, song, and ffmpeg output path aliases.");
+            }
+
+            if (File.ReadAllText(chart) != "source chart sentinel" ||
+                File.ReadAllText(song) != "source song sentinel" ||
+                File.ReadAllText(ffmpeg) != "ffmpeg placeholder")
+                throw new InvalidOperationException("Rejected export modified a protected input file.");
+
+            Request(Path.Combine(directory, "chart.mp4")).Validate();
+
+            // Synthetic documents have no on-disk chart to protect, but the
+            // song and encoder executable must remain protected.
+            level.SourcePath = "<synthetic>";
+            Request(chart).Validate();
+            foreach (string protectedOutput in new[] { song, ffmpeg })
+            {
+                try
+                {
+                    Request(protectedOutput).Validate();
+                    throw new InvalidOperationException(
+                        "Synthetic charts must still protect their song and ffmpeg.");
+                }
+                catch (ArgumentException ex)
+                    when (ex.ParamName == nameof(VideoExportRequest.OutputPath))
+                {
+                    // Expected: only the chart exemption changes.
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifySubSampleRangeSkipsNativePreparation()
+    {
+        // A valid positive chart interval can round to zero PCM frames.
+        // It must fail before loading native assets or opening ffmpeg staging.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-SubSampleVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            string output = Path.Combine(directory, "subsample.mp4");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+            var request = new VideoExportRequest(
+                source, output, ffmpeg, 0.0, 0.000001, 60, 2, 2, 100.0, false);
+            int nativeFactoryCalls = 0;
+            var service = new VideoExportService((_, _) =>
+            {
+                nativeFactoryCalls++;
+                throw new InvalidOperationException("Native renderer must not be initialized.");
+            });
+
+            bool rejected = false;
+            try
+            {
+                service.ExportAsync(
+                    request,
+                    new Progress<VideoExportProgress>(_ => { }),
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message.Contains("shorter than one PCM sample", StringComparison.Ordinal))
+            {
+                rejected = true;
+            }
+
+            if (!rejected || nativeFactoryCalls != 0 || File.Exists(output))
+                throw new InvalidOperationException(
+                    "Sub-sample video export must fail before native or output initialization.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyOneSampleRangeReachesNativePreparation()
+    {
+        // The zero-sample guard must not reject a valid one-sample interval.
+        // Stop at the native factory so no real renderer or ffmpeg is needed.
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-OneSampleVideo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string ffmpeg = Path.Combine(directory, "ffmpeg.exe");
+            string output = Path.Combine(directory, "one-sample.mp4");
+            File.WriteAllText(ffmpeg, "ffmpeg placeholder");
+
+            LevelDocument level = LevelDocument.CreateSynthetic(2);
+            var source = new VideoExportSource(
+                level, TimingMapBuilder.Build(level), HitSoundTimelineBuilder.Build(level), null);
+            var request = new VideoExportRequest(
+                source, output, ffmpeg, 0.0, 1.0 / 44100.0, 60, 2, 2, 100.0, false);
+            int nativeFactoryCalls = 0;
+            var service = new VideoExportService((_, _) =>
+            {
+                nativeFactoryCalls++;
+                throw new InvalidOperationException("One-sample native factory sentinel.");
+            });
+
+            bool reachedNative = false;
+            try
+            {
+                service.ExportAsync(
+                    request,
+                    new Progress<VideoExportProgress>(_ => { }),
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message == "One-sample native factory sentinel.")
+            {
+                reachedNative = true;
+            }
+
+            if (!reachedNative || nativeFactoryCalls != 1 || File.Exists(output))
+                throw new InvalidOperationException(
+                    "A one-sample video export must pass audio preflight and reach native preparation.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static void VerifyQuotedFfmpegPathEntries()
@@ -235,6 +485,41 @@ internal static class VideoExportOrchestrationRegression
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void VerifyExpandedFfmpegPathEntries()
+    {
+        // Windows PATH can contain unexpanded %VARIABLE% references. The
+        // lookup must resolve them whether or not the entry is quoted.
+        MethodInfo resolver = typeof(MainWindow).GetMethod(
+                "FindFfmpegInPathEntries", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ffmpeg PATH entry resolver is missing.");
+
+        string root = Path.Combine(
+            Path.GetTempPath(), $"ExtremeEditor-FfmpegEnv-{Guid.NewGuid():N}");
+        string directory = Path.Combine(root, "path with spaces");
+        string variable = $"EXTREMEEDITOR_FFMPEG_PATH_{Guid.NewGuid():N}";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string expected = Path.GetFullPath(Path.Combine(directory, "ffmpeg.exe"));
+            File.WriteAllText(expected, "test executable placeholder");
+            Environment.SetEnvironmentVariable(variable, directory);
+            string reference = $"%{variable}%";
+            foreach (string entry in new[] { reference, $"\"{reference}\"" })
+            {
+                string? actual = resolver.Invoke(null, [entry]) as string;
+                if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "ffmpeg lookup must expand environment variables in quoted and unquoted PATH entries.");
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+            Directory.Delete(root, recursive: true);
         }
     }
 

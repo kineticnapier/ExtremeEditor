@@ -5,9 +5,21 @@ namespace ExtremeEditor.Wpf.Export;
 internal sealed class VideoExportMuxPipeline
 {
     private readonly IVideoEncoder _encoder;
+    // A mux is normally used by one caller, but callbacks and asynchronous
+    // continuations may run on other threads. Guard each state check and
+    // transition atomically; never hold the lock while invoking the encoder.
+    private readonly object _stateGate = new();
     private bool _begun;
+    private bool _beginning;
     private bool _videoBegun;
+    private bool _videoBeginning;
+    private bool _audioWriting;
+    private bool _videoWriting;
     private bool _completed;
+    private bool _completing;
+    // An encoder may have partially committed a write or phase transition
+    // before throwing or observing cancellation. Never reuse that encoder.
+    private bool _failed;
 
     internal VideoExportMuxPipeline(IVideoEncoder encoder)
     {
@@ -18,88 +30,223 @@ internal sealed class VideoExportMuxPipeline
         VideoEncoderStartInfo startInfo,
         CancellationToken cancellationToken)
     {
-        if (_begun)
-            throw new InvalidOperationException("Video export encoder has already begun.");
-        if (_completed)
-            throw new InvalidOperationException("Video export encoder has already completed.");
+        lock (_stateGate)
+        {
+            EnsureNotFailed();
+            if (_begun || _beginning)
+                throw new InvalidOperationException("Video export encoder has already begun or is starting.");
+            if (_completed)
+                throw new InvalidOperationException("Video export encoder has already completed.");
 
-        ArgumentNullException.ThrowIfNull(startInfo);
-        startInfo.Validate();
-        cancellationToken.ThrowIfCancellationRequested();
+            ArgumentNullException.ThrowIfNull(startInfo);
+            startInfo.Validate();
+            cancellationToken.ThrowIfCancellationRequested();
+            _beginning = true;
+        }
 
-        await _encoder.BeginAsync(startInfo, cancellationToken).ConfigureAwait(false);
-        _begun = true;
+        bool succeeded = false;
+        try
+        {
+            await _encoder.BeginAsync(startInfo, cancellationToken).ConfigureAwait(false);
+            // A custom encoder may finish BeginAsync despite cancellation. Do not
+            // publish a usable mux state after cancellation; the caller disposes it.
+            cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                if (succeeded)
+                    _begun = true;
+                else
+                    _failed = true;
+                _beginning = false;
+            }
+        }
     }
 
     internal async ValueTask WriteVideoFrameAsync(
         byte[] rgb,
         CancellationToken cancellationToken)
     {
-        EnsureVideoWritable();
-        ArgumentNullException.ThrowIfNull(rgb);
-        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
+        {
+            EnsureVideoWritable();
+            ArgumentNullException.ThrowIfNull(rgb);
+            cancellationToken.ThrowIfCancellationRequested();
+            _videoWriting = true;
+        }
 
-        await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
+        bool succeeded = false;
+        try
+        {
+            await _encoder.WriteVideoFrameAsync(rgb, cancellationToken).ConfigureAwait(false);
+            // An encoder may finish a write despite cancellation. Do not report
+            // that the canceled frame was accepted successfully.
+            cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                _videoWriting = false;
+                if (!succeeded)
+                    _failed = true;
+            }
+        }
     }
 
     internal async ValueTask WriteAudioChunkAsync(
         OfflineAudioChunk chunk,
         CancellationToken cancellationToken)
     {
-        EnsureAudioWritable();
-        ArgumentNullException.ThrowIfNull(chunk);
-        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
+        {
+            EnsureAudioWritable();
+            ArgumentNullException.ThrowIfNull(chunk);
+            cancellationToken.ThrowIfCancellationRequested();
+            _audioWriting = true;
+        }
 
-        await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
+        bool succeeded = false;
+        try
+        {
+            await _encoder.WriteAudioChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
+            // Observe cancellation raised during a non-cooperative audio write.
+            cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                _audioWriting = false;
+                if (!succeeded)
+                    _failed = true;
+            }
+        }
     }
 
     internal async ValueTask BeginVideoAsync(CancellationToken cancellationToken)
     {
-        if (!_begun)
-            throw new InvalidOperationException("Video export encoder has not begun.");
-        if (_videoBegun)
-            throw new InvalidOperationException("Video export video phase has already begun.");
-        if (_completed)
-            throw new InvalidOperationException("Video export encoder has already completed.");
+        lock (_stateGate)
+        {
+            EnsureNotFailed();
+            if (!_begun)
+                throw new InvalidOperationException("Video export encoder has not begun.");
+            if (_videoBegun || _videoBeginning)
+                throw new InvalidOperationException("Video export video phase has already begun or is starting.");
+            if (_audioWriting)
+                throw new InvalidOperationException("Video export cannot begin its video phase while audio is being written.");
+            if (_completed)
+                throw new InvalidOperationException("Video export encoder has already completed.");
 
-        cancellationToken.ThrowIfCancellationRequested();
-        await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
-        _videoBegun = true;
+            cancellationToken.ThrowIfCancellationRequested();
+            _videoBeginning = true;
+        }
+
+        bool succeeded = false;
+        try
+        {
+            await _encoder.BeginVideoAsync(cancellationToken).ConfigureAwait(false);
+            // If cancellation arrived while the encoder started its video phase,
+            // stop before exposing the mux as ready to accept frames.
+            cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                if (succeeded)
+                    _videoBegun = true;
+                else
+                    _failed = true;
+                _videoBeginning = false;
+            }
+        }
     }
 
     internal async ValueTask CompleteAsync(CancellationToken cancellationToken)
     {
-        if (!_begun)
-            throw new InvalidOperationException("Video export encoder has not begun.");
-        if (_completed)
-            return;
-        // A direct mux caller must not finalize an encoder before video begins.
-        // Keep this contract independent of the concrete ffmpeg implementation.
-        if (!_videoBegun)
-            throw new InvalidOperationException("Video export video phase has not begun.");
+        lock (_stateGate)
+        {
+            EnsureNotFailed();
+            if (!_begun)
+                throw new InvalidOperationException("Video export encoder has not begun.");
+            if (_completed)
+                return;
+            if (_completing)
+                throw new InvalidOperationException("Video export completion is already in progress.");
+            // A direct mux caller must not finalize an encoder before video begins.
+            // Keep this contract independent of the concrete ffmpeg implementation.
+            if (!_videoBegun)
+                throw new InvalidOperationException("Video export video phase has not begun.");
+            if (_videoWriting)
+                throw new InvalidOperationException("Video export cannot complete while a video frame is being written.");
 
-        cancellationToken.ThrowIfCancellationRequested();
-        await _encoder.CompleteAsync(cancellationToken).ConfigureAwait(false);
-        _completed = true;
+            cancellationToken.ThrowIfCancellationRequested();
+            _completing = true;
+        }
+
+        bool succeeded = false;
+        try
+        {
+            await _encoder.CompleteAsync(cancellationToken).ConfigureAwait(false);
+            // A custom encoder may finish completion even after cancellation.
+            // Do not report the mux as successfully completed in that case.
+            cancellationToken.ThrowIfCancellationRequested();
+            succeeded = true;
+        }
+        finally
+        {
+            lock (_stateGate)
+            {
+                if (succeeded)
+                    _completed = true;
+                else
+                    _failed = true;
+                _completing = false;
+            }
+        }
     }
 
+    // Call only while holding _stateGate.
+    private void EnsureNotFailed()
+    {
+        if (_failed)
+            throw new InvalidOperationException("Video export encoder cannot be reused after failure or cancellation.");
+    }
+
+    // Call only while holding _stateGate.
     private void EnsureAudioWritable()
     {
+        EnsureNotFailed();
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
-        if (_videoBegun)
-            throw new InvalidOperationException("Video export audio phase has already ended.");
+        if (_videoBegun || _videoBeginning)
+            throw new InvalidOperationException("Video export audio phase has already ended or is ending.");
+        if (_audioWriting)
+            throw new InvalidOperationException("Video export audio write is already in progress.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
     }
 
+    // Call only while holding _stateGate.
     private void EnsureVideoWritable()
     {
+        EnsureNotFailed();
         if (!_begun)
             throw new InvalidOperationException("Video export encoder has not begun.");
         if (!_videoBegun)
             throw new InvalidOperationException("Video export video phase has not begun.");
         if (_completed)
             throw new InvalidOperationException("Video export encoder has already completed.");
+        if (_completing)
+            throw new InvalidOperationException("Video export completion is in progress.");
+        if (_videoWriting)
+            throw new InvalidOperationException("Video export video write is already in progress.");
     }
 }

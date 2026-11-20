@@ -38,13 +38,43 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         startInfo.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Win32 aliases trailing dots/spaces and reserves device names even
+        // with extensions. Reject both before creating any staging files.
+        if (VideoExportOutputPathGuard.HasAmbiguousWindowsComponent(startInfo.OutputPath))
+            throw new ArgumentException(
+                "Video output path contains an ambiguous or reserved Windows name.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         string outputPath = Path.GetFullPath(startInfo.OutputPath);
+        // Direct encoder callers can bypass VideoExportRequest.Validate.
+        // Reject directory destinations before creating audio/video staging
+        // files or starting ffmpeg, rather than failing during final commit.
+        if (Path.EndsInDirectorySeparator(startInfo.OutputPath) ||
+            Directory.Exists(outputPath))
+            throw new ArgumentException(
+                "Video output path must name a file, not a directory.",
+                nameof(VideoEncoderStartInfo.OutputPath));
+        if (VideoExportOutputPathGuard.HasFileAsAncestor(outputPath))
+            throw new ArgumentException(
+                "Video output path has a file in its parent directory chain.",
+                nameof(VideoEncoderStartInfo.OutputPath));
+        // Direct encoder callers bypass the request preflight. Do not create
+        // staging files for a destination that cannot be replaced.
+        if (File.Exists(outputPath) &&
+            (File.GetAttributes(outputPath) & FileAttributes.ReadOnly) != 0)
+            throw new ArgumentException(
+                "Video output file is read-only.",
+                nameof(VideoEncoderStartInfo.OutputPath));
         // Direct encoder callers must not replace the executable used to encode.
         // VideoExportRequest already rejects this, but it can be bypassed.
-        if (string.Equals(outputPath, _ffmpegPath, StringComparison.OrdinalIgnoreCase))
+        if (VideoExportOutputPathGuard.RefersToSameWindowsFile(outputPath, _ffmpegPath))
             throw new ArgumentException(
                 "Video output path must differ from the ffmpeg executable path.",
                 nameof(VideoEncoderStartInfo.OutputPath));
+        // The service checks this during request validation, but direct
+        // encoder callers can bypass it. Fail before creating output folders
+        // or temporary PCM files when ffmpeg is missing or was removed.
+        if (!File.Exists(_ffmpegPath))
+            throw new FileNotFoundException("ffmpeg executable was not found.", _ffmpegPath);
         string? outputDirectory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(outputDirectory))
             Directory.CreateDirectory(outputDirectory);
@@ -58,9 +88,13 @@ internal sealed class FfmpegVideoEncoder : IVideoEncoder
         string id = Guid.NewGuid().ToString("N");
         _audioTempPath = Path.Combine(tempDirectory, id + ".f32le");
         _finalOutputPath = outputPath;
+        // Keep the staging file on the destination volume for atomic commit,
+        // but do not copy the destination basename: a valid long MP4 filename
+        // could otherwise make the staging filename exceed the filesystem's
+        // per-component length limit before ffmpeg can write it.
         _videoTempPath = Path.Combine(
             outputDirectory ?? Environment.CurrentDirectory,
-            $".{Path.GetFileName(outputPath)}.{id}.extremeeditor.tmp.mp4");
+            $".extremeeditor.{id}.tmp.mp4");
 
         try
         {
